@@ -134,7 +134,7 @@ export default function SetupPage() {
         {/* Status Display */}
         {loading && (
           <div className="flex flex-col items-center py-6 mb-4">
-            <div className="w-12 h-12 border-4 border-pink-200 border-t-pink-500 rounded-full animate-spin mb-4"></div>
+            <div className="w-12 h-12 border-4 border-neutral-200 border-t-neutral-900 rounded-full animate-spin mb-4"></div>
             <p className="text-slate-600 text-sm">{status}</p>
           </div>
         )}

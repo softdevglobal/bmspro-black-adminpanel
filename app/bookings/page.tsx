@@ -2962,7 +2962,7 @@ export default function BookingsPage() {
     <Suspense fallback={
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <i className="fas fa-circle-notch fa-spin text-4xl text-pink-500" />
+          <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
           <p className="text-slate-500 font-medium">Loading bookings...</p>
         </div>
       </div>

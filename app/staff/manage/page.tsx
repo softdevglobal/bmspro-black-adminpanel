@@ -886,7 +886,7 @@ export default function SettingsPage() {
             {!ownerUid && (
               <div className="flex justify-center items-center py-20">
                 <div className="flex flex-col items-center gap-3">
-                  <i className="fas fa-circle-notch fa-spin text-4xl text-pink-500" />
+                  <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
                   <p className="text-slate-500 font-medium">Loading staff data...</p>
                 </div>
               </div>

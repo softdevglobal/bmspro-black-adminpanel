@@ -447,7 +447,7 @@ export default function AuditLogsPage() {
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
               {loading ? (
                 <div className="p-12 text-center">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-pink-600 mx-auto mb-4"></div>
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-neutral-900 mx-auto mb-4"></div>
                   <p className="text-slate-500">Loading audit logs...</p>
                 </div>
               ) : filteredLogs.length === 0 ? (

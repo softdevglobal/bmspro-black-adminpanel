@@ -1142,25 +1142,27 @@ export default function PackagesPage() {
                             </div>
 
                             {/* Preview Card */}
-                            <div className="bg-white rounded-2xl overflow-hidden shadow-xl border border-neutral-200 flex-shrink-0">
-                              {/* Gradient top */}
-                              <div className={`relative h-28 bg-gradient-to-br ${selectedColor.gradient} overflow-hidden`}>
-                                <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/10 rounded-full" />
-                                <div className="absolute -bottom-8 -left-8 w-28 h-28 bg-white/10 rounded-full" />
-                                <div className="absolute top-4 right-12 w-10 h-10 bg-white/5 rounded-full" />
-                                {formData.popular && (
-                                  <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                                    <i className="fas fa-crown text-yellow-300 text-[8px]" />
-                                    Popular
-                                  </div>
-                                )}
-                                {formData.hidden && (
-                                  <div className="absolute top-3 right-3 bg-black/30 backdrop-blur-sm text-white text-[9px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
-                                    <i className="fas fa-eye-slash text-[8px]" />
-                                    Hidden
-                                  </div>
-                                )}
-                                {/* Image/Icon */}
+                            <div className="bg-white rounded-2xl shadow-xl border border-neutral-200 flex-shrink-0 overflow-visible">
+                              {/* Gradient top + floating icon */}
+                              <div className="relative">
+                                <div className={`h-28 bg-gradient-to-br ${selectedColor.gradient} overflow-hidden rounded-t-2xl relative`}>
+                                  <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/10 rounded-full" />
+                                  <div className="absolute -bottom-8 -left-8 w-28 h-28 bg-white/10 rounded-full" />
+                                  <div className="absolute top-4 right-12 w-10 h-10 bg-white/5 rounded-full" />
+                                  {formData.popular && (
+                                    <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                                      <i className="fas fa-crown text-yellow-300 text-[8px]" />
+                                      Popular
+                                    </div>
+                                  )}
+                                  {formData.hidden && (
+                                    <div className="absolute top-3 right-3 bg-black/30 backdrop-blur-sm text-white text-[9px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
+                                      <i className="fas fa-eye-slash text-[8px]" />
+                                      Hidden
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Image/Icon — outside gradient so it won't be clipped */}
                                 <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 z-10">
                                   <div className="w-[72px] h-[72px] rounded-2xl flex items-center justify-center overflow-hidden shadow-xl ring-4 ring-white bg-white">
                                     {imagePreview ? (

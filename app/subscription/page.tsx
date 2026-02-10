@@ -480,7 +480,7 @@ export default function SubscriptionPage() {
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="flex flex-col items-center gap-3">
-                <i className="fas fa-circle-notch fa-spin text-4xl text-pink-500" />
+                <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
                 <p className="text-slate-500 font-medium">Loading subscription...</p>
               </div>
             </div>
@@ -740,7 +740,7 @@ export default function SubscriptionPage() {
                 {packagesLoading ? (
                   <div className="flex items-center justify-center py-12 mb-10">
                     <div className="flex flex-col items-center gap-3">
-                      <i className="fas fa-circle-notch fa-spin text-3xl text-pink-500" />
+                      <i className="fas fa-circle-notch fa-spin text-3xl text-neutral-900" />
                       <p className="text-slate-500">Loading packages...</p>
                     </div>
                   </div>

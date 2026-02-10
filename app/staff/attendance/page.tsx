@@ -32,7 +32,7 @@ const CheckInsMapView = dynamic(
     loading: () => (
       <div className="w-full h-full flex items-center justify-center bg-slate-100">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-neutral-900 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm text-slate-500">Loading map...</span>
         </div>
       </div>
@@ -263,7 +263,7 @@ export default function AttendancePage() {
             {loading && (
               <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-4">
-                  <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-12 h-12 border-4 border-neutral-900 border-t-transparent rounded-full animate-spin" />
                   <span className="text-slate-600">Loading attendance data...</span>
                 </div>
               </div>

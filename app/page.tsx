@@ -44,7 +44,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
       <div className="text-center">
-        <div className="inline-block w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
+        <div className="inline-block w-12 h-12 border-4 border-neutral-900 border-t-transparent rounded-full animate-spin" />
         <p className="mt-4 text-slate-600">Loading...</p>
       </div>
     </div>

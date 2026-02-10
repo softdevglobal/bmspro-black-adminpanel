@@ -1813,27 +1813,29 @@ onClick={async () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeOnboardModal} />
-          <div className="relative flex items-center justify-center min-h-screen p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col my-auto overflow-hidden">
+          <div className="absolute inset-0 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg my-auto relative max-h-[92vh] overflow-hidden flex flex-col">
               
               {/* Header — black top */}
-              <div className="bg-neutral-900 px-6 pt-6 pb-5 shrink-0 relative overflow-hidden">
-                {/* Decorative shapes */}
-                <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/[0.03] rounded-full" />
-                <div className="absolute -bottom-6 -left-6 w-24 h-24 bg-white/[0.03] rounded-full" />
-                
-                <div className="relative flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-white tracking-tight">Onboard New Workshop</h2>
-                    <p className="text-sm text-neutral-400 mt-0.5">
-                      Setup a new tenant with Australian compliance
-                    </p>
+              <div className="relative flex-shrink-0 bg-neutral-900 rounded-t-3xl">
+                <div className="px-6 pt-6 pb-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
+                        <i className="fas fa-screwdriver-wrench text-lg text-amber-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-white tracking-tight">Onboard New Workshop</h2>
+                        <p className="text-sm text-neutral-400 mt-0.5">
+                          Setup a new tenant with Australian compliance
+                        </p>
+                      </div>
+                    </div>
+                    <button onClick={closeOnboardModal} className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all disabled:opacity-50">
+                      <i className="fas fa-xmark text-white/70" />
+                    </button>
                   </div>
-                  <button onClick={closeOnboardModal} className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
-                    <i className="fas fa-xmark text-white/70" />
-                  </button>
                 </div>
-
               </div>
 
 
@@ -2223,32 +2225,38 @@ onClick={async () => {
               </div>
 
               {/* Footer */}
-              <div className="px-6 py-4 border-t border-neutral-100 bg-white flex items-center justify-between shrink-0 rounded-b-3xl">
-                <button
-                  onClick={goBack}
-                  disabled={creating}
-                  className={`inline-flex items-center gap-2 px-4 py-2.5 text-neutral-500 font-medium hover:text-neutral-700 hover:bg-neutral-100 rounded-xl transition-all duration-200 disabled:opacity-60 ${
-                    currentStep === 1 ? "invisible" : ""
-                  }`}
-                >
-                  <i className="fas fa-chevron-left text-xs" />
-                  Back
-                </button>
-                <div className="flex items-center gap-2">
+              <div className="flex-shrink-0 px-6 py-4 border-t border-neutral-100 bg-white flex items-center justify-between gap-3 rounded-b-3xl">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={goBack}
+                    disabled={creating}
+                    className={`inline-flex items-center gap-2 px-4 py-2.5 text-neutral-500 font-medium hover:text-neutral-700 hover:bg-neutral-100 rounded-xl text-sm transition-all disabled:opacity-60 ${
+                      currentStep === 1 ? "invisible" : ""
+                    }`}
+                  >
+                    <i className="fas fa-chevron-left text-xs" />
+                    Back
+                  </button>
+                  <p className="text-[10px] text-neutral-400 flex items-center gap-1.5 max-sm:hidden">
+                    <i className="fas fa-shield-halved text-neutral-300" />
+                    Step {currentStep} of 3
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 ml-auto">
                   <button
                     onClick={closeOnboardModal}
                     disabled={creating}
-                    className="px-4 py-2.5 text-neutral-500 font-medium hover:text-neutral-700 hover:bg-neutral-100 rounded-xl transition-all duration-200 disabled:opacity-60"
+                    className="px-5 py-2.5 rounded-xl text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 text-sm font-semibold transition-all disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={goNext}
                     disabled={creating || (currentStep === 3 && !selectedPlan)}
-                    className={`inline-flex items-center gap-2 px-6 py-2.5 font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    className={`inline-flex items-center gap-2 px-7 py-2.5 text-sm font-bold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg ${
                       currentStep === 3 
-                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700" 
-                        : "bg-neutral-900 text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
+                        ? "bg-emerald-600 text-white shadow-emerald-600/20 hover:bg-emerald-700" 
+                        : "bg-neutral-900 text-white shadow-neutral-900/20 hover:bg-neutral-800"
                     }`}
                   >
                     {creating ? (

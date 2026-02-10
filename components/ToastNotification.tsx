@@ -95,15 +95,15 @@ export default function ToastNotification({
       case "booking_needs_assignment":
         return "from-amber-500 to-orange-600";
       default:
-        return "from-pink-500 to-rose-500";
+        return "from-neutral-700 to-neutral-900";
     }
   };
 
   return (
     <div
       className={`
-        bg-slate-800 rounded-xl shadow-2xl border border-slate-700 p-4 min-w-[340px] max-w-md 
-        cursor-pointer hover:shadow-3xl hover:bg-slate-750 transition-all duration-300 hover:scale-[1.02]
+        bg-neutral-900 rounded-xl shadow-2xl border border-neutral-800 p-4 min-w-[340px] max-w-md 
+        cursor-pointer hover:shadow-3xl hover:bg-neutral-850 transition-all duration-300 hover:scale-[1.02]
         ${isVisible && !isLeaving ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}
         ${isLeaving ? 'translate-x-full opacity-0' : ''}
       `}
@@ -121,24 +121,24 @@ export default function ToastNotification({
         {/* Content */}
         <div className="flex-1 min-w-0">
           <h4 className="font-bold text-white text-sm mb-1">{title}</h4>
-          <p className="text-xs text-slate-300 mb-2 line-clamp-3">{message}</p>
+          <p className="text-xs text-neutral-400 mb-2 line-clamp-3">{message}</p>
           
           {/* Additional Info */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {serviceName && (
-              <span className="px-2 py-1 bg-slate-700 text-slate-200 rounded-md font-medium">
+              <span className="px-2 py-1 bg-neutral-800 text-neutral-300 rounded-md font-medium">
                 <i className="fas fa-scissors mr-1" />
                 {serviceName}
               </span>
             )}
             {branchName && (
-              <span className="px-2 py-1 bg-slate-700 text-slate-200 rounded-md font-medium">
+              <span className="px-2 py-1 bg-neutral-800 text-neutral-300 rounded-md font-medium">
                 <i className="fas fa-store mr-1" />
                 {branchName}
               </span>
             )}
             {date && time && (
-              <span className="px-2 py-1 bg-slate-700 text-slate-200 rounded-md font-medium">
+              <span className="px-2 py-1 bg-neutral-800 text-neutral-300 rounded-md font-medium">
                 <i className="fas fa-clock mr-1" />
                 {date} {time}
               </span>
@@ -157,15 +157,15 @@ export default function ToastNotification({
             e.stopPropagation();
             handleClose();
           }}
-          className="w-6 h-6 rounded-lg hover:bg-slate-700 flex items-center justify-center flex-shrink-0 transition-colors"
+          className="w-6 h-6 rounded-lg hover:bg-neutral-800 flex items-center justify-center flex-shrink-0 transition-colors"
           title="Close"
         >
-          <i className="fas fa-times text-slate-400 hover:text-slate-200 text-xs" />
+          <i className="fas fa-times text-neutral-500 hover:text-neutral-300 text-xs" />
         </button>
       </div>
 
       {/* Progress bar */}
-      <div className="mt-3 h-1 bg-slate-700 rounded-full overflow-hidden">
+      <div className="mt-3 h-1 bg-neutral-800 rounded-full overflow-hidden">
         <div 
           className={`h-full bg-gradient-to-r ${getGradient()} rounded-full`}
           style={{

@@ -988,7 +988,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-slate-50">
           <div className="max-w-7xl mx-auto">
             <div className="mb-8">
-              <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
+              <div className="rounded-2xl bg-neutral-900 text-white p-6 shadow-sm">
                 <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     {/* Mobile Menu Button */}
@@ -1021,7 +1021,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               >
                 <div className="flex h-full flex-col">
                   <div className="p-0 border-b border-slate-200">
-                    <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5 text-white flex items-center justify-between">
+                    <div className="bg-neutral-900 p-5 text-white flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
                           <i className="fas fa-eye" />
@@ -1038,7 +1038,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   {previewRow && (
                     <div className="space-y-4 text-sm">
                       <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold shadow-md">
+                        <div className="w-12 h-12 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold shadow-md">
                           {(previewRow.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                         </div>
                         <div className="flex-1">
@@ -1125,14 +1125,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               approvalStatus === "needs_assignment" ? "border-purple-200 hover:border-purple-300" :
                               isConfirmed && isServiceCompleted ? "border-indigo-200 hover:border-indigo-300" :
                               approvalStatus === "accepted" ? "border-emerald-200 hover:border-emerald-300" : 
-                              "border-slate-200 hover:border-pink-200"
+                              "border-neutral-200 hover:border-neutral-300"
                             }`}>
                               <div className={`absolute left-0 top-0 bottom-0 w-1 ${
                                 approvalStatus === "rejected" ? "bg-gradient-to-b from-rose-500 to-red-500" :
                                 approvalStatus === "needs_assignment" ? "bg-gradient-to-b from-purple-500 to-violet-500" :
                                 isConfirmed && isServiceCompleted ? "bg-gradient-to-b from-indigo-500 to-purple-500" :
                                 approvalStatus === "accepted" ? "bg-gradient-to-b from-emerald-500 to-green-500" :
-                                "bg-gradient-to-b from-pink-500 to-purple-500 opacity-0 group-hover:opacity-100"
+                                "bg-gradient-to-b from-neutral-700 to-neutral-900 opacity-0 group-hover:opacity-100"
                               } transition-opacity`} />
                               <div className="flex justify-between items-start mb-1.5">
                                 <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
@@ -1140,7 +1140,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                      approvalStatus === "rejected" ? "bg-rose-50 text-rose-500" :
                                      isConfirmed && isServiceCompleted ? "bg-indigo-50 text-indigo-500" :
                                      approvalStatus === "accepted" ? "bg-emerald-50 text-emerald-500" :
-                                     "bg-pink-50 text-pink-500"
+                                     "bg-neutral-100 text-neutral-600"
                                    }`}>
                                      <i className={`fas ${isServiceCompleted ? "fa-check-circle" : "fa-magic"} text-[10px]`} />
                                    </div>
@@ -1166,7 +1166,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               </div>
                               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 pl-7">
                                  <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
-                                    <i className="far fa-clock text-pink-400" />
+                                    <i className="far fa-clock text-neutral-400" />
                                     <span className="font-medium text-slate-700">{svc.time || previewRow.time}</span>
                                     {svc.duration && <span className="text-slate-400">({svc.duration}m)</span>}
                                  </div>
@@ -1366,7 +1366,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       <tr key={r.id} className="hover:bg-slate-50 transition">
                         <td className="p-4 pl-6">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                            <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-xs font-bold shadow-sm">
                               {initials || <i className="fas fa-user" />}
                             </div>
                             <div className="flex items-center gap-2">
@@ -1381,7 +1381,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 aria-label="Preview"
                                 title="Preview"
                                 onClick={() => openPreview(r)}
-                                className="sm:hidden text-slate-400 hover:text-pink-600 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500 rounded-full h-7 w-7 inline-flex items-center justify-center"
+                                className="sm:hidden text-slate-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-7 w-7 inline-flex items-center justify-center"
                               >
                                 <i className="fas fa-eye text-[13px]" />
                               </button>
@@ -1405,7 +1405,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
                                         <div className="flex items-center gap-2 min-w-0">
                                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
-                                            <i className="fas fa-spa text-[10px] text-pink-500" />
+                                            <i className="fas fa-spa text-[10px] text-neutral-600" />
                                             <span className="text-xs font-semibold text-slate-800">{svc.name || "Service"}</span>
                                           </span>
                                           <i className="fas fa-user text-[9px] text-slate-400" />
@@ -1425,7 +1425,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               ) : (
                                 <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
                                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
-                                    <i className="fas fa-spa text-[10px] text-pink-500" />
+                                    <i className="fas fa-spa text-[10px] text-neutral-600" />
                                     <span className="text-xs font-semibold text-slate-800">{r.serviceName || "Service"}</span>
                                   </span>
                                 </div>
@@ -1490,7 +1490,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               aria-label="Preview"
                               title="Preview"
                               onClick={() => openPreview(r)}
-                              className="hidden sm:inline-flex text-slate-400 hover:text-pink-600 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-500 rounded-full h-8 w-8 items-center justify-center"
+                              className="hidden sm:inline-flex text-slate-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center"
                             >
                               <i className="fas fa-eye" />
                             </button>
@@ -1601,7 +1601,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               {/* Booking Details */}
               <div className="mb-6 p-4 bg-slate-50 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold">
+                  <div className="w-10 h-10 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold">
                     {(bookingToConfirm.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                   </div>
                   <div>
@@ -1874,7 +1874,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               {/* Booking Details */}
               <div className="mb-6 p-4 bg-slate-50 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold">
+                  <div className="w-10 h-10 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold">
                     {(bookingToReassign.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                   </div>
                   <div>

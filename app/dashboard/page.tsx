@@ -704,8 +704,8 @@ export default function DashboardPage() {
     let gradient: CanvasGradient | undefined;
     if (ctx) {
       gradient = ctx.createLinearGradient(0, 0, 0, 300);
-      gradient.addColorStop(0, "rgba(236, 72, 153, 0.25)");
-      gradient.addColorStop(1, "rgba(236, 72, 153, 0)");
+      gradient.addColorStop(0, "rgba(23, 23, 23, 0.15)");
+      gradient.addColorStop(1, "rgba(23, 23, 23, 0)");
     }
     const revenue = new Chart(ctx as any, {
       type: "line",
@@ -715,7 +715,7 @@ export default function DashboardPage() {
           {
             label: "Revenue",
             data: revenueSeries,
-            borderColor: "#ec4899",
+            borderColor: "#171717",
             backgroundColor: gradient,
             fill: true,
             tension: 0.4,
@@ -730,11 +730,11 @@ export default function DashboardPage() {
         animation: animate ? { duration: 750 } : false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { grid: { display: false }, ticks: { color: "#94a3b8" } },
+          x: { grid: { display: false }, ticks: { color: "#a3a3a3" } },
           y: {
-            grid: { color: "#e2e8f0" },
+            grid: { color: "#e5e5e5" },
             ticks: {
-              color: "#94a3b8",
+              color: "#a3a3a3",
               callback: function (value: number) {
                 const v = Number(value);
                 if (v >= 1000) {
@@ -800,7 +800,7 @@ export default function DashboardPage() {
         animation: animate ? { duration: 750 } : false,
         cutout: "70%",
         plugins: {
-          legend: { display: true, position: "right", labels: { color: "#64748b" } },
+          legend: { display: true, position: "right", labels: { color: "#737373" } },
         },
       },
     });
@@ -876,17 +876,17 @@ export default function DashboardPage() {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {authLoading ? (
-          <div className="flex-1 flex items-center justify-center bg-slate-50">
+          <div className="flex-1 flex items-center justify-center bg-neutral-50">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900 mx-auto mb-4"></div>
-              <p className="text-slate-600">Loading dashboard...</p>
+              <p className="text-neutral-600">Loading dashboard...</p>
             </div>
           </div>
         ) : (
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -907,24 +907,32 @@ export default function DashboardPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-lg relative overflow-hidden">
-              <div className="relative z-10 flex items-center justify-between">
+            <div className="relative rounded-2xl bg-neutral-900 text-white p-8 shadow-lg overflow-hidden">
+              {/* Decorative Background */}
+              <div className="absolute inset-0 overflow-hidden">
+                <div className="absolute -top-6 -right-6 w-36 h-36 rounded-full bg-amber-500/10" />
+                <div className="absolute -bottom-10 -left-10 w-44 h-44 rounded-full bg-amber-500/5" />
+                <div className="absolute top-1/3 right-1/4 w-2 h-2 rounded-full bg-amber-400/30" />
+                <div className="absolute bottom-6 right-1/3 w-1.5 h-1.5 rounded-full bg-amber-400/20" />
+                <i className="fas fa-gear absolute -right-3 -bottom-3 text-[90px] text-white/[0.03] rotate-12" />
+                <i className="fas fa-gear absolute right-20 -top-5 text-[55px] text-white/[0.03] -rotate-6" />
+              </div>
+              <div className="relative flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  {/* Logo or default icon */}
                   {logoUrl ? (
-                    <div className="w-14 h-14 rounded-xl bg-white p-1.5 shadow-lg">
-                      <img src={logoUrl} alt="Salon Logo" className="w-full h-full object-contain rounded-lg" />
+                    <div className="w-14 h-14 rounded-2xl bg-white p-1.5 shadow-lg">
+                      <img src={logoUrl} alt="Workshop Logo" className="w-full h-full object-contain rounded-xl" />
                     </div>
                   ) : (
-                    <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                      <i className="fas fa-chart-line text-2xl" />
+                    <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                      <i className="fas fa-gauge-high text-2xl text-amber-400" />
                     </div>
                   )}
                   <div>
-                    <h1 className="text-2xl font-bold">
+                    <h1 className="text-2xl font-bold tracking-tight">
                       {isSuperAdmin ? "BMS Pro Admin" : (isBranchAdmin ? branchAdminBranchName : (salonName || "Dashboard"))}
                     </h1>
-                    <p className="text-sm text-white/80 mt-1">
+                    <p className="text-neutral-400 mt-0.5">
                       {isSuperAdmin ? "Super Admin Dashboard" : (isBranchAdmin ? "Branch Dashboard" : (salonName ? "Business Overview" : "Real-time system overview"))}
                     </p>
                   </div>
@@ -934,36 +942,34 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-3">
                   <button 
                     onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
-                    className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all backdrop-blur-sm group ${
-                      notificationPanelOpen ? 'bg-white/40' : 'bg-white/20 hover:bg-white/30'
+                    className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all group ${
+                      notificationPanelOpen ? 'bg-white/20' : 'bg-white/10 hover:bg-white/20'
                     }`}
                     title="Notifications"
                   >
-                    <i className={`fas fa-bell text-lg ${unreadCount > 0 ? 'animate-pulse' : ''} group-hover:animate-wiggle`} />
-                    {/* Notification badge - show if there are unread notifications */}
+                    <i className={`fas fa-bell text-lg text-white/80 ${unreadCount > 0 ? 'animate-pulse' : ''}`} />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg border-2 border-white/20 animate-bounce">
+                      <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-lg border-2 border-neutral-900 animate-bounce">
                         {unreadCount > 9 ? '9+' : unreadCount}
                       </span>
                     )}
                   </button>
                 </div>
               </div>
-              <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-white opacity-10 blur-2xl" />
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">
+                <span className="text-sm font-medium text-neutral-600">
                   {isSuperAdmin ? "Platform Revenue" : "Monthly Revenue"}
                 </span>
-                <div className="w-10 h-10 bg-pink-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-dollar-sign text-pink-500" />
+                <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-dollar-sign text-emerald-600" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">AU${monthlyRevenue.toLocaleString()}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">AU${monthlyRevenue.toLocaleString()}</h3>
               </div>
               <div className="flex items-center space-x-2">
                 {revenueGrowth !== 0 && (
@@ -976,12 +982,12 @@ export default function DashboardPage() {
                     {revenueGrowth > 0 ? '+' : ''}{revenueGrowth}%
                   </span>
                 )}
-                <span className="text-xs text-slate-500">vs last month</span>
+                <span className="text-xs text-neutral-500">vs last month</span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">
+                <span className="text-sm font-medium text-neutral-600">
                   {isSuperAdmin ? "Total Bookings" : "Total Bookings"}
                 </span>
                 <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
@@ -989,19 +995,19 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{totalBookings}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{totalBookings}</h3>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold flex items-center">
                   <i className="fas fa-plus text-xs mr-1" />
                   +{weeklyBookings}
                 </span>
-                <span className="text-xs text-slate-500">this week</span>
+                <span className="text-xs text-neutral-500">this week</span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">
+                <span className="text-sm font-medium text-neutral-600">
                   {isSuperAdmin ? "Active Tenants" : "Active Staff"}
                 </span>
                 <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
@@ -1009,13 +1015,13 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{activeStaff}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{activeStaff}</h3>
               </div>
-              <div className="text-xs text-slate-500">{isSuperAdmin ? "Active salon owners" : "Available for booking"}</div>
+              <div className="text-xs text-neutral-500">{isSuperAdmin ? "Active salon owners" : "Available for booking"}</div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">
+                <span className="text-sm font-medium text-neutral-600">
                   {isSuperAdmin ? "Total Tenants" : "Active Services"}
                 </span>
                 <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center">
@@ -1023,30 +1029,30 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{activeServices}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{activeServices}</h3>
               </div>
-              <div className="text-xs text-slate-500">{isSuperAdmin ? "All registered tenants" : "In catalog"}</div>
+              <div className="text-xs text-neutral-500">{isSuperAdmin ? "All registered tenants" : "In catalog"}</div>
             </div>
           </div>
           
           {/* Today's Schedule Section */}
           {!authLoading && !isSuperAdmin && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8">
-              <div className="p-6 border-b border-slate-200">
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm mb-8">
+              <div className="p-6 border-b border-neutral-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-purple-500 rounded-xl flex items-center justify-center">
-                      <i className="fas fa-calendar-day text-white" />
+                    <div className="w-10 h-10 bg-neutral-100 rounded-xl flex items-center justify-center">
+                      <i className="fas fa-calendar-day text-neutral-600" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-lg text-slate-900">Today's Schedule</h3>
-                      <p className="text-sm text-slate-500">
+                      <h3 className="font-semibold text-lg text-neutral-900">Today's Schedule</h3>
+                      <p className="text-sm text-neutral-500">
                         {new Date().toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric' })}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="px-3 py-1.5 bg-pink-50 text-pink-700 rounded-full text-sm font-semibold">
+                    <span className="px-3 py-1.5 bg-neutral-100 text-neutral-700 rounded-full text-sm font-semibold">
                       {(() => {
                         let filtered = todayBookings;
                         // Auto-filter by branch admin's branch
@@ -1070,13 +1076,13 @@ export default function DashboardPage() {
                 {/* View mode toggle and filters */}
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   {/* View mode toggle */}
-                  <div className="flex bg-slate-100 rounded-lg p-1">
+                  <div className="flex bg-neutral-100 rounded-lg p-1">
                     <button
                       onClick={() => setScheduleViewMode('time')}
                       className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                         scheduleViewMode === 'time' 
-                          ? 'bg-white text-pink-600 shadow-sm' 
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-white text-neutral-900 shadow-sm font-semibold' 
+                          : 'text-neutral-500 hover:text-neutral-900'
                       }`}
                     >
                       <i className="fas fa-clock mr-1.5" />Time
@@ -1085,8 +1091,8 @@ export default function DashboardPage() {
                       onClick={() => setScheduleViewMode('staff')}
                       className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                         scheduleViewMode === 'staff' 
-                          ? 'bg-white text-pink-600 shadow-sm' 
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-white text-neutral-900 shadow-sm font-semibold' 
+                          : 'text-neutral-500 hover:text-neutral-900'
                       }`}
                     >
                       <i className="fas fa-users mr-1.5" />Staff
@@ -1097,8 +1103,8 @@ export default function DashboardPage() {
                         onClick={() => setScheduleViewMode('branch')}
                         className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                           scheduleViewMode === 'branch' 
-                            ? 'bg-white text-pink-600 shadow-sm' 
-                            : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-white text-neutral-900 shadow-sm font-semibold' 
+                            : 'text-neutral-500 hover:text-neutral-900'
                         }`}
                       >
                         <i className="fas fa-store mr-1.5" />Branch
@@ -1111,7 +1117,7 @@ export default function DashboardPage() {
                     <select
                       value={selectedBranch || ''}
                       onChange={(e) => setSelectedBranch(e.target.value || null)}
-                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className="px-3 py-1.5 bg-white border border-neutral-200 rounded-lg text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900"
                     >
                       <option value="">All Branches</option>
                       {allBranches.map(branch => (
@@ -1133,7 +1139,7 @@ export default function DashboardPage() {
                     <select
                       value={selectedStaffId || ''}
                       onChange={(e) => setSelectedStaffId(e.target.value || null)}
-                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                      className="px-3 py-1.5 bg-white border border-neutral-200 rounded-lg text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900"
                     >
                       <option value="">All Staff</option>
                       {(() => {
@@ -1195,9 +1201,9 @@ export default function DashboardPage() {
                   if (filtered.length === 0) {
                     return (
                       <div className="text-center py-12">
-                        <i className="fas fa-calendar-xmark text-5xl text-slate-300 mb-4" />
-                        <p className="text-slate-500 font-medium">No bookings for today</p>
-                        <p className="text-slate-400 text-sm mt-1">Bookings will appear here as they are scheduled</p>
+                        <i className="fas fa-calendar-xmark text-5xl text-neutral-300 mb-4" />
+                        <p className="text-neutral-500 font-medium">No bookings for today</p>
+                        <p className="text-neutral-400 text-sm mt-1">Bookings will appear here as they are scheduled</p>
                       </div>
                     );
                   }
@@ -1313,12 +1319,12 @@ export default function DashboardPage() {
                           <div key={time} className="relative">
                             {/* Time marker */}
                             <div className="flex items-center gap-3 mb-3">
-                              <div className="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-purple-500 text-white px-3 py-1.5 rounded-full shadow-sm">
-                                <i className="fas fa-clock text-xs" />
+                              <div className="flex items-center gap-2 bg-neutral-900 text-white px-3 py-1.5 rounded-full shadow-sm">
+                                <i className="fas fa-clock text-xs text-amber-400" />
                                 <span className="text-sm font-bold">{formatTime(time)}</span>
                               </div>
-                              <div className="flex-1 h-px bg-gradient-to-r from-pink-200 to-transparent" />
-                              <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                              <div className="flex-1 h-px bg-gradient-to-r from-neutral-300 to-transparent" />
+                              <span className="text-xs font-medium text-neutral-500 bg-neutral-100 px-2 py-1 rounded-full">
                                 {byTime[time].length} {byTime[time].length === 1 ? 'service' : 'services'}
                               </span>
                             </div>
@@ -1348,13 +1354,13 @@ export default function DashboardPage() {
                                     <div className="flex items-start justify-between mb-3">
                                       <div className="flex items-center gap-3">
                                         {/* Client avatar */}
-                                        <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md">
+                                        <div className="w-10 h-10 bg-neutral-900 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md">
                                           {entry.client?.charAt(0)?.toUpperCase() || '?'}
                                         </div>
                                         <div>
-                                          <h4 className="font-semibold text-slate-900">{entry.client}</h4>
+                                          <h4 className="font-semibold text-neutral-900">{entry.client}</h4>
                                           {entry.clientPhone && (
-                                            <p className="text-xs text-slate-500">
+                                            <p className="text-xs text-neutral-500">
                                               <i className="fas fa-phone mr-1" />{entry.clientPhone}
                                             </p>
                                           )}
@@ -1376,7 +1382,7 @@ export default function DashboardPage() {
                                           {entry.status}
                                         </span>
                                         {entry.isMultiService && (
-                                          <span className="text-[10px] text-slate-400">
+                                          <span className="text-[10px] text-neutral-400">
                                             Service {entry.serviceIndex}/{entry.totalServices}
                                           </span>
                                         )}
@@ -1387,12 +1393,12 @@ export default function DashboardPage() {
                                     <div className="bg-white/60 rounded-lg p-3 mb-3">
                                       <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
-                                          <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                                            <i className="fas fa-spa text-purple-600 text-sm" />
+                                          <div className="w-8 h-8 bg-neutral-100 rounded-lg flex items-center justify-center">
+                                            <i className="fas fa-wrench text-neutral-600 text-sm" />
                                           </div>
                                           <div>
-                                            <p className="font-medium text-slate-900">{entry.serviceName}</p>
-                                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                                            <p className="font-medium text-neutral-900">{entry.serviceName}</p>
+                                            <div className="flex items-center gap-2 text-xs text-neutral-500">
                                               <span><i className="fas fa-hourglass-half mr-1" />{formatDuration(entry.duration)}</span>
                                               <span>•</span>
                                               <span>{formatTime(entry.time)} - {formatTime(getEndTime(entry.time, entry.duration))}</span>
@@ -1400,9 +1406,9 @@ export default function DashboardPage() {
                                           </div>
                                         </div>
                                         <div className="text-right">
-                                          <p className="font-bold text-pink-600">AU${entry.price.toLocaleString()}</p>
+                                          <p className="font-bold text-neutral-900">AU${entry.price.toLocaleString()}</p>
                                           {entry.isMultiService && (
-                                            <p className="text-[10px] text-slate-400">Total: AU${entry.totalPrice.toLocaleString()}</p>
+                                            <p className="text-[10px] text-neutral-400">Total: AU${entry.totalPrice.toLocaleString()}</p>
                                           )}
                                         </div>
                                       </div>
@@ -1508,11 +1514,11 @@ export default function DashboardPage() {
                     };
 
                     const staffColors = [
-                      { bg: 'from-indigo-500 to-purple-600', light: 'indigo' },
-                      { bg: 'from-pink-500 to-rose-600', light: 'pink' },
-                      { bg: 'from-emerald-500 to-teal-600', light: 'emerald' },
-                      { bg: 'from-amber-500 to-orange-600', light: 'amber' },
-                      { bg: 'from-cyan-500 to-blue-600', light: 'cyan' },
+                      { bg: 'from-neutral-800 to-neutral-900', light: 'neutral' },
+                      { bg: 'from-neutral-700 to-neutral-800', light: 'neutral' },
+                      { bg: 'from-neutral-800 to-neutral-900', light: 'neutral' },
+                      { bg: 'from-neutral-700 to-neutral-800', light: 'neutral' },
+                      { bg: 'from-neutral-800 to-neutral-900', light: 'neutral' },
                     ];
 
                     return (
@@ -1524,9 +1530,9 @@ export default function DashboardPage() {
                           const sortedBookings = [...bookings].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
                           
                           return (
-                            <div key={staffId} className="rounded-2xl overflow-hidden shadow-lg border border-slate-200">
+                            <div key={staffId} className="rounded-2xl overflow-hidden shadow-lg border border-neutral-200">
                               {/* Staff Header */}
-                              <div className={`bg-gradient-to-r ${staffId === 'unassigned' ? 'from-slate-400 to-slate-500' : colorScheme.bg} p-5`}>
+                              <div className={`bg-gradient-to-r ${staffId === 'unassigned' ? 'from-neutral-400 to-neutral-500' : colorScheme.bg} p-5`}>
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-4">
                                     <div className={`w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg`}>
@@ -1558,14 +1564,14 @@ export default function DashboardPage() {
                               </div>
                               
                               {/* Mobile Stats */}
-                              <div className="md:hidden bg-slate-50 px-4 py-3 flex justify-around border-b border-slate-200">
+                              <div className="md:hidden bg-neutral-50 px-4 py-3 flex justify-around border-b border-neutral-200">
                                 <div className="text-center">
-                                  <p className="text-slate-500 text-xs">Duration</p>
-                                  <p className="text-slate-900 font-semibold">{formatDuration(totalDuration)}</p>
+                                  <p className="text-neutral-500 text-xs">Duration</p>
+                                  <p className="text-neutral-900 font-semibold">{formatDuration(totalDuration)}</p>
                                 </div>
                                 <div className="text-center">
-                                  <p className="text-slate-500 text-xs">Revenue</p>
-                                  <p className="text-slate-900 font-semibold">AU${totalRevenue.toLocaleString()}</p>
+                                  <p className="text-neutral-500 text-xs">Revenue</p>
+                                  <p className="text-neutral-900 font-semibold">AU${totalRevenue.toLocaleString()}</p>
                                 </div>
                               </div>
                               
@@ -1581,7 +1587,7 @@ export default function DashboardPage() {
                                     return (
                                       <div 
                                         key={`${staffId}-${b.id}-${idx}`} 
-                                        className="relative pl-6 pb-3 border-l-2 border-slate-200 last:border-l-transparent last:pb-0"
+                                        className="relative pl-6 pb-3 border-l-2 border-neutral-200 last:border-l-transparent last:pb-0"
                                       >
                                         {/* Timeline dot */}
                                         <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 border-white shadow ${
@@ -1590,18 +1596,18 @@ export default function DashboardPage() {
                                           'bg-amber-500'
                                         }`} />
                                         
-                                        <div className="bg-gradient-to-br from-slate-50 to-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
+                                        <div className="bg-gradient-to-br from-neutral-50 to-white rounded-xl border border-neutral-200 overflow-hidden hover:shadow-md transition-shadow">
                                           {/* Booking Header */}
                                           <div className="p-4">
                                             <div className="flex items-start justify-between mb-3">
                                               <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold shadow">
+                                                <div className="w-10 h-10 bg-neutral-900 rounded-full flex items-center justify-center text-white font-bold shadow">
                                                   {b.client?.charAt(0)?.toUpperCase() || '?'}
                                                 </div>
                                                 <div>
-                                                  <h4 className="font-semibold text-slate-900">{b.client}</h4>
+                                                  <h4 className="font-semibold text-neutral-900">{b.client}</h4>
                                                   {b.clientPhone && (
-                                                    <p className="text-xs text-slate-500">
+                                                    <p className="text-xs text-neutral-500">
                                                       <i className="fas fa-phone mr-1" />{b.clientPhone}
                                                     </p>
                                                   )}
@@ -1620,21 +1626,21 @@ export default function DashboardPage() {
                                                   } mr-1`} />
                                                   {b.status}
                                                 </span>
-                                                <span className="text-lg font-bold text-pink-600">AU${bookingPrice.toLocaleString()}</span>
+                                                <span className="text-lg font-bold text-neutral-900">AU${bookingPrice.toLocaleString()}</span>
                                               </div>
                                             </div>
                                             
                                             {/* Services */}
                                             <div className="space-y-2">
                                               {servicesList.map((svc: any, svcIdx: number) => (
-                                                <div key={svcIdx} className="flex items-center justify-between bg-white/80 rounded-lg p-2 border border-slate-100">
+                                                <div key={svcIdx} className="flex items-center justify-between bg-white/80 rounded-lg p-2 border border-neutral-100">
                                                   <div className="flex items-center gap-2">
-                                                    <div className="w-7 h-7 bg-purple-100 rounded-lg flex items-center justify-center">
-                                                      <i className="fas fa-spa text-purple-600 text-xs" />
+                                                    <div className="w-7 h-7 bg-neutral-100 rounded-lg flex items-center justify-center">
+                                                      <i className="fas fa-wrench text-neutral-600 text-xs" />
                                                     </div>
                                                     <div>
-                                                      <p className="text-sm font-medium text-slate-900">{svc.name}</p>
-                                                      <p className="text-xs text-slate-500">
+                                                      <p className="text-sm font-medium text-neutral-900">{svc.name}</p>
+                                                      <p className="text-xs text-neutral-500">
                                                         <i className="fas fa-clock mr-1" />
                                                         {formatTime(svc.time || b.time || '09:00')}
                                                         {svc.duration && ` • ${formatDuration(svc.duration)}`}
@@ -1642,7 +1648,7 @@ export default function DashboardPage() {
                                                     </div>
                                                   </div>
                                                   {svc.price && (
-                                                    <span className="text-sm font-semibold text-slate-700">AU${Number(svc.price).toLocaleString()}</span>
+                                                    <span className="text-sm font-semibold text-neutral-700">AU${Number(svc.price).toLocaleString()}</span>
                                                   )}
                                                 </div>
                                               ))}
@@ -1720,11 +1726,11 @@ export default function DashboardPage() {
                     };
 
                     const branchGradients = [
-                      { bg: 'from-pink-500 to-rose-600', accent: 'pink' },
-                      { bg: 'from-blue-500 to-indigo-600', accent: 'blue' },
-                      { bg: 'from-emerald-500 to-teal-600', accent: 'emerald' },
-                      { bg: 'from-purple-500 to-violet-600', accent: 'purple' },
-                      { bg: 'from-amber-500 to-orange-600', accent: 'amber' },
+                      { bg: 'from-neutral-800 to-neutral-900', accent: 'neutral' },
+                      { bg: 'from-neutral-700 to-neutral-800', accent: 'neutral' },
+                      { bg: 'from-neutral-800 to-neutral-900', accent: 'neutral' },
+                      { bg: 'from-neutral-700 to-neutral-800', accent: 'neutral' },
+                      { bg: 'from-neutral-800 to-neutral-900', accent: 'neutral' },
                     ];
 
                     return (
@@ -1738,7 +1744,7 @@ export default function DashboardPage() {
                           const sortedBookings = [...branchBookings].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
                           
                           return (
-                            <div key={branch} className="rounded-2xl overflow-hidden shadow-lg border border-slate-200">
+                            <div key={branch} className="rounded-2xl overflow-hidden shadow-lg border border-neutral-200">
                               {/* Branch Header */}
                               <div className={`bg-gradient-to-r ${colorScheme.bg} p-5`}>
                                 <div className="flex items-center justify-between">
@@ -1771,18 +1777,18 @@ export default function DashboardPage() {
                               </div>
                               
                               {/* Mobile Stats */}
-                              <div className="md:hidden bg-slate-50 px-4 py-3 flex justify-around border-b border-slate-200">
+                              <div className="md:hidden bg-neutral-50 px-4 py-3 flex justify-around border-b border-neutral-200">
                                 <div className="text-center">
-                                  <p className="text-slate-500 text-xs">Confirmed</p>
-                                  <p className="text-slate-900 font-semibold">{confirmedCount}/{branchBookings.length}</p>
+                                  <p className="text-neutral-500 text-xs">Confirmed</p>
+                                  <p className="text-neutral-900 font-semibold">{confirmedCount}/{branchBookings.length}</p>
                                 </div>
                                 <div className="text-center">
-                                  <p className="text-slate-500 text-xs">Staff</p>
-                                  <p className="text-slate-900 font-semibold">{uniqueStaff}</p>
+                                  <p className="text-neutral-500 text-xs">Staff</p>
+                                  <p className="text-neutral-900 font-semibold">{uniqueStaff}</p>
                                 </div>
                                 <div className="text-center">
-                                  <p className="text-slate-500 text-xs">Revenue</p>
-                                  <p className="text-slate-900 font-semibold">AU${totalRevenue.toLocaleString()}</p>
+                                  <p className="text-neutral-500 text-xs">Revenue</p>
+                                  <p className="text-neutral-900 font-semibold">AU${totalRevenue.toLocaleString()}</p>
                                 </div>
                               </div>
                               
@@ -1817,12 +1823,12 @@ export default function DashboardPage() {
                                           {/* Header */}
                                           <div className="flex items-start justify-between mb-3">
                                             <div className="flex items-center gap-3">
-                                              <div className="w-11 h-11 bg-gradient-to-br from-pink-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold shadow">
+                                              <div className="w-11 h-11 bg-neutral-900 rounded-full flex items-center justify-center text-white font-bold shadow">
                                                 {b.client?.charAt(0)?.toUpperCase() || '?'}
                                               </div>
                                               <div>
-                                                <h4 className="font-semibold text-slate-900">{b.client}</h4>
-                                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                <h4 className="font-semibold text-neutral-900">{b.client}</h4>
+                                                <div className="flex items-center gap-2 text-xs text-neutral-500">
                                                   <span><i className="fas fa-clock mr-1" />{formatTime(b.time || '09:00')}</span>
                                                   {b.clientPhone && (
                                                     <>
@@ -1845,15 +1851,15 @@ export default function DashboardPage() {
                                           {/* Services */}
                                           <div className="space-y-2 mb-3">
                                             {servicesList.map((svc: any, svcIdx: number) => (
-                                              <div key={svcIdx} className="flex items-center justify-between bg-white/80 rounded-lg p-2.5 border border-slate-100">
+                                              <div key={svcIdx} className="flex items-center justify-between bg-white/80 rounded-lg p-2.5 border border-neutral-100">
                                                 <div className="flex items-center gap-2">
-                                                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                                                    <i className="fas fa-spa text-purple-600 text-sm" />
+                                                  <div className="w-8 h-8 bg-neutral-100 rounded-lg flex items-center justify-center">
+                                                    <i className="fas fa-wrench text-neutral-600 text-sm" />
                                                   </div>
                                                   <div>
-                                                    <p className="text-sm font-medium text-slate-900">{svc.name}</p>
+                                                    <p className="text-sm font-medium text-neutral-900">{svc.name}</p>
                                                     {svc.duration && (
-                                                      <p className="text-xs text-slate-500">
+                                                      <p className="text-xs text-neutral-500">
                                                         <i className="fas fa-hourglass-half mr-1" />{formatDuration(svc.duration)}
                                                       </p>
                                                     )}
@@ -1861,7 +1867,7 @@ export default function DashboardPage() {
                                                 </div>
                                                 <div className="text-right">
                                                   {svc.price && (
-                                                    <p className="text-sm font-semibold text-pink-600">AU${Number(svc.price).toLocaleString()}</p>
+                                                    <p className="text-sm font-semibold text-neutral-900">AU${Number(svc.price).toLocaleString()}</p>
                                                   )}
                                                 </div>
                                               </div>
@@ -1869,7 +1875,7 @@ export default function DashboardPage() {
                                           </div>
                                           
                                           {/* Footer */}
-                                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                          <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
                                             <div className="flex flex-wrap items-center gap-2">
                                               {servicesList.map((svc: any, svcIdx: number) => (
                                                 svc.staffName && !svc.staffName.toLowerCase().includes('any') && (
@@ -1882,7 +1888,7 @@ export default function DashboardPage() {
                                                 )
                                               ))}
                                             </div>
-                                            <p className="text-lg font-bold text-pink-600">AU${bookingPrice.toLocaleString()}</p>
+                                            <p className="text-lg font-bold text-neutral-900">AU${bookingPrice.toLocaleString()}</p>
                                           </div>
                                         </div>
                                       </div>
@@ -1904,13 +1910,13 @@ export default function DashboardPage() {
           )}
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0 overflow-hidden">
+            <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0 overflow-hidden">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="font-semibold text-lg text-slate-900">
+                  <h3 className="font-semibold text-lg text-neutral-900">
                     {isSuperAdmin ? "Platform Revenue Trend" : "Revenue Trend"}
                   </h3>
-                  <p className="text-sm text-slate-500 mt-1">
+                  <p className="text-sm text-neutral-500 mt-1">
                     {isSuperAdmin ? "Last 6 months (all tenants)" : "Last 6 months"}
                   </p>
                 </div>
@@ -1919,12 +1925,12 @@ export default function DashboardPage() {
                 <canvas ref={revCanvasRef} />
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="mb-6">
-                <h3 className="font-semibold text-lg text-slate-900">
+                <h3 className="font-semibold text-lg text-neutral-900">
                   {isSuperAdmin ? "Platform Booking Status" : "Booking Status"}
                 </h3>
-                <p className="text-sm text-slate-500 mt-1">
+                <p className="text-sm text-neutral-500 mt-1">
                   {isSuperAdmin ? "All tenants distribution" : "Distribution by status"}
                 </p>
               </div>
@@ -1937,11 +1943,11 @@ export default function DashboardPage() {
           </div>
           {/* Recent Activity - hide for branch admins */}
           {!isBranchAdmin && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="p-6 border-b border-slate-200">
+          <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm">
+            <div className="p-6 border-b border-neutral-200">
               <div>
-                <h3 className="font-semibold text-lg text-slate-900">Recent Activity</h3>
-                <p className="text-sm text-slate-500 mt-1">
+                <h3 className="font-semibold text-lg text-neutral-900">Recent Activity</h3>
+                <p className="text-sm text-neutral-500 mt-1">
                   {isSuperAdmin ? "Latest tenant onboardings" : "Recent bookings"}
                 </p>
               </div>
@@ -1949,19 +1955,19 @@ export default function DashboardPage() {
             <div className="overflow-x-auto">
               {isSuperAdmin ? (
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-neutral-50 border-b border-neutral-200">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Business Name</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Location</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Plan</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Action</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Business Name</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Location</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Plan</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold text-neutral-600 uppercase tracking-wider">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-neutral-200">
                     {recentTenants.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                        <td colSpan={5} className="px-6 py-8 text-center text-neutral-500">
                           No recent activity
                         </td>
                       </tr>
@@ -1983,7 +1989,7 @@ export default function DashboardPage() {
                           ? "bg-emerald-50 text-emerald-700"
                           : statusLower.includes("pending")
                           ? "bg-amber-50 text-amber-700"
-                          : "bg-slate-100 text-slate-700";
+                          : "bg-neutral-100 text-neutral-700";
                         const statusIcon = statusLower.includes("active")
                           ? "fa-check-circle"
                           : statusLower.includes("pending")
@@ -2001,14 +2007,14 @@ export default function DashboardPage() {
                           ? "bg-indigo-50 text-indigo-700"
                           : state === "SA"
                           ? "bg-green-50 text-green-700"
-                          : "bg-slate-100 text-slate-700";
+                          : "bg-neutral-100 text-neutral-700";
 
                         const colors = [
-                          { from: "from-pink-400", to: "to-pink-600" },
+                          { from: "from-neutral-700", to: "to-neutral-900" },
                           { from: "from-blue-400", to: "to-blue-600" },
                           { from: "from-purple-400", to: "to-purple-600" },
                           { from: "from-teal-400", to: "to-teal-600" },
-                          { from: "from-rose-400", to: "to-rose-600" },
+                          { from: "from-amber-400", to: "to-amber-600" },
                         ];
                         const color = colors[idx % colors.length];
 
@@ -2033,15 +2039,15 @@ export default function DashboardPage() {
                         }
 
                         return (
-                          <tr key={tenant.id} className="hover:bg-slate-50 transition">
+                          <tr key={tenant.id} className="hover:bg-neutral-50 transition">
                             <td className="px-6 py-4">
                               <div className="flex items-center space-x-3">
                                 <div className={`w-10 h-10 bg-gradient-to-br ${color.from} ${color.to} rounded-lg flex items-center justify-center`}>
                                   <span className="text-white font-semibold text-sm">{initials}</span>
                                 </div>
                                 <div>
-                                  <p className="font-medium text-slate-900">{tenant.name || tenant.displayName || "Unknown"}</p>
-                                  <p className="text-xs text-slate-500">{timeAgo}</p>
+                                  <p className="font-medium text-neutral-900">{tenant.name || tenant.displayName || "Unknown"}</p>
+                                  <p className="text-xs text-neutral-500">{timeAgo}</p>
                                 </div>
                               </div>
                             </td>
@@ -2049,16 +2055,16 @@ export default function DashboardPage() {
                               {state ? (
                                 <span className={`px-2 py-1 ${stateCls} rounded-lg text-sm font-medium`}>{state}</span>
                               ) : (
-                                <span className="text-sm text-slate-400">—</span>
+                                <span className="text-sm text-neutral-400">—</span>
                               )}
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex items-center space-x-2">
-                                <span className="px-3 py-1 bg-pink-50 text-pink-700 rounded-lg text-sm font-semibold">
+                                <span className="px-3 py-1 bg-neutral-100 text-neutral-700 rounded-lg text-sm font-semibold">
                                   {tenant.plan || "Starter"}
                                 </span>
                                 {tenant.price && (
-                                  <span className="text-sm text-slate-500">{tenant.price}</span>
+                                  <span className="text-sm text-neutral-500">{tenant.price}</span>
                                 )}
                               </div>
                             </td>
@@ -2071,7 +2077,7 @@ export default function DashboardPage() {
                             <td className="px-6 py-4 text-right">
                               <button 
                                 onClick={() => router.push("/tenants")}
-                                className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition"
+                                className="px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-neutral-50 rounded-lg transition"
                               >
                                 Manage
                                 <i className="fas fa-arrow-right ml-2 text-xs" />
@@ -2085,21 +2091,21 @@ export default function DashboardPage() {
                 </table>
               ) : (
                 <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200">
+                  <thead className="bg-neutral-50 border-b border-neutral-200">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Activity</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Client</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Service</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Staff</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Booking Date</th>
-                      <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Amount</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Activity</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Client</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Service</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Staff</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">Booking Date</th>
+                      <th className="px-6 py-4 text-right text-xs font-semibold text-neutral-600 uppercase tracking-wider">Amount</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-neutral-200">
                     {recentActivities.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                          <i className="fas fa-calendar-check text-4xl text-slate-300 mb-3 block" />
+                        <td colSpan={6} className="px-6 py-8 text-center text-neutral-500">
+                          <i className="fas fa-calendar-check text-4xl text-neutral-300 mb-3 block" />
                           <p>Booking activity will appear here</p>
                         </td>
                       </tr>
@@ -2114,7 +2120,7 @@ export default function DashboardPage() {
                           booking_rescheduled: { label: "Rescheduled", bg: "bg-purple-50", text: "text-purple-700", icon: "fa-calendar-alt" },
                           staff_assigned: { label: "Staff Assigned", bg: "bg-indigo-50", text: "text-indigo-700", icon: "fa-user-plus" },
                         };
-                        const activityStyle = activityConfig[activity.activityType] || { label: "Updated", bg: "bg-slate-100", text: "text-slate-700", icon: "fa-circle-info" };
+                        const activityStyle = activityConfig[activity.activityType] || { label: "Updated", bg: "bg-neutral-100", text: "text-neutral-700", icon: "fa-circle-info" };
 
                         // Get initials from client name
                         const clientName = activity.clientName || "Unknown";
@@ -2157,7 +2163,7 @@ export default function DashboardPage() {
                         }
 
                         return (
-                          <tr key={activity.id} className="hover:bg-slate-50 transition">
+                          <tr key={activity.id} className="hover:bg-neutral-50 transition">
                             <td className="px-6 py-4">
                               <div className="flex items-center space-x-3">
                                 <div className={`w-9 h-9 ${activityStyle.bg} rounded-lg flex items-center justify-center`}>
@@ -2167,22 +2173,22 @@ export default function DashboardPage() {
                                   <span className={`px-2.5 py-1 ${activityStyle.bg} ${activityStyle.text} rounded-lg text-xs font-semibold`}>
                                     {activityStyle.label}
                                   </span>
-                                  {timeAgo && <p className="text-xs text-slate-400 mt-1">{timeAgo}</p>}
+                                  {timeAgo && <p className="text-xs text-neutral-400 mt-1">{timeAgo}</p>}
                                 </div>
                               </div>
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 bg-gradient-to-br from-pink-400 to-pink-600 rounded-full flex items-center justify-center">
+                                <div className="w-8 h-8 bg-neutral-900 rounded-full flex items-center justify-center">
                                   <span className="text-white font-semibold text-xs">{initials}</span>
                                 </div>
-                                <span className="text-sm font-medium text-slate-900">{clientName}</span>
+                                <span className="text-sm font-medium text-neutral-900">{clientName}</span>
                               </div>
                             </td>
                             <td className="px-6 py-4">
-                              <p className="text-sm text-slate-900">{activity.serviceName || "—"}</p>
+                              <p className="text-sm text-neutral-900">{activity.serviceName || "—"}</p>
                               {activity.branchName && (
-                                <p className="text-xs text-slate-500">{activity.branchName}</p>
+                                <p className="text-xs text-neutral-500">{activity.branchName}</p>
                               )}
                             </td>
                             <td className="px-6 py-4">
@@ -2202,7 +2208,7 @@ export default function DashboardPage() {
                                 const uniqueStaff = [...new Set(staffNames)];
                                 
                                 if (uniqueStaff.length === 0) {
-                                  return <span className="text-sm text-slate-400">—</span>;
+                                  return <span className="text-sm text-neutral-400">—</span>;
                                 }
                                 
                                 if (uniqueStaff.length === 1) {
@@ -2211,7 +2217,7 @@ export default function DashboardPage() {
                                       <div className="w-7 h-7 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-full flex items-center justify-center">
                                         <i className="fas fa-user text-white text-xs" />
                                       </div>
-                                      <span className="text-sm font-medium text-slate-900">{uniqueStaff[0]}</span>
+                                      <span className="text-sm font-medium text-neutral-900">{uniqueStaff[0]}</span>
                                     </div>
                                   );
                                 }
@@ -2221,10 +2227,10 @@ export default function DashboardPage() {
                                   <div className="flex flex-col gap-1">
                                     {uniqueStaff.map((name, idx) => (
                                       <div key={idx} className="flex items-center space-x-2">
-                                        <div className={`w-6 h-6 bg-gradient-to-br ${idx === 0 ? 'from-indigo-400 to-indigo-600' : idx === 1 ? 'from-purple-400 to-purple-600' : 'from-pink-400 to-pink-600'} rounded-full flex items-center justify-center`}>
+                                        <div className={`w-6 h-6 bg-neutral-900 rounded-full flex items-center justify-center`}>
                                           <i className="fas fa-user text-white text-[10px]" />
                                         </div>
-                                        <span className="text-xs font-medium text-slate-900">{name}</span>
+                                        <span className="text-xs font-medium text-neutral-900">{name}</span>
                                       </div>
                                     ))}
                                   </div>
@@ -2232,11 +2238,11 @@ export default function DashboardPage() {
                               })()}
                             </td>
                             <td className="px-6 py-4">
-                              <p className="text-sm text-slate-900">{bookingDate}</p>
-                              {bookingTime && <p className="text-xs text-slate-500">{bookingTime}</p>}
+                              <p className="text-sm text-neutral-900">{bookingDate}</p>
+                              {bookingTime && <p className="text-xs text-neutral-500">{bookingTime}</p>}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <span className="font-semibold text-slate-900">
+                              <span className="font-semibold text-neutral-900">
                                 AU${(Number(activity.price) || 0).toLocaleString()}
                               </span>
                             </td>
@@ -2270,18 +2276,18 @@ export default function DashboardPage() {
           />
           
           {/* Panel - wider and lower */}
-          <div className="fixed top-20 right-4 sm:top-24 sm:right-6 lg:right-8 w-[calc(100%-2rem)] sm:w-[480px] md:w-[550px] lg:w-[600px] max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden z-50 animate-slideDown">
+          <div className="fixed top-20 right-4 sm:top-24 sm:right-6 lg:right-8 w-[calc(100%-2rem)] sm:w-[480px] md:w-[550px] lg:w-[600px] max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-neutral-200 overflow-hidden z-50 animate-slideDown">
             {/* Panel Header */}
-            <div className="px-5 py-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white">
+            <div className="px-5 py-4 bg-gradient-to-r from-neutral-900 to-neutral-800 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-pink-500 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
                     <i className="fas fa-bell" />
                   </div>
                   <div>
                     <h3 className="font-bold text-lg">Notifications</h3>
                     {unreadCount > 0 && (
-                      <p className="text-xs text-slate-400">{unreadCount} unread</p>
+                      <p className="text-xs text-neutral-400">{unreadCount} unread</p>
                     )}
                   </div>
                 </div>
@@ -2314,14 +2320,14 @@ export default function DashboardPage() {
             </div>
 
             {/* Notifications List */}
-            <div className="max-h-[60vh] overflow-y-auto bg-slate-50">
+            <div className="max-h-[60vh] overflow-y-auto bg-neutral-50">
               {notifications.length === 0 ? (
                 <div className="px-6 py-16 text-center bg-white">
-                  <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-                    <i className="fas fa-bell-slash text-3xl text-slate-400" />
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-neutral-100 to-neutral-200 flex items-center justify-center">
+                    <i className="fas fa-bell-slash text-3xl text-neutral-400" />
                   </div>
-                  <p className="text-slate-700 font-semibold text-lg">No notifications yet</p>
-                  <p className="text-sm text-slate-500 mt-2 max-w-xs mx-auto">
+                  <p className="text-neutral-700 font-semibold text-lg">No notifications yet</p>
+                  <p className="text-sm text-neutral-500 mt-2 max-w-xs mx-auto">
                     When you receive new booking requests, they'll appear here
                   </p>
                 </div>
@@ -2347,7 +2353,7 @@ export default function DashboardPage() {
                         key={notif.id}
                         className={`p-4 rounded-xl transition-all hover:scale-[1.02] relative group ${
                           !notif.read 
-                            ? 'bg-white shadow-md border-l-4 border-pink-500' 
+                            ? 'bg-white shadow-md border-l-4 border-amber-500' 
                             : 'bg-white/60 hover:bg-white'
                         }`}
                       >
@@ -2357,7 +2363,7 @@ export default function DashboardPage() {
                             e.stopPropagation();
                             deleteNotification(notif.id);
                           }}
-                          className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                          className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-neutral-100 hover:bg-red-100 text-neutral-400 hover:text-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
                           title="Delete notification"
                         >
                           <i className="fas fa-trash-alt text-xs" />
@@ -2375,7 +2381,7 @@ export default function DashboardPage() {
                             <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
                               notif.type === 'booking_request' 
                                 ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
-                                : 'bg-gradient-to-br from-pink-400 to-pink-600 text-white'
+                                : 'bg-neutral-900 text-white'
                             }`}>
                               <i className={`fas ${
                                 notif.type === 'booking_request' ? 'fa-calendar-plus' : 'fa-bell'
@@ -2384,21 +2390,21 @@ export default function DashboardPage() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2 pr-8">
                                 <div className="flex items-center gap-2">
-                                  <p className="font-bold text-slate-900">{notif.title}</p>
+                                  <p className="font-bold text-neutral-900">{notif.title}</p>
                                   {!notif.read && (
-                                    <span className="px-2 py-0.5 bg-pink-500 text-white text-[10px] font-bold rounded-full uppercase">New</span>
+                                    <span className="px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded-full uppercase">New</span>
                                   )}
                                 </div>
-                                <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo}</span>
+                                <span className="text-xs text-neutral-400 flex-shrink-0">{timeAgo}</span>
                               </div>
-                              <p className="text-sm text-slate-600 mt-1">{notif.message}</p>
+                              <p className="text-sm text-neutral-600 mt-1">{notif.message}</p>
                               <div className="flex items-center flex-wrap gap-2 mt-3">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
-                                  <i className="fas fa-tag text-pink-500" />
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">
+                                  <i className="fas fa-tag text-amber-500" />
                                   {notif.serviceName}
                                 </span>
                                 {notif.date && (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs text-slate-600">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">
                                     <i className="fas fa-calendar text-blue-500" />
                                     {new Date(notif.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
                                   </span>
@@ -2421,13 +2427,13 @@ export default function DashboardPage() {
             </div>
 
             {/* Panel Footer */}
-            <div className="p-4 bg-white border-t border-slate-200">
+            <div className="p-4 bg-white border-t border-neutral-200">
               <button 
                 onClick={() => {
                   router.push('/bookings/pending');
                   setNotificationPanelOpen(false);
                 }}
-                className="w-full py-3 bg-gradient-to-r from-pink-500 to-fuchsia-600 hover:from-pink-600 hover:to-fuchsia-700 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2 shadow-lg shadow-pink-500/25"
+                className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2 shadow-lg"
               >
                 <i className="fas fa-calendar-check" />
                 View All Booking Requests
@@ -2498,31 +2504,31 @@ export default function DashboardPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="px-6 py-5 border-b border-slate-200">
+            <div className="px-6 py-5 border-b border-neutral-200">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
                   <i className="fas fa-exclamation-triangle text-red-600 text-xl"></i>
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Delete All Notifications</h3>
-                  <p className="text-sm text-slate-500 mt-0.5">This action cannot be undone</p>
+                  <h3 className="text-lg font-semibold text-neutral-900">Delete All Notifications</h3>
+                  <p className="text-sm text-neutral-500 mt-0.5">This action cannot be undone</p>
                 </div>
               </div>
             </div>
 
             {/* Modal Body */}
             <div className="px-6 py-5">
-              <p className="text-slate-700">
-                Are you sure you want to delete all <span className="font-semibold text-slate-900">{notifications.length}</span> notification{notifications.length !== 1 ? 's' : ''}? 
+              <p className="text-neutral-700">
+                Are you sure you want to delete all <span className="font-semibold text-neutral-900">{notifications.length}</span> notification{notifications.length !== 1 ? 's' : ''}? 
                 This will permanently remove all notifications from your account.
               </p>
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
+            <div className="px-6 py-4 border-t border-neutral-200 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowDeleteAllModal(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-medium text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-lg transition-colors"
               >
                 Cancel
               </button>

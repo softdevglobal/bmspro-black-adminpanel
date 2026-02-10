@@ -81,24 +81,24 @@ export default function Clock() {
       }}
     >
       <div
-        className={`bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden transition-shadow ${
-          isDragging ? "shadow-2xl ring-2 ring-pink-500/50" : ""
+        className={`bg-neutral-900 rounded-2xl shadow-xl border border-neutral-800 overflow-hidden transition-shadow ${
+          isDragging ? "shadow-2xl ring-2 ring-amber-500/50" : ""
         }`}
       >
         {/* Drag handle indicator */}
-        <div className="flex justify-center py-1.5 bg-slate-700/50 border-b border-slate-700">
+        <div className="flex justify-center py-1.5 bg-neutral-800/50 border-b border-neutral-800">
           <div className="flex gap-1">
-            <div className="w-1 h-1 rounded-full bg-slate-500" />
-            <div className="w-1 h-1 rounded-full bg-slate-500" />
-            <div className="w-1 h-1 rounded-full bg-slate-500" />
+            <div className="w-1 h-1 rounded-full bg-neutral-600" />
+            <div className="w-1 h-1 rounded-full bg-neutral-600" />
+            <div className="w-1 h-1 rounded-full bg-neutral-600" />
           </div>
         </div>
 
         <div className="px-5 py-3">
           {/* Time display */}
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg">
-              <i className="fas fa-clock text-white text-lg" />
+            <div className="w-10 h-10 bg-amber-500/20 border border-amber-500/30 rounded-xl flex items-center justify-center">
+              <i className="fas fa-clock text-amber-400 text-lg" />
             </div>
             <div className="flex items-baseline text-white tracking-tight font-mono">
               <span className="text-3xl font-bold">
@@ -109,10 +109,10 @@ export default function Clock() {
                   return `${hour12}:${String(minutes).padStart(2, "0")}`;
                 })()}
               </span>
-              <span className="text-lg font-semibold text-slate-400 ml-1">
+              <span className="text-lg font-semibold text-neutral-500 ml-1">
                 :{String(currentTime.getSeconds()).padStart(2, "0")}
               </span>
-              <span className="text-sm font-semibold text-pink-400 ml-2">
+              <span className="text-sm font-semibold text-amber-400 ml-2">
                 {currentTime.getHours() >= 12 ? "PM" : "AM"}
               </span>
             </div>
@@ -120,8 +120,8 @@ export default function Clock() {
 
           {/* Date display */}
           <div className="flex items-center gap-2 pl-1">
-            <div className="flex items-center gap-2 text-slate-300">
-              <i className="fas fa-calendar-day text-xs text-pink-400" />
+            <div className="flex items-center gap-2 text-neutral-400">
+              <i className="fas fa-calendar-day text-xs text-amber-400" />
               <span className="text-sm font-medium">
                 {currentTime.toLocaleDateString("en-AU", {
                   weekday: "long",
@@ -134,7 +134,7 @@ export default function Clock() {
           </div>
 
           {/* Decorative gradient line */}
-          <div className="mt-3 h-1 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 rounded-full" />
+          <div className="mt-3 h-1 bg-gradient-to-r from-amber-500 via-neutral-600 to-neutral-800 rounded-full" />
         </div>
       </div>
     </div>

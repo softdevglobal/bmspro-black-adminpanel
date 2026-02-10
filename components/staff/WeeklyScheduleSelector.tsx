@@ -26,10 +26,10 @@ const DAYS = [
   { key: "Monday", label: "Monday", icon: "☀️", color: "from-yellow-400 to-orange-500" },
   { key: "Tuesday", label: "Tuesday", icon: "🌤️", color: "from-blue-400 to-cyan-500" },
   { key: "Wednesday", label: "Wednesday", icon: "🌻", color: "from-emerald-400 to-teal-500" },
-  { key: "Thursday", label: "Thursday", icon: "🌸", color: "from-pink-400 to-rose-500" },
+  { key: "Thursday", label: "Thursday", icon: "🔧", color: "from-amber-400 to-orange-500" },
   { key: "Friday", label: "Friday", icon: "🎉", color: "from-purple-400 to-indigo-500" },
-  { key: "Saturday", label: "Saturday", icon: "🎨", color: "from-fuchsia-400 to-purple-500" },
-  { key: "Sunday", label: "Sunday", icon: "🌙", color: "from-slate-400 to-slate-600" },
+  { key: "Saturday", label: "Saturday", icon: "⚙️", color: "from-neutral-500 to-neutral-700" },
+  { key: "Sunday", label: "Sunday", icon: "🌙", color: "from-neutral-400 to-neutral-600" },
 ] as const;
 
 export default function WeeklyScheduleSelector({

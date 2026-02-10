@@ -97,7 +97,7 @@ export default function PaymentRequiredModal({
         {/* Header */}
         <div className={`p-6 text-white text-center ${
           isTrialExpired
-            ? 'bg-gradient-to-r from-rose-500 via-pink-500 to-rose-600'
+            ? 'bg-neutral-900'
             : hasFreeTrial 
               ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500' 
               : 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500'
@@ -127,22 +127,22 @@ export default function PaymentRequiredModal({
         <div className="p-6">
           {/* Plan Info */}
           {planName && (
-            <div className="bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-4 mb-6 border border-slate-200">
+            <div className="bg-gradient-to-r from-neutral-50 to-neutral-100 rounded-xl p-4 mb-6 border border-neutral-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+                  <p className="text-xs text-neutral-500 uppercase tracking-wide mb-1">
                     Selected Plan
                   </p>
-                  <p className="text-lg font-bold text-slate-900">{planName}</p>
+                  <p className="text-lg font-bold text-neutral-900">{planName}</p>
                 </div>
                 {planPrice && (
                   <div className="text-right">
-                    <p className="text-2xl font-bold text-pink-600">{planPrice}</p>
+                    <p className="text-2xl font-bold text-neutral-900">{planPrice}</p>
                   </div>
                 )}
               </div>
               {hasFreeTrial && (
-                <div className="mt-3 pt-3 border-t border-slate-200">
+                <div className="mt-3 pt-3 border-t border-neutral-200">
                   <div className="flex items-center gap-2 text-emerald-600">
                     <i className="fas fa-check-circle" />
                     <span className="text-sm font-medium">{trialDays}-day free trial included</span>
@@ -214,7 +214,7 @@ export default function PaymentRequiredModal({
             disabled={loading}
             className={`w-full py-4 px-6 text-white font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-4 ${
               isTrialExpired
-                ? 'bg-gradient-to-r from-pink-500 to-rose-500'
+                ? 'bg-neutral-900'
                 : 'bg-gradient-to-r from-emerald-500 to-teal-500'
             }`}
           >
@@ -245,14 +245,14 @@ export default function PaymentRequiredModal({
           <div className="flex items-center justify-between text-sm">
             <button
               onClick={handleLogout}
-              className="text-slate-500 hover:text-slate-700 transition-colors"
+              className="text-neutral-500 hover:text-neutral-700 transition-colors"
             >
               <i className="fas fa-sign-out-alt mr-1" />
               Log out
             </button>
             <a
               href="mailto:support@bmspros.com.au"
-              className="text-pink-600 hover:text-pink-700 transition-colors"
+              className="text-neutral-600 hover:text-neutral-800 transition-colors"
             >
               <i className="fas fa-envelope mr-1" />
               Contact Support
@@ -261,8 +261,8 @@ export default function PaymentRequiredModal({
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-50 px-6 py-4 border-t border-slate-200">
-          <div className="flex items-center justify-center gap-4 text-xs text-slate-500">
+        <div className="bg-neutral-50 px-6 py-4 border-t border-neutral-200">
+          <div className="flex items-center justify-center gap-4 text-xs text-neutral-500">
             <div className="flex items-center gap-1">
               <i className="fas fa-lock text-emerald-500" />
               <span>Secure Payment</span>

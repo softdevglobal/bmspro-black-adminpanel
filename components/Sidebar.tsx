@@ -4,8 +4,8 @@ import React, { useEffect, useState, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
+import { fetchCurrentUser } from "@/lib/authClient";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
 
 type SidebarProps = {
@@ -62,37 +62,24 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         return;
       }
       try {
-        // Check super_admins collection first
-        const superAdminSnap = await getDoc(doc(db, "super_admins", user.uid));
-        let r: string;
-        let displayName: string;
-        let email: string;
+        // Use server API to get role (bypasses Firestore rules)
+        const meData = await fetchCurrentUser();
         
-        if (superAdminSnap.exists()) {
-          // User is a super_admin
-          const superAdminData = superAdminSnap.data();
-          r = "super_admin";
-          displayName = superAdminData?.displayName || user.displayName || "";
-          email = superAdminData?.email || user.email || "";
+        if (meData) {
+          setRole(meData.role || null);
+          setUserName(meData.displayName || user.displayName || "");
+          setUserEmail(meData.email || user.email || "");
         } else {
-          // Check users collection
-          const snap = await getDoc(doc(db, "users", user.uid));
-          const userData = snap.data();
-          r = (userData?.role || "").toString();
-          displayName = userData?.displayName || userData?.name || user.displayName || "";
-          email = userData?.email || user.email || "";
-        }
-        
-        setRole(r || null);
-        setUserName(displayName);
-        setUserEmail(email);
-        
-        if (typeof window !== "undefined") {
-          localStorage.setItem("role", r || "");
-          localStorage.setItem("userName", displayName);
+          // Fallback to localStorage cache
+          const cachedRole = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+          setRole(cachedRole || null);
+          setUserName(user.displayName || user.email || "");
+          setUserEmail(user.email || "");
         }
       } catch {
-        setRole(null);
+        // Fallback to localStorage
+        const cachedRole = typeof window !== "undefined" ? localStorage.getItem("role") : null;
+        setRole(cachedRole || null);
         setUserName(user.displayName || user.email || "");
         setUserEmail(user.email || "");
       }

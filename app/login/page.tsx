@@ -3,9 +3,8 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import { ensureUserDocument } from "@/lib/users";
+import { auth } from "@/lib/firebase";
+import { fetchCurrentUser } from "@/lib/authClient";
 import { logUserLogin, logSuperAdminLogin, createSuperAdminAuditLog } from "@/lib/auditLog";
 
 export default function LoginPage() {
@@ -87,65 +86,29 @@ export default function LoginPage() {
     if (!valid) return;
     setLoading(true);
     try {
+      // Step 1: Sign in with Firebase Auth
       await signInWithEmailAndPassword(auth, email, password);
-
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("No user UID after sign in");
 
-      // Step 1: Check if user is a super admin first (before ensureUserDocument)
-      let isSuperAdmin = false;
-      try {
-        const superAdminSnap = await getDoc(doc(db, "super_admins", uid));
-        isSuperAdmin = superAdminSnap.exists();
-      } catch (saErr) {
-        console.warn("Could not check super_admins collection:", saErr);
-        // If we can't read super_admins, continue - user might be a regular user
+      // Step 2: Persist token
+      const token = await auth.currentUser?.getIdToken();
+      if (token && typeof window !== "undefined") {
+        localStorage.setItem("idToken", token);
       }
 
-      // Step 2: Only run ensureUserDocument for non-super-admins
-      if (!isSuperAdmin) {
-        try {
-          await ensureUserDocument(auth.currentUser);
-        } catch (ensureErr) {
-          console.warn("ensureUserDocument failed:", ensureErr);
-        }
+      // Step 3: Fetch role via server API (bypasses Firestore rules)
+      const userData = await fetchCurrentUser();
+      if (!userData) {
+        await (await import("firebase/auth")).signOut(auth);
+        setError("Unable to verify your account. Please try again.");
+        return;
       }
 
-      // Step 3: Determine role, suspension status
-      let userRole = "";
-      let suspended = false;
-      let statusText = "";
-      let userName = "";
-      let ownerUid = uid;
+      const { role: userRole, displayName: userName, suspended, status: statusText, ownerUid, isSuperAdmin } = userData;
 
-      if (isSuperAdmin) {
-        userRole = "super_admin";
-        try {
-          const saDoc = await getDoc(doc(db, "super_admins", uid));
-          const saData = saDoc.data();
-          userName = (saData?.displayName || "").toString();
-        } catch {
-          userName = email;
-        }
-      } else {
-        try {
-          const snap = await getDoc(doc(db, "users", uid));
-          const userData = snap.data();
-          suspended = Boolean(userData?.suspended);
-          statusText = (userData?.status || "").toString().toLowerCase();
-          userRole = (userData?.role || "").toString().toLowerCase();
-          userName = (userData?.displayName || userData?.name || "").toString();
-          ownerUid = userData?.ownerUid || uid;
-        } catch (userErr) {
-          console.error("Failed to read user document:", userErr);
-          await (await import("firebase/auth")).signOut(auth);
-          setError("Unable to verify your account. Please contact support.");
-          return;
-        }
-      }
-
-      // Step 4: Check suspension (only for non-super-admins)
-      if (!isSuperAdmin && (suspended || statusText.includes("suspend"))) {
+      // Step 4: Check suspension
+      if (!isSuperAdmin && (suspended || (statusText || "").toLowerCase().includes("suspend"))) {
         await (await import("firebase/auth")).signOut(auth);
         setError("Your account is suspended. Please contact support.");
         return;
@@ -159,27 +122,17 @@ export default function LoginPage() {
         return;
       }
 
-      // Step 6: Persist token and role
-      const token = await auth.currentUser?.getIdToken();
-      if (token && typeof window !== "undefined") {
-        localStorage.setItem("idToken", token);
-      }
-      if (typeof window !== "undefined") {
-        localStorage.setItem("role", userRole);
-        if (userName) localStorage.setItem("userName", userName);
-      }
-
-      // Step 7: Audit logging (non-blocking, wrapped in try-catch)
+      // Step 6: Audit logging (non-blocking)
       try {
         if (userRole === "super_admin") {
           await logSuperAdminLogin(uid, userName || email);
         } else {
-          await logUserLogin(ownerUid, uid, userName || email, userRole);
+          await logUserLogin(ownerUid || uid, uid, userName || email, userRole);
           await createSuperAdminAuditLog({
             action: `${userRole === "salon_owner" ? "Salon Owner" : "Staff"} logged in: ${userName || email}`,
             actionType: "login",
             entityType: "tenant",
-            entityId: ownerUid,
+            entityId: ownerUid || uid,
             entityName: userName || email,
             performedBy: uid,
             performedByName: userName || email,
@@ -187,11 +140,10 @@ export default function LoginPage() {
           });
         }
       } catch (auditErr) {
-        // Audit logging should never block login
         console.warn("Audit log failed (non-blocking):", auditErr);
       }
 
-      // Step 8: Redirect based on role
+      // Step 7: Redirect based on role
       if (userRole === "super_admin") {
         router.replace("/admin-dashboard");
       } else if (userRole === "salon_branch_admin") {

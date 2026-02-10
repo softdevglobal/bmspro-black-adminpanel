@@ -48,8 +48,8 @@ export default function AdminDashboardPage() {
   // Authentication - redirect if not super_admin
   useEffect(() => {
     (async () => {
-      const { auth, db } = await import("@/lib/firebase");
-      const { doc, getDoc } = await import("firebase/firestore");
+      const { auth } = await import("@/lib/firebase");
+      const { fetchCurrentUser } = await import("@/lib/authClient");
       const unsub = onAuthStateChanged(auth, async (user) => {
         if (!user) {
           router.replace("/login");
@@ -59,11 +59,10 @@ export default function AdminDashboardPage() {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
           
-          // Check if user is super admin
-          const superAdminDoc = await getDoc(doc(db, "super_admins", user.uid));
+          // Use server API to check role (bypasses Firestore rules)
+          const meData = await fetchCurrentUser();
           
-          if (!superAdminDoc.exists()) {
-            // Not a super admin, redirect to regular dashboard
+          if (!meData || !meData.isSuperAdmin) {
             router.replace("/dashboard");
             return;
           }

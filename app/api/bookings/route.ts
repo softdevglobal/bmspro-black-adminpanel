@@ -349,8 +349,8 @@ export async function POST(req: NextRequest) {
         
         if (userRole === "salon_branch_admin") {
           bookingSource = `Branch Admin Booking - ${userBranchName || "Unknown Branch"}`;
-        } else if (userRole === "salon_owner") {
-          bookingSource = "Salon Owner Booking";
+        } else if (userRole === "workshop_owner") {
+          bookingSource = "Workshop Owner Booking";
         } else if (userRole === "salon_staff") {
           // For staff bookings, show the staff member's name instead of branch
           bookingSource = `Staff Booking - ${userName}`;
@@ -620,7 +620,7 @@ export async function POST(req: NextRequest) {
     let finalStatus = normalizeBookingStatus(body.status || "Pending");
     let processedServices = body.services || null;
     
-    // Check if user is staff, salon_owner, or salon_branch_admin for auto-confirmation logic
+    // Check if user is staff, workshop_owner, or salon_branch_admin for auto-confirmation logic
     try {
       const currentUserDoc = await adminDb().doc(`users/${currentUserId}`).get();
       const currentUserData = currentUserDoc.data();
@@ -638,8 +638,8 @@ export async function POST(req: NextRequest) {
               approvalStatus: "accepted",
             }));
           }
-        } else if (userRole === "salon_owner" || userRole === "salon_branch_admin") {
-          // For salon_owner and salon_branch_admin: skip Pending status
+        } else if (userRole === "workshop_owner" || userRole === "salon_branch_admin") {
+          // For workshop_owner and salon_branch_admin: skip Pending status
           // If services have staff assigned, go directly to AwaitingStaffApproval
           // If all services need assignment, still go to AwaitingStaffApproval (not Pending)
           

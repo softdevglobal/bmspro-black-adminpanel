@@ -232,12 +232,12 @@ export default function SuperAdminAuditLogsPage() {
   const formatRole = (details?: string): string => {
     if (!details) return "Super Admin";
     
-    // Extract role from details (e.g., "Role: salon_owner")
+    // Extract role from details (e.g., "Role: workshop_owner")
     const roleMatch = details.match(/Role:\s*(\w+)/i);
     if (roleMatch) {
       const role = roleMatch[1];
       switch (role) {
-        case "salon_owner": return "Salon Owner";
+        case "workshop_owner": return "Workshop Owner";
         case "salon_branch_admin": return "Branch Admin";
         case "salon_staff": return "Staff Member";
         case "super_admin": return "Super Admin";
@@ -250,10 +250,10 @@ export default function SuperAdminAuditLogsPage() {
   // Format details to show role nicely
   const formatDetails = (details?: string): string => {
     if (!details) return "";
-    // Replace "Role: salon_owner" with "Role: Salon Owner"
+    // Replace "Role: workshop_owner" with "Role: Workshop Owner"
     return details.replace(/Role:\s*(\w+)/gi, (match, role) => {
       switch (role) {
-        case "salon_owner": return "Role: Salon Owner";
+        case "workshop_owner": return "Role: Workshop Owner";
         case "salon_branch_admin": return "Role: Branch Admin";
         case "salon_staff": return "Role: Staff Member";
         case "super_admin": return "Role: Super Admin";
@@ -586,7 +586,7 @@ export default function SuperAdminAuditLogsPage() {
                     <div className={`w-12 h-12 rounded-full text-white flex items-center justify-center font-bold text-lg ${
                       formatRole(previewLog.details) === "Super Admin" 
                         ? "bg-gradient-to-br from-indigo-500 to-purple-600"
-                        : formatRole(previewLog.details) === "Salon Owner"
+                        : formatRole(previewLog.details) === "Workshop Owner"
                         ? "bg-gradient-to-br from-neutral-700 to-neutral-900"
                         : "bg-gradient-to-br from-teal-500 to-cyan-600"
                     }`}>

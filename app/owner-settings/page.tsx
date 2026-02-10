@@ -95,7 +95,7 @@ export default function OwnerSettingsPage() {
           router.replace("/branches");
           return;
         }
-        if (role !== "salon_owner") {
+        if (role !== "workshop_owner") {
           router.replace("/dashboard");
           return;
         }
@@ -227,11 +227,11 @@ export default function OwnerSettingsPage() {
         await logProfilePictureChanged(
           userData.uid, // ownerUid (salon owner owns their own profile)
           userData.uid, // userId
-          userData.name || userData.email || "Salon Owner", // userName
+          userData.name || userData.email || "Workshop Owner", // userName
           {
             uid: userData.uid,
-            name: userData.name || userData.email || "Salon Owner",
-            role: userData.role || "salon_owner",
+            name: userData.name || userData.email || "Workshop Owner",
+            role: userData.role || "workshop_owner",
           },
           "logo" // pictureType
         );
@@ -275,11 +275,11 @@ export default function OwnerSettingsPage() {
         await logProfilePictureChanged(
           userData.uid, // ownerUid (salon owner owns their own profile)
           userData.uid, // userId
-          userData.name || userData.email || "Salon Owner", // userName
+          userData.name || userData.email || "Workshop Owner", // userName
           {
             uid: userData.uid,
-            name: userData.name || userData.email || "Salon Owner",
-            role: userData.role || "salon_owner",
+            name: userData.name || userData.email || "Workshop Owner",
+            role: userData.role || "workshop_owner",
           },
           "logo" // pictureType
         );
@@ -409,7 +409,7 @@ export default function OwnerSettingsPage() {
       try {
         const ownerUid = userData.uid; // For salon owners, ownerUid is their own uid
         const userName = userData.name || userData.email || "Unknown User";
-        const userRole = userData.role || "salon_owner";
+        const userRole = userData.role || "workshop_owner";
         await logPasswordChanged(ownerUid, userData.uid, userName, userRole);
       } catch (auditError) {
         console.error("Failed to create password change audit log:", auditError);
@@ -763,7 +763,7 @@ export default function OwnerSettingsPage() {
                             </>
                           ) : (
                             <>
-                              <i className="fas fa-key text-amber-400" />
+                              <i className="fas fa-key" />
                               Change Password
                             </>
                           )}
@@ -848,37 +848,33 @@ Example:
 
                 <aside className="space-y-6">
                   {/* Account Info Card */}
-                  <div className="bg-neutral-900 rounded-2xl overflow-hidden shadow-lg">
+                  <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">
                     {/* Card Header */}
-                    <div className="relative p-5 pb-4">
-                      <div className="absolute inset-0 overflow-hidden">
-                        <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-amber-500/10" />
-                        <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-amber-500/5" />
-                      </div>
+                    <div className="relative p-5 pb-4 border-b border-neutral-100 bg-neutral-50">
                       <div className="relative flex items-center gap-3">
                         {logoUrl ? (
-                          <div className="w-14 h-14 rounded-2xl border-2 border-amber-500/30 overflow-hidden bg-white/10">
+                          <div className="w-14 h-14 rounded-2xl border-2 border-neutral-200 overflow-hidden bg-neutral-100">
                             <img src={logoUrl} alt="Workshop Logo" className="w-full h-full object-cover" />
                           </div>
                         ) : (
-                          <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 text-amber-400 flex items-center justify-center font-bold text-lg">
+                          <div className="w-14 h-14 rounded-2xl bg-neutral-900 text-white flex items-center justify-center font-bold text-lg">
                             {salonName ? salonName.slice(0, 2).toUpperCase() : "WS"}
                           </div>
                         )}
                         <div>
-                          <h3 className="font-bold text-white text-base">{salonName || "Your Workshop"}</h3>
-                          <p className="text-xs text-neutral-400">{userData.email}</p>
+                          <h3 className="font-bold text-neutral-900 text-base">{salonName || "Your Workshop"}</h3>
+                          <p className="text-xs text-neutral-500">{userData.email}</p>
                         </div>
                       </div>
                     </div>
                     {/* Card Body */}
-                    <div className="bg-white rounded-t-2xl p-5 space-y-0">
+                    <div className="p-5 space-y-0">
                       <div className="flex items-center justify-between py-2.5 border-b border-neutral-100">
                         <span className="text-sm text-neutral-500 flex items-center gap-2">
                           <i className="fas fa-user-gear text-xs text-neutral-400" />
                           Role
                         </span>
-                        <span className="px-2.5 py-1 bg-neutral-900 text-amber-400 rounded-lg text-xs font-semibold">Workshop Owner</span>
+                        <span className="px-2.5 py-1 bg-neutral-900 text-white rounded-lg text-xs font-semibold">Workshop Owner</span>
                       </div>
                       {abn && (
                         <div className="flex items-center justify-between py-2.5 border-b border-neutral-100">

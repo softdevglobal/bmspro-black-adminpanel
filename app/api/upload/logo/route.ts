@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify user is a salon owner
-    if (userData.role?.toLowerCase() !== "salon_owner") {
+    if (userData.role?.toLowerCase() !== "workshop_owner") {
       return NextResponse.json(
         { error: "Only salon owners can upload logos" },
         { status: 403 }
@@ -95,14 +95,14 @@ export async function POST(req: NextRequest) {
       try {
         await createAuditLogServer({
           ownerUid: userData.uid, // salon owner owns their own profile
-          action: `Profile logo changed: ${userData.name || userData.email || "Salon Owner"}`,
+          action: `Profile logo changed: ${userData.name || userData.email || "Workshop Owner"}`,
           actionType: "update",
           entityType: "user_profile",
           entityId: userData.uid,
-          entityName: userData.name || userData.email || "Salon Owner",
+          entityName: userData.name || userData.email || "Workshop Owner",
           performedBy: userData.uid,
-          performedByName: userData.name || userData.email || "Salon Owner",
-          performedByRole: userData.role || "salon_owner",
+          performedByName: userData.name || userData.email || "Workshop Owner",
+          performedByRole: userData.role || "workshop_owner",
           details: "User changed their profile logo",
         });
       } catch (auditError) {

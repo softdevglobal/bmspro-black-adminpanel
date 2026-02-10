@@ -115,7 +115,7 @@ export default function LoginPage() {
       }
 
       // Step 5: Check role is allowed
-      const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
+      const allowedRoles = ["workshop_owner", "salon_branch_admin", "super_admin"];
       if (!allowedRoles.includes(userRole)) {
         await (await import("firebase/auth")).signOut(auth);
         setError("Access denied. This portal is for admin users only.");
@@ -129,7 +129,7 @@ export default function LoginPage() {
         } else {
           await logUserLogin(ownerUid || uid, uid, userName || email, userRole);
           await createSuperAdminAuditLog({
-            action: `${userRole === "salon_owner" ? "Salon Owner" : "Staff"} logged in: ${userName || email}`,
+            action: `${userRole === "workshop_owner" ? "Workshop Owner" : "Staff"} logged in: ${userName || email}`,
             actionType: "login",
             entityType: "tenant",
             entityId: ownerUid || uid,

@@ -98,12 +98,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const userData = userDoc.data();
     const userRole = (userData?.role || "").toString();
     
-    // Only salon_owner, salon_admin, or salon_branch_admin can reassign
-    if (!["salon_owner", "salon_admin", "salon_branch_admin"].includes(userRole)) {
+    // Only workshop_owner, salon_admin, or salon_branch_admin can reassign
+    if (!["workshop_owner", "salon_admin", "salon_branch_admin"].includes(userRole)) {
       return NextResponse.json({ error: "Only admins can reassign bookings" }, { status: 403 });
     }
 
-    const ownerUid = userRole === "salon_owner" ? callerUid : (userData?.ownerUid || callerUid);
+    const ownerUid = userRole === "workshop_owner" ? callerUid : (userData?.ownerUid || callerUid);
 
     // Find the booking
     const bookingRef = db.doc(`bookings/${id}`);

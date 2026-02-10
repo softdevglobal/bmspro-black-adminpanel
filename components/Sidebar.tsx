@@ -207,7 +207,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             const ownerUid = currentUser.uid;
             await logUserLogout(ownerUid, currentUser.uid, userName || userEmail, role);
             await createSuperAdminAuditLog({
-              action: `${role === "salon_owner" ? "Salon Owner" : "Staff"} logged out: ${userName || userEmail}`,
+              action: `${role === "workshop_owner" ? "Workshop Owner" : "Staff"} logged out: ${userName || userEmail}`,
               actionType: "logout",
               entityType: "tenant",
               entityId: ownerUid,
@@ -263,7 +263,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
       </div>
       <div ref={scrollContainerRef} className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-neutral-900" style={{ overflowAnchor: 'none' }}>
-        {mounted && (role === "salon_owner" || role === "salon_branch_admin" || role === "super_admin") && (
+        {mounted && (role === "workshop_owner" || role === "salon_branch_admin" || role === "super_admin") && (
           <Link
             href={role === "super_admin" ? "/admin-dashboard" : "/dashboard"}
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
@@ -295,7 +295,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Audit Logs</span>
           </Link>
         )}
-        {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
+        {mounted && (role === "workshop_owner" || role === "salon_branch_admin") && (
           <>
             <div
               role="button"
@@ -370,7 +370,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             )}
           </>
         )}
-        {mounted && role === "salon_owner" && (
+        {mounted && role === "workshop_owner" && (
           <Link
             href="/services"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
@@ -381,7 +381,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Services</span>
           </Link>
         )}
-      {mounted && role === "salon_owner" && (
+      {mounted && role === "workshop_owner" && (
         <Link
           href="/customers"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
@@ -392,7 +392,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>Customers</span>
         </Link>
       )}
-      {mounted && role === "salon_owner" && (
+      {mounted && role === "workshop_owner" && (
         <Link
           href="/loyalty"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
@@ -403,7 +403,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>ACSU Loyalty</span>
         </Link>
       )}
-      {mounted && (role === "salon_owner" || role === "salon_branch_admin") && (
+      {mounted && (role === "workshop_owner" || role === "salon_branch_admin") && (
         <Link
           href="/branches"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
@@ -414,7 +414,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>Branch Management</span>
         </Link>
       )}
-        {mounted && role === "salon_owner" && (
+        {mounted && role === "workshop_owner" && (
           <>
             <div
               role="button"
@@ -476,19 +476,19 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Billing & Invoices</span>
           </Link>
         )} */}
-        {mounted && role === "salon_owner" && (
+        {mounted && role === "workshop_owner" && (
           <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-clipboard-list w-5" />
             <span>Audit Logs</span>
           </Link>
         )}
-        {mounted && role === "salon_owner" && (
+        {mounted && role === "workshop_owner" && (
           <Link href="/subscription" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSubscription ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-crown w-5" />
             <span>Subscription</span>
           </Link>
         )}
-        {mounted && role === "salon_owner" && (
+        {mounted && role === "workshop_owner" && (
           <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
             <span>Settings</span>
@@ -508,8 +508,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               {mounted && role
                 ? role === "super_admin"
                   ? "Super Admin"
-                  : role === "salon_owner"
-                  ? "Salon Owner"
+                  : role === "workshop_owner"
+                  ? "Workshop Owner"
                   : role === "salon_branch_admin"
                   ? "Branch Admin"
                   : role === "salon_staff"

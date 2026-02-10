@@ -44,7 +44,7 @@ export default function OwnerAccountInactiveModal({
                 <i className="fas fa-user-tie text-pink-600" />
               </div>
               <div>
-                <p className="text-xs text-slate-500">Salon Owner</p>
+                <p className="text-xs text-slate-500">Workshop Owner</p>
                 <p className="text-sm font-semibold text-slate-700">{ownerName}</p>
               </div>
             </div>

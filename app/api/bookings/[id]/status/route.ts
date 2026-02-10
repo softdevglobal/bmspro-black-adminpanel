@@ -111,7 +111,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     const userDoc = await db.doc(`users/${callerUid}`).get();
     const userData = userDoc.data();
     const userRole = (userData?.role || "").toString();
-    const ownerUid = userRole === "salon_owner" ? callerUid : (userData?.ownerUid || callerUid);
+    const ownerUid = userRole === "workshop_owner" ? callerUid : (userData?.ownerUid || callerUid);
     
     // Try to find booking in "bookings" collection first
     let ref = db.doc(`bookings/${id}`);

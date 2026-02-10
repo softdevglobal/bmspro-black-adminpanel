@@ -16,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 
-export type AppUserRole = "super_admin" | "salon_owner" | "salon_staff" | "salon_branch_admin" | "pending";
+export type AppUserRole = "super_admin" | "workshop_owner" | "salon_staff" | "salon_branch_admin" | "pending";
 
 /**
  * Ensure a Firestore user doc exists for the logged-in user.

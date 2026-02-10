@@ -809,7 +809,7 @@ export default function BranchDetailsPage() {
         setUserRole(role);
         setCurrentUserUid(user.uid);
         
-        if (role === "salon_owner") {
+        if (role === "workshop_owner") {
           setOwnerUid(user.uid);
         } else if (role === "salon_branch_admin") {
           setOwnerUid(snap.data()?.ownerUid || null);
@@ -1033,7 +1033,7 @@ export default function BranchDetailsPage() {
           )}
 
           {/* Only show back button for salon owners */}
-          {userRole === "salon_owner" && (
+          {userRole === "workshop_owner" && (
           <div className="mb-3">
             <button
               onClick={() => {

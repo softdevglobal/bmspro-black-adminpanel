@@ -55,8 +55,8 @@ export default function TrialWarningBanner() {
             const userData = docSnap.data();
             const role = userData?.role || "";
 
-            // Only salon_owner has trial status
-            if (role !== "salon_owner") {
+            // Only workshop_owner has trial status
+            if (role !== "workshop_owner") {
               // For branch admins, check owner's trial status
               if (role === "salon_branch_admin" && userData?.ownerUid) {
                 checkOwnerTrialStatus(userData.ownerUid);

@@ -332,7 +332,7 @@ export default function DashboardPage() {
       const { collection, query, where, onSnapshot } = await import("firebase/firestore");
 
       // Fetch all tenants (salon owners)
-      const tenantsQuery = query(collection(db, "users"), where("role", "==", "salon_owner"));
+      const tenantsQuery = query(collection(db, "users"), where("role", "==", "workshop_owner"));
       unsubTenants = onSnapshot(
         tenantsQuery,
         async (snapshot) => {
@@ -598,7 +598,7 @@ export default function DashboardPage() {
         // For super admin, fetch recent tenants
         const tenantsQuery = query(
           collection(db, "users"),
-          where("role", "==", "salon_owner")
+          where("role", "==", "workshop_owner")
         );
         unsubTenants = onSnapshot(
           tenantsQuery,

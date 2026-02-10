@@ -6,6 +6,7 @@ interface BillingStatusBannerProps {
   billingStatus: string;
   graceUntil?: string | null;
   nextBillingDate?: string | null;
+  trialDays?: number;
   onUpdatePayment: () => void;
 }
 
@@ -13,6 +14,7 @@ export default function BillingStatusBanner({
   billingStatus,
   graceUntil,
   nextBillingDate,
+  trialDays,
   onUpdatePayment,
 }: BillingStatusBannerProps) {
   const router = useRouter();
@@ -22,43 +24,53 @@ export default function BillingStatusBanner({
     const isGraceExpired = graceUntil ? new Date() > new Date(graceUntil) : false;
 
     return (
-      <div className={`mb-6 rounded-xl border-2 p-4 ${
+      <div className={`mb-6 rounded-2xl border overflow-hidden ${
         isGraceExpired
-          ? "border-rose-500 bg-rose-50"
-          : "border-amber-500 bg-amber-50"
+          ? "border-red-300 bg-white"
+          : "border-amber-300 bg-white"
       }`}>
-        <div className="flex items-start gap-4">
-          <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
-            isGraceExpired ? "bg-rose-500" : "bg-amber-500"
+        <div className={`px-6 py-4 ${
+          isGraceExpired ? "bg-red-600" : "bg-amber-500"
+        } text-white`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              isGraceExpired ? "bg-white/20" : "bg-white/20"
+            }`}>
+              <i className={`fas ${isGraceExpired ? "fa-exclamation-triangle" : "fa-clock"} text-lg`} />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">
+                {isGraceExpired ? "Account Suspension Imminent" : "Payment Required"}
+              </h3>
+              <p className="text-sm text-white/80">
+                {isGraceExpired
+                  ? "Your grace period has expired"
+                  : `Update payment by ${graceDate}`
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="p-5">
+          <p className={`text-sm mb-4 ${
+            isGraceExpired ? "text-red-700" : "text-amber-700"
           }`}>
-            <i className={`fas ${isGraceExpired ? "fa-exclamation-triangle" : "fa-clock"} text-white text-xl`} />
-          </div>
-          <div className="flex-1">
-            <h3 className={`font-bold text-lg mb-1 ${
-              isGraceExpired ? "text-rose-900" : "text-amber-900"
-            }`}>
-              {isGraceExpired ? "Account Suspension Imminent" : "Payment Required"}
-            </h3>
-            <p className={`text-sm mb-3 ${
-              isGraceExpired ? "text-rose-800" : "text-amber-800"
-            }`}>
-              {isGraceExpired
-                ? `Your grace period has expired. Please update your payment method immediately to avoid account suspension.`
-                : `Payment failed. Update your payment method by ${graceDate} to avoid account suspension.`
-              }
-            </p>
-            <button
-              onClick={onUpdatePayment}
-              className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                isGraceExpired
-                  ? "bg-rose-600 text-white hover:bg-rose-700"
-                  : "bg-amber-600 text-white hover:bg-amber-700"
-              }`}
-            >
-              <i className="fas fa-credit-card mr-2" />
-              Update Payment Method
-            </button>
-          </div>
+            {isGraceExpired
+              ? "Please update your payment method immediately to avoid account suspension."
+              : `Payment failed. Update your payment method by ${graceDate} to avoid account suspension.`
+            }
+          </p>
+          <button
+            onClick={onUpdatePayment}
+            className={`px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors ${
+              isGraceExpired
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-amber-500 text-white hover:bg-amber-600"
+            }`}
+          >
+            <i className="fas fa-credit-card mr-2" />
+            Update Payment Method
+          </button>
         </div>
       </div>
     );
@@ -66,48 +78,56 @@ export default function BillingStatusBanner({
 
   if (billingStatus === "suspended" || billingStatus === "cancelled") {
     return (
-      <div className="mb-6 rounded-xl border-2 border-rose-500 bg-rose-50 p-6">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-rose-500 flex items-center justify-center">
-            <i className="fas fa-lock text-white text-xl" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-bold text-lg text-rose-900 mb-1">
-              Account {billingStatus === "suspended" ? "Suspended" : "Cancelled"}
-            </h3>
-            <p className="text-sm text-rose-800 mb-4">
-              {billingStatus === "suspended"
-                ? "Your account has been suspended due to payment failure. Please update your payment method to restore access."
-                : "Your subscription has been cancelled. You can reactivate by subscribing to a plan."}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={onUpdatePayment}
-                className="px-4 py-2 bg-rose-600 text-white rounded-lg font-semibold text-sm hover:bg-rose-700 transition-colors"
-              >
-                <i className="fas fa-credit-card mr-2" />
-                {billingStatus === "suspended" ? "Update Payment & Restore" : "Subscribe to Plan"}
-              </button>
+      <div className="mb-6 rounded-2xl border border-red-300 bg-white overflow-hidden">
+        <div className="px-6 py-4 bg-neutral-900 text-white">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+              <i className="fas fa-lock text-red-400 text-lg" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">
+                Account {billingStatus === "suspended" ? "Suspended" : "Cancelled"}
+              </h3>
+              <p className="text-sm text-neutral-400">
+                {billingStatus === "suspended" ? "Action required to restore access" : "Your subscription has ended"}
+              </p>
             </div>
           </div>
+        </div>
+        <div className="p-5">
+          <p className="text-sm text-neutral-600 mb-4">
+            {billingStatus === "suspended"
+              ? "Your account has been suspended due to payment failure. Please update your payment method to restore access."
+              : "Your subscription has been cancelled. You can reactivate by subscribing to a plan."}
+          </p>
+          <button
+            onClick={onUpdatePayment}
+            className="px-5 py-2.5 bg-neutral-900 text-white rounded-xl font-semibold text-sm hover:bg-neutral-800 transition-colors"
+          >
+            <i className="fas fa-credit-card mr-2 text-amber-400" />
+            {billingStatus === "suspended" ? "Update Payment & Restore" : "Subscribe to Plan"}
+          </button>
         </div>
       </div>
     );
   }
 
   if (billingStatus === "trialing") {
+    const days = trialDays && trialDays > 0 ? trialDays : 28;
     return (
-      <div className="mb-6 rounded-xl border-2 border-blue-500 bg-blue-50 p-4">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-blue-500 flex items-center justify-center">
-            <i className="fas fa-gift text-white text-xl" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-bold text-lg text-blue-900 mb-1">Free Trial Active</h3>
-            <p className="text-sm text-blue-800">
-              You're currently on a 28-day free trial. Your subscription will begin automatically after the trial ends.
-              {nextBillingDate && ` Trial ends on ${new Date(nextBillingDate).toLocaleDateString()}.`}
-            </p>
+      <div className="mb-6 rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+        <div className="px-6 py-4 bg-neutral-900 text-white">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+              <i className="fas fa-gift text-amber-400 text-lg" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg">Free Trial Active</h3>
+              <p className="text-sm text-neutral-400">
+                You&apos;re currently on a {days}-day free trial. Your subscription will begin automatically after the trial ends.
+                {nextBillingDate && ` Trial ends on ${new Date(nextBillingDate).toLocaleDateString()}.`}
+              </p>
+            </div>
           </div>
         </div>
       </div>

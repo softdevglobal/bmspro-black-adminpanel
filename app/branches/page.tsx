@@ -130,11 +130,11 @@ export default function BranchesPage() {
         const r = (userData?.role || "").toString();
         setRole(r);
         setCurrentUserUid(user.uid); // Store current user UID
-        if (r !== "salon_owner" && r !== "salon_branch_admin") {
+        if (r !== "workshop_owner" && r !== "salon_branch_admin") {
           router.replace("/dashboard");
           return;
         }
-        if (r === "salon_owner") {
+        if (r === "workshop_owner") {
           setOwnerUid(user.uid);
           // Store owner's subscription data for branch limit checking
           // Always fetch from subscription plan to get the latest branch limit
@@ -299,7 +299,7 @@ export default function BranchesPage() {
 
   // Sync branch count if it doesn't match (for existing users with incorrect counts)
   useEffect(() => {
-    if (!ownerUid || role !== "salon_owner") return;
+    if (!ownerUid || role !== "workshop_owner") return;
     
     // Use a timeout to ensure branches are loaded
     const timeoutId = setTimeout(() => {
@@ -565,7 +565,7 @@ export default function BranchesPage() {
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
               <h2 className="text-2xl font-bold text-slate-800">Branch Locations</h2>
-              {role === "salon_owner" && (
+              {role === "workshop_owner" && (
                 <button
                   onClick={openModal}
                   className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
@@ -577,7 +577,7 @@ export default function BranchesPage() {
             </div>
 
             {/* Branch Limit Info Banner */}
-            {role === "salon_owner" && ownerData && (
+            {role === "workshop_owner" && ownerData && (
               <div className="mb-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-xl p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
@@ -636,12 +636,12 @@ export default function BranchesPage() {
                         <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg hover:bg-slate-100 hover:text-slate-600 flex items-center justify-center transition-colors">
                           <i className="fas fa-eye" />
                         </button>
-                        {role === "salon_owner" && (
+                        {role === "workshop_owner" && (
                           <button onClick={() => openEditModal(b)} title="Edit" className="w-8 h-8 rounded-lg hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-colors">
                             <i className="fas fa-pen" />
                           </button>
                         )}
-                        {role === "salon_owner" && (
+                        {role === "workshop_owner" && (
                           <button onClick={() => setDeleteTarget(b)} title="Delete" className="w-8 h-8 rounded-lg hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center transition-colors">
                             <i className="fas fa-trash" />
                           </button>
@@ -680,7 +680,7 @@ export default function BranchesPage() {
                   </div>
                   <h3 className="text-lg font-semibold text-slate-900 mb-2">No branches yet</h3>
                   <p className="text-slate-600 mb-4">Use "Add Branch" to create your first branch.</p>
-                  {role === "salon_owner" && ownerData && (
+                  {role === "workshop_owner" && ownerData && (
                     <div className="mt-4 pt-4 border-t border-slate-200">
                       <p className="text-sm text-slate-500 mb-2">
                         Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
@@ -1137,7 +1137,7 @@ export default function BranchesPage() {
 
               {/* Footer actions */}
               <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
-                {role === "salon_owner" && (
+                {role === "workshop_owner" && (
                   <button
                     onClick={() => {
                       setPreviewBranch(null);

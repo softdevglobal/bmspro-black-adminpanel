@@ -250,7 +250,7 @@ export default function SignupPage() {
       await setDoc(newTenantRef, {
         email: trimmedEmail,
         displayName: formOwnerName.trim() || formBusinessName.trim(),
-        role: "salon_owner",
+        role: "workshop_owner",
         provider: "password",
         uid: ownerUid,
         name: formBusinessName.trim(),
@@ -318,7 +318,7 @@ export default function SignupPage() {
       const token = await auth.currentUser?.getIdToken();
       if (token && typeof window !== "undefined") {
         localStorage.setItem("idToken", token);
-        localStorage.setItem("role", "salon_owner");
+        localStorage.setItem("role", "workshop_owner");
         localStorage.setItem("userName", formBusinessName.trim());
       }
 

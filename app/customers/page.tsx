@@ -55,7 +55,7 @@ export default function CustomersPage() {
           router.replace("/branches");
           return;
         }
-        if (role !== "salon_owner") {
+        if (role !== "workshop_owner") {
           router.replace("/dashboard");
           return;
         }

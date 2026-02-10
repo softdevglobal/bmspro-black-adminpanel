@@ -57,8 +57,8 @@ export default function LoyaltyPage() {
         const data = snap.data();
         const role = (data?.role || "").toString();
 
-        // Only salon_owner can access this page
-        if (role !== "salon_owner") {
+        // Only workshop_owner can access this page
+        if (role !== "workshop_owner") {
           router.replace("/dashboard");
           return;
         }

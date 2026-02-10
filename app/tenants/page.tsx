@@ -332,7 +332,7 @@ export default function TenantsPage() {
         // user identity fields
         email: trimmedEmail,
         displayName: "",
-        role: "salon_owner",
+        role: "workshop_owner",
         provider: "password",
         uid: ownerUid,
         // business fields
@@ -578,7 +578,7 @@ export default function TenantsPage() {
   useEffect(() => {
     // Live tenants list from Firestore
     // Avoid composite index requirement by filtering only; sort on client
-    const q = query(collection(db, "users"), where("role", "==", "salon_owner"));
+    const q = query(collection(db, "users"), where("role", "==", "workshop_owner"));
     const unsub = onSnapshot(
       q,
       (snap) => {

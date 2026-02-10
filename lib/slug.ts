@@ -22,7 +22,7 @@ export const isSlugUnique = async (slug: string): Promise<boolean> => {
   const q = query(
     collection(db, "users"),
     where("slug", "==", slug),
-    where("role", "==", "salon_owner"),
+    where("role", "==", "workshop_owner"),
     limit(1)
   );
   const snapshot = await getDocs(q);

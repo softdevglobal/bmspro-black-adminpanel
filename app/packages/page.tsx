@@ -131,7 +131,7 @@ export default function PackagesPage() {
   useEffect(() => {
     if (loading) return;
 
-    const tenantsQuery = query(collection(db, "users"), where("role", "==", "salon_owner"));
+    const tenantsQuery = query(collection(db, "users"), where("role", "==", "workshop_owner"));
     const unsub = onSnapshot(
       tenantsQuery,
       (snapshot) => {

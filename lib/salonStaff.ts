@@ -269,7 +269,7 @@ export function subscribeSalonStaffForOwner(
   onChange: (rows: Array<{ id: string } & DocumentData>) => void
 ) {
   // Subscribe to all users belonging to this owner (staff & branch admins)
-  // We filter for roles that are NOT 'salon_owner' just in case, though ownerUid check usually suffices for staff
+  // We filter for roles that are NOT 'workshop_owner' just in case, though ownerUid check usually suffices for staff
   const q = query(collection(db, "users"), where("ownerUid", "==", ownerUid));
   
   return onSnapshot(

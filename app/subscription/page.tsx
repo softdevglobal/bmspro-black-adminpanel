@@ -171,8 +171,8 @@ export default function SubscriptionPage() {
         const data = snap.data();
         const role = (data?.role || "").toString();
 
-        // Only salon_owner can access this page
-        if (role !== "salon_owner") {
+        // Only workshop_owner can access this page
+        if (role !== "workshop_owner") {
           router.replace("/dashboard");
           return;
         }
@@ -454,13 +454,13 @@ export default function SubscriptionPage() {
   };
 
   return (
-    <div id="app" className="flex h-screen overflow-hidden bg-slate-50">
+    <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -480,8 +480,8 @@ export default function SubscriptionPage() {
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="flex flex-col items-center gap-3">
-                <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
-                <p className="text-slate-500 font-medium">Loading subscription...</p>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900" />
+                <p className="text-neutral-500 font-medium">Loading subscription...</p>
               </div>
             </div>
           ) : (
@@ -490,33 +490,42 @@ export default function SubscriptionPage() {
               <>
                 {/* Header Banner */}
                 <div className="mb-8">
-                  <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-indigo-500 text-white p-8 shadow-xl">
-                    <div className="flex items-center justify-between flex-wrap gap-4">
+                  <div className="relative rounded-2xl bg-neutral-900 text-white p-8 shadow-lg overflow-hidden">
+                    {/* Decorative Background */}
+                    <div className="absolute inset-0 overflow-hidden">
+                      <div className="absolute -top-6 -right-6 w-36 h-36 rounded-full bg-amber-500/10" />
+                      <div className="absolute -bottom-10 -left-10 w-44 h-44 rounded-full bg-amber-500/5" />
+                      <div className="absolute top-1/3 right-1/4 w-2 h-2 rounded-full bg-amber-400/30" />
+                      <div className="absolute bottom-6 right-1/3 w-1.5 h-1.5 rounded-full bg-amber-400/20" />
+                      <i className="fas fa-gear absolute -right-3 -bottom-3 text-[90px] text-white/[0.03] rotate-12" />
+                      <i className="fas fa-gear absolute right-20 -top-5 text-[55px] text-white/[0.03] -rotate-6" />
+                    </div>
+                    <div className="relative flex items-center justify-between flex-wrap gap-4">
                       <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
-                          <i className="fas fa-crown text-2xl" />
+                        <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                          <i className="fas fa-file-invoice-dollar text-2xl text-amber-400" />
                         </div>
                         <div>
-                          <h1 className="text-3xl font-bold">Subscription Management</h1>
-                          <p className="text-white/90 mt-1">Manage your plan, billing, and subscription settings</p>
+                          <h1 className="text-2xl font-bold tracking-tight">Subscription Management</h1>
+                          <p className="text-neutral-400 mt-0.5">Manage your plan, billing, and subscription settings</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3 flex-wrap">
                         {userData.plan && (
-                          <div className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl">
-                            <i className="fas fa-check-circle" />
-                            <span className="font-medium">
+                          <div className="flex items-center gap-2 bg-white/10 border border-white/10 px-4 py-2 rounded-xl">
+                            <i className="fas fa-check-circle text-amber-400" />
+                            <span className="font-medium text-neutral-200">
                               Current: {userData.plan} {userData.price ? `(${userData.price})` : ""}
                             </span>
                           </div>
                         )}
                         {billingStatus?.billing_status && (
-                          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl ${
+                          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border ${
                             billingStatus.billing_status === "active" || billingStatus.billing_status === "trialing"
-                              ? "bg-emerald-500/20 text-emerald-100" 
+                              ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400" 
                               : billingStatus.billing_status === "past_due"
-                              ? "bg-amber-500/20 text-amber-100"
-                              : "bg-rose-500/20 text-rose-100"
+                              ? "bg-amber-500/20 border-amber-500/30 text-amber-400"
+                              : "bg-red-500/20 border-red-500/30 text-red-400"
                           }`}>
                             <i className={`fas ${
                               billingStatus.billing_status === "active" || billingStatus.billing_status === "trialing"
@@ -534,7 +543,7 @@ export default function SubscriptionPage() {
                           <button
                             onClick={openBillingPortal}
                             disabled={portalLoading}
-                            className="flex items-center gap-2 bg-white/20 backdrop-blur px-4 py-2 rounded-xl hover:bg-white/30 transition-colors disabled:opacity-50"
+                            className="flex items-center gap-2 bg-amber-500/20 border border-amber-500/30 px-4 py-2 rounded-xl hover:bg-amber-500/30 transition-colors disabled:opacity-50 text-amber-400"
                           >
                             {portalLoading ? (
                               <i className="fas fa-circle-notch fa-spin" />
@@ -549,12 +558,13 @@ export default function SubscriptionPage() {
                   </div>
                 </div>
 
-                {/* Billing Status Banner */}
-                {billingStatus && (
+                {/* Billing Status Banner - hide when card-free trial section is visible to avoid duplication */}
+                {billingStatus && !(trialInfo.isTrialing && billingStatus.billing_status === "trialing") && (
                   <BillingStatusBanner
                     billingStatus={billingStatus.billing_status}
                     graceUntil={billingStatus.grace_until}
                     nextBillingDate={billingStatus.next_billing_date}
+                    trialDays={userData?.trialDays || 28}
                     onUpdatePayment={openBillingPortal}
                   />
                 )}
@@ -563,26 +573,24 @@ export default function SubscriptionPage() {
                 {trialInfo.isTrialing && (
                   <div className={`mb-6 rounded-2xl border-2 overflow-hidden ${
                     trialInfo.showWarning 
-                      ? "border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50" 
-                      : "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50"
+                      ? "border-amber-400 bg-white" 
+                      : "border-neutral-200 bg-white"
                   }`}>
-                    <div className={`px-6 py-4 ${
-                      trialInfo.showWarning 
-                        ? "bg-gradient-to-r from-amber-500 to-orange-500" 
-                        : "bg-gradient-to-r from-emerald-500 to-teal-500"
-                    } text-white`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
-                          <i className={`fas ${trialInfo.showWarning ? "fa-exclamation-triangle" : "fa-gift"} text-lg`} />
+                    <div className="p-6">
+                      <div className="flex items-start gap-4 mb-5">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                          trialInfo.showWarning ? "bg-amber-100" : "bg-emerald-100"
+                        }`}>
+                          <i className={`fas ${trialInfo.showWarning ? "fa-exclamation-triangle text-amber-600" : "fa-gift text-emerald-600"} text-xl`} />
                         </div>
-                        <div>
-                          <h3 className="font-bold text-lg">
+                        <div className="flex-1">
+                          <h3 className="font-bold text-lg text-neutral-900">
                             {trialInfo.showWarning 
-                              ? `Trial Ending Soon - ${trialInfo.daysRemaining} ${trialInfo.daysRemaining === 1 ? "Day" : "Days"} Left!`
-                              : `Free Trial Active - ${trialInfo.daysRemaining} ${trialInfo.daysRemaining === 1 ? "Day" : "Days"} Remaining`
+                              ? `Trial Ending Soon – ${trialInfo.daysRemaining} ${trialInfo.daysRemaining === 1 ? "Day" : "Days"} Left!`
+                              : `Free Trial Active – ${trialInfo.daysRemaining} ${trialInfo.daysRemaining === 1 ? "Day" : "Days"} Remaining`
                             }
                           </h3>
-                          <p className="text-white/90 text-sm">
+                          <p className="text-sm text-neutral-500 mt-0.5">
                             {trialInfo.trialEndDate && (
                               <>Trial ends on {trialInfo.trialEndDate.toLocaleDateString("en-AU", { 
                                 weekday: "long", 
@@ -594,9 +602,7 @@ export default function SubscriptionPage() {
                           </p>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="p-6">
+                      
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                         <div className="flex-1">
                           {trialInfo.showWarning ? (
@@ -605,18 +611,18 @@ export default function SubscriptionPage() {
                                 <i className="fas fa-exclamation-circle mr-2" />
                                 Add payment details to continue using BMS PRO BLACK
                               </p>
-                              <p className="text-amber-700 text-sm">
+                              <p className="text-neutral-600 text-sm">
                                 Your trial will expire soon. To avoid any interruption to your service, please add your payment details now. 
                                 You won't be charged until your trial ends.
                               </p>
                             </>
                           ) : (
                             <>
-                              <p className="text-emerald-800 font-medium mb-1">
-                                <i className="fas fa-info-circle mr-2" />
+                              <p className="text-neutral-800 font-medium mb-1">
+                                <i className="fas fa-info-circle mr-2 text-neutral-400" />
                                 Enjoying your free trial? Add payment details anytime!
                               </p>
-                              <p className="text-emerald-700 text-sm">
+                              <p className="text-neutral-500 text-sm">
                                 You can add your payment details early to ensure uninterrupted access after your trial ends. 
                                 You won't be charged until your trial period is over.
                               </p>
@@ -627,19 +633,17 @@ export default function SubscriptionPage() {
                         <div className="flex-shrink-0">
                           <button
                             onClick={() => {
-                              // Find the current package and trigger checkout
                               const currentPkg = packages.find(p => p.name === userData?.plan);
                               if (currentPkg) {
                                 selectPlan(currentPkg);
                               } else if (packages.length > 0) {
-                                // Default to first package if current not found
                                 selectPlan(packages[0]);
                               }
                             }}
                             className={`px-6 py-3 rounded-xl font-semibold text-white transition-all hover:shadow-lg hover:scale-[1.02] ${
                               trialInfo.showWarning 
-                                ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600" 
-                                : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+                                ? "bg-amber-500 hover:bg-amber-600" 
+                                : "bg-neutral-900 hover:bg-neutral-800"
                             }`}
                           >
                             <i className="fas fa-credit-card mr-2" />
@@ -648,20 +652,18 @@ export default function SubscriptionPage() {
                         </div>
                       </div>
                       
-                      {/* Progress bar showing trial progress */}
+                      {/* Progress bar */}
                       <div className="mt-5">
                         <div className="flex items-center justify-between text-xs mb-2">
-                          <span className={trialInfo.showWarning ? "text-amber-600" : "text-emerald-600"}>Trial Started</span>
-                          <span className={trialInfo.showWarning ? "text-amber-600" : "text-emerald-600"}>Trial Ends</span>
+                          <span className="text-neutral-500 font-medium">Trial Started</span>
+                          <span className="text-neutral-500 font-medium">Trial Ends</span>
                         </div>
-                        <div className={`h-2 rounded-full overflow-hidden ${
-                          trialInfo.showWarning ? "bg-amber-200" : "bg-emerald-200"
-                        }`}>
+                        <div className="h-2 rounded-full overflow-hidden bg-neutral-100">
                           <div 
                             className={`h-full rounded-full transition-all ${
                               trialInfo.showWarning 
-                                ? "bg-gradient-to-r from-amber-500 to-orange-500" 
-                                : "bg-gradient-to-r from-emerald-500 to-teal-500"
+                                ? "bg-amber-500" 
+                                : "bg-emerald-500"
                             }`}
                             style={{ 
                               width: `${Math.max(5, 100 - ((trialInfo.daysRemaining / (userData?.trialDays || 28)) * 100))}%` 
@@ -669,9 +671,7 @@ export default function SubscriptionPage() {
                           />
                         </div>
                         <div className="text-center mt-2">
-                          <span className={`text-sm font-medium ${
-                            trialInfo.showWarning ? "text-amber-700" : "text-emerald-700"
-                          }`}>
+                          <span className="text-sm font-medium text-neutral-600">
                             {trialInfo.daysRemaining} of {userData?.trialDays || 28} days remaining
                           </span>
                         </div>
@@ -682,82 +682,97 @@ export default function SubscriptionPage() {
 
                 {/* Current Plan Management Section */}
                 {userData.stripeSubscriptionId && userData.plan && (
-                  <div className="mb-8 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                    <h2 className="text-xl font-bold text-slate-900 mb-4">Current Plan</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <div className="text-sm text-slate-500 mb-1">Plan</div>
-                        <div className="text-lg font-semibold text-slate-900">{userData.plan}</div>
-                        {billingStatus?.next_billing_date && (
-                          <>
-                            <div className="text-sm text-slate-500 mt-3 mb-1">Next Billing Date</div>
-                            <div className="text-sm text-slate-700">
-                              {new Date(billingStatus.next_billing_date).toLocaleDateString()}
-                            </div>
-                          </>
-                        )}
-                        {billingStatus?.trial_ends_at && (
-                          <>
-                            <div className="text-sm text-slate-500 mt-3 mb-1">Trial Ends</div>
-                            <div className="text-sm text-slate-700">
-                              {new Date(billingStatus.trial_ends_at).toLocaleDateString()}
-                            </div>
-                          </>
-                        )}
+                  <div className="mb-8 bg-white rounded-2xl border border-neutral-200 overflow-hidden">
+                    <div className="flex items-center gap-3 px-6 py-4 border-b border-neutral-100 bg-neutral-50">
+                      <div className="w-9 h-9 rounded-xl bg-neutral-100 flex items-center justify-center">
+                        <i className="fas fa-box text-sm text-neutral-600" />
                       </div>
-                      <div className="flex flex-col gap-3">
-                        {billingStatus?.downgrade_scheduled && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                            <div className="flex items-center gap-2 text-amber-800">
-                              <i className="fas fa-info-circle" />
-                              <span className="text-sm font-medium">Downgrade scheduled</span>
+                      <h2 className="text-base font-bold text-neutral-900">Current Plan</h2>
+                    </div>
+                    <div className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-1">Plan</div>
+                          <div className="text-lg font-bold text-neutral-900">{userData.plan}</div>
+                          {billingStatus?.next_billing_date && (
+                            <>
+                              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mt-3 mb-1">Next Billing Date</div>
+                              <div className="text-sm text-neutral-700">
+                                {new Date(billingStatus.next_billing_date).toLocaleDateString()}
+                              </div>
+                            </>
+                          )}
+                          {billingStatus?.trial_ends_at && (
+                            <>
+                              <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mt-3 mb-1">Trial Ends</div>
+                              <div className="text-sm text-neutral-700">
+                                {new Date(billingStatus.trial_ends_at).toLocaleDateString()}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-3">
+                          {billingStatus?.downgrade_scheduled && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                              <div className="flex items-center gap-2 text-amber-800">
+                                <i className="fas fa-info-circle" />
+                                <span className="text-sm font-medium">Downgrade scheduled</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                        {userData.cancelAtPeriodEnd && (
-                          <div className="bg-rose-50 border border-rose-200 rounded-lg p-3">
-                            <div className="flex items-center gap-2 text-rose-800">
-                              <i className="fas fa-exclamation-triangle" />
-                              <span className="text-sm font-medium">Cancellation scheduled</span>
+                          )}
+                          {userData.cancelAtPeriodEnd && (
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                              <div className="flex items-center gap-2 text-red-800">
+                                <i className="fas fa-exclamation-triangle" />
+                                <span className="text-sm font-medium">Cancellation scheduled</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                        {!userData.cancelAtPeriodEnd && (
-                          <button
-                            onClick={openCancelModal}
-                            className="px-4 py-2 border border-rose-200 bg-rose-50 rounded-lg text-rose-600 font-medium hover:bg-rose-100 hover:border-rose-300 transition-colors text-sm group"
-                          >
-                            <i className="fas fa-times mr-2 group-hover:rotate-90 transition-transform" />
-                            Cancel Subscription
-                          </button>
-                        )}
+                          )}
+                          {!userData.cancelAtPeriodEnd && (
+                            <button
+                              onClick={openCancelModal}
+                              className="px-4 py-2.5 border border-red-200 bg-red-50 rounded-xl text-red-600 font-medium hover:bg-red-100 hover:border-red-300 transition-colors text-sm group"
+                            >
+                              <i className="fas fa-times mr-2 group-hover:rotate-90 transition-transform" />
+                              Cancel Subscription
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
 
+                {/* Section Title */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-9 h-9 rounded-xl bg-neutral-100 flex items-center justify-center">
+                    <i className="fas fa-tags text-sm text-neutral-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-neutral-900">Available Plans</h2>
+                    <p className="text-xs text-neutral-500">Choose the best plan for your workshop</p>
+                  </div>
+                </div>
+
                 {/* Pricing Cards */}
                 {packagesLoading ? (
                   <div className="flex items-center justify-center py-12 mb-10">
                     <div className="flex flex-col items-center gap-3">
-                      <i className="fas fa-circle-notch fa-spin text-3xl text-neutral-900" />
-                      <p className="text-slate-500">Loading packages...</p>
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-neutral-900" />
+                      <p className="text-neutral-500 font-medium">Loading packages...</p>
                     </div>
                   </div>
                 ) : packages.length === 0 ? (
                   <div className="text-center py-12 mb-10">
-                    <i className="fas fa-box-open text-4xl text-slate-300 mb-3" />
-                    <p className="text-slate-500">No subscription plans available at the moment.</p>
+                    <i className="fas fa-box-open text-4xl text-neutral-300 mb-3" />
+                    <p className="text-neutral-500">No subscription plans available at the moment.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-                    {/* Filter packages: show current plan always, only show non-hidden for upgrade/downgrade */}
                     {packages
                       .filter((pkg) => {
                         const isCurrentPlan = userData?.plan === pkg.name;
-                        // Always show the current plan, even if hidden
                         if (isCurrentPlan) return true;
-                        // For other plans, only show if not hidden
                         return !pkg.hidden;
                       })
                       .map((pkg) => {
@@ -768,45 +783,44 @@ export default function SubscriptionPage() {
                         : pkg.color === "green" ? "from-emerald-500 via-green-500 to-teal-600"
                         : pkg.color === "orange" ? "from-orange-500 via-amber-500 to-yellow-500"
                         : pkg.color === "teal" ? "from-teal-500 via-cyan-500 to-blue-500"
-                        : "from-pink-500 via-rose-500 to-fuchsia-600";
+                        : "from-neutral-700 via-neutral-800 to-neutral-900";
                       const lightBgClass = pkg.color === "blue" ? "bg-blue-50" 
                         : pkg.color === "pink" ? "bg-pink-50" 
                         : pkg.color === "purple" ? "bg-purple-50" 
                         : pkg.color === "green" ? "bg-emerald-50"
                         : pkg.color === "orange" ? "bg-orange-50"
                         : pkg.color === "teal" ? "bg-teal-50"
-                        : "bg-pink-50";
+                        : "bg-neutral-50";
                       
                       return (
                         <div 
                           key={pkg.id}
-                          className={`group relative bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col ${
-                            isCurrentPlan ? "ring-2 ring-emerald-500 ring-offset-1" : ""
+                          className={`group relative bg-white rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col ${
+                            isCurrentPlan ? "border-2 border-neutral-900 shadow-lg" : "border border-neutral-200 shadow-sm"
                           }`}
                         >
                           {/* Gradient Header */}
                           <div className={`relative h-28 bg-gradient-to-br ${gradientClass} overflow-visible flex-shrink-0`}>
-                            {/* Decorative circles */}
                             <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full" />
                             <div className="absolute -bottom-4 -left-4 w-20 h-20 bg-white/10 rounded-full" />
                             
                             {/* Popular badge */}
                             {pkg.popular && (
                               <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
-                                <i className="fas fa-crown text-yellow-300 text-xs" />
+                                <i className="fas fa-star text-amber-300 text-xs" />
                                 Popular
                               </div>
                             )}
                             
                             {/* Current Plan badge */}
                             {isCurrentPlan && (
-                              <div className="absolute top-3 right-3 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
+                              <div className="absolute top-3 right-3 bg-neutral-900 text-white text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
                                 <i className="fas fa-check text-xs" />
                                 Current
                               </div>
                             )}
                             
-                            {/* Package Image/Icon - Larger */}
+                            {/* Package Image/Icon */}
                             <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 z-20">
                               <div className={`w-20 h-20 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg ring-4 ring-white ${lightBgClass}`}>
                                 {pkg.image ? (
@@ -822,23 +836,22 @@ export default function SubscriptionPage() {
                           
                           {/* Card Content */}
                           <div className="pt-14 pb-5 px-5 flex flex-col flex-grow">
-                            {/* Plan Name */}
                             <div className="text-center mb-4">
-                              <h3 className="text-lg font-bold text-slate-900 mb-1">{pkg.name}</h3>
-                              <div className={`text-3xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
+                              <h3 className="text-lg font-bold text-neutral-900 mb-1">{pkg.name}</h3>
+                              <div className="text-3xl font-extrabold text-neutral-900">
                                 {pkg.priceLabel}
                               </div>
                             </div>
                             
                             {/* Branches & Staff */}
-                            <div className="flex items-center justify-center gap-3 mb-2 text-sm text-slate-500">
+                            <div className="flex items-center justify-center gap-3 mb-2 text-sm text-neutral-500">
                               <span className="flex items-center gap-1.5">
-                                <i className="fas fa-building text-xs" />
+                                <i className="fas fa-warehouse text-xs text-neutral-400" />
                                 {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch
                               </span>
-                              <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                              <span className="w-1 h-1 bg-neutral-300 rounded-full" />
                               <span className="flex items-center gap-1.5">
-                                <i className="fas fa-users text-xs" />
+                                <i className="fas fa-users text-xs text-neutral-400" />
                                 {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
                               </span>
                             </div>
@@ -846,53 +859,51 @@ export default function SubscriptionPage() {
                             {/* Trial Period Badge */}
                             {pkg.trialDays && pkg.trialDays > 0 && (
                               <div className="flex items-center justify-center mb-4">
-                                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-semibold">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-semibold border border-emerald-200">
                                   <i className="fas fa-gift" />
                                   {pkg.trialDays}-day free trial
                                 </span>
                               </div>
                             )}
                             
-                            {/* Divider */}
-                            <div className="h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-4" />
+                            <div className="h-px bg-neutral-100 mb-4" />
                             
-                            {/* Features List - Scrollable */}
+                            {/* Features List */}
                             {pkg.features && pkg.features.length > 0 && (
                               <div className="mb-4 flex-grow">
-                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                   {pkg.features.map((feature, idx) => (
                                     <li key={idx} className="flex items-start gap-2">
-                                      <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                                        <i className="fas fa-check text-white text-[10px]" />
+                                      <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                        <i className="fas fa-check text-white text-[9px]" />
                                       </div>
-                                      <span className="text-sm text-slate-600">{feature}</span>
+                                      <span className="text-sm text-neutral-600">{feature}</span>
                                     </li>
                                   ))}
                                 </ul>
                                 {pkg.features.length > 5 && (
-                                  <p className="text-xs text-slate-400 text-center mt-2 italic">Scroll for more</p>
+                                  <p className="text-xs text-neutral-400 text-center mt-2 italic">Scroll for more</p>
                                 )}
                               </div>
                             )}
                             
-                            {/* Action Buttons - Always at bottom */}
+                            {/* Action Buttons */}
                             <div className="mt-auto pt-2 space-y-2">
                               {isCurrentPlan ? (
                                 <button
                                   disabled
-                                  className="w-full py-3 px-4 rounded-xl font-semibold text-sm bg-emerald-100 text-emerald-600 cursor-not-allowed"
+                                  className="w-full py-3 px-4 rounded-xl font-semibold text-sm bg-neutral-100 text-neutral-500 cursor-not-allowed"
                                 >
-                                  <i className="fas fa-check-circle mr-1.5" />
+                                  <i className="fas fa-check-circle mr-1.5 text-emerald-500" />
                                   Current Plan
                                 </button>
                               ) : userData.stripeSubscriptionId ? (
-                                // Has subscription - show upgrade/downgrade
                                 <>
                                   {pkg.price > (parseFloat(userData.price?.replace(/[^0-9.]/g, "") || "0")) ? (
                                     <button
                                       onClick={() => handleUpgrade(pkg.id)}
                                       disabled={upgradeLoading}
-                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02] disabled:opacity-50`}
+                                      className="w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-neutral-900 text-white hover:bg-neutral-800 hover:shadow-lg disabled:opacity-50"
                                     >
                                       {upgradeLoading ? (
                                         <>
@@ -910,7 +921,7 @@ export default function SubscriptionPage() {
                                     <button
                                       onClick={() => handleDowngrade(pkg.id)}
                                       disabled={downgradeLoading}
-                                      className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02] disabled:opacity-50`}
+                                      className="w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 border-2 border-neutral-900 text-neutral-900 hover:bg-neutral-900 hover:text-white disabled:opacity-50"
                                     >
                                       {downgradeLoading ? (
                                         <>
@@ -927,10 +938,9 @@ export default function SubscriptionPage() {
                                   )}
                                 </>
                               ) : (
-                                // No subscription - show subscribe
                                 <button
                                   onClick={() => selectPlan(pkg)}
-                                  className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-gradient-to-r ${gradientClass} text-white hover:shadow-lg hover:scale-[1.02]`}
+                                  className="w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200 bg-neutral-900 text-white hover:bg-neutral-800 hover:shadow-lg"
                                 >
                                   <i className="fas fa-credit-card mr-1.5" />
                                   Subscribe
@@ -944,12 +954,12 @@ export default function SubscriptionPage() {
                   </div>
                 )}
 
-                {/* FAQ or Help Section */}
-                <div className="mt-10 text-center text-slate-500 text-sm">
+                {/* FAQ / Help Section */}
+                <div className="mt-10 text-center text-neutral-500 text-sm pb-4">
                   <p>
                     Need help choosing a plan?{" "}
-                    <a href="#" className="text-pink-500 hover:text-pink-600 font-medium">
-                      Contact our sales team
+                    <a href="#" className="text-neutral-900 hover:text-amber-600 font-semibold transition-colors">
+                      Contact our support team
                     </a>
                   </p>
                 </div>
@@ -966,22 +976,16 @@ export default function SubscriptionPage() {
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
               {/* Header */}
-              <div className={`bg-gradient-to-r ${
-                selectedPackage.color === "blue" ? "from-blue-500 to-indigo-600" 
-                : selectedPackage.color === "pink" ? "from-pink-500 to-fuchsia-600" 
-                : selectedPackage.color === "purple" ? "from-purple-500 to-indigo-600" 
-                : selectedPackage.color === "green" ? "from-emerald-500 to-teal-600"
-                : selectedPackage.color === "orange" ? "from-orange-500 to-yellow-500"
-                : selectedPackage.color === "teal" ? "from-teal-500 to-blue-500"
-                : "from-pink-500 to-fuchsia-600"
-              } p-6 text-white`}>
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center">
-                    <i className="fas fa-exchange-alt text-2xl" />
+              <div className="bg-neutral-900 p-6 text-white relative overflow-hidden">
+                <div className="absolute -top-4 -right-4 w-24 h-24 rounded-full bg-amber-500/10" />
+                <div className="absolute -bottom-6 -left-6 w-28 h-28 rounded-full bg-amber-500/5" />
+                <div className="relative flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                    <i className="fas fa-file-invoice-dollar text-2xl text-amber-400" />
                   </div>
                   <div>
                     <h3 className="text-xl font-bold">Subscribe to Plan</h3>
-                    <p className="text-white/80 text-sm">You'll be redirected to secure checkout</p>
+                    <p className="text-neutral-400 text-sm">You'll be redirected to secure checkout</p>
                   </div>
                 </div>
               </div>
@@ -989,37 +993,37 @@ export default function SubscriptionPage() {
               {/* Content */}
               <div className="p-6">
                 <div className="text-center mb-6">
-                  <p className="text-slate-600 mb-4">
+                  <p className="text-neutral-600 mb-4">
                     You are about to change your subscription to:
                   </p>
-                  <div className="inline-flex items-center gap-3 bg-slate-50 px-5 py-3 rounded-xl">
+                  <div className="inline-flex items-center gap-3 bg-neutral-50 border border-neutral-200 px-5 py-3 rounded-xl">
                     {selectedPackage.image && (
                       <img src={selectedPackage.image} alt={selectedPackage.name} className="w-10 h-10 rounded-lg object-cover" />
                     )}
                     <div className="text-left">
-                      <div className="font-bold text-slate-900">{selectedPackage.name}</div>
-                      <div className="text-sm text-pink-600 font-semibold">{selectedPackage.priceLabel}</div>
+                      <div className="font-bold text-neutral-900">{selectedPackage.name}</div>
+                      <div className="text-sm text-neutral-700 font-semibold">{selectedPackage.priceLabel}</div>
                     </div>
                   </div>
                 </div>
                 
                 {/* Plan Details */}
-                <div className="bg-slate-50 rounded-xl p-4 mb-6">
+                <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-4 mb-6">
                   <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-slate-500">Branches</span>
-                    <span className="font-medium text-slate-700">
+                    <span className="text-neutral-500 flex items-center gap-2"><i className="fas fa-warehouse text-xs" /> Branches</span>
+                    <span className="font-medium text-neutral-700">
                       {selectedPackage.branches === -1 ? "Unlimited" : selectedPackage.branches}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-slate-500">Staff</span>
-                    <span className="font-medium text-slate-700">
+                    <span className="text-neutral-500 flex items-center gap-2"><i className="fas fa-users text-xs" /> Staff</span>
+                    <span className="font-medium text-neutral-700">
                       {selectedPackage.staff === -1 ? "Unlimited" : selectedPackage.staff}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">Features</span>
-                    <span className="font-medium text-slate-700">
+                    <span className="text-neutral-500 flex items-center gap-2"><i className="fas fa-list-check text-xs" /> Features</span>
+                    <span className="font-medium text-neutral-700">
                       {selectedPackage.features?.length || 0} included
                     </span>
                   </div>
@@ -1027,7 +1031,7 @@ export default function SubscriptionPage() {
                 
                 {/* Current Plan Info */}
                 {userData?.plan && (
-                  <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg mb-6">
+                  <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-xl mb-6">
                     <i className="fas fa-info-circle" />
                     <span>Your current plan: <strong>{userData.plan}</strong> ({userData.price})</span>
                   </div>
@@ -1038,31 +1042,23 @@ export default function SubscriptionPage() {
                   <button
                     onClick={() => setShowConfirmModal(false)}
                     disabled={updating}
-                    className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-slate-700 font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
+                    className="flex-1 py-3 px-4 rounded-xl border border-neutral-200 text-neutral-700 font-medium hover:bg-neutral-50 transition-colors disabled:opacity-50"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={confirmPlanChange}
                     disabled={updating}
-                    className={`flex-1 py-3 px-4 rounded-xl text-white font-semibold transition-all disabled:opacity-70 bg-gradient-to-r ${
-                      selectedPackage.color === "blue" ? "from-blue-500 to-indigo-600" 
-                      : selectedPackage.color === "pink" ? "from-pink-500 to-fuchsia-600" 
-                      : selectedPackage.color === "purple" ? "from-purple-500 to-indigo-600" 
-                      : selectedPackage.color === "green" ? "from-emerald-500 to-teal-600"
-                      : selectedPackage.color === "orange" ? "from-orange-500 to-yellow-500"
-                      : selectedPackage.color === "teal" ? "from-teal-500 to-blue-500"
-                      : "from-pink-500 to-fuchsia-600"
-                    } hover:shadow-lg`}
+                    className="flex-1 py-3 px-4 rounded-xl text-white font-semibold transition-all disabled:opacity-70 bg-neutral-900 hover:bg-neutral-800 hover:shadow-lg"
                   >
                     {updating || checkoutLoading ? (
                       <>
                         <i className="fas fa-circle-notch fa-spin mr-2" />
-                        {checkoutLoading ? "Redirecting to checkout..." : "Processing..."}
+                        {checkoutLoading ? "Redirecting..." : "Processing..."}
                       </>
                     ) : (
                       <>
-                        <i className="fas fa-credit-card mr-2" />
+                        <i className="fas fa-credit-card mr-2 text-amber-400" />
                         Subscribe & Pay
                       </>
                     )}
@@ -1081,21 +1077,21 @@ export default function SubscriptionPage() {
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
               {/* Header */}
-              <div className="bg-gradient-to-r from-rose-500 to-pink-500 px-6 py-5 text-white relative">
-                {/* Close button */}
+              <div className="bg-neutral-900 px-6 py-5 text-white relative overflow-hidden">
+                <div className="absolute -top-4 -right-4 w-20 h-20 rounded-full bg-red-500/10" />
                 <button
                   onClick={() => !cancelLoading && setShowCancelModal(false)}
-                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
+                  className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors z-10"
                 >
-                  <i className="fas fa-times text-sm" />
+                  <i className="fas fa-times text-sm text-white/70" />
                 </button>
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-heart-broken text-xl" />
+                <div className="relative flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+                    <i className="fas fa-exclamation-triangle text-xl text-red-400" />
                   </div>
                   <div>
                     <h3 className="text-xl font-bold">Cancel Subscription</h3>
-                    <p className="text-white/80 text-sm">
+                    <p className="text-neutral-400 text-sm">
                       Access until {billingStatus?.next_billing_date 
                         ? new Date(billingStatus.next_billing_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                         : "end of billing period"}
@@ -1106,10 +1102,9 @@ export default function SubscriptionPage() {
               
               {/* Content */}
               <div className="p-6">
-                {/* Reason Selection */}
                 <div className="mb-5">
-                  <label className="block text-sm font-semibold text-slate-700 mb-3">
-                    Why are you leaving? <span className="text-rose-500">*</span>
+                  <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">
+                    Why are you leaving? <span className="text-red-500">*</span>
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     {cancellationReasons.map((reason) => (
@@ -1117,8 +1112,8 @@ export default function SubscriptionPage() {
                         key={reason.id}
                         className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
                           cancelReason === reason.id
-                            ? "border-pink-500 bg-pink-50"
-                            : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                            ? "border-neutral-900 bg-neutral-50"
+                            : "border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50"
                         }`}
                       >
                         <input
@@ -1131,13 +1126,13 @@ export default function SubscriptionPage() {
                         />
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                           cancelReason === reason.id
-                            ? "bg-pink-500 text-white"
-                            : "bg-slate-100 text-slate-500"
+                            ? "bg-neutral-900 text-amber-400"
+                            : "bg-neutral-100 text-neutral-500"
                         }`}>
                           <i className={`fas ${reason.icon} text-sm`} />
                         </div>
                         <span className={`text-sm font-medium ${
-                          cancelReason === reason.id ? "text-pink-700" : "text-slate-700"
+                          cancelReason === reason.id ? "text-neutral-900" : "text-neutral-700"
                         }`}>
                           {reason.label}
                         </span>
@@ -1146,36 +1141,34 @@ export default function SubscriptionPage() {
                   </div>
                 </div>
                 
-                {/* Custom Reason Input */}
                 {cancelReason === "other" && (
                   <div className="mb-5">
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Please tell us more <span className="text-rose-500">*</span>
+                    <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                      Please tell us more <span className="text-red-500">*</span>
                     </label>
                     <textarea
                       value={customReason}
                       onChange={(e) => setCustomReason(e.target.value)}
                       placeholder="Share your feedback..."
                       rows={3}
-                      className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-pink-500 focus:ring-0 outline-none text-sm resize-none"
+                      className="w-full px-4 py-3 rounded-xl border-2 border-neutral-200 focus:border-neutral-900 focus:ring-0 outline-none text-sm resize-none"
                     />
                   </div>
                 )}
                 
-                {/* Buttons */}
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowCancelModal(false)}
                     disabled={cancelLoading}
-                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                    className="flex-1 py-3 px-4 rounded-xl bg-neutral-900 text-white font-semibold hover:bg-neutral-800 hover:shadow-lg transition-all disabled:opacity-50"
                   >
-                    <i className="fas fa-heart mr-2" />
+                    <i className="fas fa-check mr-2 text-amber-400" />
                     Keep Subscription
                   </button>
                   <button
                     onClick={handleCancel}
                     disabled={cancelLoading || !cancelReason || (cancelReason === "other" && !customReason.trim())}
-                    className="flex-1 py-3 px-4 rounded-xl border-2 border-rose-300 text-rose-600 font-semibold hover:bg-rose-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 py-3 px-4 rounded-xl border-2 border-red-300 text-red-600 font-semibold hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {cancelLoading ? (
                       <><i className="fas fa-circle-notch fa-spin mr-2" />Cancelling...</>

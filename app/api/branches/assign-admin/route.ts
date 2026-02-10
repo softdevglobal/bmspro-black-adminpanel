@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const callerData = callerDoc.data();
     const callerRole = callerData?.role;
     
-    if (callerRole !== "salon_owner") {
+    if (callerRole !== "workshop_owner") {
       return NextResponse.json(
         { error: "Unauthorized - Only salon owners can assign branch admins" },
         { status: 403 }

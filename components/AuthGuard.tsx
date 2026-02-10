@@ -82,7 +82,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
           }
           
           // Check if user has admin role
-          const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
+          const allowedRoles = ["workshop_owner", "salon_branch_admin", "super_admin"];
           
           if (!allowedRoles.includes(userRole)) {
             await auth.signOut();
@@ -91,8 +91,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             return;
           }
 
-          // Check payment status for salon_owner
-          if (userRole === "salon_owner" && meData) {
+          // Check payment status for workshop_owner
+          if (userRole === "workshop_owner" && meData) {
             const accountStatus = meData.accountStatus || "active";
             const subscriptionStatus = meData.subscriptionStatus || "active";
             

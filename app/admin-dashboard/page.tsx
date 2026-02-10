@@ -87,7 +87,7 @@ export default function AdminDashboardPage() {
       const { db } = await import("@/lib/firebase");
 
       // Fetch all tenants (salon owners)
-      const tenantsQuery = query(collection(db, "users"), where("role", "==", "salon_owner"));
+      const tenantsQuery = query(collection(db, "users"), where("role", "==", "workshop_owner"));
       unsubTenants = onSnapshot(
         tenantsQuery,
         async (snapshot) => {
@@ -349,7 +349,7 @@ export default function AdminDashboardPage() {
       const { db } = await import("@/lib/firebase");
       const tenantsQuery = query(
         collection(db, "users"),
-        where("role", "==", "salon_owner")
+        where("role", "==", "workshop_owner")
       );
       unsubTenants = onSnapshot(
         tenantsQuery,
@@ -476,7 +476,7 @@ export default function AdminDashboardPage() {
       const allBookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       // Get tenants
-      const tenantsQuery = query(collection(db, "users"), where("role", "==", "salon_owner"));
+      const tenantsQuery = query(collection(db, "users"), where("role", "==", "workshop_owner"));
       const tenantsSnapshot = await getDocs(tenantsQuery);
       const tenants = tenantsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 

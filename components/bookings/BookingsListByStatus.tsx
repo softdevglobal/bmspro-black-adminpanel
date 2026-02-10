@@ -107,7 +107,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
       const userSnap = await getDoc(firestoreDoc(db, "users", userId));
       const userData = userSnap.data();
       const userRole = (userData?.role || "").toString();
-      const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+      const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
       const userBranchId = userData?.branchId;
       
       // Build query constraints
@@ -298,7 +298,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         const userSnap = await getDoc(firestoreDoc(db, "users", userId));
         const userData = userSnap.data();
         const userRole = (userData?.role || "").toString();
-        const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+        const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
 
         const { subscribeServicesForOwner } = await import("@/lib/services");
         const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
@@ -460,7 +460,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
         const userSnap = await getDoc(firestoreDoc(db, "users", userId));
         const userData = userSnap.data();
         const userRole = (userData?.role || "").toString();
-        const ownerUid = userRole === "salon_owner" ? userId : (userData?.ownerUid || userId);
+        const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
 
         const { subscribeServicesForOwner } = await import("@/lib/services");
         const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");

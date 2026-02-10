@@ -78,7 +78,7 @@ function BookingsPageContent() {
           const userData = snap.data();
           const role = (userData?.role || "").toString();
 
-          if (role === "salon_owner") {
+          if (role === "workshop_owner") {
             setOwnerUid(user.uid);
             setUserRole(role);
           } else if (role === "salon_branch_admin") {

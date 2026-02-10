@@ -24,7 +24,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
  */
 export async function POST(req: NextRequest) {
   try {
-    const authResult = await verifyAdminAuth(req, ["salon_owner", "super_admin"], true);
+    const authResult = await verifyAdminAuth(req, ["workshop_owner", "super_admin"], true);
     if (!authResult.success) {
       return NextResponse.json(
         { error: authResult.error },

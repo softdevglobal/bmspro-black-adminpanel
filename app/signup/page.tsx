@@ -59,19 +59,21 @@ export default function SignupPage() {
   const [generalError, setGeneralError] = useState("");
   const [emailAlreadyExists, setEmailAlreadyExists] = useState(false);
   
-  // Loading state
+  // Loading & animation
   const [creating, setCreating] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  // Business types for the industry
+  // Workshop / auto-repair business types
   const businessTypes = [
-    { id: "beauty_salon", label: "Beauty Salon", icon: "fa-spa", color: "from-pink-500 to-rose-500" },
-    { id: "hair_salon", label: "Hair Salon", icon: "fa-cut", color: "from-purple-500 to-indigo-500" },
-    { id: "nail_spa", label: "Nail Spa", icon: "fa-hand-sparkles", color: "from-fuchsia-500 to-pink-500" },
-    { id: "massage_spa", label: "Massage & Day Spa", icon: "fa-hot-tub", color: "from-teal-500 to-cyan-500" },
-    { id: "barber", label: "Barber Shop", icon: "fa-user-tie", color: "from-slate-600 to-slate-800" },
-    { id: "wellness", label: "Wellness Center", icon: "fa-leaf", color: "from-emerald-500 to-green-500" },
-    { id: "medical_spa", label: "Medical Spa", icon: "fa-syringe", color: "from-blue-500 to-indigo-500" },
-    { id: "other", label: "Other", icon: "fa-store", color: "from-amber-500 to-orange-500" },
+    { id: "auto_repair", label: "Auto Repair Shop", icon: "fa-car" },
+    { id: "mechanic", label: "Mechanic Workshop", icon: "fa-wrench" },
+    { id: "tire_service", label: "Tire & Wheel Service", icon: "fa-circle-dot" },
+    { id: "body_shop", label: "Body & Paint Shop", icon: "fa-spray-can" },
+    { id: "service_center", label: "Service Center", icon: "fa-screwdriver-wrench" },
+    { id: "detailing", label: "Car Detailing", icon: "fa-droplet" },
+    { id: "fleet", label: "Fleet Maintenance", icon: "fa-truck" },
+    { id: "other", label: "Other", icon: "fa-store" },
   ];
 
   // Business structures
@@ -84,14 +86,14 @@ export default function SignupPage() {
 
   // Australian states
   const australianStates = [
-    { value: "NSW", label: "New South Wales", icon: "🏙️" },
-    { value: "VIC", label: "Victoria", icon: "🎭" },
-    { value: "QLD", label: "Queensland", icon: "🌴" },
-    { value: "WA", label: "Western Australia", icon: "🌅" },
-    { value: "SA", label: "South Australia", icon: "🍷" },
-    { value: "TAS", label: "Tasmania", icon: "🏔️" },
-    { value: "ACT", label: "Australian Capital Territory", icon: "🏛️" },
-    { value: "NT", label: "Northern Territory", icon: "🦘" },
+    { value: "NSW", label: "New South Wales" },
+    { value: "VIC", label: "Victoria" },
+    { value: "QLD", label: "Queensland" },
+    { value: "WA", label: "Western Australia" },
+    { value: "SA", label: "South Australia" },
+    { value: "TAS", label: "Tasmania" },
+    { value: "ACT", label: "Australian Capital Territory" },
+    { value: "NT", label: "Northern Territory" },
   ];
 
   // Fetch packages
@@ -213,8 +215,6 @@ export default function SignupPage() {
       
       let ownerUid: string;
       try {
-        // Create user and sign in directly with primary auth
-        // This ensures we have an authenticated user for Firestore writes
         const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, formPassword);
         ownerUid = userCredential.user.uid;
       } catch (e: any) {
@@ -245,19 +245,17 @@ export default function SignupPage() {
       const bookingEngineBaseUrl = process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL || "https://black.bmspros.com.au/book-now";
       const bookingEngineUrl = `${bookingEngineBaseUrl}/${slug}`;
 
-      // Create Firestore document (user is now authenticated)
+      // Create Firestore document
       const newTenantRef = doc(db, "users", ownerUid);
       await setDoc(newTenantRef, {
-        // User identity
         email: trimmedEmail,
         displayName: formOwnerName.trim() || formBusinessName.trim(),
         role: "salon_owner",
         provider: "password",
         uid: ownerUid,
-        // Business fields
         name: formBusinessName.trim(),
-        slug, // URL-friendly name for booking engine (e.g., "abc-salon")
-        bookingEngineUrl, // Full booking engine link (e.g., "https://black.bmspros.com.au/book-now/abc-salon")
+        slug,
+        bookingEngineUrl,
         businessType: formBusinessType || null,
         abn: formAbn.replace(/\s/g, '').trim() || null,
         businessStructure: formStructure || null,
@@ -266,7 +264,6 @@ export default function SignupPage() {
         timezone: formTimezone || "Australia/Sydney",
         locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
         contactPhone: formPhone.trim() || null,
-        // Plan details
         plan: selectedPackage.name,
         price: selectedPackage.priceLabel || null,
         planId: selectedPackage.id,
@@ -276,30 +273,24 @@ export default function SignupPage() {
         branchNames: [],
         staffLimit: selectedPackage.staff,
         currentStaffCount: 0,
-        // Payment status
         status: hasFreeTrial ? "Free Trial Active" : "Pending Payment",
         accountStatus: hasFreeTrial ? "active_trial" : "pending_payment",
         subscriptionStatus: hasFreeTrial ? "trialing" : "pending",
         billing_status: hasFreeTrial ? "trialing" : "pending",
-        // Trial info
         trialDays: trialDays,
         hasFreeTrial: hasFreeTrial,
         trial_start: trialStart,
         trial_end: trialEnd,
         paymentDetailsRequired: !hasFreeTrial,
-        // Source
         signupSource: "self_registration",
-        // Timestamps
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
-      // Send welcome email and admin notification
+      // Send welcome email (non-blocking)
       try {
         const baseUrl = window.location.origin || "https://black.bmspros.com.au";
         const paymentUrl = `${baseUrl}/subscription`;
-        
-        // Get business type label for admin notification
         const businessTypeLabel = businessTypes.find(t => t.id === formBusinessType)?.label || formBusinessType;
         
         await fetch("/api/salon-owner/welcome-email", {
@@ -313,8 +304,7 @@ export default function SignupPage() {
             planPrice: selectedPackage.priceLabel,
             paymentUrl: paymentUrl,
             trialDays: trialDays,
-            bookingEngineUrl: bookingEngineUrl, // Booking engine link for the email
-            // Additional fields for admin notification
+            bookingEngineUrl: bookingEngineUrl,
             businessType: businessTypeLabel,
             state: formState || undefined,
             phone: formPhone.trim() || undefined,
@@ -325,7 +315,6 @@ export default function SignupPage() {
         console.warn("Failed to send welcome email:", emailError);
       }
 
-      // User is already signed in from createUserWithEmailAndPassword
       const token = await auth.currentUser?.getIdToken();
       if (token && typeof window !== "undefined") {
         localStorage.setItem("idToken", token);
@@ -348,75 +337,62 @@ export default function SignupPage() {
     return "Continue";
   }, [currentStep, creating]);
 
-  // Progress percentage
   const progressPercent = currentStep === 1 ? 33 : currentStep === 2 ? 66 : 100;
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-pink-50/30 to-fuchsia-50/30">
-      {/* Decorative background elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-pink-400/20 to-fuchsia-400/20 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-purple-400/20 to-indigo-400/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-gradient-to-br from-rose-400/20 to-pink-400/20 rounded-full blur-3xl" />
-      </div>
+  // Shared input class
+  const inputClass = (hasError?: boolean) =>
+    `w-full px-4 py-3 text-sm bg-neutral-50/80 border-2 rounded-xl focus:ring-0 focus:border-neutral-900 focus:bg-white transition-all outline-none placeholder:text-neutral-400 ${
+      hasError ? "border-rose-300 bg-rose-50/40" : "border-neutral-200 hover:border-neutral-300"
+    }`;
 
-      {/* Header */}
-      <div className="bg-white/80 backdrop-blur-md border-b border-slate-200/50 sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+  return (
+    <div className="min-h-screen bg-neutral-100 flex flex-col">
+      {/* ===== Header ===== */}
+      <div className="bg-neutral-950 sticky top-0 z-20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <img
-                src="/bmspink-icon.jpeg"
-                alt="BMS PRO BLACK"
-                className="w-11 h-11 rounded-xl shadow-lg object-cover ring-2 ring-pink-500/20"
-              />
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full border-2 border-white" />
+            <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center">
+              <i className="fas fa-wrench text-neutral-900 text-sm" />
             </div>
             <div>
-              <h1 className="font-bold text-lg text-slate-900">BMS PRO</h1>
-              <p className="text-xs font-semibold bg-gradient-to-r from-pink-600 to-fuchsia-600 bg-clip-text text-transparent">
-                PINK — Beauty & Wellness
-              </p>
+              <span className="text-white font-bold text-base tracking-tight">BMS PRO</span>
+              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>
             </div>
           </div>
           <Link
             href="/login"
-            className="text-sm text-slate-600 hover:text-pink-600 font-medium transition-colors"
+            className="text-sm text-neutral-400 hover:text-white font-medium transition-colors"
           >
-            Already have an account? <span className="text-pink-600 underline">Sign in</span>
+            Have an account? <span className="text-white underline underline-offset-2">Sign in</span>
           </Link>
         </div>
         
         {/* Progress bar */}
-        <div className="h-1 bg-slate-100">
+        <div className="h-1 bg-neutral-800">
           <div 
-            className="h-full bg-gradient-to-r from-pink-500 to-fuchsia-500 transition-all duration-500 ease-out"
+            className="h-full bg-white transition-all duration-500 ease-out"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-8 relative z-10">
+      <div className={`max-w-5xl mx-auto px-4 sm:px-6 py-8 w-full flex-1 transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         {/* Title Section */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-100 to-fuchsia-100 rounded-full text-sm font-semibold text-pink-700 mb-4">
-            <i className="fas fa-rocket" />
-            Get started in minutes
-          </div>
-          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">
-            {currentStep === 1 && "Tell us about your business"}
+          <h2 className="text-2xl sm:text-3xl font-bold text-neutral-900 tracking-tight mb-2">
+            {currentStep === 1 && "Tell us about your workshop"}
             {currentStep === 2 && "Create your account"}
-            {currentStep === 3 && "Choose your perfect plan"}
+            {currentStep === 3 && "Choose your plan"}
           </h2>
-          <p className="text-slate-600 max-w-xl mx-auto">
-            {currentStep === 1 && "Help us personalize your experience by sharing some details about your business"}
+          <p className="text-neutral-500 text-sm max-w-lg mx-auto">
+            {currentStep === 1 && "Share some details so we can personalize your experience"}
             {currentStep === 2 && "Set up your login credentials to access your dashboard"}
             {currentStep === 3 && "Select the plan that best fits your business needs"}
           </p>
         </div>
 
         {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-2 sm:gap-4 mb-10">
+        <div className="flex items-center justify-center gap-3 sm:gap-4 mb-8">
           {[
             { num: 1, label: "Business", icon: "fa-store" },
             { num: 2, label: "Account", icon: "fa-user" },
@@ -424,28 +400,28 @@ export default function SignupPage() {
           ].map((step, idx) => (
             <React.Fragment key={step.num}>
               <div className="flex flex-col items-center">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-semibold text-sm transition-all duration-300 ${
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm transition-all duration-300 ${
                   currentStep === step.num 
-                    ? "bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white shadow-lg shadow-pink-500/30 scale-110" 
+                    ? "bg-neutral-900 text-white shadow-lg shadow-neutral-900/20 scale-110" 
                     : currentStep > step.num 
                     ? "bg-emerald-500 text-white" 
-                    : "bg-white text-slate-400 border-2 border-slate-200"
+                    : "bg-white text-neutral-400 border-2 border-neutral-200"
                 }`}>
                   {currentStep > step.num ? (
-                    <i className="fas fa-check" />
+                    <i className="fas fa-check text-sm" />
                   ) : (
-                    <i className={`fas ${step.icon}`} />
+                    <i className={`fas ${step.icon} text-sm`} />
                   )}
                 </div>
-                <span className={`text-xs font-medium mt-2 ${
-                  currentStep === step.num ? "text-pink-600" : currentStep > step.num ? "text-emerald-600" : "text-slate-400"
+                <span className={`text-[11px] font-medium mt-1.5 ${
+                  currentStep === step.num ? "text-neutral-900" : currentStep > step.num ? "text-emerald-600" : "text-neutral-400"
                 }`}>
                   {step.label}
                 </span>
               </div>
               {idx < 2 && (
-                <div className={`w-12 sm:w-20 h-1 rounded-full transition-all duration-300 ${
-                  currentStep > step.num ? "bg-emerald-500" : "bg-slate-200"
+                <div className={`w-10 sm:w-16 h-0.5 rounded-full transition-all duration-300 mb-5 ${
+                  currentStep > step.num ? "bg-emerald-500" : "bg-neutral-200"
                 }`} />
               )}
             </React.Fragment>
@@ -453,38 +429,42 @@ export default function SignupPage() {
         </div>
 
         {/* Form Card */}
-        <div className="bg-white/90 backdrop-blur-sm rounded-3xl border border-slate-200/50 shadow-xl shadow-slate-200/50 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-neutral-200/60 shadow-xl shadow-neutral-900/[0.04] overflow-hidden">
           {/* Step 1: Business Details */}
           {currentStep === 1 && (
-            <div className="p-6 sm:p-8">
+            <div className="p-5 sm:p-8">
               {/* Business Type Selection */}
-              <div className="mb-8">
-                <label className="block text-sm font-semibold text-slate-700 mb-3">
+              <div className="mb-7">
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-3">
                   What type of business do you run?
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {businessTypes.map((type) => (
                     <button
                       key={type.id}
                       type="button"
                       onClick={() => setFormBusinessType(type.id)}
-                      className={`relative flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all duration-200 ${
+                      className={`relative flex flex-col items-center gap-2 p-3.5 rounded-xl border-2 transition-all duration-200 ${
                         formBusinessType === type.id
-                          ? "border-pink-500 bg-pink-50 shadow-lg shadow-pink-500/10"
-                          : "border-slate-200 bg-white hover:border-pink-300 hover:shadow-md"
+                          ? "border-neutral-900 bg-neutral-50 shadow-md"
+                          : "border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm"
                       }`}
                     >
-                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${type.color} flex items-center justify-center shadow-lg`}>
-                        <i className={`fas ${type.icon} text-white text-lg`} />
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                        formBusinessType === type.id
+                          ? "bg-neutral-900 text-white"
+                          : "bg-neutral-100 text-neutral-500"
+                      }`}>
+                        <i className={`fas ${type.icon} text-sm`} />
                       </div>
-                      <span className={`text-xs font-medium text-center ${
-                        formBusinessType === type.id ? "text-pink-700" : "text-slate-600"
+                      <span className={`text-[11px] font-medium text-center leading-tight ${
+                        formBusinessType === type.id ? "text-neutral-900" : "text-neutral-600"
                       }`}>
                         {type.label}
                       </span>
                       {formBusinessType === type.id && (
-                        <div className="absolute top-2 right-2 w-5 h-5 bg-pink-500 rounded-full flex items-center justify-center">
-                          <i className="fas fa-check text-white text-xs" />
+                        <div className="absolute top-2 right-2 w-5 h-5 bg-neutral-900 rounded-full flex items-center justify-center">
+                          <i className="fas fa-check text-white text-[9px]" />
                         </div>
                       )}
                     </button>
@@ -493,26 +473,24 @@ export default function SignupPage() {
               </div>
 
               {/* Business Name */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-store text-pink-500 mr-2" />
+              <div className="mb-5">
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
                   Business Name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formBusinessName}
                   onChange={(e) => setFormBusinessName(e.target.value)}
-                  placeholder="e.g., Sunshine Beauty Spa"
-                  className="w-full px-4 py-3.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white"
+                  placeholder="e.g., City Auto Repairs"
+                  className={inputClass()}
                 />
               </div>
 
               {/* ABN & Business Structure Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    <i className="fas fa-hashtag text-blue-500 mr-2" />
-                    ABN <span className="text-slate-400 text-xs">(Optional)</span>
+                  <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
+                    ABN <span className="text-neutral-400 text-xs">(Optional)</span>
                   </label>
                   <input
                     type="text"
@@ -520,12 +498,11 @@ export default function SignupPage() {
                     onChange={(e) => setFormAbn(formatAbn(e.target.value))}
                     placeholder="XX XXX XXX XXX"
                     maxLength={14}
-                    className="w-full px-4 py-3.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white font-mono"
+                    className={`${inputClass()} font-mono`}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    <i className="fas fa-briefcase text-purple-500 mr-2" />
+                  <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
                     Business Structure
                   </label>
                   <div className="grid grid-cols-2 gap-2">
@@ -534,10 +511,10 @@ export default function SignupPage() {
                         key={structure.id}
                         type="button"
                         onClick={() => setFormStructure(structure.label)}
-                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-all text-sm ${
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border-2 transition-all text-sm ${
                           formStructure === structure.label
-                            ? "border-pink-500 bg-pink-50 text-pink-700"
-                            : "border-slate-200 hover:border-pink-300 text-slate-600"
+                            ? "border-neutral-900 bg-neutral-50 text-neutral-900 font-semibold"
+                            : "border-neutral-200 hover:border-neutral-300 text-neutral-600"
                         }`}
                       >
                         <i className={`fas ${structure.icon} text-xs`} />
@@ -549,11 +526,11 @@ export default function SignupPage() {
               </div>
 
               {/* GST Toggle */}
-              <div className="mb-6 p-4 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-slate-200">
+              <div className="mb-5 p-4 bg-neutral-50 rounded-xl border border-neutral-200">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-slate-900">Registered for GST?</p>
-                    <p className="text-sm text-slate-500 mt-0.5">Required for businesses with turnover over AU$75,000</p>
+                    <p className="font-semibold text-sm text-neutral-900">Registered for GST?</p>
+                    <p className="text-xs text-neutral-500 mt-0.5">Required for businesses with turnover over AU$75,000</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -562,76 +539,66 @@ export default function SignupPage() {
                       checked={formGst}
                       onChange={(e) => setFormGst(e.target.checked)}
                     />
-                    <div className="w-14 h-7 bg-slate-300 peer-focus:ring-2 peer-focus:ring-pink-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all after:shadow-md peer-checked:bg-gradient-to-r peer-checked:from-pink-500 peer-checked:to-fuchsia-500" />
+                    <div className="w-12 h-6 bg-neutral-300 peer-focus:ring-2 peer-focus:ring-neutral-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm peer-checked:bg-neutral-900" />
                   </label>
                 </div>
               </div>
 
               {/* Divider */}
-              <div className="flex items-center gap-4 my-8">
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Location Details</span>
-                <div className="flex-1 h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
+              <div className="flex items-center gap-4 my-7">
+                <div className="flex-1 h-px bg-neutral-200" />
+                <span className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">Location Details</span>
+                <div className="flex-1 h-px bg-neutral-200" />
               </div>
 
               {/* Address */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-location-dot text-rose-500 mr-2" />
-                  Business Address <span className="text-slate-400 text-xs">(Optional)</span>
+              <div className="mb-5">
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
+                  Business Address <span className="text-neutral-400 text-xs">(Optional)</span>
                 </label>
                 <textarea
                   rows={2}
                   value={formAddress}
                   onChange={(e) => setFormAddress(e.target.value)}
                   placeholder="Street address"
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white resize-none"
+                  className={`${inputClass()} resize-none`}
                 />
               </div>
 
               {/* State, Postcode, Timezone Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    <i className="fas fa-map text-emerald-500 mr-2" />
-                    State
-                  </label>
+                  <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">State</label>
                   <select
                     value={formState}
                     onChange={(e) => setFormState(e.target.value)}
-                    className="w-full px-4 py-3.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white appearance-none cursor-pointer"
+                    className={`${inputClass()} appearance-none cursor-pointer`}
                   >
                     <option value="">Select state</option>
                     {australianStates.map((state) => (
                       <option key={state.value} value={state.value}>
-                        {state.icon} {state.value}
+                        {state.value} — {state.label}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    <i className="fas fa-envelope text-amber-500 mr-2" />
-                    Postcode
-                  </label>
+                  <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">Postcode</label>
                   <input
                     type="text"
                     value={formPostcode}
                     onChange={(e) => setFormPostcode(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     placeholder="2000"
                     maxLength={4}
-                    className="w-full px-4 py-3.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white"
+                    className={inputClass()}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    <i className="fas fa-globe text-blue-500 mr-2" />
-                    Timezone
-                  </label>
+                  <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">Timezone</label>
                   <select
                     value={formTimezone}
                     onChange={(e) => setFormTimezone(e.target.value)}
-                    className="w-full px-4 py-3.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white appearance-none cursor-pointer"
+                    className={`${inputClass()} appearance-none cursor-pointer`}
                   >
                     {TIMEZONES.filter(tz => tz.value.startsWith("Australia/")).map((tz) => (
                       <option key={tz.value} value={tz.value}>{tz.label}</option>
@@ -642,12 +609,11 @@ export default function SignupPage() {
 
               {/* Phone */}
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-phone text-green-500 mr-2" />
-                  Business Phone <span className="text-slate-400 text-xs">(Optional)</span>
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
+                  Business Phone <span className="text-neutral-400 text-xs">(Optional)</span>
                 </label>
                 <div className="flex">
-                  <span className="inline-flex items-center px-4 py-3.5 rounded-l-xl border border-r-0 border-slate-200 bg-slate-100 text-slate-600 font-mono text-sm">
+                  <span className="inline-flex items-center px-3.5 py-3 rounded-l-xl border-2 border-r-0 border-neutral-200 bg-neutral-100 text-neutral-500 text-sm font-mono">
                     +61
                   </span>
                   <input
@@ -655,7 +621,7 @@ export default function SignupPage() {
                     value={formPhone}
                     onChange={(e) => setFormPhone(e.target.value)}
                     placeholder="412 345 678"
-                    className="flex-1 px-4 py-3.5 border border-slate-200 rounded-r-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white"
+                    className={`flex-1 px-4 py-3 text-sm bg-neutral-50/80 border-2 border-l-0 rounded-r-xl focus:ring-0 focus:border-neutral-900 focus:bg-white transition-all outline-none placeholder:text-neutral-400 border-neutral-200 hover:border-neutral-300`}
                   />
                 </div>
               </div>
@@ -664,26 +630,24 @@ export default function SignupPage() {
 
           {/* Step 2: Account Details */}
           {currentStep === 2 && (
-            <div className="p-6 sm:p-8">
+            <div className="p-5 sm:p-8">
               {/* Owner Name */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-user text-pink-500 mr-2" />
-                  Your Full Name <span className="text-slate-400 text-xs">(Optional)</span>
+              <div className="mb-5">
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
+                  Your Full Name <span className="text-neutral-400 text-xs">(Optional)</span>
                 </label>
                 <input
                   type="text"
                   value={formOwnerName}
                   onChange={(e) => setFormOwnerName(e.target.value)}
                   placeholder="e.g., John Smith"
-                  className="w-full px-4 py-3.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white"
+                  className={inputClass()}
                 />
               </div>
 
               {/* Email */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-envelope text-blue-500 mr-2" />
+              <div className="mb-5">
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -694,23 +658,19 @@ export default function SignupPage() {
                     if (emailError) setEmailError("");
                     if (emailAlreadyExists) setEmailAlreadyExists(false);
                   }}
-                  placeholder="you@yourbusiness.com"
-                  className={`w-full px-4 py-3.5 border rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white ${
-                    emailError ? "border-rose-400" : "border-slate-200"
-                  }`}
+                  placeholder="you@workshop.com"
+                  className={inputClass(!!emailError)}
                 />
                 {emailError && (
-                  <p className="mt-2 text-sm text-rose-600 flex items-center gap-1">
-                    <i className="fas fa-exclamation-circle" />
-                    {emailError}
+                  <p className="mt-1.5 text-xs text-rose-500 flex items-center gap-1.5">
+                    <i className="fas fa-exclamation-circle text-[10px]" />{emailError}
                   </p>
                 )}
               </div>
 
               {/* Password */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-lock text-amber-500 mr-2" />
+              <div className="mb-5">
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
                   Password <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
@@ -722,24 +682,22 @@ export default function SignupPage() {
                       if (passwordError) setPasswordError("");
                     }}
                     placeholder="Minimum 6 characters"
-                    className={`w-full px-4 py-3.5 pr-12 border rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white ${
-                      passwordError ? "border-rose-400" : "border-slate-200"
-                    }`}
+                    className={`${inputClass(!!passwordError)} pr-12`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 px-4 text-slate-500 hover:text-slate-700 transition-colors"
+                    className="absolute inset-y-0 right-0 px-4 text-neutral-400 hover:text-neutral-600 transition-colors"
                   >
-                    <i className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
+                    <i className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"} text-sm`} />
                   </button>
                 </div>
-                {/* Password strength indicator */}
+                {/* Password strength */}
                 {formPassword && (
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div className="flex-1 h-1 bg-neutral-200 rounded-full overflow-hidden">
                       <div 
-                        className={`h-full transition-all ${
+                        className={`h-full transition-all rounded-full ${
                           formPassword.length < 6 ? "w-1/4 bg-rose-500" :
                           formPassword.length < 8 ? "w-1/2 bg-amber-500" :
                           formPassword.length < 12 ? "w-3/4 bg-emerald-500" :
@@ -747,7 +705,7 @@ export default function SignupPage() {
                         }`}
                       />
                     </div>
-                    <span className={`text-xs font-medium ${
+                    <span className={`text-[11px] font-medium ${
                       formPassword.length < 6 ? "text-rose-500" :
                       formPassword.length < 8 ? "text-amber-500" :
                       "text-emerald-500"
@@ -762,8 +720,7 @@ export default function SignupPage() {
 
               {/* Confirm Password */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <i className="fas fa-lock text-amber-500 mr-2" />
+                <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
                   Confirm Password <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -774,44 +731,41 @@ export default function SignupPage() {
                     if (passwordError) setPasswordError("");
                   }}
                   placeholder="Re-enter your password"
-                  className={`w-full px-4 py-3.5 border rounded-xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all bg-slate-50 focus:bg-white ${
-                    passwordError ? "border-rose-400" : "border-slate-200"
-                  }`}
+                  className={inputClass(!!passwordError)}
                 />
                 {passwordError && (
-                  <p className="mt-2 text-sm text-rose-600 flex items-center gap-1">
-                    <i className="fas fa-exclamation-circle" />
-                    {passwordError}
+                  <p className="mt-1.5 text-xs text-rose-500 flex items-center gap-1.5">
+                    <i className="fas fa-exclamation-circle text-[10px]" />{passwordError}
                   </p>
                 )}
                 {formConfirmPassword && formPassword === formConfirmPassword && (
-                  <p className="mt-2 text-sm text-emerald-600 flex items-center gap-1">
-                    <i className="fas fa-check-circle" />
+                  <p className="mt-1.5 text-xs text-emerald-600 flex items-center gap-1.5">
+                    <i className="fas fa-check-circle text-[10px]" />
                     Passwords match
                   </p>
                 )}
               </div>
 
               {/* Business Summary Card */}
-              <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-5 text-white">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <i className="fas fa-building" />
-                  Your Business Summary
+              <div className="bg-neutral-950 rounded-xl p-5 text-white">
+                <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                  <i className="fas fa-building text-neutral-400" />
+                  Business Summary
                 </h4>
-                <div className="space-y-2 text-sm">
+                <div className="space-y-2.5 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Business Name</span>
+                    <span className="text-neutral-400">Business</span>
                     <span className="font-medium">{formBusinessName || "—"}</span>
                   </div>
                   {formBusinessType && (
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Type</span>
+                      <span className="text-neutral-400">Type</span>
                       <span className="font-medium">{businessTypes.find(t => t.id === formBusinessType)?.label}</span>
                     </div>
                   )}
                   {formState && (
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Location</span>
+                      <span className="text-neutral-400">Location</span>
                       <span className="font-medium">{formState}{formPostcode ? `, ${formPostcode}` : ""}</span>
                     </div>
                   )}
@@ -822,92 +776,73 @@ export default function SignupPage() {
 
           {/* Step 3: Select Plan */}
           {currentStep === 3 && (
-            <div className="p-6 sm:p-8">
+            <div className="p-5 sm:p-8">
               {packagesLoading ? (
                 <div className="flex items-center justify-center py-16">
                   <div className="flex flex-col items-center gap-4">
-                    <div className="relative">
-                      <div className="w-16 h-16 border-4 border-pink-200 rounded-full" />
-                      <div className="w-16 h-16 border-4 border-pink-500 border-t-transparent rounded-full animate-spin absolute inset-0" />
-                    </div>
-                    <p className="text-slate-500 font-medium">Loading plans...</p>
+                    <svg className="animate-spin h-8 w-8 text-neutral-900" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    <p className="text-neutral-500 text-sm font-medium">Loading plans...</p>
                   </div>
                 </div>
               ) : packages.length === 0 ? (
                 <div className="text-center py-16">
-                  <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i className="fas fa-box-open text-3xl text-slate-400" />
+                  <div className="w-16 h-16 bg-neutral-100 rounded-xl flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-box-open text-2xl text-neutral-400" />
                   </div>
-                  <p className="text-slate-500 font-medium">No plans available at the moment.</p>
+                  <p className="text-neutral-500 font-medium text-sm">No plans available at the moment.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {packages.map((pkg) => {
                     const isSelected = selectedPlan === pkg.id;
-                    const gradientClass = pkg.color === "blue" ? "from-blue-500 to-indigo-600"
-                      : pkg.color === "pink" ? "from-pink-500 to-fuchsia-600"
-                      : pkg.color === "purple" ? "from-purple-500 to-indigo-600"
-                      : pkg.color === "green" ? "from-emerald-500 to-teal-600"
-                      : pkg.color === "orange" ? "from-orange-500 to-amber-500"
-                      : pkg.color === "teal" ? "from-teal-500 to-cyan-500"
-                      : "from-pink-500 to-fuchsia-600";
-
                     return (
                       <div
                         key={pkg.id}
                         onClick={() => setSelectedPlan(pkg.id)}
-                        className={`relative cursor-pointer rounded-2xl border-2 transition-all duration-300 hover:shadow-xl ${
+                        className={`relative cursor-pointer rounded-xl border-2 transition-all duration-200 hover:shadow-lg ${
                           isSelected
-                            ? "border-pink-500 bg-gradient-to-br from-pink-50 to-fuchsia-50 shadow-xl shadow-pink-500/20 scale-[1.02]"
-                            : "border-slate-200 bg-white hover:border-pink-300"
+                            ? "border-neutral-900 bg-neutral-50 shadow-lg shadow-neutral-900/10"
+                            : "border-neutral-200 bg-white hover:border-neutral-300"
                         }`}
                       >
                         {pkg.popular && (
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow-lg">
-                            <i className="fas fa-star mr-1" />
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-neutral-900 text-white text-[11px] font-bold px-3.5 py-1 rounded-full shadow-md">
                             Most Popular
                           </div>
                         )}
                         
                         {isSelected && (
-                          <div className="absolute top-4 right-4 w-7 h-7 bg-gradient-to-br from-pink-500 to-fuchsia-600 rounded-full flex items-center justify-center shadow-lg">
-                            <i className="fas fa-check text-white text-sm" />
+                          <div className="absolute top-3.5 right-3.5 w-6 h-6 bg-neutral-900 rounded-full flex items-center justify-center">
+                            <i className="fas fa-check text-white text-[10px]" />
                           </div>
                         )}
 
-                        <div className="p-6">
-                          {/* Plan header */}
-                          <div className="flex items-center gap-4 mb-4">
-                            <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${gradientClass} flex items-center justify-center shadow-lg`}>
-                              {pkg.image ? (
-                                <img src={pkg.image} alt={pkg.name} className="w-full h-full object-cover rounded-2xl" />
-                              ) : (
-                                <i className="fas fa-crown text-white text-xl" />
-                              )}
-                            </div>
-                            <div>
-                              <h4 className="font-bold text-lg text-slate-900">{pkg.name}</h4>
-                              <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent`}>
-                                {pkg.priceLabel}
-                              </p>
-                            </div>
+                        <div className="p-5">
+                          <div className="mb-4">
+                            <h4 className="font-bold text-base text-neutral-900">{pkg.name}</h4>
+                            <p className="text-2xl font-bold text-neutral-900 mt-1">
+                              {pkg.priceLabel}
+                            </p>
                           </div>
 
                           {/* Limits */}
-                          <div className="flex items-center gap-4 text-sm text-slate-600 mb-4 pb-4 border-b border-slate-100">
+                          <div className="flex items-center gap-3 text-xs text-neutral-500 mb-4 pb-4 border-b border-neutral-100">
                             <span className="flex items-center gap-1.5">
-                              <i className="fas fa-building text-slate-400" />
-                              {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch
+                              <i className="fas fa-building" />
+                              {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch{pkg.branches !== 1 ? "es" : ""}
                             </span>
                             <span className="flex items-center gap-1.5">
-                              <i className="fas fa-users text-slate-400" />
+                              <i className="fas fa-users" />
                               {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
                             </span>
                           </div>
 
                           {/* Trial badge */}
                           {pkg.trialDays && pkg.trialDays > 0 && (
-                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-100 to-teal-100 text-emerald-700 rounded-xl text-sm font-semibold mb-4">
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold mb-3">
                               <i className="fas fa-gift" />
                               {pkg.trialDays}-day free trial
                             </div>
@@ -915,15 +850,15 @@ export default function SignupPage() {
 
                           {/* Features */}
                           {pkg.features && pkg.features.length > 0 && (
-                            <ul className="space-y-2">
+                            <ul className="space-y-1.5">
                               {pkg.features.slice(0, 5).map((feature, idx) => (
-                                <li key={idx} className="flex items-start gap-2 text-sm text-slate-600">
-                                  <i className={`fas fa-check text-xs mt-1.5 ${isSelected ? "text-pink-500" : "text-emerald-500"}`} />
+                                <li key={idx} className="flex items-start gap-2 text-xs text-neutral-600">
+                                  <i className={`fas fa-check text-[10px] mt-1 ${isSelected ? "text-neutral-900" : "text-emerald-500"}`} />
                                   {feature}
                                 </li>
                               ))}
                               {pkg.features.length > 5 && (
-                                <li className="text-xs text-slate-400 pl-5">
+                                <li className="text-[11px] text-neutral-400 pl-5">
                                   +{pkg.features.length - 5} more features
                                 </li>
                               )}
@@ -937,23 +872,23 @@ export default function SignupPage() {
               )}
 
               {/* Summary Card */}
-              <div className="mt-8 bg-gradient-to-br from-pink-50 via-fuchsia-50 to-purple-50 border border-pink-200 rounded-2xl p-5">
-                <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                  <i className="fas fa-receipt text-pink-500" />
-                  Your Registration Summary
+              <div className="mt-6 bg-neutral-50 border border-neutral-200 rounded-xl p-5">
+                <h4 className="font-semibold text-sm text-neutral-900 mb-3 flex items-center gap-2">
+                  <i className="fas fa-receipt text-neutral-500" />
+                  Registration Summary
                 </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                  <div className="bg-white/60 rounded-xl p-3">
-                    <p className="text-slate-500 text-xs mb-1">Business</p>
-                    <p className="font-semibold text-slate-900">{formBusinessName}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                  <div className="bg-white rounded-lg p-3 border border-neutral-100">
+                    <p className="text-neutral-400 text-[11px] mb-0.5">Business</p>
+                    <p className="font-semibold text-neutral-900 text-sm">{formBusinessName}</p>
                   </div>
-                  <div className="bg-white/60 rounded-xl p-3">
-                    <p className="text-slate-500 text-xs mb-1">Email</p>
-                    <p className="font-semibold text-slate-900 truncate">{formEmail}</p>
+                  <div className="bg-white rounded-lg p-3 border border-neutral-100">
+                    <p className="text-neutral-400 text-[11px] mb-0.5">Email</p>
+                    <p className="font-semibold text-neutral-900 text-sm truncate">{formEmail}</p>
                   </div>
-                  <div className="bg-white/60 rounded-xl p-3">
-                    <p className="text-slate-500 text-xs mb-1">Selected Plan</p>
-                    <p className="font-semibold text-pink-600">
+                  <div className="bg-white rounded-lg p-3 border border-neutral-100">
+                    <p className="text-neutral-400 text-[11px] mb-0.5">Selected Plan</p>
+                    <p className="font-semibold text-neutral-900 text-sm">
                       {selectedPlan ? packages.find(p => p.id === selectedPlan)?.name : "None selected"}
                     </p>
                   </div>
@@ -962,26 +897,25 @@ export default function SignupPage() {
             </div>
           )}
 
-          {/* Email Already Exists Display */}
+          {/* Email Already Exists */}
           {emailAlreadyExists && (
-            <div className="mx-6 mb-4 p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-xl">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-user-check text-amber-600 text-xl" />
+            <div className="mx-5 sm:mx-8 mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-user-check text-amber-600" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-amber-800 mb-1">Account Already Exists</p>
-                  <p className="text-sm text-amber-700 mb-3">
-                    An account with <strong>{formEmail}</strong> is already registered. 
-                    Please sign in to access your dashboard.
+                  <p className="font-semibold text-amber-800 text-sm mb-1">Account Already Exists</p>
+                  <p className="text-xs text-amber-700 mb-3">
+                    An account with <strong>{formEmail}</strong> is already registered.
                   </p>
                   <div className="flex items-center gap-3">
                     <Link
                       href="/login"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white font-semibold rounded-lg hover:from-pink-600 hover:to-fuchsia-700 transition-all shadow-md text-sm"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white font-semibold rounded-lg hover:bg-neutral-800 transition-all text-sm"
                     >
-                      <i className="fas fa-sign-in-alt" />
-                      Sign In Now
+                      <i className="fas fa-sign-in-alt text-xs" />
+                      Sign In
                     </Link>
                     <button
                       type="button"
@@ -990,7 +924,7 @@ export default function SignupPage() {
                         setFormEmail("");
                         setCurrentStep(2);
                       }}
-                      className="text-sm text-amber-700 hover:text-amber-900 font-medium underline"
+                      className="text-xs text-amber-700 hover:text-amber-900 font-medium underline"
                     >
                       Use a different email
                     </button>
@@ -1002,31 +936,33 @@ export default function SignupPage() {
 
           {/* Error Display */}
           {generalError && !emailAlreadyExists && (
-            <div className="mx-6 mb-4 p-4 bg-rose-50 border border-rose-200 rounded-xl">
-              <div className="flex items-start gap-3 text-rose-700">
-                <i className="fas fa-exclamation-triangle mt-0.5" />
+            <div className="mx-5 sm:mx-8 mb-4 p-4 bg-rose-50 border border-rose-200 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center shrink-0">
+                  <i className="fas fa-circle-exclamation text-rose-500 text-xs" />
+                </div>
                 <div>
-                  <p className="font-semibold">Something went wrong</p>
-                  <p className="text-sm">{generalError}</p>
+                  <p className="font-semibold text-rose-800 text-sm">Something went wrong</p>
+                  <p className="text-xs text-rose-600 mt-0.5">{generalError}</p>
                 </div>
               </div>
             </div>
           )}
 
           {/* Footer */}
-          <div className="px-6 sm:px-8 py-5 bg-slate-50/80 border-t border-slate-200/50 flex items-center justify-between">
+          <div className="px-5 sm:px-8 py-4 bg-neutral-50/80 border-t border-neutral-200/60 flex items-center justify-between">
             {currentStep > 1 ? (
               <button
                 onClick={goBack}
                 disabled={creating}
-                className="px-5 py-2.5 text-slate-600 hover:text-slate-800 font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2.5 text-neutral-500 hover:text-neutral-900 font-medium transition-colors disabled:opacity-50 flex items-center gap-2 text-sm"
               >
-                <i className="fas fa-arrow-left" />
+                <i className="fas fa-arrow-left text-xs" />
                 Back
               </button>
             ) : (
-              <Link href="/login" className="px-5 py-2.5 text-slate-600 hover:text-slate-800 font-medium transition-colors flex items-center gap-2">
-                <i className="fas fa-arrow-left" />
+              <Link href="/login" className="px-4 py-2.5 text-neutral-500 hover:text-neutral-900 font-medium transition-colors flex items-center gap-2 text-sm">
+                <i className="fas fa-arrow-left text-xs" />
                 Back to Sign In
               </Link>
             )}
@@ -1034,39 +970,46 @@ export default function SignupPage() {
             <button
               onClick={goNext}
               disabled={creating || (currentStep === 3 && !selectedPlan)}
-              className="px-8 py-3 bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white font-semibold rounded-xl hover:from-pink-600 hover:to-fuchsia-700 transition-all shadow-lg shadow-pink-500/25 hover:shadow-pink-500/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 sm:px-8 py-3 bg-neutral-900 text-white text-sm font-semibold rounded-xl hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-lg shadow-neutral-900/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {creating && <i className="fas fa-circle-notch fa-spin" />}
+              {creating && (
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              )}
               {nextCtaLabel}
-              {currentStep < 3 && <i className="fas fa-arrow-right" />}
+              {currentStep < 3 && !creating && <i className="fas fa-arrow-right text-xs" />}
             </button>
           </div>
         </div>
 
         {/* Trust badges */}
-        <div className="flex items-center justify-center gap-6 mt-8 text-slate-400">
-          <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center justify-center gap-5 mt-7 text-neutral-400">
+          <div className="flex items-center gap-1.5 text-[11px]">
             <i className="fas fa-shield-halved" />
-            <span>Secure & Encrypted</span>
+            <span>Secure</span>
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="w-px h-3 bg-neutral-300" />
+          <div className="flex items-center gap-1.5 text-[11px]">
             <i className="fas fa-lock" />
-            <span>Privacy Protected</span>
+            <span>Encrypted</span>
           </div>
-          <div className="flex items-center gap-2 text-xs">
+          <div className="w-px h-3 bg-neutral-300" />
+          <div className="flex items-center gap-1.5 text-[11px]">
             <i className="fas fa-headset" />
             <span>24/7 Support</span>
           </div>
         </div>
 
         {/* Terms */}
-        <p className="text-xs text-slate-500 text-center mt-4">
+        <p className="text-[11px] text-neutral-400 text-center mt-4 mb-8">
           By creating an account, you agree to our{" "}
-          <a href="https://bmspros.com.au/terms" target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:underline">
+          <a href="https://bmspros.com.au/terms" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-900 underline underline-offset-2 transition-colors">
             Terms of Service
           </a>{" "}
           and{" "}
-          <a href="https://bmspros.com.au/privacy" target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:underline">
+          <a href="https://bmspros.com.au/privacy" target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-neutral-900 underline underline-offset-2 transition-colors">
             Privacy Policy
           </a>
         </p>

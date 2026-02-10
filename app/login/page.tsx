@@ -88,95 +88,110 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      await ensureUserDocument(auth.currentUser);
 
       const uid = auth.currentUser?.uid;
-      if (uid) {
+      if (!uid) throw new Error("No user UID after sign in");
+
+      // Step 1: Check if user is a super admin first (before ensureUserDocument)
+      let isSuperAdmin = false;
+      try {
         const superAdminSnap = await getDoc(doc(db, "super_admins", uid));
-        let userRole: string;
-        let suspended = false;
-        let statusText = "";
-        
-        if (superAdminSnap.exists()) {
-          userRole = "super_admin";
-        } else {
+        isSuperAdmin = superAdminSnap.exists();
+      } catch (saErr) {
+        console.warn("Could not check super_admins collection:", saErr);
+        // If we can't read super_admins, continue - user might be a regular user
+      }
+
+      // Step 2: Only run ensureUserDocument for non-super-admins
+      if (!isSuperAdmin) {
+        try {
+          await ensureUserDocument(auth.currentUser);
+        } catch (ensureErr) {
+          console.warn("ensureUserDocument failed:", ensureErr);
+        }
+      }
+
+      // Step 3: Determine role, suspension status
+      let userRole = "";
+      let suspended = false;
+      let statusText = "";
+      let userName = "";
+      let ownerUid = uid;
+
+      if (isSuperAdmin) {
+        userRole = "super_admin";
+        try {
+          const saDoc = await getDoc(doc(db, "super_admins", uid));
+          const saData = saDoc.data();
+          userName = (saData?.displayName || "").toString();
+        } catch {
+          userName = email;
+        }
+      } else {
+        try {
           const snap = await getDoc(doc(db, "users", uid));
           const userData = snap.data();
           suspended = Boolean(userData?.suspended);
           statusText = (userData?.status || "").toString().toLowerCase();
           userRole = (userData?.role || "").toString().toLowerCase();
-        }
-        
-        if (suspended || statusText.includes("suspend")) {
+          userName = (userData?.displayName || userData?.name || "").toString();
+          ownerUid = userData?.ownerUid || uid;
+        } catch (userErr) {
+          console.error("Failed to read user document:", userErr);
           await (await import("firebase/auth")).signOut(auth);
-          setError("Your account is suspended. Please contact support.");
-          return;
-        }
-        
-        const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
-        if (!allowedRoles.includes(userRole)) {
-          await (await import("firebase/auth")).signOut(auth);
-          setError("Access denied. This portal is for admin users only.");
+          setError("Unable to verify your account. Please contact support.");
           return;
         }
       }
 
+      // Step 4: Check suspension (only for non-super-admins)
+      if (!isSuperAdmin && (suspended || statusText.includes("suspend"))) {
+        await (await import("firebase/auth")).signOut(auth);
+        setError("Your account is suspended. Please contact support.");
+        return;
+      }
+
+      // Step 5: Check role is allowed
+      const allowedRoles = ["salon_owner", "salon_branch_admin", "super_admin"];
+      if (!allowedRoles.includes(userRole)) {
+        await (await import("firebase/auth")).signOut(auth);
+        setError("Access denied. This portal is for admin users only.");
+        return;
+      }
+
+      // Step 6: Persist token and role
       const token = await auth.currentUser?.getIdToken();
       if (token && typeof window !== "undefined") {
         localStorage.setItem("idToken", token);
       }
-      try {
-        const uid2 = auth.currentUser?.uid;
-        if (uid2) {
-          const superAdminSnap = await getDoc(doc(db, "super_admins", uid2));
-          let data: any;
-          let role: string;
-          let name: string;
-          let ownerUid: string;
-          
-          if (superAdminSnap.exists()) {
-            data = superAdminSnap.data();
-            role = "super_admin";
-            name = (data?.displayName || "").toString();
-            ownerUid = uid2;
-          } else {
-            const snap = await getDoc(doc(db, "users", uid2));
-            data = snap.data();
-            role = (data?.role || "").toString();
-            name = (data?.displayName || data?.name || "").toString();
-            ownerUid = data?.ownerUid || uid2;
-          }
-          
-          if (typeof window !== "undefined") {
-            localStorage.setItem("role", role);
-            if (name) localStorage.setItem("userName", name);
-          }
+      if (typeof window !== "undefined") {
+        localStorage.setItem("role", userRole);
+        if (userName) localStorage.setItem("userName", userName);
+      }
 
-          try {
-            if (role !== "super_admin") {
-              await logUserLogin(ownerUid, uid2, name || email, role);
-            }
-            
-            if (role === "super_admin") {
-              await logSuperAdminLogin(uid2, name || email);
-            } else {
-              await createSuperAdminAuditLog({
-                action: `${role === "salon_owner" ? "Salon Owner" : "Staff"} logged in: ${name || email}`,
-                actionType: "login",
-                entityType: "tenant",
-                entityId: ownerUid,
-                entityName: name || email,
-                performedBy: uid2,
-                performedByName: name || email,
-                details: `Role: ${role}`,
-              });
-            }
-          } catch (auditErr) {
-            console.error("Failed to create login audit log:", auditErr);
-          }
+      // Step 7: Audit logging (non-blocking, wrapped in try-catch)
+      try {
+        if (userRole === "super_admin") {
+          await logSuperAdminLogin(uid, userName || email);
+        } else {
+          await logUserLogin(ownerUid, uid, userName || email, userRole);
+          await createSuperAdminAuditLog({
+            action: `${userRole === "salon_owner" ? "Salon Owner" : "Staff"} logged in: ${userName || email}`,
+            actionType: "login",
+            entityType: "tenant",
+            entityId: ownerUid,
+            entityName: userName || email,
+            performedBy: uid,
+            performedByName: userName || email,
+            details: `Role: ${userRole}`,
+          });
         }
-      } catch {}
-      const userRole = localStorage.getItem("role");
+      } catch (auditErr) {
+        // Audit logging should never block login
+        console.warn("Audit log failed (non-blocking):", auditErr);
+      }
+
+      // Step 8: Redirect based on role
       if (userRole === "super_admin") {
         router.replace("/admin-dashboard");
       } else if (userRole === "salon_branch_admin") {

@@ -240,36 +240,36 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     <>
     <nav
       id="sidebar"
-      className={`${mobile ? "flex w-64 h-full" : "hidden md:flex md:w-64 md:h-full"} bg-slate-900 flex-col`}
+      className={`${mobile ? "flex w-64 h-full" : "hidden md:flex md:w-64 md:h-full"} bg-neutral-900 flex-col`}
     >
-      <div className="p-6 border-b border-slate-800">
+      <div className="p-6 border-b border-neutral-800">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg">
-            <i className="fas fa-wrench text-slate-900 text-sm" />
+          <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <i className="fas fa-wrench text-white text-sm" />
           </div>
           <div>
             <h1 className="font-bold text-base text-white">BMS PRO</h1>
-            <p className="text-[10px] font-semibold tracking-[0.2em] text-slate-500 uppercase">Black</p>
+            <p className="text-[10px] font-semibold tracking-[0.2em] text-neutral-500 uppercase">Black</p>
           </div>
         </div>
         {mobile && (
           <button
             aria-label="Close menu"
             onClick={onClose}
-            className="absolute right-3 top-3 text-slate-400 hover:text-white md:hidden"
+            className="absolute right-3 top-3 text-neutral-400 hover:text-white md:hidden"
           >
             <i className="fas fa-times" />
           </button>
         )}
       </div>
-      <div ref={scrollContainerRef} className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-slate-900" style={{ overflowAnchor: 'none' }}>
+      <div ref={scrollContainerRef} className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll bg-neutral-900" style={{ overflowAnchor: 'none' }}>
         {mounted && (role === "salon_owner" || role === "salon_branch_admin" || role === "super_admin") && (
           <Link
             href={role === "super_admin" ? "/admin-dashboard" : "/dashboard"}
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
               isDashboard
-                ? "bg-white/10 text-white font-semibold"
-                : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                ? "bg-amber-500/15 text-amber-400 font-semibold"
+                : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
             }`}
           >
             <i className="fas fa-chart-line w-5" />
@@ -278,19 +278,19 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
         {/* Super Admin - Only Dashboard and Tenants */}
         {mounted && role === "super_admin" && (
-          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-store w-5" />
             <span>Tenant Management</span>
           </Link>
         )}
         {mounted && role === "super_admin" && (
-          <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-box w-5" />
             <span>Packages</span>
           </Link>
         )}
         {mounted && role === "super_admin" && (
-          <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-shield-halved w-5" />
             <span>Audit Logs</span>
           </Link>
@@ -303,7 +303,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               onClick={(e) => toggleBookings(e)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleBookings(e as unknown as React.MouseEvent); }}
               className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
-                isBookings ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+                isBookings ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
               }`}
             >
               <i className="fas fa-calendar-check w-5" />
@@ -316,7 +316,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               <>
                 <Link
                   href="/bookings/dashboard?create=true"
-                  className="ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition bg-white text-slate-900 hover:bg-slate-200 shadow-sm"
+                  className="ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition bg-white text-neutral-900 hover:bg-neutral-200 shadow-sm"
                 >
                   <i className="fas fa-plus w-4" />
                   <span>Create Booking</span>
@@ -324,7 +324,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <Link
                   href="/bookings/dashboard"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsDashboard && !pathname?.includes("create") ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    isBookingsDashboard && !pathname?.includes("create") ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-gauge w-4" />
@@ -333,7 +333,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <Link
                   href="/bookings/pending"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsPending ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    isBookingsPending ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-hourglass-half w-4" />
@@ -342,7 +342,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <Link
                   href="/bookings/confirmed"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsConfirmed ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    isBookingsConfirmed ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-check-circle w-4" />
@@ -351,7 +351,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <Link
                   href="/bookings/completed"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsCompleted ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    isBookingsCompleted ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-flag-checkered w-4" />
@@ -360,7 +360,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <Link
                   href="/bookings/cancelled"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    isBookingsCancelled ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    isBookingsCancelled ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-ban w-4" />
@@ -374,7 +374,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link
             href="/services"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-              isServices ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+              isServices ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
             }`}
           >
             <i className="fas fa-tags w-5" />
@@ -385,7 +385,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         <Link
           href="/customers"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isCustomers ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+            isCustomers ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
           }`}
         >
           <i className="fas fa-user-group w-5" />
@@ -396,7 +396,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         <Link
           href="/loyalty"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isLoyalty ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+            isLoyalty ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
           }`}
         >
           <i className="fas fa-gem w-5" />
@@ -407,7 +407,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         <Link
           href="/branches"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isBranches ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+            isBranches ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
           }`}
         >
           <i className="fas fa-store w-5" />
@@ -422,7 +422,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               onClick={(e) => toggleStaff(e)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleStaff(e as unknown as React.MouseEvent); }}
               className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
-                isStaff ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"
+                isStaff ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
               }`}
             >
               <i className="fas fa-users w-5" />
@@ -437,8 +437,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   href="/staff/manage"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
                     pathname === "/staff" || pathname?.startsWith("/staff/manage")
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                      ? "bg-neutral-800 text-white"
+                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-user-cog w-4" />
@@ -448,8 +448,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   href="/staff/attendance"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
                     pathname === "/staff/attendance"
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                      ? "bg-neutral-800 text-white"
+                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-map-location-dot w-4" />
@@ -459,8 +459,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                   href="/staff/timesheets"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
                     pathname === "/staff/timesheets"
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                      ? "bg-neutral-800 text-white"
+                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
                 >
                   <i className="fas fa-clock w-4" />
@@ -471,40 +471,40 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </>
         )}
         {/* {mounted && role !== "salon_branch_admin" && (
-          <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-credit-card w-5" />
             <span>Billing & Invoices</span>
           </Link>
         )} */}
         {mounted && role === "salon_owner" && (
-          <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-clipboard-list w-5" />
             <span>Audit Logs</span>
           </Link>
         )}
         {mounted && role === "salon_owner" && (
-          <Link href="/subscription" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSubscription ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/subscription" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSubscription ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-crown w-5" />
             <span>Subscription</span>
           </Link>
         )}
         {mounted && role === "salon_owner" && (
-          <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-white/10 text-white font-semibold" : "hover:bg-slate-800 text-slate-400 hover:text-white"}`}>
+          <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
             <span>Settings</span>
           </Link>
         )}
       </div>
-      <div className="p-4 border-t border-slate-800">
-        <div className="flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-slate-800 cursor-pointer transition">
-          <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-white font-semibold text-sm">
+      <div className="p-4 border-t border-neutral-800">
+        <div className="flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-neutral-800 cursor-pointer transition">
+          <div className="w-10 h-10 rounded-full bg-neutral-700 flex items-center justify-center text-white font-semibold text-sm">
             {userName ? userName.charAt(0).toUpperCase() : userEmail ? userEmail.charAt(0).toUpperCase() : <i className="fas fa-user" />}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white truncate">
               {userName || userEmail.split('@')[0] || "Account"}
             </p>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-neutral-400">
               {mounted && role
                 ? role === "super_admin"
                   ? "Super Admin"
@@ -518,11 +518,11 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 : "User"}
             </p>
           </div>
-          <i className="fas fa-chevron-right text-slate-400 text-xs" />
+          <i className="fas fa-chevron-right text-neutral-400 text-xs" />
         </div>
         <button
           onClick={handleSignOut}
-          className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition"
+          className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-sm font-semibold transition border border-neutral-700"
         >
           <i className="fas fa-right-from-bracket" />
           Sign Out
@@ -535,13 +535,13 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       <div className="fixed inset-0 z-50">
         <div className="absolute inset-0 bg-black/50" onClick={signingOut ? undefined : cancelSignOut} />
         <div className="absolute inset-0 flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900">
+          <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-neutral-200">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-neutral-900">
                 {signingOut ? "Signing out..." : "Sign out"}
               </h3>
               {!signingOut && (
-                <button className="text-slate-400 hover:text-slate-600" onClick={cancelSignOut}>
+                <button className="text-neutral-400 hover:text-neutral-600" onClick={cancelSignOut}>
                   <i className="fas fa-times" />
                 </button>
               )}
@@ -550,15 +550,15 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               {signingOut ? (
                 <div className="flex items-center justify-center gap-3 py-2">
                   <div className="w-5 h-5 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm text-slate-600">Please wait while we sign you out...</p>
+                  <p className="text-sm text-neutral-600">Please wait while we sign you out...</p>
                 </div>
               ) : (
-                <p className="text-sm text-slate-600">Are you sure you want to sign out?</p>
+                <p className="text-sm text-neutral-600">Are you sure you want to sign out?</p>
               )}
             </div>
             {!signingOut && (
-              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button onClick={cancelSignOut} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
+              <div className="px-5 py-4 border-t border-neutral-200 flex items-center justify-end gap-2">
+                <button onClick={cancelSignOut} className="px-4 py-2 rounded-lg text-neutral-700 hover:bg-neutral-100 text-sm font-semibold">
                   Cancel
                 </button>
                 <button onClick={confirmSignOut} className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold">

@@ -778,14 +778,14 @@ export default function SubscriptionPage() {
                       .map((pkg) => {
                       const isCurrentPlan = userData?.plan === pkg.name;
                       const gradientClass = pkg.color === "blue" ? "from-blue-500 via-blue-600 to-indigo-600" 
-                        : pkg.color === "pink" ? "from-pink-500 via-rose-500 to-fuchsia-600" 
+                        : pkg.color === "pink" ? "from-neutral-700 via-neutral-800 to-neutral-900" 
                         : pkg.color === "purple" ? "from-purple-500 via-violet-500 to-indigo-600" 
                         : pkg.color === "green" ? "from-emerald-500 via-green-500 to-teal-600"
                         : pkg.color === "orange" ? "from-orange-500 via-amber-500 to-yellow-500"
                         : pkg.color === "teal" ? "from-teal-500 via-cyan-500 to-blue-500"
                         : "from-neutral-700 via-neutral-800 to-neutral-900";
                       const lightBgClass = pkg.color === "blue" ? "bg-blue-50" 
-                        : pkg.color === "pink" ? "bg-pink-50" 
+                        : pkg.color === "pink" ? "bg-neutral-50" 
                         : pkg.color === "purple" ? "bg-purple-50" 
                         : pkg.color === "green" ? "bg-emerald-50"
                         : pkg.color === "orange" ? "bg-orange-50"

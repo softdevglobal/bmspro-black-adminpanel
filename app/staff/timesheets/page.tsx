@@ -920,7 +920,7 @@ export default function TimesheetsPage() {
   }, [workSummaries, searchQuery, selectedRole, selectedBranch, minHours, sortBy]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 font-inter text-slate-800">
+    <div className="flex h-screen overflow-hidden bg-neutral-50 font-inter text-neutral-800">
       <Sidebar />
 
       {/* Main Content Area */}
@@ -928,10 +928,10 @@ export default function TimesheetsPage() {
         <main className="flex-1 overflow-auto">
           
           {/* Mobile Toggle */}
-          <div className="md:hidden p-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-            <h2 className="font-bold text-lg text-slate-800">Timesheets</h2>
+          <div className="md:hidden p-4 bg-white border-b border-neutral-200 flex items-center justify-between shrink-0">
+            <h2 className="font-bold text-lg text-neutral-800">Timesheets</h2>
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -955,14 +955,18 @@ export default function TimesheetsPage() {
             
             {/* Header Card */}
             <div className="mb-6">
-              <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-clock" />
+              <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+                <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+                <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+                <div className="relative flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                    <i className="fas fa-clock text-amber-400" />
                   </div>
                   <div>
                     <h1 className="text-2xl font-bold">Staff Timesheets</h1>
-                    <p className="text-sm text-white/80 mt-1">View daily work hours for all staff members</p>
+                    <p className="text-sm text-neutral-400 mt-1">View daily work hours for all staff members</p>
                   </div>
                 </div>
               </div>
@@ -973,7 +977,7 @@ export default function TimesheetsPage() {
               <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-4">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900" />
-                  <span className="text-slate-600">Loading timesheets...</span>
+                  <span className="text-neutral-600">Loading timesheets...</span>
                 </div>
               </div>
             )}
@@ -982,27 +986,27 @@ export default function TimesheetsPage() {
             {!loading && (
               <>
                 {/* Week Navigation */}
-                <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 shadow-sm">
+                <div className="bg-white rounded-xl border border-neutral-200 p-4 mb-6 shadow-sm">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={goToPreviousWeek}
-                        className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                        className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600"
                       >
                         <i className="fas fa-chevron-left" />
                       </button>
-                      <div className="px-4 py-2 bg-slate-50 rounded-lg border border-slate-200 font-medium text-slate-700 min-w-[250px] text-center">
+                      <div className="px-4 py-2 bg-neutral-50 rounded-lg border border-neutral-200 font-medium text-neutral-700 min-w-[250px] text-center">
                         {formatDate(weekRange.start)} - {formatDate(weekRange.end)}
                       </div>
                       <button
                         onClick={goToNextWeek}
-                        className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                        className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600"
                       >
                         <i className="fas fa-chevron-right" />
                       </button>
                       <button
                         onClick={goToThisWeek}
-                        className="px-3 py-2 rounded-lg bg-pink-50 text-pink-600 font-medium hover:bg-pink-100 text-sm"
+                        className="px-3 py-2 rounded-lg bg-neutral-100 text-neutral-900 font-medium hover:bg-neutral-200 text-sm"
                       >
                         This Week
                       </button>
@@ -1010,14 +1014,14 @@ export default function TimesheetsPage() {
 
                     {/* Summary Stats */}
                     <div className="flex items-center gap-4 text-sm">
-                      <div className="text-slate-600">
+                      <div className="text-neutral-600">
                         <span className="font-semibold">{filteredSummaries.length}</span> Staff Members
                         {filteredSummaries.length !== workSummaries.length && (
-                          <span className="text-slate-400"> / {workSummaries.length}</span>
+                          <span className="text-neutral-400"> / {workSummaries.length}</span>
                         )}
                       </div>
-                      <div className="text-slate-600">
-                        Total Hours: <span className="font-semibold text-pink-600">
+                      <div className="text-neutral-600">
+                        Total Hours: <span className="font-semibold text-neutral-700">
                           {formatDuration(
                             filteredSummaries.reduce((sum, s) => sum + s.totalHours, 0),
                             filteredSummaries.reduce((sum, s) => sum + s.totalMinutes, 0)
@@ -1029,24 +1033,24 @@ export default function TimesheetsPage() {
                 </div>
 
                 {/* Filter Section */}
-                <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 shadow-sm">
+                <div className="bg-white rounded-xl border border-neutral-200 p-4 mb-6 shadow-sm">
                   <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-2">
-                      <i className="fas fa-filter text-pink-600" />
-                      <h3 className="font-semibold text-slate-800">Quick Filters</h3>
+                      <i className="fas fa-filter text-neutral-700" />
+                      <h3 className="font-semibold text-neutral-800">Quick Filters</h3>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                       {/* Search by Name */}
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <i className="fas fa-search text-slate-400" />
+                          <i className="fas fa-search text-neutral-400" />
                         </div>
                         <input
                           type="text"
                           placeholder="Search staff name..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                          className="w-full pl-10 pr-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         />
                       </div>
 
@@ -1055,7 +1059,7 @@ export default function TimesheetsPage() {
                         <select
                           value={selectedRole}
                           onChange={(e) => setSelectedRole(e.target.value)}
-                          className="w-full px-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white appearance-none"
+                          className="w-full px-3 pr-8 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white appearance-none"
                         >
                           <option value="all">All Roles</option>
                           {uniqueRoles.map(role => (
@@ -1063,7 +1067,7 @@ export default function TimesheetsPage() {
                           ))}
                         </select>
                         <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
-                          <i className="fas fa-chevron-down text-slate-400 text-xs" />
+                          <i className="fas fa-chevron-down text-neutral-400 text-xs" />
                         </div>
                       </div>
 
@@ -1072,7 +1076,7 @@ export default function TimesheetsPage() {
                         <select
                           value={selectedBranch}
                           onChange={(e) => setSelectedBranch(e.target.value)}
-                          className="w-full px-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white appearance-none"
+                          className="w-full px-3 pr-8 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white appearance-none"
                         >
                           <option value="all">All Branches</option>
                           {uniqueBranches.map(branch => (
@@ -1080,14 +1084,14 @@ export default function TimesheetsPage() {
                           ))}
                         </select>
                         <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
-                          <i className="fas fa-chevron-down text-slate-400 text-xs" />
+                          <i className="fas fa-chevron-down text-neutral-400 text-xs" />
                         </div>
                       </div>
 
                       {/* Minimum Hours */}
                       <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                          <i className="fas fa-clock text-slate-400 text-xs" />
+                          <i className="fas fa-clock text-neutral-400 text-xs" />
                         </div>
                         <input
                           type="number"
@@ -1096,7 +1100,7 @@ export default function TimesheetsPage() {
                           onChange={(e) => setMinHours(e.target.value)}
                           min="0"
                           step="0.5"
-                          className="w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                          className="w-full pl-10 pr-3 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         />
                       </div>
 
@@ -1105,13 +1109,13 @@ export default function TimesheetsPage() {
                         <select
                           value={sortBy}
                           onChange={(e) => setSortBy(e.target.value as "name" | "hours")}
-                          className="w-full px-3 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-white appearance-none"
+                          className="w-full px-3 pr-8 py-2 border border-neutral-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent bg-white appearance-none"
                         >
                           <option value="hours">Sort by Hours</option>
                           <option value="name">Sort by Name</option>
                         </select>
                         <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
-                          <i className="fas fa-chevron-down text-slate-400 text-xs" />
+                          <i className="fas fa-chevron-down text-neutral-400 text-xs" />
                         </div>
                       </div>
                     </div>
@@ -1125,7 +1129,7 @@ export default function TimesheetsPage() {
                           setSelectedBranch("all");
                           setMinHours("0");
                         }}
-                        className="self-start px-3 py-1.5 text-xs font-medium text-pink-600 hover:text-pink-700 hover:bg-pink-50 rounded-lg transition"
+                        className="self-start px-3 py-1.5 text-xs font-medium text-neutral-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
                       >
                         <i className="fas fa-times mr-1" />
                         Clear Filters
@@ -1135,28 +1139,28 @@ export default function TimesheetsPage() {
                 </div>
 
                 {/* Timesheet Table */}
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead className="bg-slate-50 border-b border-slate-200">
+                      <thead className="bg-neutral-50 border-b border-neutral-200">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider sticky left-0 bg-slate-50 z-10">
+                          <th className="px-4 py-3 text-left text-xs font-bold text-neutral-500 uppercase tracking-wider sticky left-0 bg-neutral-50 z-10">
                             Staff Member
                           </th>
                           {weekDays.map((day, idx) => (
-                            <th key={idx} className="px-3 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[120px]">
+                            <th key={idx} className="px-3 py-3 text-center text-xs font-bold text-neutral-500 uppercase tracking-wider min-w-[120px]">
                               <div>{formatDate(day)}</div>
                             </th>
                           ))}
-                          <th className="px-4 py-3 text-center text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[100px]">
+                          <th className="px-4 py-3 text-center text-xs font-bold text-neutral-500 uppercase tracking-wider min-w-[100px]">
                             Total
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-neutral-100">
                         {filteredSummaries.length === 0 ? (
                           <tr>
-                            <td colSpan={9} className="px-4 py-12 text-center text-slate-400">
+                            <td colSpan={9} className="px-4 py-12 text-center text-neutral-400">
                               <i className="fas fa-filter text-3xl mb-3 opacity-50" />
                               <p>
                                 {workSummaries.length === 0 
@@ -1171,7 +1175,7 @@ export default function TimesheetsPage() {
                                     setSelectedBranch("all");
                                     setMinHours("0");
                                   }}
-                                  className="mt-3 px-4 py-2 text-sm font-medium text-pink-600 hover:text-pink-700 hover:bg-pink-50 rounded-lg transition"
+                                  className="mt-3 px-4 py-2 text-sm font-medium text-neutral-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
                                 >
                                   Clear Filters
                                 </button>
@@ -1180,10 +1184,10 @@ export default function TimesheetsPage() {
                           </tr>
                         ) : (
                           filteredSummaries.map((summary) => (
-                            <tr key={summary.staffId} className="hover:bg-slate-50 transition">
+                            <tr key={summary.staffId} className="hover:bg-neutral-50 transition">
                               <td className="px-4 py-3 sticky left-0 bg-white z-10">
                                 <div className="flex flex-col">
-                                  <div className="font-semibold text-slate-800 flex items-center gap-2 flex-wrap">
+                                  <div className="font-semibold text-neutral-800 flex items-center gap-2 flex-wrap">
                                     <span className="break-words">{summary.staffName}</span>
                                     {summary.systemRole === "salon_branch_admin" && (
                                       <span className="px-1.5 sm:px-2 py-0.5 bg-purple-100 text-purple-700 text-[9px] sm:text-[10px] font-bold rounded-full whitespace-nowrap shrink-0">
@@ -1191,7 +1195,7 @@ export default function TimesheetsPage() {
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-[10px] sm:text-xs text-slate-500 break-words mt-2">
+                                  <div className="text-[10px] sm:text-xs text-neutral-500 break-words mt-2">
                                     {summary.systemRole === "salon_branch_admin" 
                                       ? "Branch Admin" 
                                       : summary.staffRole || "Staff"}
@@ -1208,7 +1212,7 @@ export default function TimesheetsPage() {
                                         const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
                                         return (
                                           <div key={ciIdx} className="text-xs">
-                                            <div className="font-medium text-slate-800 flex items-center justify-center gap-1.5 flex-wrap">
+                                            <div className="font-medium text-neutral-800 flex items-center justify-center gap-1.5 flex-wrap">
                                               <span>
                                                 {formatTime(checkIn.checkInTime)}
                                                 {checkIn.checkOutTime ? (
@@ -1220,7 +1224,7 @@ export default function TimesheetsPage() {
                                                   </span>
                                                 )}
                                               </span>
-                                              <span className="font-semibold text-pink-600">
+                                              <span className="font-semibold text-neutral-700">
                                                 ({formatDuration(duration.hours, duration.minutes)})
                                               </span>
                                             </div>
@@ -1228,18 +1232,18 @@ export default function TimesheetsPage() {
                                         );
                                       })}
                                       {day.checkIns.length > 1 && (
-                                        <div className="font-semibold text-pink-600 text-sm pt-1 border-t border-slate-100 mt-1">
+                                        <div className="font-semibold text-neutral-700 text-sm pt-1 border-t border-neutral-100 mt-1">
                                           Total: {formatDuration(day.totalHours, day.totalMinutes)}
                                         </div>
                                       )}
                                     </div>
                                   ) : (
-                                    <span className="text-slate-300">-</span>
+                                    <span className="text-neutral-300">-</span>
                                   )}
                                 </td>
                               ))}
                               <td className="px-4 py-3 text-center">
-                                <div className="font-bold text-pink-600 text-base">
+                                <div className="font-bold text-neutral-700 text-base">
                                   {formatDuration(summary.totalHours, summary.totalMinutes)}
                                 </div>
                               </td>
@@ -1254,50 +1258,50 @@ export default function TimesheetsPage() {
                 {/* Summary Cards */}
                 {filteredSummaries.length > 0 && (
                   <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                    <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
                           <i className="fas fa-users text-blue-600" />
                         </div>
                         <div>
-                          <div className="text-2xl font-bold text-slate-800">{filteredSummaries.length}</div>
-                          <div className="text-xs text-slate-500">
+                          <div className="text-2xl font-bold text-neutral-800">{filteredSummaries.length}</div>
+                          <div className="text-xs text-neutral-500">
                             Staff Members
                             {filteredSummaries.length !== workSummaries.length && (
-                              <span className="text-slate-400"> (filtered)</span>
+                              <span className="text-neutral-400"> (filtered)</span>
                             )}
                           </div>
                         </div>
                       </div>
                     </div>
                     
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                    <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
                           <i className="fas fa-clock text-green-600" />
                         </div>
                         <div>
-                          <div className="text-2xl font-bold text-slate-800">
+                          <div className="text-2xl font-bold text-neutral-800">
                             {formatDuration(
                               filteredSummaries.reduce((sum, s) => sum + s.totalHours, 0),
                               filteredSummaries.reduce((sum, s) => sum + s.totalMinutes, 0)
                             )}
                           </div>
-                          <div className="text-xs text-slate-500">Total Hours</div>
+                          <div className="text-xs text-neutral-500">Total Hours</div>
                         </div>
                       </div>
                     </div>
                     
-                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                    <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
                           <i className="fas fa-calendar-week text-purple-600" />
                         </div>
                         <div>
-                          <div className="text-2xl font-bold text-slate-800">
+                          <div className="text-2xl font-bold text-neutral-800">
                             {filteredSummaries.filter(s => s.totalHours > 0 || s.totalMinutes > 0).length}
                           </div>
-                          <div className="text-xs text-slate-500">Active This Week</div>
+                          <div className="text-xs text-neutral-500">Active This Week</div>
                         </div>
                       </div>
                     </div>

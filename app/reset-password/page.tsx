@@ -179,17 +179,17 @@ function ResetPasswordForm() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white p-6">
         <div className="w-full max-w-md">
-          <div className="rounded-2xl border border-slate-200 shadow-sm p-6 text-center">
+          <div className="rounded-2xl border border-neutral-200 shadow-sm p-6 text-center">
             <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
               <i className="fas fa-check text-2xl text-green-600" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Password Reset Successful!</h2>
-            <p className="text-sm text-slate-600 mb-6">
+            <h2 className="text-xl font-bold text-neutral-900 mb-2">Password Reset Successful!</h2>
+            <p className="text-sm text-neutral-600 mb-6">
               Your password has been successfully reset. You will be redirected to the login page shortly.
             </p>
             <button
               onClick={() => router.push("/login")}
-              className="px-5 py-2.5 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition"
+              className="px-5 py-2.5 bg-neutral-900 text-white font-semibold rounded-lg hover:bg-neutral-800 transition"
             >
               Go to Login
             </button>
@@ -202,7 +202,7 @@ function ResetPasswordForm() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-white p-6">
       <div className="w-full max-w-md">
-        <div className="rounded-2xl border border-slate-200 shadow-sm p-6">
+        <div className="rounded-2xl border border-neutral-200 shadow-sm p-6">
           <div className="flex items-center gap-3 mb-6">
             <img
               src="/bmspink-icon.jpeg"
@@ -210,13 +210,13 @@ function ResetPasswordForm() {
               className="w-10 h-10 rounded-xl shadow-lg object-cover"
             />
             <div>
-              <h1 className="font-bold text-lg text-slate-900">BMS PRO</h1>
-              <p className="text-xs font-semibold text-pink-600">PINK — Admin</p>
+              <h1 className="font-bold text-lg text-neutral-900">BMS PRO</h1>
+              <p className="text-xs font-semibold text-neutral-600">PINK — Admin</p>
             </div>
           </div>
 
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Reset Password</h2>
-          <p className="text-sm text-slate-500 mb-6">
+          <h2 className="text-xl font-bold text-neutral-900 mb-2">Reset Password</h2>
+          <p className="text-sm text-neutral-500 mb-6">
             {codeVerified 
               ? "Enter your new password below"
               : "Enter your email and the 6-digit code sent to your email"}
@@ -242,7 +242,7 @@ function ResetPasswordForm() {
           {!codeVerified ? (
             <form onSubmit={handleVerifyCode} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                <label className="block text-sm font-medium text-neutral-700 mb-2">Email</label>
                 <input
                   type="email"
                   placeholder="you@company.com"
@@ -251,14 +251,14 @@ function ResetPasswordForm() {
                     setEmail(e.target.value);
                     if (error) setError(null);
                   }}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                   disabled={verifyingCode}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Verification Code</label>
+                <label className="block text-sm font-medium text-neutral-700 mb-2">Verification Code</label>
                 <input
                   type="text"
                   placeholder="000000"
@@ -270,11 +270,11 @@ function ResetPasswordForm() {
                     if (error) setError(null);
                   }}
                   maxLength={6}
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent text-center text-2xl font-mono tracking-widest"
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent text-center text-2xl font-mono tracking-widest"
                   disabled={verifyingCode}
                   required
                 />
-                <p className="mt-1 text-xs text-slate-500 text-center">
+                <p className="mt-1 text-xs text-neutral-500 text-center">
                   Enter the 6-digit code sent to your email
                 </p>
               </div>
@@ -282,7 +282,7 @@ function ResetPasswordForm() {
               <button
                 type="submit"
                 disabled={verifyingCode || !email.trim() || !code.trim() || code.length !== 6}
-                className="w-full px-5 py-3 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full px-5 py-3 bg-neutral-900 text-white font-semibold rounded-lg hover:bg-neutral-800 transition disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 {verifyingCode ? "Verifying..." : "Verify Code"}
               </button>
@@ -305,26 +305,26 @@ function ResetPasswordForm() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                <label className="block text-sm font-medium text-neutral-700 mb-2">Email</label>
                 <input
                   type="email"
                   value={email}
                   disabled
-                  className="w-full px-4 py-3 border border-slate-300 rounded-lg bg-slate-50 text-slate-500 cursor-not-allowed"
+                  className="w-full px-4 py-3 border border-neutral-300 rounded-lg bg-neutral-50 text-neutral-500 cursor-not-allowed"
                 />
               </div>
             
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">New Password</label>
+              <label className="block text-sm font-medium text-neutral-700 mb-2">New Password</label>
               <div className="relative">
                 <input
                   type={showPasswords.new ? "text" : "password"}
-                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent pr-10 ${
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent pr-10 ${
                     newPassword && passwordErrors.length > 0
                       ? "border-red-300 bg-red-50"
                       : newPassword && passwordErrors.length === 0
                       ? "border-green-300 bg-green-50"
-                      : "border-slate-300"
+                      : "border-neutral-300"
                   }`}
                   placeholder="Enter your new password"
                   value={newPassword}
@@ -335,32 +335,32 @@ function ResetPasswordForm() {
                 <button
                   type="button"
                   onClick={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
                 >
                   <i className={`fas ${showPasswords.new ? "fa-eye-slash" : "fa-eye"}`} />
                 </button>
               </div>
               {newPassword && (
                 <div className="mt-2">
-                  <p className="text-xs font-medium text-slate-600 mb-1">Password must contain:</p>
+                  <p className="text-xs font-medium text-neutral-600 mb-1">Password must contain:</p>
                   <ul className="text-xs space-y-1">
-                    <li className={`flex items-center gap-2 ${newPassword.length >= 8 ? "text-green-600" : "text-slate-500"}`}>
+                    <li className={`flex items-center gap-2 ${newPassword.length >= 8 ? "text-green-600" : "text-neutral-500"}`}>
                       <i className={`fas ${newPassword.length >= 8 ? "fa-check-circle" : "fa-circle"} text-xs`} />
                       At least 8 characters
                     </li>
-                    <li className={`flex items-center gap-2 ${/[A-Z]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                    <li className={`flex items-center gap-2 ${/[A-Z]/.test(newPassword) ? "text-green-600" : "text-neutral-500"}`}>
                       <i className={`fas ${/[A-Z]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
                       One uppercase letter
                     </li>
-                    <li className={`flex items-center gap-2 ${/[a-z]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                    <li className={`flex items-center gap-2 ${/[a-z]/.test(newPassword) ? "text-green-600" : "text-neutral-500"}`}>
                       <i className={`fas ${/[a-z]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
                       One lowercase letter
                     </li>
-                    <li className={`flex items-center gap-2 ${/[0-9]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                    <li className={`flex items-center gap-2 ${/[0-9]/.test(newPassword) ? "text-green-600" : "text-neutral-500"}`}>
                       <i className={`fas ${/[0-9]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
                       One number
                     </li>
-                    <li className={`flex items-center gap-2 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword) ? "text-green-600" : "text-slate-500"}`}>
+                    <li className={`flex items-center gap-2 ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword) ? "text-green-600" : "text-neutral-500"}`}>
                       <i className={`fas ${/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(newPassword) ? "fa-check-circle" : "fa-circle"} text-xs`} />
                       One special character (!@#$%^&*...)
                     </li>
@@ -370,16 +370,16 @@ function ResetPasswordForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Confirm New Password</label>
+              <label className="block text-sm font-medium text-neutral-700 mb-2">Confirm New Password</label>
               <div className="relative">
                 <input
                   type={showPasswords.confirm ? "text" : "password"}
-                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent pr-10 ${
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent pr-10 ${
                     confirmPassword && newPassword && confirmPassword !== newPassword
                       ? "border-red-300 bg-red-50"
                       : confirmPassword && confirmPassword === newPassword && newPassword.length > 0 && passwordErrors.length === 0
                       ? "border-green-300 bg-green-50"
-                      : "border-slate-300"
+                      : "border-neutral-300"
                   }`}
                   placeholder="Confirm your new password"
                   value={confirmPassword}
@@ -390,7 +390,7 @@ function ResetPasswordForm() {
                 <button
                   type="button"
                   onClick={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
                 >
                   <i className={`fas ${showPasswords.confirm ? "fa-eye-slash" : "fa-eye"}`} />
                 </button>
@@ -412,17 +412,17 @@ function ResetPasswordForm() {
               <button
                 type="submit"
                 disabled={loading || passwordErrors.length > 0 || newPassword !== confirmPassword}
-                className="w-full px-5 py-3 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
+                className="w-full px-5 py-3 bg-neutral-900 text-white font-semibold rounded-lg hover:bg-neutral-800 transition disabled:opacity-70 disabled:cursor-not-allowed"
               >
                 {loading ? "Resetting Password..." : "Reset Password"}
               </button>
             </form>
           )}
 
-          <p className="text-xs text-slate-500 mt-6 text-center">
+          <p className="text-xs text-neutral-500 mt-6 text-center">
             <button
               onClick={() => router.push("/login")}
-              className="text-pink-600 hover:text-pink-700 font-medium"
+              className="text-neutral-600 hover:text-neutral-800 font-medium"
             >
               Back to Login
             </button>
@@ -440,7 +440,7 @@ export default function ResetPasswordPage() {
         <div className="min-h-screen flex items-center justify-center bg-white p-6">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900 mx-auto mb-4"></div>
-            <p className="text-slate-600 font-medium">Loading...</p>
+            <p className="text-neutral-600 font-medium">Loading...</p>
           </div>
         </div>
       }

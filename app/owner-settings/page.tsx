@@ -432,7 +432,7 @@ export default function OwnerSettingsPage() {
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -453,7 +453,7 @@ export default function OwnerSettingsPage() {
             <div className="flex items-center justify-center h-64">
               <div className="flex flex-col items-center gap-3">
                 <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
-                <p className="text-slate-500 font-medium">Loading settings...</p>
+                <p className="text-neutral-500 font-medium">Loading settings...</p>
               </div>
             </div>
           ) : mounted && userData && (

@@ -780,7 +780,7 @@ export default function SettingsPage() {
         <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6 xl:p-8">
           <div className="md:hidden mb-3 sm:mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs sm:text-sm text-slate-700 shadow-sm hover:bg-slate-50 transition"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-xs sm:text-sm text-neutral-700 shadow-sm hover:bg-neutral-50 transition"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -798,14 +798,18 @@ export default function SettingsPage() {
           )}
 
           <div className="mb-4 sm:mb-6 lg:mb-8">
-            <div className="rounded-xl sm:rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-4 sm:p-6 shadow-sm">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                  <i className="fas fa-users text-sm sm:text-base" />
+            <div className="relative rounded-xl sm:rounded-2xl bg-neutral-900 text-white p-4 sm:p-6 shadow-sm overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+              <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+              <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+              <div className="relative flex items-center gap-2 sm:gap-3">
+                <div className="w-8 h-8 sm:w-11 sm:h-11 rounded-lg sm:rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0 border border-amber-500/30">
+                  <i className="fas fa-users text-amber-400 text-sm sm:text-base" />
                 </div>
                 <div className="min-w-0">
                   <h1 className="text-xl sm:text-2xl font-bold truncate">Staff Management</h1>
-                  <p className="text-xs sm:text-sm text-white/80 mt-0.5 sm:mt-1 truncate">Directory, Training Matrix, Roster</p>
+                  <p className="text-xs sm:text-sm text-neutral-400 mt-0.5 sm:mt-1 truncate">Directory, Training Matrix, Roster</p>
                 </div>
               </div>
             </div>
@@ -813,14 +817,14 @@ export default function SettingsPage() {
 
           {/* Staff Limit Info Banner */}
           {ownerPlan && (
-            <div className="mb-4 sm:mb-6 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-4">
+            <div className="mb-4 sm:mb-6 bg-gradient-to-r from-indigo-50 to-neutral-50 border border-indigo-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
                   <i className="fas fa-users text-indigo-600" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-slate-900 mb-2">Staff Limit Information</h3>
-                  <div className="text-sm text-slate-700 space-y-2">
+                  <h3 className="font-semibold text-neutral-900 mb-2">Staff Limit Information</h3>
+                  <div className="text-sm text-neutral-700 space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span>
                         Your <span className="font-semibold text-indigo-600">{ownerPlan.name || "current plan"}</span> includes{" "}
@@ -835,7 +839,7 @@ export default function SettingsPage() {
                       )}
                     </div>
                     {isStaffLimitReached() && (
-                      <p className="text-slate-600">
+                      <p className="text-neutral-600">
                         <i className="fas fa-arrow-up text-indigo-500 mr-1" />
                         Need more staff? <button onClick={() => setShowUpgradeModal(true)} className="font-semibold text-indigo-600 hover:text-indigo-700 underline">Upgrade your package</button>
                       </p>
@@ -848,11 +852,11 @@ export default function SettingsPage() {
 
           <section>
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
-              <div className="bg-white border border-slate-200 p-1 rounded-lg flex w-full sm:w-auto justify-center sm:justify-start overflow-x-auto">
+              <div className="bg-white border border-neutral-200 p-1 rounded-lg flex w-full sm:w-auto justify-center sm:justify-start overflow-x-auto">
                 <button
                   onClick={() => setActiveTab("directory")}
                   className={`px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-md transition whitespace-nowrap ${
-                    activeTab === "directory" ? "bg-pink-50 text-pink-600" : "text-slate-500 hover:text-slate-700"
+                    activeTab === "directory" ? "bg-neutral-100 text-neutral-900" : "text-neutral-500 hover:text-neutral-700"
                   }`}
                 >
                   Directory
@@ -860,7 +864,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => setActiveTab("training")}
                   className={`px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-md transition whitespace-nowrap ${
-                    activeTab === "training" ? "bg-pink-50 text-pink-600" : "text-slate-500 hover:text-slate-700"
+                    activeTab === "training" ? "bg-neutral-100 text-neutral-900" : "text-neutral-500 hover:text-neutral-700"
                   }`}
                 >
                   Training Matrix
@@ -868,7 +872,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => setActiveTab("roster")}
                   className={`px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded-md transition whitespace-nowrap ${
-                    activeTab === "roster" ? "bg-pink-50 text-pink-600" : "text-slate-500 hover:text-slate-700"
+                    activeTab === "roster" ? "bg-neutral-100 text-neutral-900" : "text-neutral-500 hover:text-neutral-700"
                   }`}
                 >
                   Time Table/Roster
@@ -877,7 +881,7 @@ export default function SettingsPage() {
 
               <button
                 onClick={handleOnboardClick}
-                className="w-full sm:w-auto px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white rounded-lg text-xs sm:text-sm font-semibold shadow-lg hover:shadow-xl hover:from-pink-700 hover:to-fuchsia-700 transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-4 sm:px-5 py-2 sm:py-2.5 bg-neutral-900 text-white rounded-lg text-xs sm:text-sm font-semibold shadow-lg hover:shadow-xl hover:bg-neutral-800 transition-all duration-200 flex items-center justify-center gap-2"
               >
                 <i className="fa-solid fa-user-plus" /> <span className="whitespace-nowrap">Onboard Staff</span>
               </button>
@@ -887,7 +891,7 @@ export default function SettingsPage() {
               <div className="flex justify-center items-center py-20">
                 <div className="flex flex-col items-center gap-3">
                   <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
-                  <p className="text-slate-500 font-medium">Loading staff data...</p>
+                  <p className="text-neutral-500 font-medium">Loading staff data...</p>
                 </div>
               </div>
             )}
@@ -896,18 +900,18 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
                 <div className="lg:col-span-2 space-y-3 lg:space-y-4">
                   {data.staff.length === 0 ? (
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 lg:p-12 text-center">
+                    <div className="bg-white rounded-xl shadow-sm border border-neutral-200 p-8 lg:p-12 text-center">
                       <div className="flex flex-col items-center gap-4">
-                        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
-                          <i className="fas fa-users text-2xl text-slate-400" />
+                        <div className="w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center">
+                          <i className="fas fa-users text-2xl text-neutral-400" />
                         </div>
                         <div>
-                          <h3 className="font-bold text-slate-800 mb-1">No staff members yet</h3>
-                          <p className="text-sm text-slate-500">Get started by onboarding your first staff member</p>
+                          <h3 className="font-bold text-neutral-800 mb-1">No staff members yet</h3>
+                          <p className="text-sm text-neutral-500">Get started by onboarding your first staff member</p>
                         </div>
                         <button
                           onClick={handleOnboardClick}
-                          className="mt-2 px-5 py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 text-white rounded-lg text-sm font-semibold shadow-lg hover:shadow-xl hover:from-pink-700 hover:to-fuchsia-700 transition-all duration-200 flex items-center gap-2"
+                          className="mt-2 px-5 py-2.5 bg-neutral-900 text-white rounded-lg text-sm font-semibold shadow-lg hover:shadow-xl hover:bg-neutral-800 transition-all duration-200 flex items-center gap-2"
                         >
                           <i className="fa-solid fa-user-plus" /> Add First Staff Member
                         </button>
@@ -921,7 +925,7 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={s.id}
-                        className={`bg-white rounded-xl shadow-sm border border-slate-200 p-4 lg:p-5 hover:shadow-lg transition-all duration-200 border-l-4 ${borderColor} ${opacity} group`}
+                        className={`bg-white rounded-xl shadow-sm border border-neutral-200 p-4 lg:p-5 hover:shadow-lg transition-all duration-200 border-l-4 ${borderColor} ${opacity} group`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                           {/* Avatar Section */}
@@ -929,7 +933,7 @@ export default function SettingsPage() {
                             <img
                               src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
                               alt="Avatar"
-                              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-slate-100 ring-2 ring-slate-100 group-hover:ring-pink-200 transition"
+                              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-100 ring-2 ring-neutral-100 group-hover:ring-neutral-200 transition"
                             />
                             {s.systemRole === "salon_branch_admin" && (
                               <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center border-2 border-white">
@@ -942,20 +946,20 @@ export default function SettingsPage() {
                           <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                <h4 className="font-bold text-slate-800 truncate text-sm sm:text-base">{s.name}</h4>
+                                <h4 className="font-bold text-neutral-800 truncate text-sm sm:text-base">{s.name}</h4>
                               </div>
-                              <p className="text-xs sm:text-sm text-slate-600 font-medium mb-1 truncate">
+                              <p className="text-xs sm:text-sm text-neutral-600 font-medium mb-1 truncate">
                                 {s.role}{s.branch ? ` • ${s.branch}` : ""}
                               </p>
                               {s.email && (
-                                <p className="text-xs text-slate-500 mt-1 flex items-center gap-1 min-w-0">
-                                  <i className="fas fa-envelope text-slate-400 text-[10px] shrink-0" />
+                                <p className="text-xs text-neutral-500 mt-1 flex items-center gap-1 min-w-0">
+                                  <i className="fas fa-envelope text-neutral-400 text-[10px] shrink-0" />
                                   <span className="truncate">{s.email}</span>
                                 </p>
                               )}
                               {s.mobile && (
-                                <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                  <i className="fas fa-phone text-slate-400 text-[10px] shrink-0" />
+                                <p className="text-xs text-neutral-500 mt-1 flex items-center gap-1">
+                                  <i className="fas fa-phone text-neutral-400 text-[10px] shrink-0" />
                                   <span className="truncate">{s.mobile}</span>
                                 </p>
                               )}
@@ -978,7 +982,7 @@ export default function SettingsPage() {
                               {/* Action Buttons */}
                               <div className="flex items-center gap-1 sm:gap-1.5">
                                 <button
-                                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-all duration-200 hover:scale-110"
+                                  className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg hover:bg-neutral-100 flex items-center justify-center text-neutral-500 hover:text-neutral-700 transition-all duration-200 hover:scale-110"
                                   title="Preview"
                                   onClick={() => router.push(`/staff/${s.id}`)}
                                 >
@@ -1019,10 +1023,10 @@ export default function SettingsPage() {
                 </div>
                 
                 {/* Quick Stats Sidebar */}
-                <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-xl p-4 lg:p-5 border border-slate-700 h-fit shadow-lg order-first lg:order-last">
+                <div className="bg-gradient-to-br from-neutral-800 to-neutral-900 text-white rounded-xl p-4 lg:p-5 border border-neutral-700 h-fit shadow-lg order-first lg:order-last">
                   <div className="flex items-center gap-2 mb-4 lg:mb-5">
-                    <div className="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center">
-                      <i className="fas fa-chart-bar text-pink-400" />
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                      <i className="fas fa-chart-bar text-amber-400" />
                     </div>
                     <h3 className="font-bold text-base lg:text-lg">Quick Stats</h3>
                   </div>
@@ -1033,8 +1037,8 @@ export default function SettingsPage() {
                         : "bg-white/10 border-white/5 hover:bg-white/15"
                     }`}>
                       <div className="flex items-center gap-2">
-                        <i className={`fas fa-users ${isStaffLimitReached() ? "text-rose-300" : "text-slate-300"}`} />
-                        <span className={`text-sm lg:text-base ${isStaffLimitReached() ? "text-rose-100" : "text-slate-200"}`}>Total Staff</span>
+                        <i className={`fas fa-users ${isStaffLimitReached() ? "text-rose-300" : "text-neutral-300"}`} />
+                        <span className={`text-sm lg:text-base ${isStaffLimitReached() ? "text-rose-100" : "text-neutral-200"}`}>Total Staff</span>
                       </div>
                       <div className="text-right">
                         <span className={`font-bold text-lg lg:text-xl ${isStaffLimitReached() ? "text-rose-300" : "text-white"}`}>
@@ -1073,7 +1077,7 @@ export default function SettingsPage() {
                   <div className="mt-4 lg:mt-5 pt-4 lg:pt-5 border-t border-white/10">
                     <button
                       onClick={handleOnboardClick}
-                      className="w-full py-2.5 lg:py-3 px-3 lg:px-4 bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 rounded-lg text-xs lg:text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
+                      className="w-full py-2.5 lg:py-3 px-3 lg:px-4 bg-neutral-900 hover:bg-neutral-800 rounded-lg text-xs lg:text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
                     >
                       <i className="fa-solid fa-user-plus" />
                       Add New Staff
@@ -1084,12 +1088,12 @@ export default function SettingsPage() {
             )}
 
             {ownerUid && activeTab === "training" && (
-              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+              <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden">
                 <div className="overflow-x-auto -mx-4 sm:mx-0">
                   <div className="inline-block min-w-full align-middle">
                     <div className="overflow-hidden">
-                      <table className="w-full min-w-[600px] text-left text-xs sm:text-sm text-slate-600">
-                        <thead className="bg-slate-50 text-slate-800 font-semibold border-b border-slate-100">
+                      <table className="w-full min-w-[600px] text-left text-xs sm:text-sm text-neutral-600">
+                        <thead className="bg-neutral-50 text-neutral-800 font-semibold border-b border-neutral-100">
                           <tr>
                             <th className="p-3 sm:p-4 pl-4 sm:pl-6">Staff Member</th>
                             <th className="p-3 sm:p-4 text-center">OHS Training</th>
@@ -1098,10 +1102,10 @@ export default function SettingsPage() {
                             <th className="p-3 sm:p-4 text-right pr-4 sm:pr-6">Action</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody className="divide-y divide-neutral-100">
                           {data.staff.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="p-6 text-center text-slate-500">
+                              <td colSpan={5} className="p-6 text-center text-neutral-500">
                                 No staff members yet.
                               </td>
                             </tr>
@@ -1119,10 +1123,10 @@ export default function SettingsPage() {
                                 </span>
                               );
                               return (
-                                <tr key={s.id} className="hover:bg-slate-50 transition border-b border-slate-100 last:border-0">
-                                  <td className="p-3 sm:p-4 pl-4 sm:pl-6 font-medium text-slate-900">
+                                <tr key={s.id} className="hover:bg-neutral-50 transition border-b border-neutral-100 last:border-0">
+                                  <td className="p-3 sm:p-4 pl-4 sm:pl-6 font-medium text-neutral-900">
                                     <div className="flex items-center gap-2 sm:gap-3">
-                                      <div className="w-6 h-6 sm:w-8 sm:h-8 bg-slate-200 rounded-full flex items-center justify-center text-[10px] sm:text-xs shrink-0">
+                                      <div className="w-6 h-6 sm:w-8 sm:h-8 bg-neutral-200 rounded-full flex items-center justify-center text-[10px] sm:text-xs shrink-0">
                                         {s.name.substring(0, 2)}
                                       </div>
                                       <span className="truncate">{s.name}</span>
@@ -1159,10 +1163,10 @@ export default function SettingsPage() {
             )}
 
             {ownerUid && activeTab === "roster" && (
-              <div className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 lg:p-6">
+              <div className="bg-white border border-neutral-200 rounded-xl p-3 sm:p-4 lg:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 sm:mb-4 gap-3">
-                  <h3 className="text-slate-800 text-base sm:text-lg font-bold">Weekly Roster</h3>
-                  <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-slate-600 flex-wrap">
+                  <h3 className="text-neutral-800 text-base sm:text-lg font-bold">Weekly Roster</h3>
+                  <div className="flex items-center gap-2 sm:gap-4 text-[10px] sm:text-xs text-neutral-600 flex-wrap">
                     <div className="flex items-center gap-1.5 sm:gap-2">
                       <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded bg-emerald-50 border border-emerald-200 shrink-0" />
                       <span className="whitespace-nowrap">Staff Working</span>
@@ -1172,7 +1176,7 @@ export default function SettingsPage() {
                       <span className="whitespace-nowrap">Branch Admin</span>
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2">
-                      <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded bg-slate-100 border border-slate-200 shrink-0" />
+                      <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded bg-neutral-100 border border-neutral-200 shrink-0" />
                       <span className="whitespace-nowrap">Off Day</span>
                     </div>
                   </div>
@@ -1182,47 +1186,47 @@ export default function SettingsPage() {
                     <div className="overflow-hidden">
                       <table className="w-full text-xs sm:text-sm border-collapse min-w-[700px]">
                         <thead>
-                          <tr className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200 text-slate-700">
+                          <tr className="bg-gradient-to-r from-neutral-50 to-neutral-100 border-b-2 border-neutral-200 text-neutral-700">
                             <th className="p-2 sm:p-3 text-left border-r min-w-[120px] sm:min-w-[150px] font-bold">
                               <div className="flex items-center gap-1.5 sm:gap-2">
-                                <i className="fas fa-user text-slate-400 text-xs sm:text-sm" />
+                                <i className="fas fa-user text-neutral-400 text-xs sm:text-sm" />
                                 <span className="whitespace-nowrap">Staff Member</span>
                               </div>
                             </th>
                             <th className="p-2 sm:p-3 text-center border-r min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Mon</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">☀️</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">☀️</div>
                             </th>
                             <th className="p-2 sm:p-3 text-center border-r min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Tue</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">🌤️</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">🌤️</div>
                             </th>
                             <th className="p-2 sm:p-3 text-center border-r min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Wed</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">🌻</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">🌻</div>
                             </th>
                             <th className="p-2 sm:p-3 text-center border-r min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Thu</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">🌸</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">🌸</div>
                             </th>
                             <th className="p-2 sm:p-3 text-center border-r min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Fri</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">🎉</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">🎉</div>
                             </th>
                             <th className="p-2 sm:p-3 text-center border-r min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Sat</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">🎨</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">🎨</div>
                             </th>
                             <th className="p-2 sm:p-3 text-center min-w-[80px]">
                               <div className="font-bold text-xs sm:text-sm">Sun</div>
-                              <div className="text-[8px] sm:text-[10px] text-slate-500 font-normal">🌙</div>
+                              <div className="text-[8px] sm:text-[10px] text-neutral-500 font-normal">🌙</div>
                             </th>
                           </tr>
                         </thead>
                         <tbody>
                           {data.staff.filter((s) => s.status === "Active").length === 0 ? (
                             <tr>
-                              <td colSpan={8} className="p-4 sm:p-6 text-center text-slate-500">
+                              <td colSpan={8} className="p-4 sm:p-6 text-center text-neutral-500">
                                 No staff members yet.
                               </td>
                             </tr>
@@ -1241,13 +1245,13 @@ export default function SettingsPage() {
                                 "Sunday",
                               ];
                               return (
-                                <tr key={s.id} className="border-b hover:bg-slate-50/50 transition">
-                                  <td className="p-2 sm:p-3 border-r font-medium text-slate-800">
+                                <tr key={s.id} className="border-b hover:bg-neutral-50/50 transition">
+                                  <td className="p-2 sm:p-3 border-r font-medium text-neutral-800">
                                     <div className="flex items-center gap-2 sm:gap-3">
                                       <img
                                         src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
                                         alt={s.name}
-                                        className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-slate-100 shrink-0"
+                                        className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-neutral-100 shrink-0"
                                       />
                                       <div className="min-w-0">
                                         <div className="flex items-center gap-1 sm:gap-1.5">
@@ -1258,7 +1262,7 @@ export default function SettingsPage() {
                                             </span>
                                           )}
                                         </div>
-                                        <div className="text-[9px] sm:text-[10px] text-slate-500 truncate">{s.role}</div>
+                                        <div className="text-[9px] sm:text-[10px] text-neutral-500 truncate">{s.role}</div>
                                       </div>
                                     </div>
                                   </td>
@@ -1287,7 +1291,7 @@ export default function SettingsPage() {
                                             ? isBranchAdmin 
                                               ? "bg-indigo-50 hover:bg-indigo-100" 
                                               : "bg-emerald-50 hover:bg-emerald-100"
-                                            : "bg-slate-50 hover:bg-slate-100"
+                                            : "bg-neutral-50 hover:bg-neutral-100"
                                         }`}
                                       >
                                         {isWorking && assignment ? (
@@ -1301,7 +1305,7 @@ export default function SettingsPage() {
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="text-slate-400 text-[10px] sm:text-xs">
+                                          <div className="text-neutral-400 text-[10px] sm:text-xs">
                                             <i className="fas fa-beach mr-0.5 sm:mr-1" />
                                             Off
                                           </div>
@@ -1365,16 +1369,16 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   
-                  <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-purple-100">
+                  <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-100">
                     <div className="flex items-center gap-2 sm:gap-3">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-purple-500 text-white flex items-center justify-center shrink-0">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-neutral-500 text-white flex items-center justify-center shrink-0">
                         <i className="fas fa-store text-sm sm:text-base" />
                       </div>
                       <div className="min-w-0">
-                        <div className="text-xl sm:text-2xl font-bold text-purple-900">
+                        <div className="text-xl sm:text-2xl font-bold text-neutral-900">
                           {data.branches.length}
                         </div>
-                        <div className="text-[10px] sm:text-xs text-purple-700 truncate">Total Branches</div>
+                        <div className="text-[10px] sm:text-xs text-neutral-700 truncate">Total Branches</div>
                       </div>
                     </div>
                   </div>
@@ -1390,9 +1394,9 @@ export default function SettingsPage() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg border-l-4 border-pink-500 flex items-center gap-2"
+            className="bg-neutral-800 text-white px-4 py-3 rounded-lg shadow-lg border-l-4 border-amber-500 flex items-center gap-2"
           >
-            <i className="fa-solid fa-circle-check text-pink-500" />
+            <i className="fa-solid fa-circle-check text-amber-500" />
             <span>{t.message}</span>
           </div>
         ))}
@@ -1400,9 +1404,9 @@ export default function SettingsPage() {
 
       {/* Staff Modal */}
       {isStaffModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
+        <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] sm:max-h-[90vh] flex flex-col">
-            <div className="bg-gradient-to-r from-slate-800 to-slate-900 p-3 sm:p-5 border-b border-slate-700 flex justify-between items-center rounded-t-xl shrink-0">
+            <div className="bg-gradient-to-r from-neutral-800 to-neutral-900 p-3 sm:p-5 border-b border-neutral-700 flex justify-between items-center rounded-t-xl shrink-0">
               <div className="flex items-center gap-2 sm:gap-3">
                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white/10 flex items-center justify-center">
                   <i className="fa-solid fa-user-pen text-white text-sm sm:text-base" />
@@ -1431,20 +1435,20 @@ export default function SettingsPage() {
               <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
               {/* Package Information */}
               {ownerPlan && (
-                <div className="bg-gradient-to-r from-pink-50 to-purple-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-pink-200 mb-3 sm:mb-4">
+                <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200 mb-3 sm:mb-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 sm:gap-3">
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-neutral-900 flex items-center justify-center">
                         <i className="fas fa-crown text-white text-xs sm:text-sm" />
                       </div>
                       <div>
-                        <div className="text-[10px] sm:text-xs text-slate-600 font-semibold">Current Plan</div>
-                        <div className="text-sm sm:text-base font-bold text-slate-900">{ownerPlan.name}</div>
+                        <div className="text-[10px] sm:text-xs text-neutral-600 font-semibold">Current Plan</div>
+                        <div className="text-sm sm:text-base font-bold text-neutral-900">{ownerPlan.name}</div>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[10px] sm:text-xs text-slate-600 font-semibold">Staff Limit</div>
-                      <div className={`text-sm sm:text-base font-bold ${isStaffLimitReached() ? "text-rose-600" : "text-pink-600"}`}>
+                      <div className="text-[10px] sm:text-xs text-neutral-600 font-semibold">Staff Limit</div>
+                      <div className={`text-sm sm:text-base font-bold ${isStaffLimitReached() ? "text-rose-600" : "text-neutral-700"}`}>
                         {data.staff.length}/{ownerPlan.staffLimit === -1 ? "∞" : ownerPlan.staffLimit}
                       </div>
                     </div>
@@ -1459,14 +1463,14 @@ export default function SettingsPage() {
               )}
 
               {/* Basic Information Section */}
-              <div className="bg-slate-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-slate-200">
-                <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
-                  <i className="fas fa-id-card text-pink-600" />
+              <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200">
+                <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
+                  <i className="fas fa-id-card text-neutral-700" />
                   Basic Information
                 </h4>
                 <div className="space-y-2.5 sm:space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                    <label className="block text-xs font-bold text-neutral-600 mb-1">
                       Email {!editingStaffId && <span className="text-rose-500">*</span>}
                     </label>
                     <input
@@ -1476,7 +1480,7 @@ export default function SettingsPage() {
                       className={`w-full border rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:outline-none ${
                         emailError 
                           ? "border-red-500 focus:ring-red-500" 
-                          : "border-slate-300 focus:ring-pink-500"
+                          : "border-neutral-300 focus:ring-neutral-900"
                       }`}
                       placeholder="name@salon.com"
                       defaultValue={editingStaff?.email || ""}
@@ -1514,23 +1518,23 @@ export default function SettingsPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                    <label className="block text-xs font-bold text-neutral-600 mb-1">
                       Mobile Number <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="tel"
                       name="mobile"
                       required
-                      className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                      className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none"
                       placeholder="+1234567890"
                       defaultValue={editingStaff?.mobile || ""}
                     />
                   </div>
                   {(!editingStaffId || (editingStaffId && !editingStaff?.authUid)) && (
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                      <label className="block text-xs font-bold text-neutral-600 mb-1">
                         Temporary Password {!editingStaffId && <span className="text-red-500">*</span>}
-                        {!editingStaffId && <span className="text-slate-500 text-[10px] ml-1">(required, exactly 6 digits)</span>}
+                        {!editingStaffId && <span className="text-neutral-500 text-[10px] ml-1">(required, exactly 6 digits)</span>}
                       </label>
                       <div className="relative">
                         <input
@@ -1539,7 +1543,7 @@ export default function SettingsPage() {
                           className={`w-full border rounded-lg p-2 sm:p-2.5 pr-10 text-xs sm:text-sm focus:ring-2 focus:outline-none ${
                             passwordError 
                               ? "border-red-500 focus:ring-red-500" 
-                              : "border-slate-300 focus:ring-pink-500"
+                              : "border-neutral-300 focus:ring-neutral-900"
                           }`}
                           placeholder={editingStaffId ? "Create password (6 digits)" : "Enter 6-digit password (e.g., 123456)"}
                           required={!editingStaffId}
@@ -1575,7 +1579,7 @@ export default function SettingsPage() {
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
                         >
                           <i className={`fa-solid ${showPassword ? "fa-eye-slash" : "fa-eye"}`} />
                         </button>
@@ -1583,7 +1587,7 @@ export default function SettingsPage() {
                       {passwordError ? (
                         <p className="text-[10px] text-red-600 mt-1">{passwordError}</p>
                       ) : (
-                        <p className="text-[10px] text-slate-500 mt-1">
+                        <p className="text-[10px] text-neutral-500 mt-1">
                           {editingStaffId 
                             ? "Set a 6-digit password for them to login immediately." 
                             : "Password is required when creating a new staff member. Must be exactly 6 digits (0-9)."}
@@ -1593,23 +1597,23 @@ export default function SettingsPage() {
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
+                      <label className="block text-xs font-bold text-neutral-600 mb-1">Full Name</label>
                       <input
                         type="text"
                         name="name"
                         required
-                        className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none"
                         placeholder="Mike Ross"
                         defaultValue={editingStaff?.name || ""}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Role/Title</label>
+                      <label className="block text-xs font-bold text-neutral-600 mb-1">Role/Title</label>
                       <input
                         type="text"
                         name="role"
                         required
-                        className="w-full border border-slate-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none"
+                        className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none"
                         placeholder="Senior Therapist"
                         defaultValue={editingStaff?.role || ""}
                       />
@@ -1620,17 +1624,17 @@ export default function SettingsPage() {
 
               {/* Access Level Section */}
               <div className="bg-indigo-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-indigo-200">
-                <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
+                <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
                   <i className="fas fa-shield-halved text-indigo-600" />
                   Access Level
                 </h4>
                 <div className="space-y-2.5 sm:space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Staff Type</label>
+                    <label className="block text-xs font-bold text-neutral-600 mb-1">Staff Type</label>
                     {editingStaffId ? (
                       // When editing: Show read-only display
                       <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
-                        <span className="text-slate-700">
+                        <span className="text-neutral-700">
                           {selectedSystemRole === "salon_branch_admin" ? "Branch Admin" : "Standard Staff"}
                         </span>
                         <input type="hidden" name="system_role" value={selectedSystemRole} />
@@ -1639,10 +1643,10 @@ export default function SettingsPage() {
                       // When creating new: Only allow Standard Staff
                       <>
                         <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
-                          <span className="text-slate-700">Standard Staff</span>
+                          <span className="text-neutral-700">Standard Staff</span>
                           <input type="hidden" name="system_role" value="salon_staff" />
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-1">
+                        <p className="text-[10px] text-neutral-500 mt-1">
                           Can be scheduled at different branches using the weekly roster below.
                         </p>
                       </>
@@ -1652,13 +1656,13 @@ export default function SettingsPage() {
                   {/* Branch Selection - Only shown for Branch Admin */}
                   {selectedSystemRole === "salon_branch_admin" && (
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                      <label className="block text-xs font-bold text-neutral-600 mb-1">
                         Assigned Branch <span className="text-rose-500">*</span>
                       </label>
                       {editingStaffId ? (
                         // When editing: Show read-only display
                         <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
-                          <span className="text-slate-700">
+                          <span className="text-neutral-700">
                             {data.branches.find(b => b.id === selectedBranchId)?.name || selectedBranchId || "Not assigned"}
                           </span>
                           <input type="hidden" name="branch" value={selectedBranchId} />
@@ -1707,26 +1711,26 @@ export default function SettingsPage() {
               </div>
               {/* Training Section */}
               <div className="bg-emerald-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-emerald-200">
-                <h4 className="text-xs sm:text-sm font-bold text-slate-700 mb-2 sm:mb-3 flex items-center gap-2">
+                <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
                   <i className="fas fa-graduation-cap text-emerald-600" />
                   Initial Training Complete?
                 </h4>
                 <div className="flex flex-wrap gap-2 sm:gap-3">
                   <label className="flex items-center cursor-pointer">
                     <input id="train_ohs" type="checkbox" name="train_ohs" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.ohs)} />
-                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
+                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-neutral-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-neutral-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
                       <i className="fas fa-hard-hat mr-1" /> OHS
                     </span>
                   </label>
                   <label className="flex items-center cursor-pointer">
                     <input id="train_prod" type="checkbox" name="train_prod" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.prod)} />
-                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
+                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-neutral-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-neutral-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
                       <i className="fas fa-box mr-1" /> Product
                     </span>
                   </label>
                   <label className="flex items-center cursor-pointer">
                     <input id="train_tool" type="checkbox" name="train_tool" className="peer sr-only" defaultChecked={Boolean(editingStaff?.training?.tool)} />
-                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-slate-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-slate-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
+                    <span className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold bg-neutral-600 text-white/90 peer-checked:bg-emerald-600 peer-checked:text-white border border-neutral-500 peer-checked:border-emerald-700 shadow-sm select-none transition-all active:scale-95 sm:hover:scale-105">
                       <i className="fas fa-wrench mr-1" /> Tools
                     </span>
                   </label>
@@ -1735,7 +1739,7 @@ export default function SettingsPage() {
               
               {/* Weekly Schedule Selector - Only for Standard Staff */}
               {selectedSystemRole === "salon_staff" && (
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-purple-200">
+                <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200">
                   <WeeklyScheduleSelector
                     branches={data.branches}
                     schedule={weeklySchedule}
@@ -1775,12 +1779,12 @@ export default function SettingsPage() {
               </div>
               
               {/* Footer with Submit Button */}
-              <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 rounded-b-xl shrink-0">
+              <div className="p-3 sm:p-4 bg-neutral-50 border-t border-neutral-200 rounded-b-xl shrink-0">
                 <button
                   type="submit"
                   disabled={savingStaff}
-                  className={`w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white font-bold py-2.5 sm:py-3 rounded-lg shadow-lg transition-all text-sm sm:text-base ${
-                    savingStaff ? "opacity-60 cursor-not-allowed" : "hover:from-pink-700 hover:to-purple-700 hover:shadow-xl transform active:scale-95 sm:hover:scale-[1.02]"
+                  className={`w-full bg-neutral-900 text-white font-bold py-2.5 sm:py-3 rounded-lg shadow-lg transition-all text-sm sm:text-base ${
+                    savingStaff ? "opacity-60 cursor-not-allowed" : "hover:bg-neutral-800 hover:shadow-xl transform active:scale-95 sm:hover:scale-[1.02]"
                   }`}
                 >
                   {savingStaff ? (
@@ -1803,11 +1807,11 @@ export default function SettingsPage() {
 
       {/* Preview Staff Modal */}
       {previewStaff && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden mx-4 sm:mx-0">
-            <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800">Staff Preview</h3>
-              <button onClick={() => setPreviewStaff(null)} className="text-slate-400 hover:text-red-500">
+            <div className="bg-neutral-50 p-4 border-b border-neutral-100 flex justify-between items-center">
+              <h3 className="font-bold text-neutral-800">Staff Preview</h3>
+              <button onClick={() => setPreviewStaff(null)} className="text-neutral-400 hover:text-red-500">
                 <i className="fa-solid fa-xmark" />
               </button>
             </div>
@@ -1816,19 +1820,19 @@ export default function SettingsPage() {
                 <img
                   src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(previewStaff.avatar)}`}
                   alt="Avatar"
-                  className="w-16 h-16 rounded-full bg-slate-100"
+                  className="w-16 h-16 rounded-full bg-neutral-100"
                 />
                 <div>
-                  <div className="text-lg font-semibold text-slate-900">{previewStaff.name}</div>
-                  <div className="text-sm text-slate-600">
+                  <div className="text-lg font-semibold text-neutral-900">{previewStaff.name}</div>
+                  <div className="text-sm text-neutral-600">
                     {previewStaff.role} • {previewStaff.branch}
                   </div>
                     {previewStaff.email && (
-                      <div className="text-xs text-slate-500 mt-0.5">{previewStaff.email}</div>
+                      <div className="text-xs text-neutral-500 mt-0.5">{previewStaff.email}</div>
                     )}
                     {previewStaff.mobile && (
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        <i className="fas fa-phone text-slate-300 mr-1" />
+                      <div className="text-xs text-neutral-500 mt-0.5">
+                        <i className="fas fa-phone text-neutral-300 mr-1" />
                         {previewStaff.mobile}
                       </div>
                     )}
@@ -1838,15 +1842,15 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="border-t pt-4 mt-2">
-                <div className="text-xs font-bold text-slate-600 mb-2">Training</div>
+                <div className="text-xs font-bold text-neutral-600 mb-2">Training</div>
                 <div className="flex gap-2">
-                  <span className={`px-2 py-1 rounded text-xs ${previewStaff.training?.ohs ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                  <span className={`px-2 py-1 rounded text-xs ${previewStaff.training?.ohs ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"}`}>
                     OHS
                   </span>
-                  <span className={`px-2 py-1 rounded text-xs ${previewStaff.training?.prod ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                  <span className={`px-2 py-1 rounded text-xs ${previewStaff.training?.prod ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"}`}>
                     Product
                   </span>
-                  <span className={`px-2 py-1 rounded text-xs ${previewStaff.training?.tool ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                  <span className={`px-2 py-1 rounded text-xs ${previewStaff.training?.tool ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"}`}>
                     Tools
                   </span>
                 </div>
@@ -1854,7 +1858,7 @@ export default function SettingsPage() {
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={() => setPreviewStaff(null)}
-                  className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700 font-medium shadow-md transition"
+                  className="px-4 py-2 bg-neutral-800 text-white rounded-lg text-sm hover:bg-neutral-700 font-medium shadow-md transition"
                 >
                   Close
                 </button>
@@ -1866,23 +1870,23 @@ export default function SettingsPage() {
 
       {/* Delete Confirm Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 sm:mx-0 overflow-hidden">
-            <div className="p-5 border-b border-slate-100 flex items-center gap-3">
+            <div className="p-5 border-b border-neutral-100 flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
                 <i className="fa-solid fa-triangle-exclamation" />
               </div>
-              <h3 className="font-semibold text-slate-900">Delete staff member?</h3>
+              <h3 className="font-semibold text-neutral-900">Delete staff member?</h3>
             </div>
-            <div className="p-5 text-sm text-slate-600">
-              This will permanently remove <span className="font-semibold text-slate-800">{deleteTarget.name}</span> from your
+            <div className="p-5 text-sm text-neutral-600">
+              This will permanently remove <span className="font-semibold text-neutral-800">{deleteTarget.name}</span> from your
               staff directory.
             </div>
             <div className="px-5 pb-5 flex items-center justify-end gap-3">
               <button
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="px-4 py-2 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                className="px-4 py-2 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -1906,7 +1910,7 @@ export default function SettingsPage() {
 
       {/* Staff Limit Upgrade Modal */}
       {showUpgradeModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
             {/* Header */}
             <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-5 text-white relative">
@@ -1935,29 +1939,29 @@ export default function SettingsPage() {
                 <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
                   <i className="fas fa-crown text-3xl text-amber-500" />
                 </div>
-                <h4 className="text-lg font-bold text-slate-900 mb-2">
+                <h4 className="text-lg font-bold text-neutral-900 mb-2">
                   Upgrade Your Plan
                 </h4>
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-neutral-600">
                   Your current plan <strong>({ownerPlan?.name})</strong> allows up to <strong>{ownerPlan?.staffLimit} staff members</strong>. 
                   Upgrade to add more team members and unlock additional features.
                 </p>
               </div>
               
               {/* Benefits */}
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-6 border border-purple-100">
-                <h5 className="text-sm font-semibold text-purple-900 mb-3">Why upgrade?</h5>
-                <ul className="space-y-2 text-sm text-purple-700">
+              <div className="bg-gradient-to-r from-neutral-50 to-neutral-50 rounded-xl p-4 mb-6 border border-neutral-100">
+                <h5 className="text-sm font-semibold text-neutral-900 mb-3">Why upgrade?</h5>
+                <ul className="space-y-2 text-sm text-neutral-700">
                   <li className="flex items-center gap-2">
-                    <i className="fas fa-check-circle text-purple-500" />
+                    <i className="fas fa-check-circle text-neutral-500" />
                     Add more staff members
                   </li>
                   <li className="flex items-center gap-2">
-                    <i className="fas fa-check-circle text-purple-500" />
+                    <i className="fas fa-check-circle text-neutral-500" />
                     More branches available
                   </li>
                   <li className="flex items-center gap-2">
-                    <i className="fas fa-check-circle text-purple-500" />
+                    <i className="fas fa-check-circle text-neutral-500" />
                     Premium features & support
                   </li>
                 </ul>
@@ -1967,7 +1971,7 @@ export default function SettingsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowUpgradeModal(false)}
-                  className="flex-1 py-3 px-4 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition-colors"
+                  className="flex-1 py-3 px-4 rounded-xl border border-neutral-300 text-neutral-700 font-medium hover:bg-neutral-50 transition-colors"
                 >
                   Maybe Later
                 </button>
@@ -1976,7 +1980,7 @@ export default function SettingsPage() {
                     setShowUpgradeModal(false);
                     router.push("/subscription");
                   }}
-                  className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 text-white font-semibold hover:shadow-lg transition-all"
+                  className="flex-1 py-3 px-4 rounded-xl bg-neutral-900 text-white font-semibold hover:shadow-lg transition-all"
                 >
                   <i className="fas fa-arrow-up mr-2" />
                   View Plans
@@ -1989,7 +1993,7 @@ export default function SettingsPage() {
 
       {/* Suspend/Reactivate Confirm Modal */}
       {suspendTarget && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 sm:mx-0 overflow-hidden">
             <div className={`p-5 border-b ${suspendTarget.status === "Active" ? "bg-amber-50 border-amber-100" : "bg-emerald-50 border-emerald-100"}`}>
               <div className="flex items-center gap-3">
@@ -1997,31 +2001,31 @@ export default function SettingsPage() {
                   <i className={`fa-solid ${suspendTarget.status === "Active" ? "fa-user-slash" : "fa-user-check"} text-xl`} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900">
+                  <h3 className="font-bold text-neutral-900">
                     {suspendTarget.status === "Active" ? "Suspend Staff Account?" : "Reactivate Staff Account?"}
                   </h3>
-                  <p className="text-sm text-slate-600">{suspendTarget.name}</p>
+                  <p className="text-sm text-neutral-600">{suspendTarget.name}</p>
                 </div>
               </div>
             </div>
             <div className="p-5">
               {suspendTarget.status === "Active" ? (
                 <div className="space-y-4">
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-neutral-600">
                     Suspending this account will:
                   </p>
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-start gap-2">
                       <i className="fa-solid fa-ban text-amber-500 mt-0.5" />
-                      <span className="text-slate-600">Prevent <strong>{suspendTarget.name}</strong> from logging into the system</span>
+                      <span className="text-neutral-600">Prevent <strong>{suspendTarget.name}</strong> from logging into the system</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <i className="fa-solid fa-calendar-xmark text-amber-500 mt-0.5" />
-                      <span className="text-slate-600">Hide them from booking availability</span>
+                      <span className="text-neutral-600">Hide them from booking availability</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <i className="fa-solid fa-clock-rotate-left text-amber-500 mt-0.5" />
-                      <span className="text-slate-600">Can be reactivated anytime</span>
+                      <span className="text-neutral-600">Can be reactivated anytime</span>
                     </li>
                   </ul>
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
@@ -2031,21 +2035,21 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-neutral-600">
                     Reactivating this account will:
                   </p>
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-start gap-2">
                       <i className="fa-solid fa-check text-emerald-500 mt-0.5" />
-                      <span className="text-slate-600">Allow <strong>{suspendTarget.name}</strong> to login again</span>
+                      <span className="text-neutral-600">Allow <strong>{suspendTarget.name}</strong> to login again</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <i className="fa-solid fa-calendar-check text-emerald-500 mt-0.5" />
-                      <span className="text-slate-600">Show them in booking availability</span>
+                      <span className="text-neutral-600">Show them in booking availability</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <i className="fa-solid fa-user-check text-emerald-500 mt-0.5" />
-                      <span className="text-slate-600">Restore full staff access</span>
+                      <span className="text-neutral-600">Restore full staff access</span>
                     </li>
                   </ul>
                 </div>
@@ -2055,7 +2059,7 @@ export default function SettingsPage() {
               <button
                 onClick={() => setSuspendTarget(null)}
                 disabled={suspending}
-                className="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 font-medium"
+                className="px-4 py-2 rounded-lg border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 font-medium"
               >
                 Cancel
               </button>

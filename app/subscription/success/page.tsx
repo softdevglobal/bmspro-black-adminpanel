@@ -82,7 +82,7 @@ export default function SubscriptionSuccessPage() {
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
             <i className="fas fa-circle-notch fa-spin text-2xl text-emerald-600" />
           </div>
-          <p className="text-slate-600">Verifying...</p>
+          <p className="text-neutral-600">Verifying...</p>
         </div>
       </div>
     );
@@ -111,10 +111,10 @@ export default function SubscriptionSuccessPage() {
               <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <i className={`fas ${isTrialing ? 'fa-gift' : 'fa-crown'} text-xl text-emerald-600`} />
               </div>
-              <h2 className="text-lg font-bold text-slate-900 mb-1">
+              <h2 className="text-lg font-bold text-neutral-900 mb-1">
                 {isTrialing ? "Welcome!" : "All Set!"}
               </h2>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-neutral-600">
                 {isTrialing 
                   ? "Full access during trial. No charge until trial ends."
                   : "You have full access to all features."
@@ -141,7 +141,7 @@ export default function SubscriptionSuccessPage() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-neutral-500">
               Redirecting in {countdown} seconds...
             </p>
           </div>

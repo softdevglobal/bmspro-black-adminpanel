@@ -15,7 +15,7 @@ import { DEFAULT_CHECK_IN_RADIUS } from "@/lib/geolocation";
 // Dynamically import the location picker to avoid SSR issues with Google Maps
 const BranchLocationPicker = dynamic(
   () => import("@/components/branches/BranchLocationPicker"),
-  { ssr: false, loading: () => <div className="h-64 bg-slate-100 rounded-xl animate-pulse flex items-center justify-center text-slate-400"><i className="fas fa-spinner fa-spin mr-2" />Loading map...</div> }
+  { ssr: false, loading: () => <div className="h-64 bg-neutral-100 rounded-xl animate-pulse flex items-center justify-center text-neutral-400"><i className="fas fa-spinner fa-spin mr-2" />Loading map...</div> }
 );
 
 type Branch = {
@@ -529,7 +529,7 @@ export default function BranchesPage() {
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -547,16 +547,20 @@ export default function BranchesPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+              <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+              <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+              <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                      <i className="fas fa-store" />
+                    <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                      <i className="fas fa-store text-amber-400" />
                     </div>
                     <h1 className="text-2xl font-bold">Branch Management</h1>
                   </div>
-                  <p className="text-sm text-white/80 mt-2">Manage your salon.</p>
+                  <p className="text-sm text-neutral-400 mt-2">Manage your workshop locations</p>
                 </div>
               </div>
             </div>
@@ -564,11 +568,11 @@ export default function BranchesPage() {
 
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-              <h2 className="text-2xl font-bold text-slate-800">Branch Locations</h2>
+              <h2 className="text-2xl font-bold text-neutral-800">Branch Locations</h2>
               {role === "workshop_owner" && (
                 <button
                   onClick={openModal}
-                  className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
+                  className="w-full sm:w-auto px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm hover:bg-neutral-800 font-medium shadow-md transition"
                 >
                   <i className="fas fa-plus mr-2" />
                   Add Branch
@@ -578,29 +582,29 @@ export default function BranchesPage() {
 
             {/* Branch Limit Info Banner */}
             {role === "workshop_owner" && ownerData && (
-              <div className="mb-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-xl p-4">
+              <div className="mb-6 bg-neutral-50 border border-neutral-200 rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
-                    <i className="fas fa-info-circle text-pink-600" />
+                  <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-info-circle text-neutral-700" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-slate-900 mb-2">Branch Limit Information</h3>
-                    <div className="text-sm text-slate-700 space-y-2">
+                    <h3 className="font-semibold text-neutral-900 mb-2">Branch Limit Information</h3>
+                    <div className="text-sm text-neutral-700 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span>
-                          Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
+                          Your <span className="font-semibold text-neutral-700">{ownerData.plan || "current plan"}</span> includes{" "}
                           <span className="font-semibold">{ownerData.branchLimit === -1 ? "unlimited" : `${ownerData.branchLimit || 1}`} branch{(ownerData.branchLimit || 1) > 1 || ownerData.branchLimit === -1 ? "es" : ""}</span>.
                         </span>
                         {ownerData.branchLimit !== -1 && (
-                          <span className="px-2 py-1 rounded-full bg-white border border-pink-200 text-xs font-medium">
+                          <span className="px-2 py-1 rounded-full bg-white border border-neutral-200 text-xs font-medium">
                             {branches.length} / {ownerData.branchLimit || 1} used
                           </span>
                         )}
                       </div>
                       {ownerData.branchLimit !== -1 && branches.length >= (ownerData.branchLimit || 1) && (
-                        <p className="text-slate-600">
-                          <i className="fas fa-arrow-up text-pink-500 mr-1" />
-                          Need more branches? <button onClick={handleUpgradePackage} className="font-semibold text-pink-600 hover:text-pink-700 underline">Upgrade your package</button>
+                        <p className="text-neutral-600">
+                          <i className="fas fa-arrow-up text-neutral-500 mr-1" />
+                          Need more branches? <button onClick={handleUpgradePackage} className="font-semibold text-neutral-700 hover:text-neutral-800 underline">Upgrade your package</button>
                         </p>
                       )}
                     </div>
@@ -612,16 +616,16 @@ export default function BranchesPage() {
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {branches.map((b) => {
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 overflow-hidden">
+                  <div key={b.id} className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6 overflow-hidden">
                     <div className="flex items-start justify-between gap-3 mb-4">
                       <div className="flex items-center gap-4 min-w-0 flex-1">
-                        <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
+                        <div className="w-12 h-12 bg-neutral-100 text-neutral-700 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
                           <i className="fas fa-building" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h3 className="font-bold text-lg text-slate-900 truncate">{b.name}</h3>
-                          <p className="text-sm text-slate-500 truncate max-w-full" title={b.address}>{b.address}</p>
-                          <div className="mt-1 flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                          <h3 className="font-bold text-lg text-neutral-900 truncate">{b.name}</h3>
+                          <p className="text-sm text-neutral-500 truncate max-w-full" title={b.address}>{b.address}</p>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500 flex-wrap">
                             {b.manager && <span className="inline-flex items-center gap-1 truncate"><i className="fas fa-user-tie" /> {b.manager}</span>}
                             {b.status && (
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
@@ -632,8 +636,8 @@ export default function BranchesPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 text-slate-400 flex-shrink-0">
-                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg hover:bg-slate-100 hover:text-slate-600 flex items-center justify-center transition-colors">
+                      <div className="flex items-center gap-2 text-neutral-400 flex-shrink-0">
+                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg hover:bg-neutral-100 hover:text-neutral-600 flex items-center justify-center transition-colors">
                           <i className="fas fa-eye" />
                         </button>
                         {role === "workshop_owner" && (
@@ -649,7 +653,7 @@ export default function BranchesPage() {
                       </div>
                     </div>
                     {/* Location & Contact Info */}
-                    <div className="pt-4 border-t border-slate-100">
+                    <div className="pt-4 border-t border-neutral-100">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         {/* Geofencing Status */}
                         {b.location?.latitude && b.location?.longitude ? (
@@ -664,7 +668,7 @@ export default function BranchesPage() {
                           </span>
                         )}
                         {b.phone && (
-                          <span className="inline-flex items-center gap-1 text-slate-500">
+                          <span className="inline-flex items-center gap-1 text-neutral-500">
                             <i className="fas fa-phone" /> {b.phone}
                           </span>
                         )}
@@ -674,16 +678,16 @@ export default function BranchesPage() {
                 );
               })}
               {branches.length === 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
-                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i className="fas fa-store text-3xl text-slate-400" />
+                <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 text-center">
+                  <div className="w-16 h-16 bg-neutral-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-store text-3xl text-neutral-400" />
                   </div>
-                  <h3 className="text-lg font-semibold text-slate-900 mb-2">No branches yet</h3>
-                  <p className="text-slate-600 mb-4">Use "Add Branch" to create your first branch.</p>
+                  <h3 className="text-lg font-semibold text-neutral-900 mb-2">No branches yet</h3>
+                  <p className="text-neutral-600 mb-4">Use "Add Branch" to create your first branch.</p>
                   {role === "workshop_owner" && ownerData && (
-                    <div className="mt-4 pt-4 border-t border-slate-200">
-                      <p className="text-sm text-slate-500 mb-2">
-                        Your <span className="font-semibold text-pink-600">{ownerData.plan || "current plan"}</span> includes{" "}
+                    <div className="mt-4 pt-4 border-t border-neutral-200">
+                      <p className="text-sm text-neutral-500 mb-2">
+                        Your <span className="font-semibold text-neutral-700">{ownerData.plan || "current plan"}</span> includes{" "}
                         <span className="font-semibold">{ownerData.branchLimit === -1 ? "unlimited" : `${ownerData.branchLimit || 1}`} branch{(ownerData.branchLimit || 1) > 1 || ownerData.branchLimit === -1 ? "es" : ""}</span>.
                       </p>
                     </div>
@@ -698,11 +702,11 @@ export default function BranchesPage() {
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={closeModal} />
+          <div className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm transition-opacity" onClick={closeModal} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden transform transition-all scale-100">
             
             {/* Creative Header */}
-            <div className="relative bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 px-8 py-6 text-white shrink-0 overflow-hidden">
+            <div className="relative bg-neutral-900 px-8 py-6 text-white shrink-0 overflow-hidden">
               <div className="absolute -right-6 -top-6 text-white/10">
                 <i className="fas fa-store text-9xl" />
               </div>
@@ -717,81 +721,81 @@ export default function BranchesPage() {
 
               <div className="relative z-10">
                 <h3 className="text-2xl font-bold">{editingId ? "Edit Branch" : "New Branch"}</h3>
-                <p className="text-purple-100 text-sm mt-1">
+                <p className="text-neutral-400 text-sm mt-1">
                   {editingId ? "Update branch details and settings." : "Set up a new salon location."}
                 </p>
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 sm:p-8 bg-slate-50/50">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 sm:p-8 bg-neutral-50/50">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 
                 {/* Left Column: Core Details */}
                 <div className="space-y-6">
-                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
-                    <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2 mb-2">
-                      <i className="fas fa-info-circle text-purple-500" />
+                  <div className="bg-white p-5 rounded-xl border border-neutral-100 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 text-neutral-800 font-semibold border-b border-neutral-100 pb-2 mb-2">
+                      <i className="fas fa-info-circle text-neutral-500" />
                       Basic Information
                     </div>
                     
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Branch Name</label>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Branch Name</label>
                         <div className="relative">
-                          <i className="fas fa-store absolute left-3 top-3 text-slate-400" />
+                          <i className="fas fa-store absolute left-3 top-3 text-neutral-400" />
                           <input
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             required
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none"
+                            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none"
                             placeholder="e.g. Westside Plaza"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Address</label>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Address</label>
                         <div className="relative">
-                          <i className="fas fa-map-marker-alt absolute left-3 top-3 text-slate-400" />
+                          <i className="fas fa-map-marker-alt absolute left-3 top-3 text-neutral-400" />
                           <input
                             value={address}
                             onChange={(e) => setAddress(e.target.value)}
                             required
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none"
+                            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none"
                             placeholder="123 Street Name, City"
                           />
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">
+                        <p className="text-xs text-neutral-500 mt-1">
                           <i className="fas fa-info-circle mr-1" />
                           This will automatically fill from the Staff Check-in Location below
                         </p>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Capacity</label>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Capacity</label>
                         <div className="relative">
-                          <i className="fas fa-chair absolute left-3 top-3 text-slate-400" />
+                          <i className="fas fa-chair absolute left-3 top-3 text-neutral-400" />
                           <input
                             value={capacity}
                             onChange={(e) => setCapacity(e.target.value === "" ? "" : Number(e.target.value))}
                             type="number"
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none"
+                            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none"
                             placeholder="e.g. 12 stations"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">
                           Time Zone <span className="text-rose-500">*</span>
                         </label>
                         <div className="relative">
-                          <i className="fas fa-globe absolute left-3 top-3 text-slate-400" />
+                          <i className="fas fa-globe absolute left-3 top-3 text-neutral-400" />
                           <select
                             value={timezone}
                             onChange={(e) => setTimezone(e.target.value)}
                             required
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none appearance-none"
+                            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none appearance-none"
                           >
                             {TIMEZONES.map((tz) => (
                               <option key={tz.value} value={tz.value}>
@@ -799,11 +803,11 @@ export default function BranchesPage() {
                               </option>
                             ))}
                           </select>
-                          <div className="absolute right-3 top-3 pointer-events-none text-slate-400">
+                          <div className="absolute right-3 top-3 pointer-events-none text-neutral-400">
                             <i className="fas fa-chevron-down" />
                           </div>
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">
+                        <p className="text-xs text-neutral-500 mt-1">
                           <i className="fas fa-info-circle mr-1" />
                           All booking times will be shown in this timezone
                         </p>
@@ -812,12 +816,12 @@ export default function BranchesPage() {
                   </div>
 
                   {/* Location Section for Geofencing */}
-                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
-                    <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2 mb-2">
-                      <i className="fas fa-map-location-dot text-purple-500" />
+                  <div className="bg-white p-5 rounded-xl border border-neutral-100 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 text-neutral-800 font-semibold border-b border-neutral-100 pb-2 mb-2">
+                      <i className="fas fa-map-location-dot text-neutral-500" />
                       Staff Check-in Location
                     </div>
-                    <p className="text-xs text-slate-500 -mt-2 mb-3">
+                    <p className="text-xs text-neutral-500 -mt-2 mb-3">
                       <i className="fas fa-info-circle mr-1" />
                       Set the branch location for staff geofenced check-in. Staff must be within the specified radius to clock in.
                     </p>
@@ -836,31 +840,31 @@ export default function BranchesPage() {
                     />
                   </div>
 
-                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
-                    <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2 mb-2">
-                      <i className="fas fa-address-book text-purple-500" />
+                  <div className="bg-white p-5 rounded-xl border border-neutral-100 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 text-neutral-800 font-semibold border-b border-neutral-100 pb-2 mb-2">
+                      <i className="fas fa-address-book text-neutral-500" />
                       Contact & Admin
                     </div>
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Contact Phone</label>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Contact Phone</label>
                         <div className="relative">
-                          <i className="fas fa-phone absolute left-3 top-3 text-slate-400" />
+                          <i className="fas fa-phone absolute left-3 top-3 text-neutral-400" />
                           <input
                             value={phone}
                             onChange={(e) => setPhone(e.target.value)}
                             type="tel"
-                            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none"
+                            className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none"
                             placeholder="+1 234 567 890"
                           />
                         </div>
                       </div>
 
-                      <div className="bg-purple-50 rounded-lg p-4 border border-purple-100">
-                        <label className="block text-xs font-bold text-purple-800 uppercase mb-2">Assign Branch Admin</label>
+                      <div className="bg-neutral-50 rounded-lg p-4 border border-neutral-100">
+                        <label className="block text-xs font-bold text-neutral-800 uppercase mb-2">Assign Branch Admin</label>
                         <div className="relative">
-                          <i className="fas fa-user-shield absolute left-3 top-3 text-purple-400" />
+                          <i className="fas fa-user-shield absolute left-3 top-3 text-neutral-400" />
                           <select
                             value={adminStaffId}
                             onChange={(e) => {
@@ -871,7 +875,7 @@ export default function BranchesPage() {
                                 if (st && st.email) setEmail(st.email);
                               }
                             }}
-                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-purple-200 rounded-lg text-sm focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none appearance-none text-slate-700"
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-neutral-200 rounded-lg text-sm focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none appearance-none text-neutral-700"
                           >
                             <option value="">-- No Admin Assigned --</option>
                             {staffOptions.map((s) => {
@@ -888,16 +892,16 @@ export default function BranchesPage() {
                               );
                             })}
                           </select>
-                          <div className="absolute right-3 top-3 pointer-events-none text-purple-400">
+                          <div className="absolute right-3 top-3 pointer-events-none text-neutral-400">
                             <i className="fas fa-chevron-down" />
                           </div>
                         </div>
-                        <p className="text-xs text-purple-600 mt-2">
+                        <p className="text-xs text-neutral-600 mt-2">
                           <i className="fas fa-info-circle mr-1" />
                           User role will become <strong>Branch Admin</strong>.
                         </p>
                         {adminStaffId && (
-                          <div className="mt-2 flex items-center gap-2 text-xs text-purple-700 bg-purple-100/50 p-2 rounded">
+                          <div className="mt-2 flex items-center gap-2 text-xs text-neutral-700 bg-neutral-100/50 p-2 rounded">
                             <i className="fas fa-envelope" />
                             Auto-linked email: <strong>{email || "No email found"}</strong>
                           </div>
@@ -909,13 +913,13 @@ export default function BranchesPage() {
 
                 {/* Right Column: Hours & Status */}
                 <div className="space-y-6">
-                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
-                      <div className="flex items-center gap-2 text-slate-800 font-semibold">
-                        <i className="fas fa-clock text-purple-500" />
+                  <div className="bg-white p-5 rounded-xl border border-neutral-100 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b border-neutral-100 pb-2 mb-2">
+                      <div className="flex items-center gap-2 text-neutral-800 font-semibold">
+                        <i className="fas fa-clock text-neutral-500" />
                         Operating Hours
                       </div>
-                      <span className="text-xs text-slate-400 font-medium px-2 py-1 bg-slate-100 rounded">Local Time</span>
+                      <span className="text-xs text-neutral-400 font-medium px-2 py-1 bg-neutral-100 rounded">Local Time</span>
                     </div>
 
                     <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar overflow-x-hidden">
@@ -936,31 +940,31 @@ export default function BranchesPage() {
                             key={day} 
                             className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-all ${
                               isClosed 
-                                ? "bg-slate-50 border-slate-100" 
-                                : "bg-white border-slate-200 shadow-sm hover:border-purple-300"
+                                ? "bg-neutral-50 border-neutral-100" 
+                                : "bg-white border-neutral-200 shadow-sm hover:border-neutral-300"
                             }`}
                           >
-                            <div className="w-20 font-medium text-sm text-slate-700 shrink-0">{day}</div>
+                            <div className="w-20 font-medium text-sm text-neutral-700 shrink-0">{day}</div>
                             
                             <div className="flex items-center justify-center gap-1 flex-1">
                               {!isClosed ? (
                                 <>
                                   <input
                                     type="time"
-                                    className="bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs text-slate-600 focus:border-purple-500 focus:ring-0 outline-none w-28 text-center"
+                                    className="bg-neutral-50 border border-neutral-200 rounded px-1 py-1 text-xs text-neutral-600 focus:border-neutral-900 focus:ring-0 outline-none w-28 text-center"
                                     value={row.open || ""}
                                     onChange={(e) => setRow({ open: e.target.value })}
                                   />
-                                  <span className="text-slate-300 text-xs">-</span>
+                                  <span className="text-neutral-300 text-xs">-</span>
                                   <input
                                     type="time"
-                                    className="bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs text-slate-600 focus:border-purple-500 focus:ring-0 outline-none w-28 text-center"
+                                    className="bg-neutral-50 border border-neutral-200 rounded px-1 py-1 text-xs text-neutral-600 focus:border-neutral-900 focus:ring-0 outline-none w-28 text-center"
                                     value={row.close || ""}
                                     onChange={(e) => setRow({ close: e.target.value })}
                                   />
                                 </>
                               ) : (
-                                <span className="text-xs font-medium text-slate-400 italic">Closed</span>
+                                <span className="text-xs font-medium text-neutral-400 italic">Closed</span>
                               )}
                             </div>
 
@@ -972,7 +976,7 @@ export default function BranchesPage() {
                                   checked={!isClosed} 
                                   onChange={() => setRow({ closed: !isClosed })}
                                 />
-                                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500"></div>
+                                <div className="w-9 h-5 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-neutral-900"></div>
                               </label>
                             </div>
                           </div>
@@ -981,9 +985,9 @@ export default function BranchesPage() {
                     </div>
                   </div>
 
-                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm space-y-4">
-                    <div className="flex items-center gap-2 text-slate-800 font-semibold border-b border-slate-100 pb-2 mb-2">
-                      <i className="fas fa-server text-purple-500" />
+                  <div className="bg-white p-5 rounded-xl border border-neutral-100 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2 text-neutral-800 font-semibold border-b border-neutral-100 pb-2 mb-2">
+                      <i className="fas fa-server text-neutral-500" />
                       System Status
                     </div>
                     <div>
@@ -1000,7 +1004,7 @@ export default function BranchesPage() {
                                   : s === "Pending"
                                   ? "bg-amber-50 border-amber-200 text-amber-700 shadow-sm ring-1 ring-amber-200"
                                   : "bg-rose-50 border-rose-200 text-rose-700 shadow-sm ring-1 ring-rose-200"
-                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                             }`}
                           >
                             {s}
@@ -1014,18 +1018,18 @@ export default function BranchesPage() {
             </form>
 
             {/* Footer */}
-            <div className="p-6 border-t border-slate-100 bg-white flex items-center justify-end gap-3 shrink-0">
+            <div className="p-6 border-t border-neutral-100 bg-white flex items-center justify-end gap-3 shrink-0">
               <button
                 onClick={closeModal}
                 disabled={saving}
-                className="px-6 py-2.5 rounded-xl text-slate-600 font-medium hover:bg-slate-100 transition disabled:opacity-50"
+                className="px-6 py-2.5 rounded-xl text-neutral-600 font-medium hover:bg-neutral-100 transition disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 onClick={() => document.querySelector('form')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))}
                 disabled={saving}
-                className="px-8 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-purple-500/30 transform hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-70 disabled:transform-none"
+                className="px-8 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white font-bold rounded-xl shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-70 disabled:transform-none"
               >
                 {saving ? (
                   <span className="flex items-center gap-2">
@@ -1048,7 +1052,7 @@ export default function BranchesPage() {
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
               {/* Header */}
-              <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-5 text-white flex items-center justify-between">
+              <div className="bg-neutral-900 px-6 py-5 text-white flex items-center justify-between">
                 <div className="flex items-center gap-4 min-w-0">
                   <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-2xl">
                     <i className="fas fa-building" />
@@ -1077,31 +1081,31 @@ export default function BranchesPage() {
               {/* Body */}
               <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-3">
-                  <div className="text-xs font-bold text-slate-600">Contact & Details</div>
-                  <div className="text-sm text-slate-700 space-y-2">
+                  <div className="text-xs font-bold text-neutral-600">Contact & Details</div>
+                  <div className="text-sm text-neutral-700 space-y-2">
                     {previewBranch.phone && (
                       <div className="flex items-center gap-2">
-                        <i className="fas fa-phone text-slate-400" /> {previewBranch.phone}
+                        <i className="fas fa-phone text-neutral-400" /> {previewBranch.phone}
                       </div>
                     )}
                     {previewBranch.email && (
                       <div className="flex items-center gap-2 truncate">
-                        <i className="fas fa-envelope text-slate-400" /> {previewBranch.email}
+                        <i className="fas fa-envelope text-neutral-400" /> {previewBranch.email}
                       </div>
                     )}
                     {previewBranch.manager && (
                       <div className="flex items-center gap-2">
-                        <i className="fas fa-user-tie text-slate-400" /> {previewBranch.manager}
+                        <i className="fas fa-user-tie text-neutral-400" /> {previewBranch.manager}
                       </div>
                     )}
                     {typeof previewBranch.capacity !== "undefined" && previewBranch.capacity !== null && previewBranch.capacity !== ("" as any) && (
                       <div className="flex items-center gap-2">
-                        <i className="fas fa-chair text-slate-400" /> Capacity: {String(previewBranch.capacity)}
+                        <i className="fas fa-chair text-neutral-400" /> Capacity: {String(previewBranch.capacity)}
                       </div>
                     )}
                     {previewBranch.timezone && (
                       <div className="flex items-center gap-2">
-                        <i className="fas fa-globe text-slate-400" /> {previewBranch.timezone}
+                        <i className="fas fa-globe text-neutral-400" /> {previewBranch.timezone}
                       </div>
                     )}
                   </div>
@@ -1109,8 +1113,8 @@ export default function BranchesPage() {
 
                 {/* Hours */}
                 <div>
-                  <div className="text-xs font-bold text-slate-600 mb-2">Operating Hours</div>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                  <div className="text-xs font-bold text-neutral-600 mb-2">Operating Hours</div>
+                  <div className="border border-neutral-200 rounded-lg overflow-hidden bg-neutral-50">
                     <div className="max-h-48 overflow-y-auto">
                       {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => {
                         const d = day as keyof HoursMap;
@@ -1124,9 +1128,9 @@ export default function BranchesPage() {
                           : "—";
                         const isClosed = row?.closed;
                         return (
-                          <div key={day} className="flex items-center justify-between px-3 py-2 text-sm border-b last:border-b-0 border-slate-200 bg-white">
-                            <span className="text-slate-600">{day}</span>
-                            <span className={`font-medium ${isClosed ? "text-rose-600" : "text-slate-800"}`}>{text}</span>
+                          <div key={day} className="flex items-center justify-between px-3 py-2 text-sm border-b last:border-b-0 border-neutral-200 bg-white">
+                            <span className="text-neutral-600">{day}</span>
+                            <span className={`font-medium ${isClosed ? "text-rose-600" : "text-neutral-800"}`}>{text}</span>
                           </div>
                         );
                       })}
@@ -1136,21 +1140,21 @@ export default function BranchesPage() {
               </div>
 
               {/* Footer actions */}
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-3">
+              <div className="px-6 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-3">
                 {role === "workshop_owner" && (
                   <button
                     onClick={() => {
                       setPreviewBranch(null);
                       openEditModal(previewBranch);
                     }}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 font-medium shadow-md transition"
+                    className="px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm hover:bg-neutral-800 font-medium shadow-md transition"
                   >
                     <i className="fas fa-pen mr-2" /> Edit
                   </button>
                 )}
                 <button
                   onClick={() => setPreviewBranch(null)}
-                  className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg text-sm hover:bg-slate-300 font-medium transition"
+                  className="px-4 py-2 bg-neutral-200 text-neutral-800 rounded-lg text-sm hover:bg-neutral-300 font-medium transition"
                 >
                   Close
                 </button>
@@ -1166,20 +1170,20 @@ export default function BranchesPage() {
           <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteTarget(null)} />
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-              <div className="p-5 border-b border-slate-100 flex items-center gap-3">
+              <div className="p-5 border-b border-neutral-100 flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
                   <i className="fa-solid fa-triangle-exclamation" />
                 </div>
-                <h3 className="font-semibold text-slate-900">Delete branch?</h3>
+                <h3 className="font-semibold text-neutral-900">Delete branch?</h3>
               </div>
-              <div className="p-5 text-sm text-slate-600">
-                This will permanently remove <span className="font-semibold text-slate-800">{deleteTarget.name}</span>.
+              <div className="p-5 text-sm text-neutral-600">
+                This will permanently remove <span className="font-semibold text-neutral-800">{deleteTarget.name}</span>.
               </div>
               <div className="px-5 pb-5 flex items-center justify-end gap-3">
                 <button
                   onClick={() => setDeleteTarget(null)}
                   disabled={deleting}
-                  className="px-4 py-2 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                  className="px-4 py-2 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -1221,14 +1225,14 @@ export default function BranchesPage() {
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
               {/* Header */}
-              <div className="p-5 border-b border-slate-100 bg-gradient-to-r from-purple-500 to-indigo-600">
+              <div className="p-5 border-b border-neutral-100 bg-neutral-900">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
                     <i className="fa-solid fa-arrow-up-right-dots text-white text-xl" />
                   </div>
                   <div>
                     <h3 className="font-bold text-white text-lg">Upgrade Your Package</h3>
-                    <p className="text-purple-100 text-sm">Unlock more branches for your business</p>
+                    <p className="text-neutral-400 text-sm">Unlock more branches for your business</p>
                   </div>
                 </div>
               </div>
@@ -1249,27 +1253,27 @@ export default function BranchesPage() {
                   </div>
                 </div>
 
-                <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-4 border border-purple-200">
+                <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                      <i className="fa-solid fa-crown text-purple-600" />
+                    <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center">
+                      <i className="fa-solid fa-crown text-neutral-600" />
                     </div>
                     <div>
-                      <p className="font-semibold text-slate-900">Need More Branches?</p>
-                      <p className="text-xs text-slate-500">Upgrade to a higher tier package</p>
+                      <p className="font-semibold text-neutral-900">Need More Branches?</p>
+                      <p className="text-xs text-neutral-500">Upgrade to a higher tier package</p>
                     </div>
                   </div>
-                  <ul className="space-y-2 text-sm text-slate-600">
+                  <ul className="space-y-2 text-sm text-neutral-600">
                     <li className="flex items-center gap-2">
-                      <i className="fa-solid fa-check text-purple-500 text-xs" />
+                      <i className="fa-solid fa-check text-neutral-500 text-xs" />
                       <span>More branch locations</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <i className="fa-solid fa-check text-purple-500 text-xs" />
+                      <i className="fa-solid fa-check text-neutral-500 text-xs" />
                       <span>Additional staff members</span>
                     </li>
                     <li className="flex items-center gap-2">
-                      <i className="fa-solid fa-check text-purple-500 text-xs" />
+                      <i className="fa-solid fa-check text-neutral-500 text-xs" />
                       <span>Premium features included</span>
                     </li>
                   </ul>
@@ -1284,14 +1288,14 @@ export default function BranchesPage() {
                     setPendingBranchData(null);
                   }}
                   disabled={saving}
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 disabled:opacity-60 transition-colors"
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-neutral-300 text-neutral-700 font-medium hover:bg-neutral-50 disabled:opacity-60 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleUpgradePackage}
                   disabled={saving}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-medium hover:from-purple-600 hover:to-indigo-700 disabled:opacity-60 transition-all shadow-lg shadow-purple-500/25 whitespace-nowrap"
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-neutral-900 text-white font-medium hover:bg-neutral-800 disabled:opacity-60 transition-all shadow-lg whitespace-nowrap"
                 >
                   <span className="inline-flex items-center justify-center gap-2">
                     <i className="fa-solid fa-arrow-up" /> <span>View Upgrade Options</span>

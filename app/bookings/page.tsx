@@ -203,7 +203,7 @@ function BookingsPageContent() {
         }
 
         if (rows.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">No bookings found.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-neutral-400">No bookings found.</td></tr>';
           return;
         }
 
@@ -218,13 +218,13 @@ function BookingsPageContent() {
             servicesHtml = b.services.map((svc: any) => {
               const svcName = svc.name || svc.serviceName || "Service";
               const svcStaff = svc.staffName || "Any Staff";
-              return `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100 mb-1">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
-                  <i class="fas fa-spa text-pink-500" style="font-size:10px"></i>
-                  <span class="text-xs font-semibold text-slate-800">${svcName}</span>
+              return `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100 mb-1">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
+                  <i class="fas fa-wrench text-neutral-600" style="font-size:10px"></i>
+                  <span class="text-xs font-semibold text-neutral-800">${svcName}</span>
                 </span>
-                <i class="fas fa-user text-slate-400" style="font-size:9px"></i>
-                <span class="text-xs font-medium text-slate-600">${svcStaff}</span>
+                <i class="fas fa-user text-neutral-400" style="font-size:9px"></i>
+                <span class="text-xs font-medium text-neutral-600">${svcStaff}</span>
               </div>`;
             }).join("");
           } else {
@@ -235,13 +235,13 @@ function BookingsPageContent() {
             } else if (staff) {
               staffName = staff.name;
             }
-            servicesHtml = `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
-                <i class="fas fa-spa text-pink-500" style="font-size:10px"></i>
-                <span class="text-xs font-semibold text-slate-800">${serviceName}</span>
+            servicesHtml = `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
+                <i class="fas fa-wrench text-neutral-600" style="font-size:10px"></i>
+                <span class="text-xs font-semibold text-neutral-800">${serviceName}</span>
               </span>
-              <i class="fas fa-user text-slate-400" style="font-size:9px"></i>
-              <span class="text-xs font-medium text-slate-600">${staffName}</span>
+              <i class="fas fa-user text-neutral-400" style="font-size:9px"></i>
+              <span class="text-xs font-medium text-neutral-600">${staffName}</span>
             </div>`;
           }
           
@@ -268,13 +268,13 @@ function BookingsPageContent() {
                  </div>`
               : "";
           tbody.innerHTML += `
-            <tr class="hover:bg-slate-50 transition">
+            <tr class="hover:bg-neutral-50 transition">
               <td class="p-4 pl-6">
-                <span class="font-bold text-slate-800">${b.client}</span>
+                <span class="font-bold text-neutral-800">${b.client}</span>
                 <div class="mt-1.5">${servicesHtml}</div>
               </td>
               <td class="p-4">
-                <span class="font-medium text-slate-700">${b.time} - ${endTime}</span>
+                <span class="font-medium text-neutral-700">${b.time} - ${endTime}</span>
               </td>
               <td class="p-4 text-center">
                 <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full ${statusClass}">
@@ -282,7 +282,7 @@ function BookingsPageContent() {
                 </span>
                 <div class="mt-1">${statusActions}</div>
               </td>
-              <td class="p-4 text-right pr-6 font-bold text-slate-800">$${b.price}</td>
+              <td class="p-4 text-right pr-6 font-bold text-neutral-800">$${b.price}</td>
             </tr>
           `;
         });
@@ -403,7 +403,7 @@ function BookingsPageContent() {
         timeInput.value = "";
         durationLabel.innerText = String(duration);
         if (!staffId || duration === 0 || !date) {
-          slotsContainer.innerHTML = '<p class="col-span-4 text-center text-slate-400 text-xs py-2">Select Service, Staff, and a valid Date to see available slots.</p>';
+          slotsContainer.innerHTML = '<p class="col-span-4 text-center text-neutral-400 text-xs py-2">Select Service, Staff, and a valid Date to see available slots.</p>';
           const eet = document.getElementById("estimated-end-time");
           if (eet) eet.textContent = "--";
           return;
@@ -747,8 +747,8 @@ function BookingsPageContent() {
       showToast: function (msg: string, type: "success" | "error" = "success") {
         const container = document.getElementById("toast-container");
         if (!container) return;
-        const color = type === "error" ? "border-red-500" : "border-pink-500";
-        const icon = type === "error" ? "fa-solid fa-circle-xmark text-red-500" : "fa-solid fa-circle-check text-pink-500";
+        const color = type === "error" ? "border-red-500" : "border-neutral-900";
+        const icon = type === "error" ? "fa-solid fa-circle-xmark text-red-500" : "fa-solid fa-circle-check text-neutral-900";
         const toast = document.createElement("div");
         toast.className = `toast border-l-4 ${color}`;
         toast.innerHTML = `<i class="${icon}"></i> <span>${msg}</span>`;
@@ -763,7 +763,7 @@ function BookingsPageContent() {
           const slots = document.getElementById("time-slots-container");
           const eet = document.getElementById("estimated-end-time");
           if (timeInput) timeInput.value = "";
-          if (slots) slots.innerHTML = '<p class="col-span-4 text-center text-slate-400 text-xs py-2">Select Service and Staff to see available slots.</p>';
+          if (slots) slots.innerHTML = '<p class="col-span-4 text-center text-neutral-400 text-xs py-2">Select Service and Staff to see available slots.</p>';
           if (eet) eet.textContent = "--";
         }
       },
@@ -1973,10 +1973,10 @@ function BookingsPageContent() {
       <div id="app" className="flex h-screen overflow-hidden bg-white">
         <Sidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-slate-50">
+          <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-neutral-50">
             <div className="md:hidden mb-4">
               <button
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+                className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
                 onClick={() => setMobileOpen(true)}
               >
                 <i className="fas fa-bars" />
@@ -1995,17 +1995,22 @@ function BookingsPageContent() {
 
             <div className="max-w-7xl mx-auto">
               <div className="mb-8">
-                <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative rounded-2xl bg-neutral-900 text-white p-8 shadow-lg overflow-hidden">
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div className="absolute -top-6 -right-6 w-36 h-36 rounded-full bg-amber-500/10" />
+                    <div className="absolute -bottom-10 -left-10 w-44 h-44 rounded-full bg-amber-500/5" />
+                    <i className="fas fa-gear absolute -right-3 -bottom-3 text-[90px] text-white/[0.03] rotate-12" />
+                  </div>
+                  <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                          <i className="fas fa-calendar-check" />
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                          <i className="fas fa-calendar-check text-amber-400" />
                         </div>
-                        <h1 className="text-2xl font-bold">Today&apos;s Bookings</h1>
+                        <h1 className="text-2xl font-bold tracking-tight">Today&apos;s Bookings</h1>
                       </div>
-                      <p className="text-sm text-white/80 mt-2">
-                        Today’s schedule, availability, and status.
+                      <p className="text-neutral-400 mt-2">
+                        Today's schedule, availability, and status.
                       </p>
                     </div>
                   </div>
@@ -2014,19 +2019,19 @@ function BookingsPageContent() {
 
               <section id="view-bookings" className="view-section active">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-                  <h2 className="text-2xl font-bold text-slate-800">Today&apos;s Bookings</h2>
+                  <h2 className="text-2xl font-bold text-neutral-800">Today&apos;s Bookings</h2>
                   <button
                     onClick={openBookingWizard}
-                    className="w-full sm:w-auto px-4 py-2 bg-pink-600 text-white rounded-lg text-sm hover:bg-pink-700 font-medium shadow-md shadow-pink-200 transition"
+                    className="w-full sm:w-auto px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm hover:bg-neutral-800 font-medium shadow-md transition"
                   >
                     <i className="fas fa-plus mr-2" /> New Booking
                   </button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <table className="w-full text-left text-sm text-slate-600">
-                      <thead className="bg-slate-50 text-slate-800 font-semibold border-b border-slate-100">
+                  <div className="lg:col-span-2 bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+                    <table className="w-full text-left text-sm text-neutral-600">
+                      <thead className="bg-neutral-50 text-neutral-800 font-semibold border-b border-neutral-100">
                         <tr>
                           <th className="p-4 pl-6">Client &amp; Service</th>
                           <th className="p-4">Time &amp; Staff</th>
@@ -2034,14 +2039,14 @@ function BookingsPageContent() {
                           <th className="p-4 text-right pr-6">Value</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100" id="bookings-table-body" />
+                      <tbody className="divide-y divide-neutral-100" id="bookings-table-body" />
                     </table>
                   </div>
                   <div className="space-y-6">
-                    <div className="bg-slate-900 text-white rounded-2xl shadow-sm p-6">
+                    <div className="bg-neutral-900 text-white rounded-2xl shadow-sm p-6">
                       <h3 className="font-bold mb-4 flex justify-between items-center">
                         Today&apos;s Summary
-                        <i className="fas fa-chart-line text-pink-500" />
+                        <i className="fas fa-chart-line text-amber-400" />
                       </h3>
                       <div className="space-y-4">
                         <div className="bg-white/10 p-3 rounded-lg flex justify-between">
@@ -2058,8 +2063,8 @@ function BookingsPageContent() {
                         </div>
                       </div>
                     </div>
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                      <h3 className="font-bold mb-4 text-slate-800">Booking Status Mix</h3>
+                    <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
+                      <h3 className="font-bold mb-4 text-neutral-800">Booking Status Mix</h3>
                       <div className="h-40">
                         <canvas id="statusChart" />
                       </div>
@@ -2079,7 +2084,7 @@ function BookingsPageContent() {
       <div id="modal-booking" className="modal-backdrop">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 sm:mx-0 max-h-[92vh] flex flex-col">
           {/* Fixed Header */}
-          <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white p-4 sm:p-5 flex justify-between items-center rounded-t-2xl shrink-0">
+          <div className="bg-neutral-900 text-white p-4 sm:p-5 flex justify-between items-center rounded-t-2xl shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
                 <i className="fas fa-calendar-check" />
@@ -2092,7 +2097,7 @@ function BookingsPageContent() {
           </div>
 
           {/* Fixed Stepper */}
-          <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-4 bg-slate-50 border-b border-slate-200 shrink-0">
+          <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-4 bg-neutral-50 border-b border-neutral-200 shrink-0">
             <div className="flex items-center justify-between max-w-xl mx-auto">
               {[
                 { num: 1, label: "Branch & Service" },
@@ -2101,12 +2106,12 @@ function BookingsPageContent() {
               ].map((step, i) => (
                 <div key={step.num} className="flex-1 flex items-center">
                   <div className="flex flex-col items-center gap-1">
-                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-sm font-bold transition-all ${bkStep >= step.num ? "bg-gradient-to-br from-pink-600 to-purple-600 text-white shadow-lg" : "bg-white border-2 border-slate-300 text-slate-500"}`}>
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-sm font-bold transition-all ${bkStep >= step.num ? "bg-neutral-900 text-white shadow-lg" : "bg-white border-2 border-neutral-300 text-neutral-500"}`}>
                       {bkStep > step.num ? <i className="fas fa-check" /> : step.num}
                     </div>
-                    <span className="text-[10px] text-slate-600 font-semibold hidden sm:block text-center whitespace-nowrap">{step.label}</span>
+                    <span className="text-[10px] text-neutral-600 font-semibold hidden sm:block text-center whitespace-nowrap">{step.label}</span>
                   </div>
-                  {i < 2 && <div className={`h-1 flex-1 mx-1 sm:mx-2 rounded transition-all ${bkStep > step.num ? "bg-gradient-to-r from-pink-500 to-purple-500" : "bg-slate-300"}`} />}
+                  {i < 2 && <div className={`h-1 flex-1 mx-1 sm:mx-2 rounded transition-all ${bkStep > step.num ? "bg-neutral-900" : "bg-neutral-300"}`} />}
                 </div>
               ))}
             </div>
@@ -2119,10 +2124,10 @@ function BookingsPageContent() {
               <div className="space-y-6">
                 {/* Branch Selection */}
                 <div>
-                  <div className="font-bold text-slate-700 mb-3 flex items-center gap-2">
-                    <i className="fas fa-map-marker-alt text-pink-600" />
+                  <div className="font-bold text-neutral-700 mb-3 flex items-center gap-2">
+                    <i className="fas fa-map-marker-alt text-neutral-900" />
                     Select Location
-                    {userRole === "salon_branch_admin" && <span className="text-xs font-normal text-slate-500">(Your assigned branch)</span>}
+                    {userRole === "salon_branch_admin" && <span className="text-xs font-normal text-neutral-500">(Your assigned branch)</span>}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {branches.map((br: any) => {
@@ -2133,17 +2138,17 @@ function BookingsPageContent() {
                           key={br.id}
                           onClick={() => !isBranchAdmin && (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
                           disabled={isBranchAdmin}
-                          className={`text-left border rounded-lg p-3 transition ${isBranchAdmin ? "cursor-not-allowed" : "hover:shadow-md cursor-pointer"} ${selected ? "border-pink-400 bg-pink-50 shadow-md" : "border-slate-200 bg-white"}`}
+                          className={`text-left border rounded-lg p-3 transition ${isBranchAdmin ? "cursor-not-allowed" : "hover:shadow-md cursor-pointer"} ${selected ? "border-neutral-900 bg-neutral-50 shadow-md" : "border-neutral-200 bg-white"}`}
                         >
                           <div className="flex items-center gap-2.5">
-                            <div className={`w-10 h-10 rounded-lg ${selected ? "bg-pink-100" : "bg-slate-100"} flex items-center justify-center shrink-0`}>
-                              <i className={`fas fa-store ${selected ? "text-pink-600" : "text-slate-400"}`} />
+                            <div className={`w-10 h-10 rounded-lg ${selected ? "bg-neutral-100" : "bg-neutral-100"} flex items-center justify-center shrink-0`}>
+                              <i className={`fas fa-store ${selected ? "text-neutral-900" : "text-neutral-400"}`} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-slate-800 truncate text-sm">{br.name}</div>
-                              <div className="text-xs text-slate-500 truncate">{br.address}</div>
+                              <div className="font-semibold text-neutral-800 truncate text-sm">{br.name}</div>
+                              <div className="text-xs text-neutral-500 truncate">{br.address}</div>
                             </div>
-                            {selected && <i className="fas fa-check-circle text-pink-600 shrink-0" />}
+                            {selected && <i className="fas fa-check-circle text-neutral-900 shrink-0" />}
                           </div>
                         </button>
                       );
@@ -2153,14 +2158,14 @@ function BookingsPageContent() {
 
                 {/* Service Selection */}
                 <div className={!bkBranchId ? "opacity-50 pointer-events-none" : ""}>
-                  <div className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <div className="font-bold text-neutral-700 mb-3 flex items-center gap-2">
                     <i className="fas fa-concierge-bell text-purple-600" />
-                    Select Service {!bkBranchId && <span className="text-xs font-normal text-slate-500">(Select branch first)</span>}
+                    Select Service {!bkBranchId && <span className="text-xs font-normal text-neutral-500">(Select branch first)</span>}
                   </div>
                   {!bkBranchId ? (
-                    <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
-                      <i className="fas fa-map-marker-alt text-4xl text-slate-300 mb-2 block" />
-                      <p className="text-slate-500 font-medium text-sm">Select a branch first</p>
+                    <div className="bg-neutral-50 border-2 border-dashed border-neutral-300 rounded-lg p-8 text-center">
+                      <i className="fas fa-map-marker-alt text-4xl text-neutral-300 mb-2 block" />
+                      <p className="text-neutral-500 font-medium text-sm">Select a branch first</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2187,19 +2192,19 @@ function BookingsPageContent() {
                               }
                               setBkDate(null);
                             }}
-                            className={`text-left border rounded-lg p-3 hover:shadow-md transition ${isSelected ? "border-purple-400 bg-purple-50 shadow-md" : "border-slate-200 bg-white"}`}
+                            className={`text-left border rounded-lg p-3 hover:shadow-md transition ${isSelected ? "border-purple-400 bg-purple-50 shadow-md" : "border-neutral-200 bg-white"}`}
                           >
                             <div className="flex items-center gap-2.5">
-                              <div className={`w-10 h-10 rounded-lg ${isSelected ? "bg-purple-100" : "bg-slate-100"} flex items-center justify-center shrink-0 overflow-hidden`}>
+                              <div className={`w-10 h-10 rounded-lg ${isSelected ? "bg-purple-100" : "bg-neutral-100"} flex items-center justify-center shrink-0 overflow-hidden`}>
                                 {srv.imageUrl ? (
                                   <img src={srv.imageUrl} alt={srv.name} className="w-full h-full object-cover" />
                                 ) : (
-                                  <i className={`fas fa-cut ${isSelected ? "text-purple-600" : "text-slate-400"}`} />
+                                  <i className={`fas fa-cut ${isSelected ? "text-purple-600" : "text-neutral-400"}`} />
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-slate-800 truncate text-sm">{srv.name}</div>
-                                <div className="text-xs text-slate-500">{srv.duration} min • ${srv.price}</div>
+                                <div className="font-semibold text-neutral-800 truncate text-sm">{srv.name}</div>
+                                <div className="text-xs text-neutral-500">{srv.duration} min • ${srv.price}</div>
                               </div>
                               {isSelected && <i className="fas fa-check-circle text-purple-600 shrink-0" />}
                             </div>
@@ -2207,9 +2212,9 @@ function BookingsPageContent() {
                         );
                       })}
                       {servicesList.filter((srv: any) => srv.branches && srv.branches.length > 0 && srv.branches.includes(bkBranchId)).length === 0 && (
-                        <div className="col-span-full bg-slate-50 border-2 border-dashed border-slate-300 rounded-lg p-8 text-center">
-                          <i className="fas fa-concierge-bell text-4xl text-slate-300 mb-2 block" />
-                          <p className="text-slate-500 font-medium text-sm">No services available at this branch</p>
+                        <div className="col-span-full bg-neutral-50 border-2 border-dashed border-neutral-300 rounded-lg p-8 text-center">
+                          <i className="fas fa-concierge-bell text-4xl text-neutral-300 mb-2 block" />
+                          <p className="text-neutral-500 font-medium text-sm">No services available at this branch</p>
                         </div>
                       )}
                     </div>
@@ -2217,11 +2222,11 @@ function BookingsPageContent() {
                 </div>
 
                 {/* Navigation */}
-                <div className="flex justify-end pt-2 border-t border-slate-200">
+                <div className="flex justify-end pt-2 border-t border-neutral-200">
                   <button
                     disabled={!bkBranchId || bkSelectedServices.length === 0}
                     onClick={() => setBkStep(2)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 ? "bg-gradient-to-r from-pink-600 to-purple-600 hover:shadow-lg" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 ? "bg-neutral-900 hover:bg-neutral-800 hover:shadow-lg" : "bg-neutral-300 cursor-not-allowed"}`}
                   >
                     Continue to Date & Time
                   </button>
@@ -2233,24 +2238,24 @@ function BookingsPageContent() {
             {bkStep === 2 && (
               <div className="space-y-6">
                 {/* Date Selection */}
-                <div className="bg-white p-4 rounded-xl border border-slate-200">
+                <div className="bg-white p-4 rounded-xl border border-neutral-200">
                   <div className="flex items-center justify-between mb-4">
-                    <div className="font-bold text-slate-700 text-sm flex items-center gap-2">
-                      <i className="fas fa-calendar text-pink-600"></i>
+                    <div className="font-bold text-neutral-700 text-sm flex items-center gap-2">
+                      <i className="fas fa-calendar text-neutral-900"></i>
                       Select Date
                     </div>
                     <div className="flex items-center gap-1">
-                      <button onClick={goPrevMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                      <button onClick={goPrevMonth} className="w-7 h-7 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs">
                         <i className="fas fa-chevron-left" />
                       </button>
-                      <div className="text-xs font-semibold text-slate-800 px-2">{monthName}</div>
-                      <button onClick={goNextMonth} className="w-7 h-7 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs">
+                      <div className="text-xs font-semibold text-neutral-800 px-2">{monthName}</div>
+                      <button onClick={goNextMonth} className="w-7 h-7 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs">
                         <i className="fas fa-chevron-right" />
                       </button>
                     </div>
                   </div>
-                  <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="grid grid-cols-7 text-[10px] font-semibold bg-slate-50 text-slate-600">
+                  <div className="rounded-lg border border-neutral-200 overflow-hidden">
+                    <div className="grid grid-cols-7 text-[10px] font-semibold bg-neutral-50 text-neutral-600">
                       {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
                         <div key={i} className="px-1 py-1.5 text-center">
                           {d}
@@ -2274,14 +2279,14 @@ function BookingsPageContent() {
                           isPast = cellDateStr < branchCurrentDate;
                         }
                         
-                        const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-slate-50" : "bg-slate-50/40 cursor-not-allowed opacity-60";
+                        const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-neutral-50" : "bg-neutral-50/40 cursor-not-allowed opacity-60";
                         return (
                           <div
                             key={idx}
-                            className={`h-10 border border-slate-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-pink-50 ring-2 ring-pink-500 font-bold" : ""}`}
+                            className={`h-10 border border-neutral-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-neutral-50 ring-2 ring-neutral-900 font-bold" : ""}`}
                             onClick={() => c.date && !isPast && (setBkDate(c.date), setBkServiceTimes({}))}
                           >
-                            <span className={`text-slate-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
+                            <span className={`text-neutral-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
                           </div>
                         );
                       })}
@@ -2291,7 +2296,7 @@ function BookingsPageContent() {
 
                 {/* Services Configuration */}
                 <div className={!bkDate ? "opacity-50 pointer-events-none" : ""}>
-                  <div className="font-bold text-slate-700 mb-3 flex items-center gap-2 text-sm">
+                  <div className="font-bold text-neutral-700 mb-3 flex items-center gap-2 text-sm">
                     <i className="fas fa-clock text-purple-600" />
                     Select Staff & Time for Each Service
                   </div>
@@ -2329,12 +2334,12 @@ function BookingsPageContent() {
                   })()}
                   
                   {!bkDate ? (
-                    <div className="text-center text-slate-400 text-xs py-8 bg-slate-50 rounded-lg border border-slate-200 border-dashed">
-                      <i className="fas fa-calendar-day text-2xl mb-2 block text-slate-300" />
+                    <div className="text-center text-neutral-400 text-xs py-8 bg-neutral-50 rounded-lg border border-neutral-200 border-dashed">
+                      <i className="fas fa-calendar-day text-2xl mb-2 block text-neutral-300" />
                       Select a date above to continue
                     </div>
                   ) : bkSelectedServices.length === 0 ? (
-                    <div className="text-center text-slate-400 text-xs py-8 bg-slate-50 rounded-lg border border-slate-200 border-dashed">
+                    <div className="text-center text-neutral-400 text-xs py-8 bg-neutral-50 rounded-lg border border-neutral-200 border-dashed">
                       Select services in previous step
                     </div>
                   ) : (
@@ -2410,7 +2415,7 @@ function BookingsPageContent() {
                         return (
                           <div key={String(serviceId)} className="bg-white rounded-xl border border-purple-100 shadow-sm p-4">
                             <div className="flex items-center justify-between mb-3">
-                              <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                              <div className="font-bold text-neutral-800 text-sm flex items-center gap-2">
                                 <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 text-xs">
                                   <i className="fas fa-cut"></i>
                                 </div>
@@ -2423,7 +2428,7 @@ function BookingsPageContent() {
 
                             {/* Staff Selector */}
                             <div className="mb-3">
-                              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Stylist</label>
+                              <label className="text-[10px] font-bold text-neutral-400 uppercase mb-1 block">Stylist</label>
                               <div className="flex flex-wrap gap-2">
                                 <button
                                   onClick={() => {
@@ -2438,7 +2443,7 @@ function BookingsPageContent() {
                                   className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 ${
                                     !selectedStaffId 
                                       ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
-                                      : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                                      : "bg-white border-neutral-200 text-neutral-600 hover:border-indigo-200"
                                   }`}
                                 >
                                   <i className="fas fa-random flex-shrink-0"></i> <span>Any</span>
@@ -2456,11 +2461,11 @@ function BookingsPageContent() {
                                     className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 ${
                                       selectedStaffId === st.id
                                         ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
-                                        : "bg-white border-slate-200 text-slate-600 hover:border-indigo-200"
+                                        : "bg-white border-neutral-200 text-neutral-600 hover:border-indigo-200"
                                     }`}
                                   >
                                     {/* Avatar */}
-                                    <div className="w-4 h-4 rounded-full bg-slate-200 overflow-hidden flex-shrink-0">
+                                    <div className="w-4 h-4 rounded-full bg-neutral-200 overflow-hidden flex-shrink-0">
                                        {st.avatar ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar)}`} className="w-full h-full object-cover" alt="" /> : null}
                                     </div>
                                     <span>{st.name}</span>
@@ -2471,10 +2476,10 @@ function BookingsPageContent() {
 
                             {/* Time Selector */}
                             <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Time Slot</label>
+                              <label className="text-[10px] font-bold text-neutral-400 uppercase mb-1 block">Time Slot</label>
                               <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
                                 {slots.length === 0 ? (
-                                  <div className="col-span-full text-center text-slate-400 text-[10px] py-2 italic">
+                                  <div className="col-span-full text-center text-neutral-400 text-[10px] py-2 italic">
                                     No slots available
                                   </div>
                                 ) : (
@@ -2512,7 +2517,7 @@ function BookingsPageContent() {
                                         title={tooltipMessage}
                                         className={`py-1.5 rounded text-[10px] font-bold transition-all relative group ${
                                           isSelected 
-                                            ? "bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-sm" 
+                                            ? "bg-neutral-900 text-white shadow-sm" 
                                             : isClosesBeforeFinish
                                               ? "bg-orange-50 text-orange-400 border border-orange-200 cursor-not-allowed"
                                               : isInsufficientTime
@@ -2521,7 +2526,7 @@ function BookingsPageContent() {
                                                   ? "bg-red-50 text-red-400 border border-red-200 cursor-not-allowed line-through"
                                                   : isSelectedForOtherService
                                                     ? "bg-amber-50 text-amber-500 border border-amber-200 cursor-not-allowed"
-                                                    : "bg-white text-slate-700 border border-purple-100 hover:border-pink-300"
+                                                    : "bg-white text-neutral-700 border border-neutral-200 hover:border-neutral-400"
                                         }`}
                                       >
                                         {slot.time}
@@ -2537,7 +2542,7 @@ function BookingsPageContent() {
                               </div>
                               {/* Show legend for unavailable slot reasons */}
                               {slots.some(s => s.reason === 'closes_before_finish' || s.reason === 'insufficient_time') && (
-                                <div className="mt-2 text-[9px] text-slate-500 flex flex-wrap gap-3">
+                                <div className="mt-2 text-[9px] text-neutral-500 flex flex-wrap gap-3">
                                   <span className="flex items-center gap-1">
                                     <span className="w-2 h-2 rounded bg-orange-300"></span>
                                     Closes before service ends
@@ -2557,14 +2562,14 @@ function BookingsPageContent() {
                 </div>
 
                 {/* Navigation */}
-                <div className="flex justify-between pt-3 border-t border-slate-200">
-                  <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium">
+                <div className="flex justify-between pt-3 border-t border-neutral-200">
+                  <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-neutral-300 text-neutral-700 hover:bg-neutral-50 font-medium">
                     Back
                   </button>
                   <button
                     disabled={!bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length}
                     onClick={() => setBkStep(3)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length ? "bg-neutral-900 hover:bg-neutral-800" : "bg-neutral-300 cursor-not-allowed"}`}
                   >
                     Continue to Details
                   </button>
@@ -2576,48 +2581,48 @@ function BookingsPageContent() {
             {bkStep === 3 && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Customer Details Form */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <div className="font-bold text-slate-700 mb-4">Your Details</div>
+                <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
+                  <div className="font-bold text-neutral-700 mb-4">Your Details</div>
                   <div className="space-y-4">
               <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Full Name <span className="text-pink-500">*</span></label>
+                      <label className="block text-xs font-medium text-neutral-500 mb-1">Full Name <span className="text-red-500">*</span></label>
                       <input
                         type="text"
                         value={bkClientName}
                         onChange={(e) => setBkClientName(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
                         placeholder="John Doe"
                         required
                       />
                 </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Email Address <span className="text-pink-500">*</span></label>
+                      <label className="block text-xs font-medium text-neutral-500 mb-1">Email Address <span className="text-red-500">*</span></label>
                       <input
                         type="email"
                         value={bkClientEmail}
                         onChange={(e) => setBkClientEmail(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
                         placeholder="john@example.com"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Phone Number <span className="text-pink-500">*</span></label>
+                      <label className="block text-xs font-medium text-neutral-500 mb-1">Phone Number <span className="text-red-500">*</span></label>
                       <input
                         type="tel"
                         value={bkClientPhone}
                         onChange={(e) => setBkClientPhone(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
                         placeholder="+1 555 000 1111"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Additional Notes (Optional)</label>
+                      <label className="block text-xs font-medium text-neutral-500 mb-1">Additional Notes (Optional)</label>
                       <textarea
                         value={bkNotes}
                         onChange={(e) => setBkNotes(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
                         placeholder="Any special requests or information…"
                         rows={4}
                       />
@@ -2626,28 +2631,28 @@ function BookingsPageContent() {
                 </div>
 
                 {/* Booking Summary */}
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                  <div className="font-bold text-slate-700 mb-4">Booking Summary</div>
-                  <div className="bg-pink-50 rounded-xl border border-pink-100 p-4 space-y-3 text-sm">
-                    <div className="flex justify-between"><span className="text-slate-500">Branch</span><span className="font-semibold text-slate-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
+                <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
+                  <div className="font-bold text-neutral-700 mb-4">Booking Summary</div>
+                  <div className="bg-neutral-50 rounded-xl border border-neutral-200 p-4 space-y-3 text-sm">
+                    <div className="flex justify-between"><span className="text-neutral-500">Branch</span><span className="font-semibold text-neutral-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
                     
-                    <div className="border-t border-pink-100 pt-2 mt-2">
-                      <span className="text-slate-500 block mb-2">Services ({bkSelectedServices.length})</span>
+                    <div className="border-t border-neutral-200 pt-2 mt-2">
+                      <span className="text-neutral-500 block mb-2">Services ({bkSelectedServices.length})</span>
                       <div className="space-y-2">
                         {bkSelectedServices.map(id => {
                           const s = servicesList.find((srv: any) => String(srv.id) === String(id));
                           const stId = bkServiceStaff[String(id)];
                           const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Staff";
                           return (
-                            <div key={id} className="bg-white/60 p-2 rounded border border-pink-100">
+                            <div key={id} className="bg-white/60 p-2 rounded border border-neutral-200">
                               <div className="flex justify-between">
-                                <span className="font-semibold text-slate-800">{s?.name || "-"}</span>
-                                <span className="font-bold text-pink-600">${s?.price || 0}</span>
+                                <span className="font-semibold text-neutral-800">{s?.name || "-"}</span>
+                                <span className="font-bold text-neutral-900">${s?.price || 0}</span>
                               </div>
-                              <div className="flex justify-between text-xs text-slate-500 mt-1">
+                              <div className="flex justify-between text-xs text-neutral-500 mt-1">
                                 <span className="flex items-center gap-2">
                                    <span>{bkServiceTimes[String(id)]}</span>
-                                   <span className="text-slate-400">•</span>
+                                   <span className="text-neutral-400">•</span>
                                    <span><i className="fas fa-user mr-1"></i> {stName}</span>
                                 </span>
                                 <span>{s?.duration} min</span>
@@ -2658,11 +2663,11 @@ function BookingsPageContent() {
                       </div>
                     </div>
 
-                    <div className="flex justify-between"><span className="text-slate-500">Date</span><span className="font-semibold text-slate-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
+                    <div className="flex justify-between"><span className="text-neutral-500">Date</span><span className="font-semibold text-neutral-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
                     
-                    <div className="flex justify-between border-t-2 border-pink-200 pt-2 mt-2">
-                      <span className="text-slate-700 font-bold">Total Price</span>
-                      <span className="font-black text-pink-600 text-lg">
+                    <div className="flex justify-between border-t-2 border-neutral-300 pt-2 mt-2">
+                      <span className="text-neutral-700 font-bold">Total Price</span>
+                      <span className="font-black text-neutral-900 text-lg">
                         ${bkSelectedServices.reduce((sum: number, id) => {
                           const s = servicesList.find((srv: any) => String(srv.id) === String(id));
                           return sum + (Number(s?.price) || 0);
@@ -2673,13 +2678,13 @@ function BookingsPageContent() {
                 </div>
 
                 <div className="lg:col-span-2 mt-1 flex justify-between">
-                  <button disabled={submittingBooking} onClick={() => setBkStep(2)} className={`px-5 py-2 rounded-lg border border-slate-300 ${submittingBooking ? "text-slate-400 cursor-not-allowed" : "text-slate-700 hover:bg-slate-50"} font-medium`}>
+                  <button disabled={submittingBooking} onClick={() => setBkStep(2)} className={`px-5 py-2 rounded-lg border border-neutral-300 ${submittingBooking ? "text-neutral-400 cursor-not-allowed" : "text-neutral-700 hover:bg-neutral-50"} font-medium`}>
                     Back
                   </button>
                   <button
                     disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || !bkClientName.trim() || !bkClientEmail.trim() || !bkClientPhone.trim() || submittingBooking}
                     onClick={handleConfirmBooking}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && !submittingBooking ? "bg-pink-600 hover:bg-pink-700" : "bg-slate-300 cursor-not-allowed"}`}
+                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && !submittingBooking ? "bg-neutral-900 hover:bg-neutral-800" : "bg-neutral-300 cursor-not-allowed"}`}
                   >
                     {submittingBooking ? <span className="inline-flex items-center"><i className="fas fa-spinner animate-spin mr-2" /> Confirming…</span> : "Confirm Booking"}
                   </button>
@@ -2726,17 +2731,17 @@ function BookingsPageContent() {
             {/* Content */}
             <div className="p-6">
               {/* Booking Details */}
-              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+              <div className="mb-6 p-4 bg-neutral-50 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center text-sm font-bold">
+                  <div className="w-10 h-10 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold">
                     {(bookingToConfirm.client || "?").split(" ").map((s: string) => s[0]).slice(0,2).join("")}
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-900">{bookingToConfirm.client}</p>
-                    <p className="text-xs text-slate-500">{bookingToConfirm.serviceName || "Service"}</p>
+                    <p className="font-semibold text-neutral-900">{bookingToConfirm.client}</p>
+                    <p className="text-xs text-neutral-500">{bookingToConfirm.serviceName || "Service"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-slate-600">
+                <div className="flex items-center gap-4 text-xs text-neutral-600">
                   <span><i className="far fa-calendar mr-1"></i>{bookingToConfirm.date}</span>
                   <span><i className="far fa-clock mr-1"></i>{bookingToConfirm.time}</span>
                 </div>
@@ -2758,7 +2763,7 @@ function BookingsPageContent() {
                 {loadingStaffForModal ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
-                    <span className="ml-3 text-slate-600">Loading staff...</span>
+                    <span className="ml-3 text-neutral-600">Loading staff...</span>
                   </div>
                 ) : (
                   <>
@@ -2775,8 +2780,8 @@ function BookingsPageContent() {
                             <div key={String(service.id)} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
                               <div className="mb-3 flex items-center gap-2">
                                 <i className="fas fa-spa text-purple-600"></i>
-                                <h4 className="font-bold text-slate-800">{service.name}</h4>
-                                <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                                <h4 className="font-bold text-neutral-800">{service.name}</h4>
+                                <span className="text-xs text-neutral-500 ml-auto">{service.duration} min</span>
                                 {!needsAssignment && (
                                   <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
                                     <i className="fas fa-check mr-1"></i>Assigned
@@ -2801,12 +2806,12 @@ function BookingsPageContent() {
                                       className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                         selectedStaff === staff.id
                                           ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                                          : "border-slate-200 hover:border-emerald-300 hover:bg-white"
+                                          : "border-neutral-200 hover:border-emerald-300 hover:bg-white"
                                       }`}
                                     >
                                       <div className="flex items-center gap-2">
                                         <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                          selectedStaff === staff.id ? "border-emerald-500" : "border-slate-200"
+                                          selectedStaff === staff.id ? "border-emerald-500" : "border-neutral-200"
                                         }`}>
                                           <img
                                             src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -2816,7 +2821,7 @@ function BookingsPageContent() {
                                         </div>
                                         <div className="flex-1">
                                           <p className={`font-semibold text-sm ${
-                                            selectedStaff === staff.id ? "text-emerald-900" : "text-slate-800"
+                                            selectedStaff === staff.id ? "text-emerald-900" : "text-neutral-800"
                                           }`}>
                                             {staff.name}
                                           </p>
@@ -2836,7 +2841,7 @@ function BookingsPageContent() {
                     ) : (
                       /* Single Service */
                       <>
-                        <label className="block text-sm font-semibold text-slate-700 mb-3">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-3">
                           <i className="fas fa-user-tie text-emerald-600 mr-2"></i>
                           Select Staff Member
                         </label>
@@ -2854,12 +2859,12 @@ function BookingsPageContent() {
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
                                   selectedStaffId === staff.id
                                     ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                                    : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
+                                    : "border-neutral-200 hover:border-emerald-300 hover:bg-neutral-50"
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
                                   <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                    selectedStaffId === staff.id ? "border-emerald-500" : "border-slate-200"
+                                    selectedStaffId === staff.id ? "border-emerald-500" : "border-neutral-200"
                                   }`}>
                                     <img
                                       src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -2869,7 +2874,7 @@ function BookingsPageContent() {
                                   </div>
                                   <div className="flex-1">
                                     <p className={`font-semibold ${
-                                      selectedStaffId === staff.id ? "text-emerald-900" : "text-slate-800"
+                                      selectedStaffId === staff.id ? "text-emerald-900" : "text-neutral-800"
                                     }`}>
                                       {staff.name}
                                     </p>
@@ -2890,7 +2895,7 @@ function BookingsPageContent() {
             </div>
 
             {/* Footer */}
-            <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200">
+            <div className="bg-neutral-50 px-6 py-4 flex gap-3 justify-end border-t border-neutral-200">
               <button
                 onClick={() => {
                   setStaffAssignModalOpen(false);
@@ -2901,7 +2906,7 @@ function BookingsPageContent() {
                   setAvailableStaffPerServiceForModal({});
                 }}
                 disabled={confirmingBooking}
-                className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                className="px-4 py-2.5 rounded-lg text-neutral-700 hover:bg-neutral-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 Cancel
               </button>
@@ -2960,10 +2965,10 @@ function BookingsPageContent() {
 export default function BookingsPage() {
   return (
     <Suspense fallback={
-      <div className="flex h-screen items-center justify-center bg-slate-50">
+      <div className="flex h-screen items-center justify-center bg-neutral-50">
         <div className="flex flex-col items-center gap-3">
           <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
-          <p className="text-slate-500 font-medium">Loading bookings...</p>
+          <p className="text-neutral-500 font-medium">Loading bookings...</p>
         </div>
       </div>
     }>

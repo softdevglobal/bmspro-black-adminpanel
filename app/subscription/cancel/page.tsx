@@ -17,11 +17,11 @@ export default function SubscriptionCancelPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-neutral-100 to-neutral-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
         <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="bg-gradient-to-r from-slate-600 via-slate-700 to-slate-800 p-8 text-center">
+          <div className="bg-gradient-to-r from-neutral-600 via-neutral-700 to-neutral-800 p-8 text-center">
             <div className="w-20 h-20 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mx-auto mb-4">
               <i className="fas fa-times text-4xl text-white" />
             </div>
@@ -35,8 +35,8 @@ export default function SubscriptionCancelPage() {
               <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <i className="fas fa-info-circle text-2xl text-amber-600" />
               </div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2">No Worries!</h2>
-              <p className="text-slate-600">
+              <h2 className="text-xl font-bold text-neutral-900 mb-2">No Worries!</h2>
+              <p className="text-neutral-600">
                 You can always come back and subscribe later. Your account data is safe.
               </p>
             </div>
@@ -56,14 +56,14 @@ export default function SubscriptionCancelPage() {
             <div className="space-y-3">
               <button
                 onClick={() => router.push("/subscription")}
-                className="w-full py-3 px-6 bg-gradient-to-r from-pink-500 to-fuchsia-500 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
+                className="w-full py-3 px-6 bg-neutral-900 text-white font-semibold rounded-xl hover:shadow-lg transition-all"
               >
                 <i className="fas fa-arrow-left mr-2" />
                 Back to Subscription Plans
               </button>
               <button
                 onClick={() => router.push("/dashboard")}
-                className="w-full py-3 px-6 border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-all"
+                className="w-full py-3 px-6 border border-neutral-200 text-neutral-700 font-semibold rounded-xl hover:bg-neutral-50 transition-all"
               >
                 <i className="fas fa-home mr-2" />
                 Go to Dashboard

@@ -30,10 +30,10 @@ const CheckInsMapView = dynamic(
   { 
     ssr: false, 
     loading: () => (
-      <div className="w-full h-full flex items-center justify-center bg-slate-100">
+      <div className="w-full h-full flex items-center justify-center bg-neutral-100">
         <div className="flex flex-col items-center gap-3">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-neutral-900" />
-          <span className="text-sm text-slate-500">Loading map...</span>
+          <span className="text-sm text-neutral-500">Loading map...</span>
         </div>
       </div>
     )
@@ -211,7 +211,7 @@ export default function AttendancePage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 font-inter text-slate-800">
+    <div className="flex h-screen overflow-hidden bg-neutral-50 font-inter text-neutral-800">
       <Sidebar />
 
       {/* Main Content Area */}
@@ -219,10 +219,10 @@ export default function AttendancePage() {
         <main className="flex-1 overflow-auto">
           
           {/* Mobile Toggle */}
-          <div className="md:hidden p-4 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-            <h2 className="font-bold text-lg text-slate-800">Attendance</h2>
+          <div className="md:hidden p-4 bg-white border-b border-neutral-200 flex items-center justify-between shrink-0">
+            <h2 className="font-bold text-lg text-neutral-800">Attendance</h2>
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -246,14 +246,18 @@ export default function AttendancePage() {
             
             {/* Header Card */}
             <div className="mb-6">
-              <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-calendar-check" />
+              <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+                <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+                <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+                <div className="relative flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                    <i className="fas fa-calendar-check text-amber-400" />
                   </div>
                   <div>
                     <h1 className="text-2xl font-bold">Staff Attendance</h1>
-                    <p className="text-sm text-white/80 mt-1">Monitor staff attendance with real-time geofencing</p>
+                    <p className="text-sm text-neutral-400 mt-1">Monitor staff attendance with real-time geofencing</p>
                   </div>
                 </div>
               </div>
@@ -264,7 +268,7 @@ export default function AttendancePage() {
               <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-4">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900" />
-                  <span className="text-slate-600">Loading attendance data...</span>
+                  <span className="text-neutral-600">Loading attendance data...</span>
                 </div>
               </div>
             )}
@@ -274,50 +278,50 @@ export default function AttendancePage() {
             <>
             {/* Stats Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
                     <i className="fas fa-clock text-blue-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-800">{activeCheckIns.length}</div>
-                    <div className="text-xs text-slate-500">Currently Active</div>
+                    <div className="text-2xl font-bold text-neutral-800">{activeCheckIns.length}</div>
+                    <div className="text-xs text-neutral-500">Currently Active</div>
                   </div>
                 </div>
               </div>
               
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
                     <i className="fas fa-check-circle text-green-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-800">{completedCheckIns.length}</div>
-                    <div className="text-xs text-slate-500">Completed Today</div>
+                    <div className="text-2xl font-bold text-neutral-800">{completedCheckIns.length}</div>
+                    <div className="text-xs text-neutral-500">Completed Today</div>
                   </div>
                 </div>
               </div>
               
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
                     <i className="fas fa-users text-purple-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-800">{checkIns.length}</div>
-                    <div className="text-xs text-slate-500">Total Check-ins</div>
+                    <div className="text-2xl font-bold text-neutral-800">{checkIns.length}</div>
+                    <div className="text-xs text-neutral-500">Total Check-ins</div>
                   </div>
                 </div>
               </div>
               
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
                     <i className="fas fa-exclamation-triangle text-red-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-800">{outsideRadiusCheckIns.length}</div>
-                    <div className="text-xs text-slate-500">Outside Radius</div>
+                    <div className="text-2xl font-bold text-neutral-800">{outsideRadiusCheckIns.length}</div>
+                    <div className="text-xs text-neutral-500">Outside Radius</div>
                   </div>
                 </div>
               </div>
@@ -328,22 +332,22 @@ export default function AttendancePage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={goToPreviousDay}
-                  className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                  className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600"
                 >
                   <i className="fas fa-chevron-left" />
                 </button>
-                <div className="px-4 py-2 bg-white rounded-lg border border-slate-200 font-medium text-slate-700 min-w-[200px] text-center">
+                <div className="px-4 py-2 bg-white rounded-lg border border-neutral-200 font-medium text-neutral-700 min-w-[200px] text-center">
                   {formatDate(selectedDate)}
                 </div>
                 <button
                   onClick={goToNextDay}
-                  className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600"
+                  className="p-2 rounded-lg border border-neutral-200 hover:bg-neutral-50 text-neutral-600"
                 >
                   <i className="fas fa-chevron-right" />
                 </button>
                 <button
                   onClick={goToToday}
-                  className="px-3 py-2 rounded-lg bg-pink-50 text-pink-600 font-medium hover:bg-pink-100 text-sm"
+                  className="px-3 py-2 rounded-lg bg-neutral-100 text-neutral-900 font-medium hover:bg-neutral-200 text-sm"
                 >
                   Today
                 </button>
@@ -354,7 +358,7 @@ export default function AttendancePage() {
                 <select
                   value={selectedBranchId}
                   onChange={(e) => setSelectedBranchId(e.target.value)}
-                  className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-pink-500 outline-none"
+                  className="px-3 py-2 bg-white border border-neutral-200 rounded-lg text-sm focus:ring-neutral-900 outline-none"
                 >
                   <option value="all">All Branches</option>
                   {branches.map(branch => (
@@ -363,16 +367,16 @@ export default function AttendancePage() {
                 </select>
 
                 {/* View Toggle */}
-                <div className="bg-white border border-slate-200 p-1 rounded-lg flex">
+                <div className="bg-white border border-neutral-200 p-1 rounded-lg flex">
                   <button 
                     onClick={() => setActiveView('dashboard')}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-2 ${activeView === 'dashboard' ? 'bg-pink-50 text-pink-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-2 ${activeView === 'dashboard' ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-500 hover:text-neutral-700'}`}
                   >
                     <i className="fas fa-map" /> Map
                   </button>
                   <button 
                     onClick={() => setActiveView('timesheets')}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-2 ${activeView === 'timesheets' ? 'bg-pink-50 text-pink-600' : 'text-slate-500 hover:text-slate-700'}`}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition flex items-center gap-2 ${activeView === 'timesheets' ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-500 hover:text-neutral-700'}`}
                   >
                     <i className="fas fa-list" /> List
                   </button>
@@ -381,14 +385,14 @@ export default function AttendancePage() {
             </div>
 
             {/* Main Content Area */}
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
               
               {/* Map View */}
               {activeView === 'dashboard' && (
                 <div className="flex flex-col lg:flex-row" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
                   {/* Staff List Sidebar */}
-                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-slate-200 bg-white flex flex-col lg:h-full">
-                    <div className="p-4 bg-slate-50 border-b border-slate-200 font-semibold text-xs text-slate-500 uppercase flex items-center justify-between shrink-0">
+                  <div className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-neutral-200 bg-white flex flex-col lg:h-full">
+                    <div className="p-4 bg-neutral-50 border-b border-neutral-200 font-semibold text-xs text-neutral-500 uppercase flex items-center justify-between shrink-0">
                       <span>Check-ins ({filteredCheckIns.length})</span>
                       <span className="flex items-center gap-2 text-green-600">
                         <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
@@ -397,7 +401,7 @@ export default function AttendancePage() {
                     </div>
                     <div className="overflow-y-auto flex-1 lg:h-0">
                       {filteredCheckIns.length === 0 ? (
-                        <div className="p-8 text-center text-slate-400">
+                        <div className="p-8 text-center text-neutral-400">
                           <i className="fas fa-map-marker-alt text-3xl mb-3 opacity-50" />
                           <p>No check-ins for this date</p>
                         </div>
@@ -406,12 +410,12 @@ export default function AttendancePage() {
                           <div 
                             key={checkIn.id}
                             onClick={() => setSelectedCheckIn(checkIn)}
-                            className={`p-4 border-b border-slate-100 cursor-pointer transition ${
+                            className={`p-4 border-b border-neutral-100 cursor-pointer transition ${
                               selectedCheckIn?.id === checkIn.id 
-                                ? 'bg-pink-50 border-l-4 border-l-pink-500' 
+                                ? 'bg-amber-50 border-l-4 border-l-amber-500' 
                                 : !checkIn.isWithinRadius 
                                   ? 'bg-red-50/50 hover:bg-red-50 border-l-4 border-l-red-400' 
-                                  : 'hover:bg-slate-50'
+                                  : 'hover:bg-neutral-50'
                             }`}
                           >
                             <div className="flex justify-between items-start mb-2">
@@ -419,25 +423,25 @@ export default function AttendancePage() {
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
                                   checkIn.status === 'checked_in' 
                                     ? 'bg-green-100 text-green-700' 
-                                    : 'bg-slate-100 text-slate-600'
+                                    : 'bg-neutral-100 text-neutral-600'
                                 }`}>
                                   {checkIn.staffName.split(' ').map(n => n[0]).join('')}
                                 </div>
                                 <div>
-                                  <h4 className="font-semibold text-slate-800">{checkIn.staffName}</h4>
-                                  <p className="text-xs text-slate-500">{checkIn.branchName}</p>
+                                  <h4 className="font-semibold text-neutral-800">{checkIn.staffName}</h4>
+                                  <p className="text-xs text-neutral-500">{checkIn.branchName}</p>
                                 </div>
                               </div>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                 checkIn.status === 'checked_in'
                                   ? 'bg-green-100 text-green-700'
-                                  : 'bg-slate-100 text-slate-600'
+                                  : 'bg-neutral-100 text-neutral-600'
                               }`}>
                                 {checkIn.status === 'checked_in' ? 'ACTIVE' : 'DONE'}
                               </span>
                             </div>
                             
-                            <div className="flex items-center gap-4 text-xs text-slate-500">
+                            <div className="flex items-center gap-4 text-xs text-neutral-500">
                               <span className="flex items-center gap-1">
                                 <i className="fas fa-sign-in-alt" />
                                 {formatTime(checkIn.checkInTime)}
@@ -478,13 +482,13 @@ export default function AttendancePage() {
               {activeView === 'timesheets' && (
                 <div className="flex flex-col">
                   {filteredCheckIns.length === 0 ? (
-                    <div className="p-12 text-center text-slate-400">
+                    <div className="p-12 text-center text-neutral-400">
                       <i className="fas fa-clipboard-list text-4xl mb-4 opacity-50" />
                       <p className="text-lg font-medium">No check-ins for this date</p>
                       <p className="text-sm">Staff check-in records will appear here</p>
                     </div>
                   ) : (
-                    <div className="p-6 space-y-4 bg-slate-50">
+                    <div className="p-6 space-y-4 bg-neutral-50">
                       {filteredCheckIns.map((checkIn) => {
                         const breakPeriods = (checkIn as any).breakPeriods || [];
                         const duration = calculateDuration(
@@ -496,24 +500,24 @@ export default function AttendancePage() {
                         <div 
                           key={checkIn.id} 
                           className={`bg-white rounded-xl shadow-sm border overflow-hidden ${
-                            !checkIn.isWithinRadius ? 'border-red-200' : 'border-slate-200'
+                            !checkIn.isWithinRadius ? 'border-red-200' : 'border-neutral-200'
                           }`}
                         >
                           {/* Card Header */}
                           <div className={`px-6 py-4 border-b flex justify-between items-center ${
-                            !checkIn.isWithinRadius ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'
+                            !checkIn.isWithinRadius ? 'bg-red-50 border-red-100' : 'bg-neutral-50 border-neutral-100'
                           }`}>
                             <div className="flex items-center gap-3">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
                                 checkIn.status === 'checked_in'
                                   ? 'bg-green-100 text-green-700 border border-green-200'
-                                  : 'bg-slate-200 text-slate-600'
+                                  : 'bg-neutral-200 text-neutral-600'
                               }`}>
                                 {checkIn.staffName.split(' ').map(n => n[0]).join('')}
                               </div>
                               <div>
-                                <h3 className="font-bold text-slate-800">{checkIn.staffName}</h3>
-                                <div className="text-xs text-slate-500">
+                                <h3 className="font-bold text-neutral-800">{checkIn.staffName}</h3>
+                                <div className="text-xs text-neutral-500">
                                   {checkIn.branchName} • {checkIn.staffRole || 'Staff'}
                                 </div>
                               </div>
@@ -527,7 +531,7 @@ export default function AttendancePage() {
                               <span className={`text-xs font-bold px-2 py-1 rounded ${
                                 checkIn.status === 'checked_in'
                                   ? 'bg-green-500 text-white'
-                                  : 'bg-slate-200 text-slate-600'
+                                  : 'bg-neutral-200 text-neutral-600'
                               }`}>
                                 {checkIn.status === 'checked_in' ? 'Currently Working' : 'Shift Complete'}
                               </span>
@@ -538,14 +542,14 @@ export default function AttendancePage() {
                           <div className="p-6">
                             {/* Time Bar */}
                             <div className="flex items-center mb-6">
-                              <div className="w-16 text-xs font-bold text-slate-400 uppercase tracking-wider">Shift</div>
-                              <div className="flex-1 h-8 bg-slate-100 rounded relative overflow-hidden flex items-center">
+                              <div className="w-16 text-xs font-bold text-neutral-400 uppercase tracking-wider">Shift</div>
+                              <div className="flex-1 h-8 bg-neutral-100 rounded relative overflow-hidden flex items-center">
                                 <div 
-                                  className={`absolute h-full ${checkIn.status === 'checked_in' ? 'bg-green-500' : 'bg-pink-500'}`} 
+                                  className={`absolute h-full ${checkIn.status === 'checked_in' ? 'bg-green-500' : 'bg-neutral-500'}`} 
                                   style={{ left: '0%', width: '100%' }}
                                 />
                               </div>
-                              <div className="w-20 text-right text-sm font-bold text-slate-800 ml-4">
+                              <div className="w-20 text-right text-sm font-bold text-neutral-800 ml-4">
                                 {(() => {
                                   const breakPeriods = (checkIn as any).breakPeriods || [];
                                   return calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
@@ -555,20 +559,20 @@ export default function AttendancePage() {
 
                             {/* Details Grid */}
                             <div className={`rounded-lg border p-4 ${
-                              !checkIn.isWithinRadius ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'
+                              !checkIn.isWithinRadius ? 'bg-red-50 border-red-200' : 'bg-neutral-50 border-neutral-200'
                             }`}>
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                                 <div>
                                   <div className={`uppercase font-semibold mb-1 flex items-center gap-1 ${
-                                    !checkIn.isWithinRadius ? 'text-red-700' : 'text-slate-400'
+                                    !checkIn.isWithinRadius ? 'text-red-700' : 'text-neutral-400'
                                   }`}>
                                     {!checkIn.isWithinRadius && <i className="fas fa-exclamation-triangle" />} Clock In
                                   </div>
-                                  <div className={`text-lg font-bold ${!checkIn.isWithinRadius ? 'text-red-700' : 'text-slate-800'}`}>
+                                  <div className={`text-lg font-bold ${!checkIn.isWithinRadius ? 'text-red-700' : 'text-neutral-800'}`}>
                                     {formatTime(checkIn.checkInTime)}
                                   </div>
                                   <div className={`mt-1 flex items-center gap-1 bg-white border rounded px-1.5 py-1 font-mono w-fit text-[10px] ${
-                                    !checkIn.isWithinRadius ? 'text-red-700 border-red-200' : 'text-slate-500 border-slate-200'
+                                    !checkIn.isWithinRadius ? 'text-red-700 border-red-200' : 'text-neutral-500 border-neutral-200'
                                   }`}>
                                     <i className="fas fa-map-pin" /> {checkIn.staffLatitude.toFixed(4)}, {checkIn.staffLongitude.toFixed(4)}
                                   </div>
@@ -580,19 +584,19 @@ export default function AttendancePage() {
                                 </div>
                                 
                                 <div>
-                                  <div className="text-slate-400 uppercase font-semibold mb-1">Distance</div>
+                                  <div className="text-neutral-400 uppercase font-semibold mb-1">Distance</div>
                                   <div className={`text-lg font-bold ${
                                     checkIn.isWithinRadius ? 'text-green-600' : 'text-red-600'
                                   }`}>
                                     {formatDistance(checkIn.distanceFromBranch)}
                                   </div>
-                                  <div className="text-[10px] text-slate-500 mt-1">
+                                  <div className="text-[10px] text-neutral-500 mt-1">
                                     Allowed: {formatDistance(checkIn.allowedRadius)}
                                   </div>
                                 </div>
                                 
                                 <div>
-                                  <div className="text-slate-400 uppercase font-semibold mb-1">Status</div>
+                                  <div className="text-neutral-400 uppercase font-semibold mb-1">Status</div>
                                   <div className={`text-lg font-medium ${
                                     checkIn.isWithinRadius ? 'text-green-600' : 'text-red-600'
                                   }`}>
@@ -601,10 +605,10 @@ export default function AttendancePage() {
                                 </div>
                                 
                                 <div>
-                                  <div className="text-slate-400 uppercase font-semibold mb-1">Clock Out</div>
+                                  <div className="text-neutral-400 uppercase font-semibold mb-1">Clock Out</div>
                                   {checkIn.checkOutTime ? (
                                     <>
-                                      <div className="text-lg font-bold text-slate-800">
+                                      <div className="text-lg font-bold text-neutral-800">
                                         {formatTime(checkIn.checkOutTime)}
                                       </div>
                                     </>
@@ -629,15 +633,15 @@ export default function AttendancePage() {
 
             {/* Branches Quick View */}
             <div className="mt-6">
-              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                <i className="fas fa-store text-pink-500" /> Branches
+              <h3 className="text-lg font-bold text-neutral-800 mb-4 flex items-center gap-2">
+                <i className="fas fa-store text-neutral-500" /> Branches
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {branches.map(branch => (
                   <div 
                     key={branch.id}
                     className={`bg-white rounded-xl border p-4 shadow-sm cursor-pointer transition hover:shadow-md ${
-                      selectedBranchId === branch.id ? 'border-pink-300 ring-2 ring-pink-100' : 'border-slate-200'
+                      selectedBranchId === branch.id ? 'border-amber-300 ring-2 ring-amber-100' : 'border-neutral-200'
                     }`}
                     onClick={() => setSelectedBranchId(selectedBranchId === branch.id ? "all" : branch.id)}
                   >
@@ -649,8 +653,8 @@ export default function AttendancePage() {
                           <i className={`fas fa-map-marker-alt ${branch.location ? 'text-green-600' : 'text-amber-600'}`} />
                         </div>
                         <div>
-                          <h4 className="font-semibold text-slate-800">{branch.name}</h4>
-                          <p className="text-xs text-slate-500">
+                          <h4 className="font-semibold text-neutral-800">{branch.name}</h4>
+                          <p className="text-xs text-neutral-500">
                             {branch.location 
                               ? `Radius: ${branch.allowedCheckInRadius || 100}m` 
                               : 'No location set'}
@@ -658,10 +662,10 @@ export default function AttendancePage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="text-lg font-bold text-slate-800">
+                        <div className="text-lg font-bold text-neutral-800">
                           {checkIns.filter(c => c.branchId === branch.id && c.status === 'checked_in').length}
                         </div>
-                        <div className="text-xs text-slate-500">Active</div>
+                        <div className="text-xs text-neutral-500">Active</div>
                       </div>
                     </div>
                   </div>

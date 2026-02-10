@@ -201,26 +201,26 @@ function AnalyticsTab({
     monthly: "This Month"
   };
 
-  const colors = ["bg-pink-500", "bg-purple-500", "bg-indigo-500", "bg-blue-500", "bg-emerald-500"];
+  const colors = ["bg-neutral-900", "bg-neutral-700", "bg-neutral-600", "bg-blue-500", "bg-emerald-500"];
 
   return (
     <div className="space-y-6">
       {/* Header with Period Selector */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-50 pb-4 mb-4">
+      <div className="bg-white rounded-2xl shadow-sm border border-neutral-200 p-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-neutral-50 pb-4 mb-4">
           <div>
-            <h3 className="font-bold text-lg text-slate-800">Branch Performance</h3>
-            <p className="text-xs text-slate-500 mt-1">{periodLabels[period]} Analytics</p>
+            <h3 className="font-bold text-lg text-neutral-800">Branch Performance</h3>
+            <p className="text-xs text-neutral-500 mt-1">{periodLabels[period]} Analytics</p>
           </div>
-          <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-2 bg-neutral-50 p-1 rounded-lg border border-neutral-200">
             {(["daily", "weekly", "monthly"] as const).map((p) => (
               <button
                 key={p}
                 onClick={() => setPeriod(p)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
                   period === p 
-                    ? "bg-white shadow-sm text-slate-800" 
-                    : "text-slate-500 hover:text-slate-800"
+                    ? "bg-white shadow-sm text-neutral-800" 
+                    : "text-neutral-500 hover:text-neutral-800"
                 }`}
               >
                 {p.charAt(0).toUpperCase() + p.slice(1)}
@@ -276,16 +276,16 @@ function AnalyticsTab({
             </div>
           </div>
           
-          <div className="bg-gradient-to-br from-pink-50 to-rose-50 p-5 rounded-xl border border-pink-100">
+          <div className="bg-neutral-50 p-5 rounded-xl border border-neutral-100">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-xs text-pink-600 font-medium">Active Services</p>
-                <h4 className="text-2xl font-bold text-pink-700 mt-1">{serviceCount}</h4>
-                <p className="text-xs text-pink-500 mt-1">
+                <p className="text-xs text-neutral-600 font-medium">Active Services</p>
+                <h4 className="text-2xl font-bold text-neutral-700 mt-1">{serviceCount}</h4>
+                <p className="text-xs text-neutral-500 mt-1">
                   At this branch
                 </p>
               </div>
-              <div className="w-10 h-10 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-neutral-100 text-neutral-600 flex items-center justify-center">
                 <i className="fas fa-tags" />
               </div>
             </div>
@@ -296,9 +296,9 @@ function AnalyticsTab({
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Appointments by Day Chart */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <h4 className="font-bold text-slate-800 mb-6">Appointments by Day ({periodLabels[period]})</h4>
-          <div className="flex items-end gap-2 sm:gap-4 h-48 border-b border-slate-200 pb-2">
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
+          <h4 className="font-bold text-neutral-800 mb-6">Appointments by Day ({periodLabels[period]})</h4>
+          <div className="flex items-end gap-2 sm:gap-4 h-48 border-b border-neutral-200 pb-2">
             {(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const).map((day, i) => {
               const count = appointmentsByDay[day];
               const heightPercent = maxAppointments > 0 ? (count / maxAppointments) * 100 : 0;
@@ -306,14 +306,14 @@ function AnalyticsTab({
               
               return (
                 <div key={day} className="flex-1 flex flex-col items-center gap-1">
-                  <span className="text-xs font-semibold text-slate-600">{count}</span>
+                  <span className="text-xs font-semibold text-neutral-600">{count}</span>
                   <div 
                     className={`w-full rounded-t transition-all duration-500 ${
                       isHighest 
-                        ? "bg-pink-500 shadow-lg shadow-pink-200" 
+                        ? "bg-neutral-900 shadow-lg shadow-neutral-200" 
                         : count > 0 
-                          ? "bg-pink-300 hover:bg-pink-400" 
-                          : "bg-slate-100"
+                          ? "bg-neutral-300 hover:bg-neutral-400" 
+                          : "bg-neutral-100"
                     }`} 
                     style={{ height: `${Math.max(heightPercent, 4)}%` }} 
                   />
@@ -321,12 +321,12 @@ function AnalyticsTab({
               );
             })}
           </div>
-          <div className="flex justify-between text-xs text-slate-400 mt-2 px-1">
+          <div className="flex justify-between text-xs text-neutral-400 mt-2 px-1">
             <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
           </div>
           
           {filteredBookings.length === 0 && (
-            <div className="text-center py-8 text-slate-400">
+            <div className="text-center py-8 text-neutral-400">
               <i className="fas fa-chart-bar text-3xl mb-2" />
               <p className="text-sm">No appointments {periodLabels[period].toLowerCase()}</p>
             </div>
@@ -334,10 +334,10 @@ function AnalyticsTab({
         </div>
         
         {/* Top Services */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-          <h4 className="font-bold text-slate-800 mb-4">Top Services</h4>
+        <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
+          <h4 className="font-bold text-neutral-800 mb-4">Top Services</h4>
           {topServices.length === 0 ? (
-            <div className="text-center py-8 text-slate-400">
+            <div className="text-center py-8 text-neutral-400">
               <i className="fas fa-tags text-3xl mb-2" />
               <p className="text-sm">No service data yet</p>
             </div>
@@ -348,16 +348,16 @@ function AnalyticsTab({
                 return (
                   <div key={service.id}>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-slate-600 truncate flex-1">{service.name}</span>
-                      <span className="font-semibold text-slate-800 ml-2">{service.count} ({percentage}%)</span>
+                      <span className="text-neutral-600 truncate flex-1">{service.name}</span>
+                      <span className="font-semibold text-neutral-800 ml-2">{service.count} ({percentage}%)</span>
                     </div>
-                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-2 w-full bg-neutral-100 rounded-full overflow-hidden">
                       <div 
                         className={`h-full ${colors[idx % colors.length]} transition-all duration-500`} 
                         style={{ width: `${percentage}%` }} 
                       />
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">${service.revenue.toLocaleString()} revenue</p>
+                    <p className="text-xs text-neutral-400 mt-1">${service.revenue.toLocaleString()} revenue</p>
                   </div>
                 );
               })}
@@ -367,8 +367,8 @@ function AnalyticsTab({
       </div>
       
       {/* Booking Status Overview */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-        <h4 className="font-bold text-slate-800 mb-4">Booking Status Overview</h4>
+      <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
+        <h4 className="font-bold text-neutral-800 mb-4">Booking Status Overview</h4>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="text-center p-4 rounded-xl bg-amber-50 border border-amber-100">
             <div className="text-3xl font-bold text-amber-600">{bookingsByStatus.Pending}</div>
@@ -510,25 +510,25 @@ function ScheduleTab({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       {/* Calendar - Left Side */}
-      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+      <div className="lg:col-span-2 bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-sm font-bold text-slate-700">Branch Schedule</div>
-            <p className="text-xs text-slate-500 mt-1">Click a date to view details</p>
+            <div className="text-sm font-bold text-neutral-700">Branch Schedule</div>
+            <p className="text-xs text-neutral-500 mt-1">Click a date to view details</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={goPrevMonth} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            <button onClick={goPrevMonth} className="w-8 h-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition">
               <i className="fas fa-chevron-left" />
             </button>
-            <div className="text-sm font-semibold text-slate-800 px-3 min-w-[140px] text-center">{monthName}</div>
-            <button onClick={goNextMonth} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            <div className="text-sm font-semibold text-neutral-800 px-3 min-w-[140px] text-center">{monthName}</div>
+            <button onClick={goNextMonth} className="w-8 h-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition">
               <i className="fas fa-chevron-right" />
             </button>
           </div>
         </div>
         
         {/* Legend */}
-        <div className="flex items-center gap-4 mb-3 text-xs text-slate-500">
+        <div className="flex items-center gap-4 mb-3 text-xs text-neutral-500">
           <div className="flex items-center gap-1">
             <div className="w-2 h-2 rounded-full bg-emerald-400" />
             <span>Open</span>
@@ -538,15 +538,15 @@ function ScheduleTab({
             <span>Closed</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-4 h-4 rounded bg-pink-100 text-pink-600 text-[10px] flex items-center justify-center font-bold">{totalBookingsForMonth}</div>
+            <div className="w-4 h-4 rounded bg-neutral-100 text-neutral-600 text-[10px] flex items-center justify-center font-bold">{totalBookingsForMonth}</div>
             <span>Bookings</span>
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 overflow-hidden">
-          <div className="grid grid-cols-7 text-xs font-semibold bg-slate-50 text-slate-600">
+        <div className="rounded-xl border border-neutral-200 overflow-hidden">
+          <div className="grid grid-cols-7 text-xs font-semibold bg-neutral-50 text-neutral-600">
             {SHORT_DAYS.map((d) => (
-              <div key={d} className="px-2 py-2.5 text-center border-b border-slate-100">
+              <div key={d} className="px-2 py-2.5 text-center border-b border-neutral-100">
                 {d}
               </div>
             ))}
@@ -560,9 +560,9 @@ function ScheduleTab({
               return (
                 <div
                   key={idx}
-                  className={`min-h-[70px] border-b border-r border-slate-100 p-1.5 text-sm transition-all cursor-pointer ${
-                    !c.date ? "bg-slate-50/50" : ""
-                  } ${isSelected ? "bg-pink-50 ring-2 ring-pink-400 ring-inset" : "hover:bg-slate-50"} ${
+                  className={`min-h-[70px] border-b border-r border-neutral-100 p-1.5 text-sm transition-all cursor-pointer ${
+                    !c.date ? "bg-neutral-50/50" : ""
+                  } ${isSelected ? "bg-amber-50 ring-2 ring-amber-400 ring-inset" : "hover:bg-neutral-50"} ${
                     isPast && !isSelected ? "opacity-60" : ""
                   }`}
                   onClick={() => c.date && setSelectedDate(c.date)}
@@ -571,10 +571,10 @@ function ScheduleTab({
                     <>
                       <div className="flex items-start justify-between">
                         <span className={`text-xs font-medium ${
-                          isSelected ? "text-pink-700" : isTodayCell ? "text-pink-600 font-bold" : "text-slate-700"
+                          isSelected ? "text-neutral-700" : isTodayCell ? "text-neutral-600 font-bold" : "text-neutral-700"
                         }`}>
                           {c.label}
-                          {isTodayCell && <span className="ml-1 text-[9px] text-pink-500">Today</span>}
+                          {isTodayCell && <span className="ml-1 text-[9px] text-neutral-500">Today</span>}
                         </span>
                         <span
                           className={`w-2 h-2 rounded-full ${c.closed ? "bg-rose-400" : "bg-emerald-400"}`}
@@ -583,7 +583,7 @@ function ScheduleTab({
                       </div>
                       {c.bookingCount! > 0 && (
                         <div className="mt-1">
-                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 text-[10px] font-semibold">
+                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-700 text-[10px] font-semibold">
                             <i className="fas fa-calendar-check" />
                             {c.bookingCount}
                           </div>
@@ -601,7 +601,7 @@ function ScheduleTab({
       {/* Day Details - Right Side */}
       <div className="lg:col-span-3 space-y-4">
         {/* Date Header Card */}
-        <div className={`rounded-2xl p-5 ${isClosed ? "bg-rose-50 border border-rose-200" : "bg-gradient-to-r from-pink-500 to-purple-600 text-white"}`}>
+        <div className={`rounded-2xl p-5 ${isClosed ? "bg-rose-50 border border-rose-200" : "bg-neutral-900 text-white"}`}>
           <div className="flex items-center justify-between">
             <div>
               <div className={`text-lg font-bold ${isClosed ? "text-rose-700" : ""}`}>
@@ -630,37 +630,37 @@ function ScheduleTab({
         {/* Quick Stats */}
         {!isClosed && (
           <div className="grid grid-cols-4 gap-3">
-            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+            <div className="bg-white rounded-xl border border-neutral-200 p-3 text-center">
               <div className="text-xl font-bold text-emerald-600">${dayRevenue}</div>
-              <div className="text-xs text-slate-500">Revenue</div>
+              <div className="text-xs text-neutral-500">Revenue</div>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+            <div className="bg-white rounded-xl border border-neutral-200 p-3 text-center">
               <div className="text-xl font-bold text-amber-600">{pendingCount}</div>
-              <div className="text-xs text-slate-500">Pending</div>
+              <div className="text-xs text-neutral-500">Pending</div>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+            <div className="bg-white rounded-xl border border-neutral-200 p-3 text-center">
               <div className="text-xl font-bold text-blue-600">{confirmedCount}</div>
-              <div className="text-xs text-slate-500">Confirmed</div>
+              <div className="text-xs text-neutral-500">Confirmed</div>
             </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-3 text-center">
+            <div className="bg-white rounded-xl border border-neutral-200 p-3 text-center">
               <div className="text-xl font-bold text-emerald-600">{completedCount}</div>
-              <div className="text-xs text-slate-500">Completed</div>
+              <div className="text-xs text-neutral-500">Completed</div>
             </div>
           </div>
         )}
 
         {/* Working Staff */}
         {!isClosed && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+          <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
+              <div className="text-sm font-bold text-neutral-700 flex items-center gap-2">
                 <i className="fas fa-users text-indigo-500" />
                 Staff Working Today
               </div>
-              <span className="text-xs text-slate-500">{workingStaff.length} staff</span>
+              <span className="text-xs text-neutral-500">{workingStaff.length} staff</span>
             </div>
             {workingStaff.length === 0 ? (
-              <div className="text-sm text-slate-400 py-2">No staff scheduled for this day</div>
+              <div className="text-sm text-neutral-400 py-2">No staff scheduled for this day</div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {workingStaff.map((st) => (
@@ -678,21 +678,21 @@ function ScheduleTab({
         )}
 
         {/* Appointments List */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-4">
           <div className="flex items-center justify-between mb-3">
-            <div className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <i className="fas fa-calendar-check text-pink-500" />
+            <div className="text-sm font-bold text-neutral-700 flex items-center gap-2">
+              <i className="fas fa-calendar-check text-neutral-500" />
               Appointments
             </div>
           </div>
           
           {isClosed ? (
-            <div className="text-center py-8 text-slate-400">
+            <div className="text-center py-8 text-neutral-400">
               <i className="fas fa-door-closed text-3xl mb-2" />
               <p className="text-sm">Branch is closed on this day</p>
             </div>
           ) : sortedBookings.length === 0 ? (
-            <div className="text-center py-8 text-slate-400">
+            <div className="text-center py-8 text-neutral-400">
               <i className="fas fa-calendar-xmark text-3xl mb-2" />
               <p className="text-sm">No appointments scheduled</p>
             </div>
@@ -705,7 +705,7 @@ function ScheduleTab({
                   Completed: "bg-emerald-50 border-emerald-200 text-emerald-700",
                   Cancelled: "bg-rose-50 border-rose-200 text-rose-700",
                 };
-                const statusColor = statusColors[b.status] || "bg-slate-50 border-slate-200 text-slate-700";
+                const statusColor = statusColors[b.status] || "bg-neutral-50 border-neutral-200 text-neutral-700";
                 
                 // Get staff name
                 let staffName = "—";
@@ -719,37 +719,37 @@ function ScheduleTab({
                 }
 
                 return (
-                  <div key={b.id || idx} className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition bg-white">
+                  <div key={b.id || idx} className="border border-neutral-200 rounded-xl p-4 hover:shadow-md transition bg-white">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex items-start gap-3">
                         {/* Time */}
                         <div className="text-center shrink-0">
-                          <div className="text-lg font-bold text-slate-800">{b.time || "—"}</div>
-                          <div className="text-xs text-slate-400">
+                          <div className="text-lg font-bold text-neutral-800">{b.time || "—"}</div>
+                          <div className="text-xs text-neutral-400">
                             {b.duration ? `${b.duration} min` : "—"}
                           </div>
                         </div>
                         
                         {/* Divider */}
-                        <div className="w-px h-12 bg-slate-200 shrink-0" />
+                        <div className="w-px h-12 bg-neutral-200 shrink-0" />
                         
                         {/* Details */}
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <div className="w-8 h-8 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center text-xs font-semibold">
+                            <div className="w-8 h-8 rounded-full bg-neutral-100 text-neutral-600 flex items-center justify-center text-xs font-semibold">
                               {(b.client || "U").toString().slice(0, 1).toUpperCase()}
                             </div>
                             <div>
-                              <div className="text-sm font-semibold text-slate-800">{b.client || "Unknown"}</div>
-                              <div className="text-xs text-slate-500">{b.serviceName || "Service"}</div>
+                              <div className="text-sm font-semibold text-neutral-800">{b.client || "Unknown"}</div>
+                              <div className="text-xs text-neutral-500">{b.serviceName || "Service"}</div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 text-xs text-slate-500 mt-2">
+                          <div className="flex items-center gap-3 text-xs text-neutral-500 mt-2">
                             <span className="flex items-center gap-1">
                               <i className="fas fa-user" />
                               {staffName}
                             </span>
-                            <span className="flex items-center gap-1 font-semibold text-slate-700">
+                            <span className="flex items-center gap-1 font-semibold text-neutral-700">
                               <i className="fas fa-dollar-sign" />
                               {Number(b.price || 0).toFixed(0)}
                             </span>
@@ -1015,7 +1015,7 @@ export default function BranchDetailsPage() {
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -1044,7 +1044,7 @@ export default function BranchDetailsPage() {
                   router.push("/branches");
                 }
               }}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-50 shadow-sm"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 hover:bg-neutral-50 shadow-sm"
             >
               <i className="fas fa-arrow-left" />
               Back to Branches
@@ -1053,16 +1053,20 @@ export default function BranchDetailsPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+              <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+              <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+              <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                      <i className="fas fa-building" />
+                    <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                      <i className="fas fa-building text-amber-400" />
                     </div>
                     <h1 className="text-2xl font-bold truncate">{headerTitle}</h1>
                   </div>
-                  {branch && <p className="text-sm text-white/80 mt-2 truncate">{branch.address}</p>}
+                  {branch && <p className="text-sm text-neutral-400 mt-2 truncate">{branch.address}</p>}
                 </div>
                 {branch?.status && (
                   <div
@@ -1085,48 +1089,48 @@ export default function BranchDetailsPage() {
           {/* Stats */}
           {branch && (
             <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-500">Services</div>
-                  <div className="w-8 h-8 rounded-lg bg-pink-100 text-pink-600 flex items-center justify-center">
+                  <div className="text-xs text-neutral-500">Services</div>
+                  <div className="w-8 h-8 rounded-lg bg-neutral-100 text-neutral-600 flex items-center justify-center">
                     <i className="fas fa-scissors" />
                   </div>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-800">{(branch.serviceIds || []).length}</div>
+                <div className="mt-2 text-2xl font-bold text-neutral-800">{(branch.serviceIds || []).length}</div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-500">Staff</div>
+                  <div className="text-xs text-neutral-500">Staff</div>
                   <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center">
                     <i className="fas fa-users" />
                   </div>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-800">{staffCount}</div>
+                <div className="mt-2 text-2xl font-bold text-neutral-800">{staffCount}</div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-500">Capacity</div>
+                  <div className="text-xs text-neutral-500">Capacity</div>
                   <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
                     <i className="fas fa-chair" />
                   </div>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-800">{branch.capacity ?? "—"}</div>
+                <div className="mt-2 text-2xl font-bold text-neutral-800">{branch.capacity ?? "—"}</div>
               </div>
-              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-500">Status</div>
-                  <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+                  <div className="text-xs text-neutral-500">Status</div>
+                  <div className="w-8 h-8 rounded-lg bg-neutral-100 text-neutral-600 flex items-center justify-center">
                     <i className="fas fa-signal" />
                   </div>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-slate-800">{branch.status || "—"}</div>
+                <div className="mt-2 text-2xl font-bold text-neutral-800">{branch.status || "—"}</div>
               </div>
             </div>
           )}
 
           {/* Tabs */}
           <div className="max-w-7xl mx-auto">
-            <div className="rounded-2xl bg-white border border-slate-200 p-1 mb-6 shadow-sm flex flex-wrap">
+            <div className="rounded-2xl bg-white border border-neutral-200 p-1 mb-6 shadow-sm flex flex-wrap">
               {[
                 { key: "overview", label: "Overview", icon: "fa-compass" },
                 { key: "analytics", label: "Branch Analytics", icon: "fa-chart-pie" },
@@ -1139,7 +1143,7 @@ export default function BranchDetailsPage() {
                 <button
                   key={t.key}
                   onClick={() => setActiveTab(t.key)}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition mr-1 mb-1 ${activeTab === t.key ? "bg-slate-900 text-white shadow" : "text-slate-600 hover:bg-slate-100"}`}
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition mr-1 mb-1 ${activeTab === t.key ? "bg-neutral-900 text-white shadow" : "text-neutral-600 hover:bg-neutral-100"}`}
                 >
                   <i className={`fas ${t.icon} mr-2`} />
                   {t.label}
@@ -1148,7 +1152,7 @@ export default function BranchDetailsPage() {
             </div>
 
             {loading ? (
-              <div className="text-slate-500">Loading branch…</div>
+              <div className="text-neutral-500">Loading branch…</div>
             ) : !branch ? (
               <div className="text-rose-600">Branch not found.</div>
             ) : (
@@ -1156,33 +1160,33 @@ export default function BranchDetailsPage() {
                 {activeTab === "overview" && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Contact */}
-                    <div className="rounded-2xl border border-pink-100 shadow-sm overflow-hidden bg-gradient-to-br from-pink-50 to-rose-50">
-                      <div className="px-6 py-4 bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white flex items-center gap-2">
+                    <div className="rounded-2xl border border-neutral-100 shadow-sm overflow-hidden bg-neutral-50">
+                      <div className="px-6 py-4 bg-neutral-900 text-white flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
                           <i className="fas fa-address-book" />
                         </div>
                         <div className="text-sm font-semibold">Contact</div>
                       </div>
-                      <div className="p-6 text-sm text-slate-700">
+                      <div className="p-6 text-sm text-neutral-700">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {branch.phone && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100">
-                              <i className="fas fa-phone text-pink-600" /> {branch.phone}
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
+                              <i className="fas fa-phone text-neutral-600" /> {branch.phone}
                             </div>
                           )}
                           {branch.email && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100 truncate">
-                              <i className="fas fa-envelope text-pink-600" /> {branch.email}
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100 truncate">
+                              <i className="fas fa-envelope text-neutral-600" /> {branch.email}
                             </div>
                           )}
                           {branch.manager && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100">
-                              <i className="fas fa-user-tie text-pink-600" /> {branch.manager}
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
+                              <i className="fas fa-user-tie text-neutral-600" /> {branch.manager}
                             </div>
                           )}
                           {typeof branch.capacity !== "undefined" && branch.capacity !== null && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-pink-100">
-                              <i className="fas fa-chair text-pink-600" /> Capacity: {String(branch.capacity)}
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
+                              <i className="fas fa-chair text-neutral-600" /> Capacity: {String(branch.capacity)}
                             </div>
                           )}
                         </div>
@@ -1191,7 +1195,7 @@ export default function BranchDetailsPage() {
 
                     {/* Hours */}
                     <div className="rounded-2xl border border-indigo-100 shadow-sm overflow-hidden bg-white">
-                      <div className="px-6 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white flex items-center gap-2">
+                      <div className="px-6 py-4 bg-neutral-900 text-white flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
                           <i className="fas fa-clock" />
                         </div>
@@ -1210,8 +1214,8 @@ export default function BranchDetailsPage() {
                             : "—";
                           const isClosed = row?.closed;
                           return (
-                            <div key={day} className="flex items-center justify-between px-4 py-2 text-sm border-b last:border-b-0 border-slate-200 bg-white">
-                              <span className="text-slate-700">{day}</span>
+                            <div key={day} className="flex items-center justify-between px-4 py-2 text-sm border-b last:border-b-0 border-neutral-200 bg-white">
+                              <span className="text-neutral-700">{day}</span>
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${isClosed ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
                                 <i className="fas fa-circle" />
                                 {text}
@@ -1227,9 +1231,9 @@ export default function BranchDetailsPage() {
                 {activeTab === "overview" && (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-2 mt-6">
                     {/* Upcoming Appointments */}
-                    <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
-                      <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-neutral-100 flex flex-col">
+                      <div className="px-6 py-5 border-b border-neutral-100 flex justify-between items-center">
+                        <h3 className="font-bold text-neutral-800 flex items-center gap-2">
                           <i className="fa-regular fa-calendar-check text-blue-500" /> Upcoming Appointments
                         </h3>
                         <button
@@ -1241,7 +1245,7 @@ export default function BranchDetailsPage() {
                       </div>
                       <div className="p-4 overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                          <thead className="text-xs text-slate-400 uppercase bg-slate-50/50">
+                          <thead className="text-xs text-neutral-400 uppercase bg-neutral-50/50">
                             <tr>
                               <th className="px-4 py-3 rounded-l-lg">Time</th>
                               <th className="px-4 py-3">Customer</th>
@@ -1250,7 +1254,7 @@ export default function BranchDetailsPage() {
                               <th className="px-4 py-3 rounded-r-lg">Status</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-50">
+                          <tbody className="divide-y divide-neutral-50">
                             {[...branchBookings]
                               .filter((b) => {
                                 const today = formatLocalDate(new Date());
@@ -1263,18 +1267,18 @@ export default function BranchDetailsPage() {
                               })
                               .slice(0, 3)
                               .map((b, i) => (
-                                <tr key={b.id || i} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-4 py-3 font-semibold text-slate-700">{b.time || "-"}</td>
+                                <tr key={b.id || i} className="hover:bg-neutral-50 transition-colors">
+                                  <td className="px-4 py-3 font-semibold text-neutral-700">{b.time || "-"}</td>
                                   <td className="px-4 py-3">
                                     <div className="flex items-center gap-2">
-                                      <div className="w-6 h-6 rounded-full bg-pink-100 text-pink-600 text-xs flex items-center justify-center">
+                                      <div className="w-6 h-6 rounded-full bg-neutral-100 text-neutral-600 text-xs flex items-center justify-center">
                                         {(b.client || "U").toString().slice(0, 1).toUpperCase()}
                                       </div>
-                                      <span className="text-slate-800 font-medium">{b.client || "Unknown"}</span>
+                                      <span className="text-neutral-800 font-medium">{b.client || "Unknown"}</span>
                                     </div>
                                   </td>
-                                  <td className="px-4 py-3 text-slate-500">{b.serviceName || String(b.serviceId || "")}</td>
-                                  <td className="px-4 py-3 text-slate-500">
+                                  <td className="px-4 py-3 text-neutral-500">{b.serviceName || String(b.serviceId || "")}</td>
+                                  <td className="px-4 py-3 text-neutral-500">
                                     {(() => {
                                       if (Array.isArray(b.services) && b.services.length > 0) {
                                         const staffNames = b.services
@@ -1300,7 +1304,7 @@ export default function BranchDetailsPage() {
                                           ? "bg-yellow-100 text-yellow-700"
                                           : b.status === "Completed"
                                           ? "bg-blue-100 text-blue-700"
-                                          : "bg-slate-100 text-slate-600"
+                                          : "bg-neutral-100 text-neutral-600"
                                       }`}
                                     >
                                       {b.status || "-"}
@@ -1310,7 +1314,7 @@ export default function BranchDetailsPage() {
                               ))}
                             {branchBookings.filter((b) => String(b.date || "") === new Date().toISOString().slice(0,10)).length === 0 && (
                               <tr>
-                                <td className="px-4 py-6 text-slate-400" colSpan={5}>
+                                <td className="px-4 py-6 text-neutral-400" colSpan={5}>
                                   No bookings today.
                                 </td>
                               </tr>
@@ -1321,9 +1325,9 @@ export default function BranchDetailsPage() {
                     </div>
 
                     {/* New Customers */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
-                      <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 flex flex-col">
+                      <div className="px-6 py-5 border-b border-neutral-100 flex justify-between items-center">
+                        <h3 className="font-bold text-neutral-800 flex items-center gap-2">
                           <i className="fa-solid fa-users text-orange-500" /> New Customers
                         </h3>
                         <button
@@ -1349,24 +1353,24 @@ export default function BranchDetailsPage() {
                           .slice(0, 3)
                           .map((c: any, idx: number) => (
                             <div key={idx} className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600">
+                              <div className="w-10 h-10 rounded-full bg-neutral-100 border border-neutral-200 flex items-center justify-center text-neutral-600">
                                 {(c.name || "U").toString().slice(0, 1).toUpperCase()}
                               </div>
                               <div className="flex-1">
-                                <h4 className="text-sm font-semibold text-slate-800">{c.name || "Unknown"}</h4>
-                                <p className="text-xs text-slate-500 truncate">{c.meta || ""}</p>
+                                <h4 className="text-sm font-semibold text-neutral-800">{c.name || "Unknown"}</h4>
+                                <p className="text-xs text-neutral-500 truncate">{c.meta || ""}</p>
                               </div>
-                              <button className="text-slate-400 hover:text-pink-500">
+                              <button className="text-neutral-400 hover:text-neutral-500">
                                 <i className="fa-solid fa-message" />
                               </button>
                             </div>
                           ))}
                         {branchBookings.filter((b) => String(b.date || "") === new Date().toISOString().slice(0,10)).length === 0 && (
-                          <div className="text-sm text-slate-500">No customers today.</div>
+                          <div className="text-sm text-neutral-500">No customers today.</div>
                         )}
                         <button
                           onClick={() => setActiveTab("customers")}
-                          className="w-full mt-2 py-2 text-xs font-medium text-slate-500 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors border border-dashed border-slate-200"
+                          className="w-full mt-2 py-2 text-xs font-medium text-neutral-500 bg-neutral-50 hover:bg-neutral-100 rounded-lg transition-colors border border-dashed border-neutral-200"
                         >
                           + Add New Customer manually
                         </button>
@@ -1387,15 +1391,15 @@ export default function BranchDetailsPage() {
                   <div className="space-y-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
-                        <h2 className="text-2xl font-bold text-slate-800">Booking Management</h2>
-                        <p className="text-sm text-slate-500">Manage, track and schedule all branch appointments.</p>
+                        <h2 className="text-2xl font-bold text-neutral-800">Booking Management</h2>
+                        <p className="text-sm text-neutral-500">Manage, track and schedule all branch appointments.</p>
                       </div>
                     </div>
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div className="bg-white rounded-xl shadow-sm border border-neutral-100 overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="bg-slate-50/80 border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500 font-semibold">
+                            <tr className="bg-neutral-50/80 border-b border-neutral-200 text-xs uppercase tracking-wide text-neutral-500 font-semibold">
                               <th className="p-4">Customer</th>
                               <th className="p-4">Service</th>
                               <th className="p-4">Date & Time</th>
@@ -1404,20 +1408,20 @@ export default function BranchDetailsPage() {
                               <th className="p-4">Status</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100 text-sm">
+                          <tbody className="divide-y divide-neutral-100 text-sm">
                             {branchBookings.map((b) => (
-                              <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+                              <tr key={b.id} className="hover:bg-neutral-50 transition-colors">
                                 <td className="p-4">
-                                  <div className="font-semibold text-slate-800">{b.client || "—"}</div>
-                                  {b.clientPhone && <div className="text-xs text-slate-400">{b.clientPhone}</div>}
+                                  <div className="font-semibold text-neutral-800">{b.client || "—"}</div>
+                                  {b.clientPhone && <div className="text-xs text-neutral-400">{b.clientPhone}</div>}
                                 </td>
                                 <td className="p-4">
-                                  <div className="font-medium text-slate-700">{b.serviceName || String(b.serviceId)}</div>
-                                  {b.duration && <div className="text-xs text-slate-400">⏱ {b.duration} mins</div>}
+                                  <div className="font-medium text-neutral-700">{b.serviceName || String(b.serviceId)}</div>
+                                  {b.duration && <div className="text-xs text-neutral-400">⏱ {b.duration} mins</div>}
                                 </td>
                                 <td className="p-4">
-                                  <div className="font-medium text-slate-700">{b.date}</div>
-                                  <div className="text-xs text-slate-500">{b.time}</div>
+                                  <div className="font-medium text-neutral-700">{b.date}</div>
+                                  <div className="text-xs text-neutral-500">{b.time}</div>
                                 </td>
                                 <td className="p-4">
                                   {(() => {
@@ -1436,7 +1440,7 @@ export default function BranchDetailsPage() {
                                     return "—";
                                   })()}
                                 </td>
-                                <td className="p-4 font-semibold text-slate-700">${Number(b.price || 0).toFixed(0)}</td>
+                                <td className="p-4 font-semibold text-neutral-700">${Number(b.price || 0).toFixed(0)}</td>
                                 <td className="p-4">
                                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
                                       b.status === "Confirmed"
@@ -1445,7 +1449,7 @@ export default function BranchDetailsPage() {
                                         ? "bg-yellow-50 text-yellow-600 border border-yellow-100"
                                         : b.status === "Completed"
                                         ? "bg-blue-50 text-blue-600 border border-blue-100"
-                                        : "bg-slate-100 text-slate-600 border border-slate-200"
+                                        : "bg-neutral-100 text-neutral-600 border border-neutral-200"
                                     }`}>
                                     <span className="w-1.5 h-1.5 rounded-full bg-current" />
                                     {b.status || "—"}
@@ -1455,7 +1459,7 @@ export default function BranchDetailsPage() {
                             ))}
                             {branchBookings.length === 0 && (
                               <tr>
-                                <td className="p-4 text-slate-400" colSpan={6}>No appointments found for this branch.</td>
+                                <td className="p-4 text-neutral-400" colSpan={6}>No appointments found for this branch.</td>
                               </tr>
                             )}
                           </tbody>
@@ -1466,10 +1470,10 @@ export default function BranchDetailsPage() {
                 )}
 
                 {activeTab === "services" && (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                    <div className="text-sm font-bold text-slate-700 mb-4">Services available at this branch</div>
+                  <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
+                    <div className="text-sm font-bold text-neutral-700 mb-4">Services available at this branch</div>
                     {(branch.serviceIds || []).length === 0 ? (
-                      <div className="text-sm text-slate-400">No services assigned.</div>
+                      <div className="text-sm text-neutral-400">No services assigned.</div>
                     ) : (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                         {allServices
@@ -1481,10 +1485,10 @@ export default function BranchDetailsPage() {
                           .map((s) => (
                             <div 
                               key={s.id} 
-                              className="group bg-white rounded-2xl border border-slate-100 overflow-hidden hover:shadow-xl hover:border-pink-200 transition-all duration-300 hover:-translate-y-1"
+                              className="group bg-white rounded-2xl border border-neutral-100 overflow-hidden hover:shadow-xl hover:border-neutral-200 transition-all duration-300 hover:-translate-y-1"
                             >
                               {/* Service Image */}
-                              <div className="relative h-40 bg-gradient-to-br from-pink-100 via-purple-50 to-indigo-100 overflow-hidden">
+                              <div className="relative h-40 bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-100 overflow-hidden">
                                 {s.imageUrl ? (
                                   <img 
                                     src={s.imageUrl} 
@@ -1494,13 +1498,13 @@ export default function BranchDetailsPage() {
                                 ) : (
                                   <div className="absolute inset-0 flex items-center justify-center">
                                     <div className="w-16 h-16 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center shadow-lg">
-                                      <i className={`fas ${s.icon || "fa-scissors"} text-2xl text-pink-500`} />
+                                      <i className={`fas ${s.icon || "fa-scissors"} text-2xl text-neutral-500`} />
                                 </div>
                                   </div>
                                 )}
                                 {/* Price Badge */}
                                 {typeof s.price === "number" && (
-                                  <div className="absolute top-3 right-3 px-3 py-1.5 bg-gradient-to-r from-pink-500 to-purple-600 text-white text-sm font-bold rounded-full shadow-lg">
+                                  <div className="absolute top-3 right-3 px-3 py-1.5 bg-neutral-900 text-white text-sm font-bold rounded-full shadow-lg">
                                     ${s.price}
                                 </div>
                                 )}
@@ -1508,7 +1512,7 @@ export default function BranchDetailsPage() {
                               
                               {/* Service Info */}
                               <div className="p-4">
-                                <h3 className="font-bold text-slate-800 text-base mb-2 truncate group-hover:text-pink-600 transition-colors">
+                                <h3 className="font-bold text-neutral-800 text-base mb-2 truncate group-hover:text-neutral-600 transition-colors">
                                   {s.name}
                                 </h3>
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -1532,16 +1536,16 @@ export default function BranchDetailsPage() {
                 )}
 
                 {activeTab === "staff" && (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
                     <div className="flex items-center justify-between mb-4">
-                      <div className="text-sm font-bold text-slate-700">Staff assigned to this branch</div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <div className="text-sm font-bold text-neutral-700">Staff assigned to this branch</div>
+                      <div className="flex items-center gap-3 text-xs text-neutral-500">
                         <div className="flex items-center gap-1">
                           <div className="w-2 h-2 rounded-full bg-emerald-500" />
                           <span>Working Day</span>
                         </div>
                         <div className="flex items-center gap-1">
-                          <div className="w-2 h-2 rounded-full bg-slate-300" />
+                          <div className="w-2 h-2 rounded-full bg-neutral-300" />
                           <span>Off Day</span>
                         </div>
                       </div>
@@ -1557,7 +1561,7 @@ export default function BranchDetailsPage() {
                       });
 
                       if (branchStaff.length === 0) {
-                        return <div className="text-sm text-slate-400">No staff assigned.</div>;
+                        return <div className="text-sm text-neutral-400">No staff assigned.</div>;
                       }
 
                       const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
@@ -1578,7 +1582,7 @@ export default function BranchDetailsPage() {
                             const schedule = st.weeklySchedule || {};
                             const isAdmin = st.id === branch.adminStaffId;
                             const statusColor =
-                              st.status === "Active" ? "bg-emerald-100 text-emerald-700" : st.status === "Suspended" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600";
+                              st.status === "Active" ? "bg-emerald-100 text-emerald-700" : st.status === "Suspended" ? "bg-rose-100 text-rose-700" : "bg-neutral-100 text-neutral-600";
                             
                             // Get days this staff works at THIS branch
                             const workingDays = DAYS.filter(
@@ -1590,14 +1594,14 @@ export default function BranchDetailsPage() {
                                 key={st.id} 
                                 className={`rounded-xl p-4 hover:shadow-md transition ${
                                   isAdmin 
-                                    ? "bg-gradient-to-r from-violet-50 to-purple-50 border-2 border-violet-300 shadow-sm" 
-                                    : "bg-white border border-slate-200"
+                                    ? "bg-amber-50 border-2 border-amber-300 shadow-sm" 
+                                    : "bg-white border border-neutral-200"
                                 }`}
                               >
                                 {/* Admin badge */}
                                 {isAdmin && (
                                   <div className="mb-3">
-                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-semibold">
+                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-neutral-900 text-white text-xs font-semibold">
                                       <i className="fas fa-crown" />
                                       Branch Admin
                                     </div>
@@ -1608,16 +1612,16 @@ export default function BranchDetailsPage() {
                                   <div className="flex items-center gap-3 min-w-[200px]">
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold text-sm ${
                                       isAdmin 
-                                        ? "bg-gradient-to-br from-violet-500 to-purple-600 text-white" 
-                                        : "bg-gradient-to-br from-pink-100 to-purple-100 text-pink-600"
+                                        ? "bg-neutral-900 text-white" 
+                                        : "bg-neutral-100 text-neutral-600"
                                     }`}>
                                       {st.name.substring(0, 2).toUpperCase()}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                      <div className={`text-sm font-semibold truncate ${isAdmin ? "text-violet-700" : "text-slate-800"}`}>
+                                      <div className={`text-sm font-semibold truncate ${isAdmin ? "text-violet-700" : "text-neutral-800"}`}>
                                         {st.name}
                                       </div>
-                                      <div className="text-xs text-slate-500 truncate">{st.staffRole}</div>
+                                      <div className="text-xs text-neutral-500 truncate">{st.staffRole}</div>
                                     </div>
                                   </div>
 
@@ -1632,7 +1636,7 @@ export default function BranchDetailsPage() {
                                             className={`px-2 py-1 rounded-md text-xs font-medium transition ${
                                               isWorking
                                                 ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                                                : "bg-slate-50 text-slate-400 border border-slate-100"
+                                                : "bg-neutral-50 text-neutral-400 border border-neutral-100"
                                             }`}
                                             title={isWorking ? `Works here on ${day}` : `Off on ${day}`}
                                           >
@@ -1645,7 +1649,7 @@ export default function BranchDetailsPage() {
 
                                   {/* Status badge */}
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs text-slate-500">
+                                    <span className="text-xs text-neutral-500">
                                       {workingDays.length} day{workingDays.length !== 1 ? "s" : ""}/week
                                     </span>
                                     {st.status && (
@@ -1665,9 +1669,9 @@ export default function BranchDetailsPage() {
                 )}
 
                 {activeTab === "customers" && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                    <div className="px-0 pb-4 flex justify-between items-center border-b border-slate-100 mb-4">
-                      <h3 className="font-bold text-slate-800">Recent Customers</h3>
+                  <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
+                    <div className="px-0 pb-4 flex justify-between items-center border-b border-neutral-100 mb-4">
+                      <h3 className="font-bold text-neutral-800">Recent Customers</h3>
                     </div>
                     <div className="space-y-3">
                       {Array.from(
@@ -1675,33 +1679,33 @@ export default function BranchDetailsPage() {
                           branchBookings.map((b: any) => [String(b.client || ""), { name: b.client, email: b.clientEmail, phone: b.clientPhone }])
                         ).values()
                       ).map((c: any, idx) => (
-                        <div key={idx} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition">
-                          <div className="w-10 h-10 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center font-bold text-sm">
+                        <div key={idx} className="flex items-center gap-3 p-3 rounded-xl border border-neutral-100 hover:bg-neutral-50 transition">
+                          <div className="w-10 h-10 rounded-full bg-neutral-100 text-neutral-600 flex items-center justify-center font-bold text-sm">
                             {(c.name || "U").toString().slice(0, 1).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold text-slate-800 truncate">{c.name || "Unknown"}</div>
+                            <div className="text-sm font-semibold text-neutral-800 truncate">{c.name || "Unknown"}</div>
                             <div className="flex flex-wrap items-center gap-3 mt-1">
                               {c.email && (
-                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                                  <i className="fas fa-envelope text-slate-400"></i>
+                                <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500">
+                                  <i className="fas fa-envelope text-neutral-400"></i>
                                   <span className="truncate">{c.email}</span>
                                 </span>
                               )}
                               {c.phone && (
-                                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
-                                  <i className="fas fa-phone text-slate-400"></i>
+                                <span className="inline-flex items-center gap-1.5 text-xs text-neutral-500">
+                                  <i className="fas fa-phone text-neutral-400"></i>
                                   <span>{c.phone}</span>
                                 </span>
                               )}
                               {!c.email && !c.phone && (
-                                <span className="text-xs text-slate-400">No contact info</span>
+                                <span className="text-xs text-neutral-400">No contact info</span>
                               )}
                             </div>
                           </div>
                         </div>
                       ))}
-                      {branchBookings.length === 0 && <div className="text-sm text-slate-500">No recent customers.</div>}
+                      {branchBookings.length === 0 && <div className="text-sm text-neutral-500">No recent customers.</div>}
                     </div>
                   </div>
                 )}

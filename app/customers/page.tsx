@@ -247,7 +247,7 @@ export default function CustomersPage() {
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -265,14 +265,18 @@ export default function CustomersPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                  <i className="fas fa-user-group" />
+            <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+              <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+              <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+              <div className="relative flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                  <i className="fas fa-user-group text-amber-400" />
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold">Customers</h1>
-                  <p className="text-sm text-white/80 mt-1">Customer directory and contact details</p>
+                  <p className="text-sm text-neutral-400 mt-1">Customer directory and contact details</p>
                 </div>
               </div>
             </div>
@@ -280,8 +284,8 @@ export default function CustomersPage() {
 
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-              <h2 className="text-2xl font-bold text-slate-800">Customer Directory</h2>
-              <button onClick={() => openModal()} className="w-full sm:w-auto px-4 py-2 bg-pink-600 text-white rounded-lg text-sm hover:bg-pink-700 font-medium shadow-md transition">
+              <h2 className="text-2xl font-bold text-neutral-800">Customer Directory</h2>
+              <button onClick={() => openModal()} className="w-full sm:w-auto px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm hover:bg-neutral-800 font-medium shadow-md transition">
                 <i className="fas fa-user-plus mr-2" />
                 Add Customer
               </button>
@@ -295,23 +299,23 @@ export default function CustomersPage() {
                   return (
                     <div
                       key={c.id}
-                      className={`bg-white rounded-xl border border-slate-200 p-4 border-l-4 ${borderColor} ${
+                      className={`bg-white rounded-xl border border-neutral-200 p-4 border-l-4 ${borderColor} ${
                         inactive ? "opacity-75" : ""
                       } hover:shadow-md transition-shadow`}
                     >
                       {/* Mobile & Tablet Layout */}
                       <div className="flex items-start gap-3 sm:gap-4">
-                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-pink-100 to-pink-200 text-pink-700 flex items-center justify-center font-bold text-lg flex-shrink-0">
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-900 text-white flex items-center justify-center font-bold text-lg flex-shrink-0">
                           {c.name.substring(0, 1).toUpperCase()}
                         </div>
                         
                         <div className="flex-1 min-w-0">
                           {/* Name and Contact */}
                           <div className="mb-3">
-                            <div className="font-bold text-base sm:text-lg text-slate-900 mb-1">{c.name}</div>
-                            <div className="text-xs sm:text-sm text-slate-500 flex flex-wrap gap-x-2 gap-y-1">
+                            <div className="font-bold text-base sm:text-lg text-neutral-900 mb-1">{c.name}</div>
+                            <div className="text-xs sm:text-sm text-neutral-500 flex flex-wrap gap-x-2 gap-y-1">
                               <span className="flex items-center gap-1">
-                                <i className="fas fa-phone text-pink-600" />
+                                <i className="fas fa-phone text-neutral-600" />
                                 {c.phone || "No phone"}
                               </span>
                               <span className="hidden sm:inline">•</span>
@@ -326,19 +330,19 @@ export default function CustomersPage() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-4 sm:gap-6">
                               <div>
-                                <div className="text-xs text-slate-500 mb-0.5">Bookings</div>
-                                <div className="font-bold text-pink-600">{c.visits ?? 0}</div>
+                                <div className="text-xs text-neutral-500 mb-0.5">Bookings</div>
+                                <div className="font-bold text-neutral-600">{c.visits ?? 0}</div>
                               </div>
                               <div>
-                                <div className="text-xs text-slate-500 mb-0.5">Last Visit</div>
-                                <div className="font-semibold text-sm text-slate-800">{c.lastVisit || "—"}</div>
+                                <div className="text-xs text-neutral-500 mb-0.5">Last Visit</div>
+                                <div className="font-semibold text-sm text-neutral-800">{c.lastVisit || "—"}</div>
                               </div>
                             </div>
                             
                             {/* Action Buttons */}
                             <div className="flex items-center gap-2">
                               <button
-                                className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-indigo-100 text-slate-600 hover:text-indigo-600 flex items-center justify-center transition-colors"
+                                className="w-9 h-9 rounded-lg bg-neutral-100 hover:bg-indigo-100 text-neutral-600 hover:text-indigo-600 flex items-center justify-center transition-colors"
                                 title="Preview Customer"
                                 onClick={() => {
                                   setPreviewCust(c);
@@ -348,7 +352,7 @@ export default function CustomersPage() {
                                 <i className="fas fa-eye" />
                               </button>
                               <button 
-                                className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-600 flex items-center justify-center transition-colors" 
+                                className="w-9 h-9 rounded-lg bg-neutral-100 hover:bg-rose-100 text-neutral-600 hover:text-rose-600 flex items-center justify-center transition-colors" 
                                 title="Delete Customer" 
                                 onClick={() => removeCustomer(c.id)}
                               >
@@ -361,9 +365,9 @@ export default function CustomersPage() {
                     </div>
                   );
                 })}
-                {customers.length === 0 && <div className="bg-white rounded-xl border border-slate-200 p-6 text-slate-500">No customers yet. Add your first customer.</div>}
+                {customers.length === 0 && <div className="bg-white rounded-xl border border-neutral-200 p-6 text-neutral-500">No customers yet. Add your first customer.</div>}
               </div>
-              <div className="bg-slate-900 text-white rounded-xl p-4 border-none h-fit">
+              <div className="bg-neutral-900 text-white rounded-xl p-4 border-none h-fit">
                 <h3 className="font-bold mb-4">Customer Quick Stats</h3>
                 <div className="space-y-4">
                   <div className="bg-white/10 p-3 rounded-lg flex justify-between">
@@ -393,16 +397,18 @@ export default function CustomersPage() {
           className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${previewOpen ? "opacity-100" : "opacity-0"}`}
         />
         <aside
-          className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[28rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-300 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
+          className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[28rem] bg-white shadow-2xl border-l border-neutral-200 transform transition-transform duration-300 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
         >
           {previewCust && (
             <div className="flex h-full flex-col">
               {/* Fixed Header */}
-              <div className="shrink-0 bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 p-5">
-                <div className="flex items-center justify-between">
+              <div className="shrink-0 relative bg-neutral-900 p-5 overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute top-2 right-16 text-white/10 text-xl"><i className="fas fa-gear" /></div>
+                <div className="relative flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                      <i className="fas fa-user text-white"></i>
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                      <i className="fas fa-user text-amber-400"></i>
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white">Customer Details</h3>
@@ -421,12 +427,12 @@ export default function CustomersPage() {
               {/* Scrollable Content */}
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {/* Profile Section */}
-                <div className="flex items-center gap-4 bg-gradient-to-r from-pink-50 to-purple-50 rounded-xl p-4 border-2 border-pink-200">
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-fuchsia-600 text-white flex items-center justify-center font-bold text-2xl shadow-lg flex-shrink-0">
+                <div className="flex items-center gap-4 bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
+                  <div className="w-16 h-16 rounded-full bg-neutral-900 text-white flex items-center justify-center font-bold text-2xl shadow-lg flex-shrink-0">
                     {previewCust.name.substring(0, 1).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-lg text-slate-900 mb-1">{previewCust.name}</h4>
+                    <h4 className="font-bold text-lg text-neutral-900 mb-1">{previewCust.name}</h4>
                     <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
                         previewCust.status === "Inactive" 
                           ? "bg-red-100 text-red-700" 
@@ -439,19 +445,19 @@ export default function CustomersPage() {
                 </div>
 
                 {/* Contact Information */}
-                <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
-                  <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
-                    <i className="fas fa-address-book text-pink-600" />
+                <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                  <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-address-book text-neutral-600" />
                     Contact Information
                   </h5>
                   <div className="space-y-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center flex-shrink-0">
-                        <i className="fas fa-phone text-pink-600" />
+                      <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center flex-shrink-0">
+                        <i className="fas fa-phone text-neutral-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs text-slate-500 font-medium">Phone Number</div>
-                        <div className="font-semibold text-sm text-slate-900">{previewCust.phone || "Not provided"}</div>
+                        <div className="text-xs text-neutral-500 font-medium">Phone Number</div>
+                        <div className="font-semibold text-sm text-neutral-900">{previewCust.phone || "Not provided"}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -459,46 +465,46 @@ export default function CustomersPage() {
                         <i className="fas fa-envelope text-indigo-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs text-slate-500 font-medium">Email Address</div>
-                        <div className="font-semibold text-sm text-slate-900 truncate">{previewCust.email || "Not provided"}</div>
+                        <div className="text-xs text-neutral-500 font-medium">Email Address</div>
+                        <div className="font-semibold text-sm text-neutral-900 truncate">{previewCust.email || "Not provided"}</div>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Booking Statistics */}
-                <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
-                  <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
-                    <i className="fas fa-chart-simple text-pink-600" />
+                <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                  <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-chart-simple text-neutral-600" />
                     Booking Statistics
                   </h5>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gradient-to-br from-pink-50 to-purple-50 rounded-lg p-3 border border-pink-200">
-                      <div className="text-3xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent mb-1">
+                    <div className="bg-neutral-50 rounded-lg p-3 border border-neutral-200">
+                      <div className="text-3xl font-bold text-neutral-900 mb-1">
                         {previewCust.visits ?? 0}
                       </div>
-                      <div className="text-xs text-slate-600 font-medium">Total Bookings</div>
+                      <div className="text-xs text-neutral-600 font-medium">Total Bookings</div>
                     </div>
                     <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-3 border border-blue-200">
                       <div className="text-sm font-bold text-blue-600 mb-1">{previewCust.lastVisit || "Never"}</div>
-                      <div className="text-xs text-slate-600 font-medium">Last Visit</div>
+                      <div className="text-xs text-neutral-600 font-medium">Last Visit</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Loyalty Badge */}
-                <div className="bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 rounded-xl p-4 border-2 border-pink-200">
+                <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
                   <div className="flex items-center justify-center gap-3">
                     <span className="text-3xl">
                     {(previewCust.visits ?? 0) >= 10 ? "🌟" : (previewCust.visits ?? 0) >= 5 ? "💎" : "🆕"}
                   </span>
                     <div>
-                      <div className="font-bold text-sm text-slate-900">
+                      <div className="font-bold text-sm text-neutral-900">
                     {(previewCust.visits ?? 0) >= 10 ? "VIP Member" : 
                      (previewCust.visits ?? 0) >= 5 ? "Regular Customer" : 
                      "New Customer"}
                       </div>
-                      <div className="text-xs text-slate-600">
+                      <div className="text-xs text-neutral-600">
                         {(previewCust.visits ?? 0) >= 10 ? "10+ bookings" : 
                          (previewCust.visits ?? 0) >= 5 ? "5+ bookings" : 
                          "First time customer"}
@@ -510,20 +516,20 @@ export default function CustomersPage() {
                 {/* Notes Section */}
                 {previewCust.notes && (
                   <div className="bg-amber-50 rounded-xl p-4 border-2 border-amber-200">
-                    <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
+                    <h5 className="font-semibold text-sm text-neutral-900 mb-2 flex items-center gap-2">
                       <i className="fas fa-sticky-note text-amber-600" />
                       Notes
                     </h5>
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{previewCust.notes}</div>
+                    <div className="text-sm text-neutral-700 whitespace-pre-wrap">{previewCust.notes}</div>
                   </div>
                 )}
               </div>
 
               {/* Footer Actions */}
-              <div className="shrink-0 border-t border-slate-200 p-4 bg-white flex gap-3">
+              <div className="shrink-0 border-t border-neutral-200 p-4 bg-white flex gap-3">
                   <button 
                     onClick={() => setPreviewOpen(false)} 
-                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition"
+                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-neutral-200 hover:bg-neutral-300 text-neutral-700 transition"
                   >
                   <i className="fas fa-times mr-2" />
                     Close
@@ -546,39 +552,46 @@ export default function CustomersPage() {
           <div className="absolute inset-0 bg-black/50" onClick={closeModal} />
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
-                <h3 className="text-base font-semibold text-slate-900">{editingId ? "Edit Customer" : "Add Customer"}</h3>
-                <button className="text-slate-400 hover:text-slate-600" onClick={closeModal}>
+              <div className="relative px-5 py-4 bg-neutral-900 flex items-center justify-between sticky top-0 z-10 overflow-hidden rounded-t-2xl">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute top-2 right-20 text-white/10 text-xl"><i className="fas fa-gear" /></div>
+                <div className="relative flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                    <i className="fas fa-user-plus text-amber-400 text-sm" />
+                  </div>
+                  <h3 className="text-base font-semibold text-white">{editingId ? "Edit Customer" : "Add Customer"}</h3>
+                </div>
+                <button className="relative text-white/60 hover:text-white" onClick={closeModal}>
                   <i className="fas fa-times" />
                 </button>
               </div>
               <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto" style={{ maxHeight: "calc(92vh - 56px)" }}>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Full Name</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="Jane Doe" />
+                  <label className="block text-xs font-bold text-neutral-600 mb-1">Full Name</label>
+                  <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-neutral-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="Jane Doe" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Phone</label>
-                    <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="0400 000 000" />
+                    <label className="block text-xs font-bold text-neutral-600 mb-1">Phone</label>
+                    <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border border-neutral-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="0400 000 000" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Email</label>
-                    <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="jane@example.com" />
+                    <label className="block text-xs font-bold text-neutral-600 mb-1">Email</label>
+                    <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full border border-neutral-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="jane@example.com" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Status</label>
-                  <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-pink-500 focus:outline-none">
+                  <label className="block text-xs font-bold text-neutral-600 mb-1">Status</label>
+                  <select value={status} onChange={(e) => setStatus(e.target.value as any)} className="w-full border border-neutral-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-neutral-900 focus:outline-none">
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Notes</label>
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-pink-500 focus:outline-none" placeholder="Any details..." />
+                  <label className="block text-xs font-bold text-neutral-600 mb-1">Notes</label>
+                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full border border-neutral-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="Any details..." />
                 </div>
-                <button type="submit" className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 rounded-lg shadow-md transition mt-2">
+                <button type="submit" className="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-bold py-2.5 rounded-lg shadow-md transition mt-2">
                   {editingId ? "Save Changes" : "Add Customer"}
                 </button>
               </form>

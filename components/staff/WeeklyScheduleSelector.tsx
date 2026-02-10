@@ -27,7 +27,7 @@ const DAYS = [
   { key: "Tuesday", label: "Tuesday", icon: "🌤️", color: "from-blue-400 to-cyan-500" },
   { key: "Wednesday", label: "Wednesday", icon: "🌻", color: "from-emerald-400 to-teal-500" },
   { key: "Thursday", label: "Thursday", icon: "🔧", color: "from-amber-400 to-orange-500" },
-  { key: "Friday", label: "Friday", icon: "🎉", color: "from-purple-400 to-indigo-500" },
+  { key: "Friday", label: "Friday", icon: "🎉", color: "from-indigo-400 to-blue-500" },
   { key: "Saturday", label: "Saturday", icon: "⚙️", color: "from-neutral-500 to-neutral-700" },
   { key: "Sunday", label: "Sunday", icon: "🌙", color: "from-neutral-400 to-neutral-600" },
 ] as const;
@@ -58,11 +58,11 @@ export default function WeeklyScheduleSelector({
     <div className="space-y-2 sm:space-y-3">
       <div className="flex items-start sm:items-center justify-between mb-2 sm:mb-3 gap-2">
         <div className="flex-1 min-w-0">
-          <label className="block text-xs sm:text-sm font-bold text-slate-700 flex items-center gap-2">
-            <i className="fas fa-calendar-week text-purple-600" />
+          <label className="block text-xs sm:text-sm font-bold text-neutral-700 flex items-center gap-2">
+            <i className="fas fa-calendar-week text-neutral-600" />
             <span className="truncate">Weekly Branch Schedule</span>
           </label>
-          <p className="text-[10px] text-slate-500 mt-0.5 sm:mt-1">
+          <p className="text-[10px] text-neutral-500 mt-0.5 sm:mt-1">
             Assign branches for each day
           </p>
         </div>
@@ -81,7 +81,7 @@ export default function WeeklyScheduleSelector({
               onChange(allDaysSchedule);
             }
           }}
-          className="text-[10px] sm:text-xs text-purple-600 hover:text-purple-700 font-semibold bg-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-purple-200 hover:bg-purple-50 transition-all shrink-0 whitespace-nowrap"
+          className="text-[10px] sm:text-xs text-neutral-600 hover:text-neutral-700 font-semibold bg-white px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-all shrink-0 whitespace-nowrap"
         >
           <i className="fas fa-magic mr-1" />
           <span className="hidden xs:inline">Auto-fill</span>
@@ -97,7 +97,7 @@ export default function WeeklyScheduleSelector({
           return (
             <div
               key={day.key}
-              className="group relative rounded-md sm:rounded-lg border border-slate-200 hover:border-purple-300 transition-all bg-white overflow-hidden hover:shadow-sm"
+              className="group relative rounded-md sm:rounded-lg border border-neutral-200 hover:border-neutral-300 transition-all bg-white overflow-hidden hover:shadow-sm"
             >
               {/* Gradient accent bar */}
               <div className={`absolute left-0 top-0 bottom-0 w-0.5 sm:w-1 bg-gradient-to-b ${day.color}`} />
@@ -107,7 +107,7 @@ export default function WeeklyScheduleSelector({
                 <div className="flex items-center gap-1 sm:gap-2 min-w-[90px] sm:min-w-[100px]">
                   <span className="text-sm sm:text-lg">{day.icon}</span>
                   <div>
-                    <div className="text-[10px] sm:text-xs font-semibold text-slate-800">
+                    <div className="text-[10px] sm:text-xs font-semibold text-neutral-800">
                       {day.label}
                     </div>
                   </div>
@@ -118,7 +118,7 @@ export default function WeeklyScheduleSelector({
                   <select
                     value={selectedBranchId}
                     onChange={(e) => handleDayChange(day.key, e.target.value)}
-                    className="w-full border border-slate-200 rounded-md px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs bg-white focus:ring-2 focus:ring-purple-400 focus:border-purple-400 focus:outline-none transition"
+                    className="w-full border border-neutral-200 rounded-md px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs bg-white focus:ring-2 focus:ring-neutral-400 focus:border-neutral-400 focus:outline-none transition"
                   >
                     <option value="">🏖️ Off Day</option>
                     {branches.map((branch) => (
@@ -134,7 +134,7 @@ export default function WeeklyScheduleSelector({
                   {assignment ? (
                     <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-emerald-400" />
                   ) : (
-                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-slate-300" />
+                    <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-neutral-300" />
                   )}
                 </div>
               </div>
@@ -144,7 +144,7 @@ export default function WeeklyScheduleSelector({
       </div>
 
       {/* Summary */}
-      <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-purple-100">
+      <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-neutral-100">
         <div className="flex items-center justify-between text-[10px] sm:text-xs gap-2">
           <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
             <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-emerald-50 rounded-md">
@@ -153,9 +153,9 @@ export default function WeeklyScheduleSelector({
                 {Object.values(schedule).filter((s) => s !== null && s !== undefined).length} Working
               </span>
             </div>
-            <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-slate-50 rounded-md">
-              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-slate-300" />
-              <span className="text-slate-600 font-medium whitespace-nowrap">
+            <div className="flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 sm:py-1 bg-neutral-50 rounded-md">
+              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-neutral-300" />
+              <span className="text-neutral-600 font-medium whitespace-nowrap">
                 {7 - Object.values(schedule).filter((s) => s !== null && s !== undefined).length} Off
               </span>
             </div>

@@ -121,21 +121,21 @@ export default function SetupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 to-slate-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-neutral-50 to-neutral-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-lg w-full">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Super Admin Setup</h1>
-        <p className="text-slate-500 text-sm mb-6">Create the initial super admin account</p>
+        <h1 className="text-2xl font-bold text-neutral-900 mb-2">Super Admin Setup</h1>
+        <p className="text-neutral-500 text-sm mb-6">Create the initial super admin account</p>
         
-        <div className="bg-slate-50 rounded-xl p-4 mb-6">
-          <p className="text-sm text-slate-600"><strong>Email:</strong> {EMAIL}</p>
-          <p className="text-sm text-slate-600"><strong>Password:</strong> {PASSWORD}</p>
+        <div className="bg-neutral-50 rounded-xl p-4 mb-6">
+          <p className="text-sm text-neutral-600"><strong>Email:</strong> {EMAIL}</p>
+          <p className="text-sm text-neutral-600"><strong>Password:</strong> {PASSWORD}</p>
         </div>
 
         {/* Status Display */}
         {loading && (
           <div className="flex flex-col items-center py-6 mb-4">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900 mb-4"></div>
-            <p className="text-slate-600 text-sm">{status}</p>
+            <p className="text-neutral-600 text-sm">{status}</p>
           </div>
         )}
 
@@ -149,8 +149,8 @@ export default function SetupPage() {
             </div>
             <p className="text-emerald-700 font-semibold text-lg mb-4">Super Admin Created!</p>
             <div className="bg-white rounded-lg p-4 text-left mb-4 border border-emerald-100">
-              <p className="text-sm text-slate-700"><strong>Email:</strong> {EMAIL}</p>
-              <p className="text-sm text-slate-700"><strong>Password:</strong> {PASSWORD}</p>
+              <p className="text-sm text-neutral-700"><strong>Email:</strong> {EMAIL}</p>
+              <p className="text-sm text-neutral-700"><strong>Password:</strong> {PASSWORD}</p>
             </div>
             <a 
               href="/login" 
@@ -176,13 +176,13 @@ export default function SetupPage() {
               <>
                 <button
                   onClick={createViaAPI}
-                  className="w-full py-3 px-6 bg-pink-500 text-white font-semibold rounded-xl hover:bg-pink-600 transition-colors"
+                  className="w-full py-3 px-6 bg-neutral-900 text-white font-semibold rounded-xl hover:bg-neutral-800 transition-colors"
                 >
                   Create Super Admin (Server API)
                 </button>
                 <button
                   onClick={() => setUseClientSide(true)}
-                  className="w-full py-2 px-4 text-slate-600 text-sm hover:text-pink-600 transition-colors"
+                  className="w-full py-2 px-4 text-neutral-600 text-sm hover:text-neutral-800 transition-colors"
                 >
                   Having issues? Try client-side method →
                 </button>
@@ -194,7 +194,7 @@ export default function SetupPage() {
                   <p className="text-blue-700 text-xs mb-2">
                     In Firebase Console → Firestore → Rules, find <code className="bg-blue-100 px-1">super_admins</code> and change to:
                   </p>
-                  <code className="block bg-slate-800 text-green-400 p-3 rounded text-xs mb-2 overflow-x-auto">
+                  <code className="block bg-neutral-800 text-green-400 p-3 rounded text-xs mb-2 overflow-x-auto">
                     {`match /super_admins/{adminId} {`}<br/>
                     {`  allow read: if request.auth != null;`}<br/>
                     {`  allow create: if request.auth != null && adminId == request.auth.uid;`}<br/>
@@ -207,13 +207,13 @@ export default function SetupPage() {
                 </div>
                 <button
                   onClick={createViaClient}
-                  className="w-full py-3 px-6 bg-pink-500 text-white font-semibold rounded-xl hover:bg-pink-600 transition-colors"
+                  className="w-full py-3 px-6 bg-neutral-900 text-white font-semibold rounded-xl hover:bg-neutral-800 transition-colors"
                 >
                   Create Super Admin
                 </button>
                 <button
                   onClick={() => setUseClientSide(false)}
-                  className="w-full py-2 px-4 text-slate-600 text-sm hover:text-pink-600 transition-colors"
+                  className="w-full py-2 px-4 text-neutral-600 text-sm hover:text-neutral-800 transition-colors"
                 >
                   Use Server API method instead →
                 </button>
@@ -224,7 +224,7 @@ export default function SetupPage() {
 
         {/* Status Message */}
         {!loading && !success && status !== "Ready to create super admin" && (
-          <p className="text-center text-slate-500 text-sm mt-4">{status}</p>
+          <p className="text-center text-neutral-500 text-sm mt-4">{status}</p>
         )}
       </div>
     </div>

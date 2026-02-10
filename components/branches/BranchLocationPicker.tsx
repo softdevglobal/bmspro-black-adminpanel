@@ -248,12 +248,12 @@ export default function BranchLocationPicker({
     <div className="space-y-4">
       {/* Search Input */}
       <div className="space-y-2">
-        <label className="block text-xs font-bold text-slate-500 uppercase">
-          <i className="fas fa-map-marker-alt mr-1 text-purple-500" />
+        <label className="block text-xs font-bold text-neutral-500 uppercase">
+          <i className="fas fa-map-marker-alt mr-1 text-neutral-500" />
           Branch Location
         </label>
         <div className="relative">
-          <i className="fas fa-search absolute left-3 top-3 text-slate-400" />
+          <i className="fas fa-search absolute left-3 top-3 text-neutral-400" />
           <input
             ref={autocompleteRef}
             type="text"
@@ -261,13 +261,13 @@ export default function BranchLocationPicker({
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Search for an address..."
             disabled={disabled}
-            className="w-full pl-10 pr-28 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none disabled:bg-slate-100 disabled:cursor-not-allowed"
+            className="w-full pl-10 pr-28 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-500 focus:ring-4 focus:ring-neutral-500/10 transition-all outline-none disabled:bg-neutral-100 disabled:cursor-not-allowed"
           />
           <button
             type="button"
             onClick={getCurrentLocation}
             disabled={disabled || isGettingCurrentLocation}
-            className="absolute right-2 top-1.5 px-3 py-1.5 bg-purple-100 text-purple-600 rounded-md text-xs font-medium hover:bg-purple-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="absolute right-2 top-1.5 px-3 py-1.5 bg-neutral-100 text-neutral-600 rounded-md text-xs font-medium hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGettingCurrentLocation ? (
               <span className="flex items-center gap-1">
@@ -282,7 +282,7 @@ export default function BranchLocationPicker({
             )}
           </button>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-neutral-500">
           <i className="fas fa-info-circle mr-1" />
           Search for an address, use current location, or click on the map
         </p>
@@ -292,12 +292,12 @@ export default function BranchLocationPicker({
       <div className="relative">
         <div
           ref={mapRef}
-          className="w-full h-64 sm:h-80 rounded-xl border border-slate-200 overflow-hidden"
+          className="w-full h-64 sm:h-80 rounded-xl border border-neutral-200 overflow-hidden"
           style={{ minHeight: "250px" }}
         />
         {!isLoaded && (
-          <div className="absolute inset-0 bg-slate-100 flex items-center justify-center rounded-xl">
-            <div className="flex items-center gap-2 text-slate-500">
+          <div className="absolute inset-0 bg-neutral-100 flex items-center justify-center rounded-xl">
+            <div className="flex items-center gap-2 text-neutral-500">
               <i className="fas fa-spinner fa-spin" />
               Loading map...
             </div>
@@ -307,16 +307,16 @@ export default function BranchLocationPicker({
 
       {/* Location Display */}
       {location && (
-        <div className="bg-purple-50 rounded-lg p-4 border border-purple-100">
+        <div className="bg-neutral-50 rounded-lg p-4 border border-neutral-100">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600">
+            <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-600">
               <i className="fas fa-map-pin" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-slate-700 truncate">
+              <div className="text-sm font-medium text-neutral-700 truncate">
                 {location.formattedAddress || "Selected Location"}
               </div>
-              <div className="text-xs text-slate-500 mt-1 font-mono">
+              <div className="text-xs text-neutral-500 mt-1 font-mono">
                 {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
               </div>
             </div>
@@ -336,7 +336,7 @@ export default function BranchLocationPicker({
                     setCircle(null);
                   }
                 }}
-                className="text-slate-400 hover:text-rose-500 transition-colors"
+                className="text-neutral-400 hover:text-rose-500 transition-colors"
               >
                 <i className="fas fa-times" />
               </button>
@@ -347,8 +347,8 @@ export default function BranchLocationPicker({
 
       {/* Check-in Radius Selector */}
       <div className="space-y-2">
-        <label className="block text-xs font-bold text-slate-500 uppercase">
-          <i className="fas fa-circle-notch mr-1 text-purple-500" />
+        <label className="block text-xs font-bold text-neutral-500 uppercase">
+          <i className="fas fa-circle-notch mr-1 text-neutral-500" />
           Check-in Radius
         </label>
         <div className="relative">
@@ -356,7 +356,7 @@ export default function BranchLocationPicker({
             value={radius}
             onChange={(e) => handleRadiusChange(Number(e.target.value))}
             disabled={disabled}
-            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 transition-all outline-none appearance-none disabled:bg-slate-100 disabled:cursor-not-allowed"
+            className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-500 focus:ring-4 focus:ring-neutral-500/10 transition-all outline-none appearance-none disabled:bg-neutral-100 disabled:cursor-not-allowed"
           >
             {CHECK_IN_RADIUS_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -364,11 +364,11 @@ export default function BranchLocationPicker({
               </option>
             ))}
           </select>
-          <div className="absolute right-3 top-3 pointer-events-none text-slate-400">
+          <div className="absolute right-3 top-3 pointer-events-none text-neutral-400">
             <i className="fas fa-chevron-down" />
           </div>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-neutral-500">
           <i className="fas fa-info-circle mr-1" />
           Staff must be within this distance from the branch to check in
         </p>

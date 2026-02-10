@@ -975,7 +975,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       {sidebarOpen && (
         <div className="fixed inset-0 z-[100] md:hidden">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-          <div className="relative h-full w-64 bg-slate-900 shadow-2xl">
+          <div className="relative h-full w-64 bg-neutral-900 shadow-2xl">
             <Sidebar mobile onClose={() => setSidebarOpen(false)} />
           </div>
         </div>
@@ -985,12 +985,18 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       <Sidebar />
       
       <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-slate-50">
+        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-neutral-50">
           <div className="max-w-7xl mx-auto">
             <div className="mb-8">
-              <div className="rounded-2xl bg-neutral-900 text-white p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
+                {/* Decorative elements */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+                <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
+                <div className="absolute top-3 right-20 text-white/10 text-3xl"><i className="fas fa-gear" /></div>
+                <div className="absolute bottom-2 right-40 text-white/10 text-xl"><i className="fas fa-wrench" /></div>
+
+                <div className="relative flex items-center justify-between">
+                  <div className="flex items-center gap-3">
                     {/* Mobile Menu Button */}
                     <button 
                       onClick={() => setSidebarOpen(true)}
@@ -998,10 +1004,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     >
                       <i className="fas fa-bars text-xl"></i>
                     </button>
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                    <i className="fas fa-calendar-check" />
+                    <div className="w-11 h-11 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                      <i className="fas fa-calendar-check text-amber-400" />
                     </div>
-                    <h1 className="text-xl sm:text-2xl font-bold">{title}</h1>
+                    <div>
+                      <h1 className="text-xl sm:text-2xl font-bold">{title}</h1>
+                      <p className="text-neutral-400 text-xs mt-0.5">Manage your workshop bookings</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1017,24 +1026,26 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${previewOpen ? "opacity-100" : "opacity-0"}`}
               />
               <aside
-                className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[30rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-200 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
+                className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[30rem] bg-white shadow-2xl border-l border-neutral-200 transform transition-transform duration-200 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
               >
                 <div className="flex h-full flex-col">
-                  <div className="p-0 border-b border-slate-200">
-                    <div className="bg-neutral-900 p-5 text-white flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                          <i className="fas fa-eye" />
+                  <div className="p-0 border-b border-neutral-200">
+                    <div className="relative bg-neutral-900 p-5 text-white flex items-center justify-between overflow-hidden">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
+                      <div className="absolute top-2 right-16 text-white/10 text-xl"><i className="fas fa-gear" /></div>
+                      <div className="relative flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                          <i className="fas fa-eye text-amber-400" />
                         </div>
                         <h3 className="text-lg font-semibold">Booking Preview</h3>
                       </div>
-                      <button onClick={closePreview} className="text-white/80 hover:text-white">
+                      <button onClick={closePreview} className="relative text-white/80 hover:text-white">
                         <i className="fas fa-times" />
                       </button>
                     </div>
                   </div>
                   <div className="flex-1 p-5 space-y-4 overflow-y-auto">
-                  {!previewRow && <div className="text-slate-500 text-sm">No booking selected.</div>}
+                  {!previewRow && <div className="text-neutral-500 text-sm">No booking selected.</div>}
                   {previewRow && (
                     <div className="space-y-4 text-sm">
                       <div className="flex items-center gap-3">
@@ -1042,22 +1053,22 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           {(previewRow.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                         </div>
                         <div className="flex-1">
-                          <p className="font-semibold text-slate-900">{previewRow.client}</p>
+                          <p className="font-semibold text-neutral-900">{previewRow.client}</p>
                           <div className="flex flex-wrap gap-2 mt-1">
-                            {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
-                            {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
+                            {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
+                            {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
                           </div>
                         </div>
                       </div>
                       
-                      <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+                      <div className="rounded-xl border border-neutral-200 p-3 bg-neutral-50/50">
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-500 text-xs uppercase tracking-wide">Booking Code</span>
-                          <span className="font-mono font-bold text-slate-800">{previewRow.bookingCode || previewRow.id.substring(0, 8)}</span>
+                          <span className="text-neutral-500 text-xs uppercase tracking-wide">Booking Code</span>
+                          <span className="font-mono font-bold text-neutral-800">{previewRow.bookingCode || previewRow.id.substring(0, 8)}</span>
                         </div>
                         {previewRow.bookingSource && (
-                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-200">
-                            <span className="text-slate-500 text-xs uppercase tracking-wide">Source</span>
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-200">
+                            <span className="text-neutral-500 text-xs uppercase tracking-wide">Source</span>
                             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
                               previewRow.bookingSource === "booking_engine" 
                                 ? "bg-blue-100 text-blue-700" 
@@ -1067,7 +1078,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 ? "bg-purple-100 text-purple-700"
                                 : previewRow.bookingSource.includes("Staff")
                                 ? "bg-amber-100 text-amber-700"
-                                : "bg-slate-100 text-slate-700"
+                                : "bg-neutral-100 text-neutral-700"
                             }`}>
                               {previewRow.bookingSource === "booking_engine" 
                                 ? "Booking Engine" 
@@ -1081,9 +1092,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Services</h4>
+                          <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Services</h4>
                           {previewRow.services && previewRow.services.length > 1 && (
-                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                            <span className="text-[10px] bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded-full">
                               {previewRow.services.length} items
                             </span>
                           )}
@@ -1135,7 +1146,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 "bg-gradient-to-b from-neutral-700 to-neutral-900 opacity-0 group-hover:opacity-100"
                               } transition-opacity`} />
                               <div className="flex justify-between items-start mb-1.5">
-                                <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                <div className="font-bold text-neutral-800 text-sm flex items-center gap-2">
                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
                                      approvalStatus === "rejected" ? "bg-rose-50 text-rose-500" :
                                      isConfirmed && isServiceCompleted ? "bg-indigo-50 text-indigo-500" :
@@ -1161,18 +1172,18 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       {completionBadge.label}
                                     </span>
                                   )}
-                                  {svc.price !== undefined && <div className="font-bold text-slate-900 text-sm">${svc.price}</div>}
+                                  {svc.price !== undefined && <div className="font-bold text-neutral-900 text-sm">${svc.price}</div>}
                                 </div>
                               </div>
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-500 pl-7">
-                                 <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-neutral-500 pl-7">
+                                 <div className="flex items-center gap-1.5 bg-neutral-50 px-2 py-1 rounded-md">
                                     <i className="far fa-clock text-neutral-400" />
-                                    <span className="font-medium text-slate-700">{svc.time || previewRow.time}</span>
-                                    {svc.duration && <span className="text-slate-400">({svc.duration}m)</span>}
+                                    <span className="font-medium text-neutral-700">{svc.time || previewRow.time}</span>
+                                    {svc.duration && <span className="text-neutral-400">({svc.duration}m)</span>}
                                  </div>
-                                 <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md">
+                                 <div className="flex items-center gap-1.5 bg-neutral-50 px-2 py-1 rounded-md">
                                     <i className="far fa-user text-purple-400" />
-                                    <span className="font-medium text-slate-700">{svc.staffName || previewRow.staffName || "Any Staff"}</span>
+                                    <span className="font-medium text-neutral-700">{svc.staffName || previewRow.staffName || "Any Staff"}</span>
                                  </div>
                               </div>
                               {/* Show rejection reason if service was rejected */}
@@ -1206,48 +1217,48 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <p className="text-slate-400">Date & Time</p>
-                          <p className="font-medium text-slate-700 flex items-center gap-2">
-                            <i className="fas fa-clock text-slate-400" />
+                          <p className="text-neutral-400">Date & Time</p>
+                          <p className="font-medium text-neutral-700 flex items-center gap-2">
+                            <i className="fas fa-clock text-neutral-400" />
                             {previewRow.date} {previewRow.time}
                           </p>
                         </div>
                         <div>
-                          <p className="text-slate-400">Duration</p>
-                          <p className="font-medium text-slate-700">{previewRow.duration} mins</p>
+                          <p className="text-neutral-400">Duration</p>
+                          <p className="font-medium text-neutral-700">{previewRow.duration} mins</p>
                         </div>
                       </div>
                       <div>
-                        <p className="text-slate-400">Branch</p>
-                        <p className="font-medium text-slate-700 flex items-center gap-2">
-                          <i className="fas fa-store text-slate-400" />
+                        <p className="text-neutral-400">Branch</p>
+                        <p className="font-medium text-neutral-700 flex items-center gap-2">
+                          <i className="fas fa-store text-neutral-400" />
                           {previewRow.branchName || "-"}
                         </p>
                       </div>
                       <div>
-                        <p className="text-slate-400">Status</p>
-                        <p className="inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-700">
-                          <i className="fas fa-circle text-[8px] text-slate-400" />
+                        <p className="text-neutral-400">Status</p>
+                        <p className="inline-flex items-center gap-2 px-2 py-1 text-xs rounded-full bg-neutral-100 text-neutral-700">
+                          <i className="fas fa-circle text-[8px] text-neutral-400" />
                           {previewRow.status || status}
                         </p>
                       </div>
                       <div>
-                        <p className="text-slate-400">Price</p>
-                        <p className="font-semibold text-slate-800 flex items-center gap-1"><i className="fas fa-dollar-sign text-slate-400" />{previewRow.price}</p>
+                        <p className="text-neutral-400">Price</p>
+                        <p className="font-semibold text-neutral-800 flex items-center gap-1"><i className="fas fa-dollar-sign text-neutral-400" />{previewRow.price}</p>
                       </div>
                       {previewRow.notes && (
                         <div>
-                          <p className="text-slate-400">Notes</p>
-                          <p className="text-slate-700 whitespace-pre-wrap">{previewRow.notes}</p>
+                          <p className="text-neutral-400">Notes</p>
+                          <p className="text-neutral-700 whitespace-pre-wrap">{previewRow.notes}</p>
                         </div>
                       )}
                     </div>
                   )}
                   </div>
-                  <div className="shrink-0 border-t border-slate-200 p-4 flex items-center justify-end gap-2 bg-white/90 backdrop-blur">
+                  <div className="shrink-0 border-t border-neutral-200 p-4 flex items-center justify-end gap-2 bg-white/90 backdrop-blur">
                     <button
                       onClick={closePreview}
-                      className="px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-700"
                     >
                       Close
                     </button>
@@ -1322,10 +1333,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
             {/* Footer now lives inside the aside for correct order */}
 
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
               <div className="relative overflow-x-auto">
-                <table className="min-w-[960px] w-full text-left text-sm text-slate-600">
-                  <thead className="bg-slate-50/90 backdrop-blur text-slate-800 font-semibold border-b border-slate-100 sticky top-0 z-10">
+                <table className="min-w-[960px] w-full text-left text-sm text-neutral-600">
+                  <thead className="bg-neutral-50/90 backdrop-blur text-neutral-800 font-semibold border-b border-neutral-100 sticky top-0 z-10">
                   <tr>
                     <th className="p-4 pl-6">Client &amp; Service</th>
                     <th className="p-4">Date &amp; Time</th>
@@ -1338,7 +1349,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <tbody>
                   {loading && (
                     <tr>
-                      <td className="p-6 text-slate-500" colSpan={5}>Loading...</td>
+                      <td className="p-6 text-neutral-500" colSpan={5}>Loading...</td>
                     </tr>
                   )}
                   {!loading && error && (
@@ -1348,7 +1359,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   )}
                   {!loading && rows.length === 0 && (
                     <tr>
-                      <td className="p-6 text-slate-500" colSpan={6}>No bookings.</td>
+                      <td className="p-6 text-neutral-500" colSpan={6}>No bookings.</td>
                     </tr>
                   )}
                   {!loading &&
@@ -1363,7 +1374,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       const statusColor = getStatusColor(normalizeBookingStatus(r.status));
                       const statusLabel = getStatusLabel(normalizeBookingStatus(r.status));
                       return (
-                      <tr key={r.id} className="hover:bg-slate-50 transition">
+                      <tr key={r.id} className="hover:bg-neutral-50 transition">
                         <td className="p-4 pl-6">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-xs font-bold shadow-sm">
@@ -1371,9 +1382,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             </div>
                             <div className="flex items-center gap-2">
                               <div>
-                                <div className="font-semibold text-slate-800">{r.client}</div>
+                                <div className="font-semibold text-neutral-800">{r.client}</div>
                                 {r.bookingCode && (
-                                  <div className="text-xs text-slate-500 font-mono mt-0.5">{r.bookingCode}</div>
+                                  <div className="text-xs text-neutral-500 font-mono mt-0.5">{r.bookingCode}</div>
                                 )}
                               </div>
                               {/* Mobile-first preview trigger (visible before horizontal scroll) */}
@@ -1381,7 +1392,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 aria-label="Preview"
                                 title="Preview"
                                 onClick={() => openPreview(r)}
-                                className="sm:hidden text-slate-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-7 w-7 inline-flex items-center justify-center"
+                                className="sm:hidden text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-7 w-7 inline-flex items-center justify-center"
                               >
                                 <i className="fas fa-eye text-[13px]" />
                               </button>
@@ -1402,14 +1413,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                     const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
                                     
                                     return (
-                                      <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
+                                      <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
                                         <div className="flex items-center gap-2 min-w-0">
-                                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
+                                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
                                             <i className="fas fa-spa text-[10px] text-neutral-600" />
-                                            <span className="text-xs font-semibold text-slate-800">{svc.name || "Service"}</span>
+                                            <span className="text-xs font-semibold text-neutral-800">{svc.name || "Service"}</span>
                                           </span>
-                                          <i className="fas fa-user text-[9px] text-slate-400" />
-                                          <span className="text-xs font-medium text-slate-600 truncate">{svc.staffName || "Any Staff"}</span>
+                                          <i className="fas fa-user text-[9px] text-neutral-400" />
+                                          <span className="text-xs font-medium text-neutral-600 truncate">{svc.staffName || "Any Staff"}</span>
                                         </div>
                                         {/* Show approval status badge for multi-service bookings or pending with needs_assignment */}
                                         {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected" || r.status === "Pending") && (
@@ -1423,10 +1434,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   })}
                                 </>
                               ) : (
-                                <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-slate-50 border border-slate-100">
-                                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-slate-200 shadow-sm">
+                                <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
+                                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
                                     <i className="fas fa-spa text-[10px] text-neutral-600" />
-                                    <span className="text-xs font-semibold text-slate-800">{r.serviceName || "Service"}</span>
+                                    <span className="text-xs font-semibold text-neutral-800">{r.serviceName || "Service"}</span>
                                   </span>
                                 </div>
                               )}
@@ -1434,8 +1445,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           </div>
                         </td>
                         <td className="p-4">
-                          <div className="font-medium text-slate-700">{r.date}</div>
-                          <div className="text-xs text-slate-500">{r.time}</div>
+                          <div className="font-medium text-neutral-700">{r.date}</div>
+                          <div className="text-xs text-neutral-500">{r.time}</div>
                         </td>
                         {/* Staff Column - show all staff names in one line */}
                         <td className="p-4">
@@ -1458,11 +1469,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               );
                               
                               if (staffNames.length === 0) {
-                                return <span className="text-xs font-medium text-slate-500 italic">Any Available</span>;
+                                return <span className="text-xs font-medium text-neutral-500 italic">Any Available</span>;
                               } else {
                                 return (
                                   <div className="flex flex-col">
-                                    <span className="text-xs font-medium text-slate-700">{staffNames.join(", ")}</span>
+                                    <span className="text-xs font-medium text-neutral-700">{staffNames.join(", ")}</span>
                                     {hasUnassigned && (
                                       <span className="text-[10px] text-purple-600 font-medium">+ Needs Assignment</span>
                                     )}
@@ -1475,13 +1486,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         </td>
                         <td className="p-4">{r.branchName || "-"}</td>
                         <td className="p-4 text-right pr-6">
-                          <span className="inline-flex items-center gap-1 font-bold text-slate-800">
-                            <i className="fas fa-dollar-sign text-slate-400" />
+                          <span className="inline-flex items-center gap-1 font-bold text-neutral-800">
+                            <i className="fas fa-dollar-sign text-neutral-400" />
                             {r.price}
                           </span>
                         </td>
                         <td className="p-4 text-right pr-6">
-                          <div className="inline-flex items-center gap-2 justify-end bg-slate-100/60 rounded-full px-2 py-1">
+                          <div className="inline-flex items-center gap-2 justify-end bg-neutral-100/60 rounded-full px-2 py-1">
                             {/* Status Badge */}
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
                               {statusLabel}
@@ -1490,7 +1501,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               aria-label="Preview"
                               title="Preview"
                               onClick={() => openPreview(r)}
-                              className="hidden sm:inline-flex text-slate-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center"
+                              className="hidden sm:inline-flex text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center"
                             >
                               <i className="fas fa-eye" />
                             </button>
@@ -1599,17 +1610,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             {/* Content */}
             <div className="p-6">
               {/* Booking Details */}
-              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+              <div className="mb-6 p-4 bg-neutral-50 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold">
                     {(bookingToConfirm.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-900">{bookingToConfirm.client}</p>
-                    <p className="text-xs text-slate-500">{bookingToConfirm.serviceName || "Service"}</p>
+                    <p className="font-semibold text-neutral-900">{bookingToConfirm.client}</p>
+                    <p className="text-xs text-neutral-500">{bookingToConfirm.serviceName || "Service"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-slate-600">
+                <div className="flex items-center gap-4 text-xs text-neutral-600">
                   <span><i className="far fa-calendar mr-1"></i>{bookingToConfirm.date}</span>
                   <span><i className="far fa-clock mr-1"></i>{bookingToConfirm.time}</span>
                   {bookingToConfirm.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToConfirm.branchName}</span>}
@@ -1632,7 +1643,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 {loadingStaff ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="w-8 h-8 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin"></div>
-                    <span className="ml-3 text-slate-600">Loading staff...</span>
+                    <span className="ml-3 text-neutral-600">Loading staff...</span>
                   </div>
                 ) : (
                   <>
@@ -1649,8 +1660,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               <div key={serviceKey} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
                                 <div className="mb-3 flex items-center gap-2">
                                   <i className="fas fa-spa text-purple-600"></i>
-                                  <h4 className="font-bold text-slate-800">{service.name}</h4>
-                                  <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                                  <h4 className="font-bold text-neutral-800">{service.name}</h4>
+                                  <span className="text-xs text-neutral-500 ml-auto">{service.duration} min</span>
                                 </div>
                                 
                                 {serviceStaff.length === 0 ? (
@@ -1673,12 +1684,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                         className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                           selectedStaff === staff.id
                                             ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                                            : "border-slate-200 hover:border-emerald-300 hover:bg-white"
+                                            : "border-neutral-200 hover:border-emerald-300 hover:bg-white"
                                         }`}
                                       >
                                         <div className="flex items-center gap-2">
                                           <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                            selectedStaff === staff.id ? "border-emerald-500" : "border-slate-200"
+                                            selectedStaff === staff.id ? "border-emerald-500" : "border-neutral-200"
                                           }`}>
                                             <img
                                               src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -1688,7 +1699,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                           </div>
                                           <div className="flex-1">
                                             <p className={`font-semibold text-sm ${
-                                              selectedStaff === staff.id ? "text-emerald-900" : "text-slate-800"
+                                              selectedStaff === staff.id ? "text-emerald-900" : "text-neutral-800"
                                             }`}>
                                               {staff.name}
                                             </p>
@@ -1708,7 +1719,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     ) : (
                       /* Single Service - Original UI */
                       <>
-                        <label className="block text-sm font-semibold text-slate-700 mb-3">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-3">
                           <i className="fas fa-user-tie text-emerald-600 mr-2"></i>
                           Select Staff Member
                         </label>
@@ -1729,14 +1740,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
                                   selectedStaffId === staff.id
                                     ? "border-emerald-500 bg-emerald-50 shadow-sm"
-                                    : "border-slate-200 hover:border-emerald-300 hover:bg-slate-50"
+                                    : "border-neutral-200 hover:border-emerald-300 hover:bg-neutral-50"
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
                                   <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
                                     selectedStaffId === staff.id
                                       ? "border-emerald-500"
-                                      : "border-slate-200"
+                                      : "border-neutral-200"
                                   }`}>
                                     <img
                                       src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -1746,7 +1757,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   </div>
                                   <div className="flex-1">
                                     <p className={`font-semibold ${
-                                      selectedStaffId === staff.id ? "text-emerald-900" : "text-slate-800"
+                                      selectedStaffId === staff.id ? "text-emerald-900" : "text-neutral-800"
                                     }`}>
                                       {staff.name}
                                     </p>
@@ -1767,14 +1778,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             </div>
 
             {/* Footer */}
-            <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200">
+            <div className="bg-neutral-50 px-6 py-4 flex gap-3 justify-end border-t border-neutral-200">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setStaffAssignModalOpen(false);
                 }}
                 disabled={!!updatingState[bookingToConfirm.id]}
-                className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                className="px-4 py-2.5 rounded-lg text-neutral-700 hover:bg-neutral-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 Cancel
               </button>
@@ -1872,17 +1883,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               )}
 
               {/* Booking Details */}
-              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+              <div className="mb-6 p-4 bg-neutral-50 rounded-lg">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold">
                     {(bookingToReassign.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-900">{bookingToReassign.client}</p>
-                    <p className="text-xs text-slate-500">{bookingToReassign.serviceName || "Service"}</p>
+                    <p className="font-semibold text-neutral-900">{bookingToReassign.client}</p>
+                    <p className="text-xs text-neutral-500">{bookingToReassign.serviceName || "Service"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-slate-600">
+                <div className="flex items-center gap-4 text-xs text-neutral-600">
                   <span><i className="far fa-calendar mr-1"></i>{bookingToReassign.date}</span>
                   <span><i className="far fa-clock mr-1"></i>{bookingToReassign.time}</span>
                   {bookingToReassign.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToReassign.branchName}</span>}
@@ -1905,7 +1916,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 {loadingStaff ? (
                   <div className="flex items-center justify-center py-8">
                     <div className="w-8 h-8 border-3 border-amber-200 border-t-amber-600 rounded-full animate-spin"></div>
-                    <span className="ml-3 text-slate-600">Loading available staff...</span>
+                    <span className="ml-3 text-neutral-600">Loading available staff...</span>
                   </div>
                 ) : (
                   <>
@@ -1921,7 +1932,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           s.staffName !== "Any Staff"
                         ).length > 0 && (
                           <div className="mb-4">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                            <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
                               <i className="fas fa-check-circle text-emerald-500 mr-1"></i>
                               Already Assigned (Customer Selected)
                             </p>
@@ -1936,10 +1947,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 <div key={String(service.id || service.name)} className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200">
                                   <div className="flex items-center gap-2">
                                     <i className="fas fa-spa text-emerald-600 text-sm"></i>
-                                    <span className="font-medium text-slate-800">{service.name}</span>
+                                    <span className="font-medium text-neutral-800">{service.name}</span>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs text-slate-500">{service.staffName}</span>
+                                    <span className="text-xs text-neutral-500">{service.staffName}</span>
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
                                       <i className="fas fa-check text-[8px]"></i>
                                       {service.approvalStatus === "accepted" ? "Accepted" : "Awaiting"}
@@ -1958,7 +1969,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
                         ).length > 0 && (
                           <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                            <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
                               <i className="fas fa-user-plus text-amber-500 mr-1"></i>
                               Select New Staff For
                             </p>
@@ -1977,8 +1988,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   <div key={serviceKey} className="border-2 border-amber-200 rounded-xl p-4 bg-amber-50/50 mb-3">
                                     <div className="mb-3 flex items-center gap-2">
                                       <i className="fas fa-spa text-amber-600"></i>
-                                      <h4 className="font-bold text-slate-800">{service.name}</h4>
-                                      <span className="text-xs text-slate-500 ml-auto">{service.duration} min</span>
+                                      <h4 className="font-bold text-neutral-800">{service.name}</h4>
+                                      <span className="text-xs text-neutral-500 ml-auto">{service.duration} min</span>
                                       {service.approvalStatus === "rejected" && (
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold">
                                           <i className="fas fa-times text-[8px]"></i>
@@ -2013,12 +2024,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                             className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
                                               selectedStaff === staff.id
                                                 ? "border-amber-500 bg-amber-50 shadow-sm"
-                                                : "border-slate-200 hover:border-amber-300 hover:bg-white"
+                                                : "border-neutral-200 hover:border-amber-300 hover:bg-white"
                                             }`}
                                           >
                                             <div className="flex items-center gap-2">
                                               <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                                selectedStaff === staff.id ? "border-amber-500" : "border-slate-200"
+                                                selectedStaff === staff.id ? "border-amber-500" : "border-neutral-200"
                                               }`}>
                                                 <img
                                                   src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -2028,7 +2039,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                               </div>
                                               <div className="flex-1">
                                                 <p className={`font-semibold text-sm ${
-                                                  selectedStaff === staff.id ? "text-amber-900" : "text-slate-800"
+                                                  selectedStaff === staff.id ? "text-amber-900" : "text-neutral-800"
                                                 }`}>
                                                   {staff.name}
                                                 </p>
@@ -2050,7 +2061,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     ) : (
                       /* Single Service */
                       <>
-                        <label className="block text-sm font-semibold text-slate-700 mb-3">
+                        <label className="block text-sm font-semibold text-neutral-700 mb-3">
                           <i className="fas fa-user-tie text-amber-600 mr-2"></i>
                           Select New Staff Member
                         </label>
@@ -2071,14 +2082,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
                                   selectedStaffId === staff.id
                                     ? "border-amber-500 bg-amber-50 shadow-sm"
-                                    : "border-slate-200 hover:border-amber-300 hover:bg-slate-50"
+                                    : "border-neutral-200 hover:border-amber-300 hover:bg-neutral-50"
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
                                   <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
                                     selectedStaffId === staff.id
                                       ? "border-amber-500"
-                                      : "border-slate-200"
+                                      : "border-neutral-200"
                                   }`}>
                                     <img
                                       src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -2088,7 +2099,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   </div>
                                   <div className="flex-1">
                                     <p className={`font-semibold ${
-                                      selectedStaffId === staff.id ? "text-amber-900" : "text-slate-800"
+                                      selectedStaffId === staff.id ? "text-amber-900" : "text-neutral-800"
                                     }`}>
                                       {staff.name}
                                     </p>
@@ -2109,14 +2120,14 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             </div>
 
             {/* Footer */}
-            <div className="bg-slate-50 px-6 py-4 flex gap-3 justify-end border-t border-slate-200 shrink-0">
+            <div className="bg-neutral-50 px-6 py-4 flex gap-3 justify-end border-t border-neutral-200 shrink-0">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setReassignModalOpen(false);
                 }}
                 disabled={!!updatingState[bookingToReassign.id]}
-                className="px-4 py-2.5 rounded-lg text-slate-700 hover:bg-slate-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                className="px-4 py-2.5 rounded-lg text-neutral-700 hover:bg-neutral-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 Cancel
               </button>

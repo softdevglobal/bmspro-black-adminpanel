@@ -307,11 +307,11 @@ export default function CheckInsMapView({
     <div className="relative">
       <div
         ref={mapRef}
-        className="w-full h-full min-h-[400px] lg:min-h-[500px] rounded-xl border border-slate-200 overflow-hidden"
+        className="w-full h-full min-h-[400px] lg:min-h-[500px] rounded-xl border border-neutral-200 overflow-hidden"
       />
       {!isLoaded && (
-        <div className="absolute inset-0 bg-slate-100 flex items-center justify-center rounded-xl">
-          <div className="flex items-center gap-2 text-slate-500">
+        <div className="absolute inset-0 bg-neutral-100 flex items-center justify-center rounded-xl">
+          <div className="flex items-center gap-2 text-neutral-500">
             <i className="fas fa-spinner fa-spin" />
             Loading map...
           </div>
@@ -319,23 +319,23 @@ export default function CheckInsMapView({
       )}
       {/* Legend */}
       <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg p-3 shadow-lg text-xs">
-        <div className="font-semibold text-slate-700 mb-2">Legend</div>
+        <div className="font-semibold text-neutral-700 mb-2">Legend</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-emerald-500" />
-            <span className="text-slate-600">Active Check-in</span>
+            <span className="text-neutral-600">Active Check-in</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-gray-400" />
-            <span className="text-slate-600">Checked Out</span>
+            <span className="text-neutral-600">Checked Out</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-red-500" />
-            <span className="text-slate-600">Outside Radius</span>
+            <span className="text-neutral-600">Outside Radius</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded bg-purple-500" />
-            <span className="text-slate-600">Branch Location</span>
+            <span className="text-neutral-600">Branch Location</span>
           </div>
         </div>
       </div>

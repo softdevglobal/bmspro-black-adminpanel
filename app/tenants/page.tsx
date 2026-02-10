@@ -42,8 +42,8 @@ const TENANTS: TenantRow[] = [
     abnStatus: "verified",
     state: "NSW",
     stateCls: "bg-blue-50 text-blue-700",
-    badgeFrom: "from-pink-400",
-    badgeTo: "to-pink-600",
+    badgeFrom: "from-neutral-600",
+    badgeTo: "to-neutral-800",
     plan: "Pro",
     price: "AU$149/mo",
     status: "Active",
@@ -176,20 +176,20 @@ export default function TenantsPage() {
   const stepIndicatorClass = (step: 1 | 2 | 3) => {
     const base =
       "w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm transition-all duration-300";
-    if (currentStep === step) return `${base} bg-gradient-to-r from-pink-500 to-pink-600 text-white shadow-lg shadow-pink-500/30`;
+    if (currentStep === step) return `${base} bg-neutral-900 text-white shadow-lg shadow-neutral-900/30`;
     if (currentStep > step) return `${base} bg-emerald-500 text-white`;
-    return `${base} bg-slate-100 text-slate-400 border border-slate-200`;
+    return `${base} bg-neutral-100 text-neutral-400 border border-neutral-200`;
   };
   
   const stepLabelClass = (step: 1 | 2 | 3) => {
-    if (currentStep === step) return "text-xs font-semibold text-pink-600";
+    if (currentStep === step) return "text-xs font-semibold text-neutral-900";
     if (currentStep > step) return "text-xs font-medium text-emerald-600";
-    return "text-xs font-medium text-slate-400";
+    return "text-xs font-medium text-neutral-400";
   };
   
   const stepLineClass = (step: 1 | 2) => {
     if (currentStep > step) return "flex-1 h-0.5 bg-emerald-500 transition-all duration-300";
-    return "flex-1 h-0.5 bg-slate-200 transition-all duration-300";
+    return "flex-1 h-0.5 bg-neutral-200 transition-all duration-300";
   };
 
   const { totalTenants, activeProCount, suspendedCount, churnRate } = useMemo(() => {
@@ -648,7 +648,7 @@ export default function TenantsPage() {
         <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -669,134 +669,136 @@ export default function TenantsPage() {
           )}
 
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="rounded-2xl bg-neutral-900 text-white p-6 shadow-lg relative overflow-hidden">
+              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500" />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-1">
                 <div>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                      <i className="fas fa-store" />
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
+                      <i className="fas fa-warehouse text-amber-400" />
                     </div>
-                    <h1 className="text-2xl font-bold">Tenant Management</h1>
+                    <h1 className="text-2xl font-bold">Workshop Management</h1>
                   </div>
-                  <p className="text-sm text-white/80 mt-2">
-                    Manage salon subscriptions and compliance
+                  <p className="text-sm text-neutral-400 mt-2">
+                    Manage workshop subscriptions and compliance
                   </p>
                 </div>
               </div>
+              <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-amber-500 opacity-[0.04] blur-3xl" />
             </div>
           </div>
 
           <div id="stats-section" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8 min-w-0">
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Total Tenants</span>
-                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-store text-blue-500" />
+                <span className="text-sm font-medium text-neutral-500">Total Workshops</span>
+                <div className="w-10 h-10 bg-neutral-900 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-warehouse text-white" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{totalTenants}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{totalTenants}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500">total tenants</span>
+                <span className="text-xs text-neutral-500">total workshops</span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Active Pro Users</span>
-                <div className="w-10 h-10 bg-pink-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-crown text-pink-500" />
+                <span className="text-sm font-medium text-neutral-500">Active Pro Users</span>
+                <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-crown text-white" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{activeProCount}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{activeProCount}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500">active on Pro</span>
+                <span className="text-xs text-neutral-500">active on Pro</span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Suspended</span>
-                <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-ban text-rose-500" />
+                <span className="text-sm font-medium text-neutral-500">Suspended</span>
+                <div className="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-ban text-white" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{suspendedCount}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{suspendedCount}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500">suspended tenants</span>
+                <span className="text-xs text-neutral-500">suspended workshops</span>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-w-0">
+            <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-slate-600">Churn Rate</span>
-                <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-user-minus text-rose-500" />
+                <span className="text-sm font-medium text-neutral-500">Churn Rate</span>
+                <div className="w-10 h-10 bg-violet-500 rounded-xl flex items-center justify-center">
+                  <i className="fas fa-user-minus text-white" />
                 </div>
               </div>
               <div className="mb-2">
-                <h3 className="text-3xl font-bold text-slate-900">{`${churnRate.toFixed(1)}%`}</h3>
+                <h3 className="text-3xl font-bold text-neutral-900">{`${churnRate.toFixed(1)}%`}</h3>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500">of tenants churned</span>
+                <span className="text-xs text-neutral-500">of workshops churned</span>
               </div>
             </div>
           </div>
 
-          <div id="tenant-table-section" className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="p-6 border-b border-slate-200">
+          <div id="tenant-table-section" className="bg-white rounded-2xl border border-neutral-200 shadow-sm">
+            <div className="p-6 border-b border-neutral-200">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="font-semibold text-lg text-slate-900">Tenant Management</h3>
-                  <p className="text-sm text-slate-500 mt-1">Manage salon subscriptions and compliance</p>
+                  <h3 className="font-semibold text-lg text-neutral-900">Workshop Management</h3>
+                  <p className="text-sm text-neutral-500 mt-1">Manage workshop subscriptions and compliance</p>
                 </div>
                 <button
-                  className="w-full sm:w-auto px-6 py-3 bg-pink-600 text-white font-semibold rounded-lg hover:bg-pink-700 transition flex items-center justify-center sm:justify-start space-x-2"
+                  className="w-full sm:w-auto px-6 py-3 bg-neutral-900 text-white font-semibold rounded-lg hover:bg-neutral-800 transition flex items-center justify-center sm:justify-start space-x-2"
                   onClick={openOnboardModal}
                 >
                   <i className="fas fa-plus text-sm" />
-                  <span>Onboard New Salon</span>
+                  <span>Onboard New Workshop</span>
                 </button>
               </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full table-fixed min-w-[1080px]">
-                <thead className="bg-slate-50 border-b border-slate-200">
+                <thead className="bg-neutral-50 border-b border-neutral-200">
                   <tr>
-                    <th className="w-[22%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[22%] px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       Business Name
                     </th>
-                    <th className="w-[12%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[12%] px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       ABN
                     </th>
-                    <th className="w-[7%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[7%] px-4 py-3 text-center text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       State
                     </th>
-                    <th className="w-[14%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[14%] px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       Plan
                     </th>
-                    <th className="w-[7%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[7%] px-4 py-3 text-center text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       Staff
                     </th>
-                    <th className="w-[8%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[8%] px-4 py-3 text-center text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       Branches
                     </th>
-                    <th className="w-[18%] px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[18%] px-4 py-3 text-left text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="w-[12%] px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                    <th className="w-[12%] px-4 py-3 text-center text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-neutral-100">
                   {loadingTenants && (
                     <tr>
-                      <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>
+                      <td className="px-4 py-8 text-center text-neutral-500" colSpan={8}>
                         <div className="flex items-center justify-center gap-2">
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-pink-500" />
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-neutral-900" />
                           <span>Loading tenants…</span>
                         </div>
                       </td>
@@ -804,7 +806,7 @@ export default function TenantsPage() {
                   )}
                   {!loadingTenants && tenants.length === 0 && (
                     <tr>
-                      <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>No tenants yet.</td>
+                      <td className="px-4 py-8 text-center text-neutral-500" colSpan={8}>No tenants yet.</td>
                     </tr>
                   )}
                   {tenants.map(({ id, data }) => {
@@ -820,9 +822,9 @@ export default function TenantsPage() {
                     const state = (data.state || "").trim();
 
                     const statusLower = statusLabel.toLowerCase();
-                    let statusCls = "bg-slate-100 text-slate-600";
-                    let statusIcon = "fa-circle text-slate-400";
-                    let statusDot = "bg-slate-400";
+                    let statusCls = "bg-neutral-100 text-neutral-600";
+                    let statusIcon = "fa-circle text-neutral-400";
+                    let statusDot = "bg-neutral-400";
 
                     if (statusLower.includes("expired") || statusLower.includes("payment required")) {
                       statusCls = "bg-rose-50 text-rose-700 border border-rose-200";
@@ -851,24 +853,24 @@ export default function TenantsPage() {
                     }
 
                     return (
-                      <tr key={id} className="hover:bg-slate-50/80 transition group">
+                      <tr key={id} className="hover:bg-neutral-50/80 transition group">
                         {/* Business Name */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-9 h-9 bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <div className="w-9 h-9 bg-gradient-to-br from-neutral-700 to-neutral-900 rounded-lg flex items-center justify-center flex-shrink-0">
                               <span className="text-white font-semibold text-xs">{initials}</span>
                             </div>
                             <div className="min-w-0">
-                              <p className="font-semibold text-sm text-slate-900 truncate">{data.name}</p>
+                              <p className="font-semibold text-sm text-neutral-900 truncate">{data.name}</p>
                               {data.locationText && (
-                                <p className="text-xs text-slate-400 truncate">{data.locationText}</p>
+                                <p className="text-xs text-neutral-400 truncate">{data.locationText}</p>
                               )}
                             </div>
                           </div>
                         </td>
                         {/* ABN */}
                         <td className="px-4 py-3">
-                          <span className={`font-mono text-xs ${data.abn ? "text-slate-600" : "text-amber-500 italic"}`}>
+                          <span className={`font-mono text-xs ${data.abn ? "text-neutral-600" : "text-amber-500 italic"}`}>
                             {data.abn || "Pending"}
                           </span>
                         </td>
@@ -884,23 +886,23 @@ export default function TenantsPage() {
                               : state === "TAS" ? "bg-teal-50 text-teal-600"
                               : state === "NT" ? "bg-yellow-50 text-yellow-600"
                               : state === "ACT" ? "bg-lime-50 text-lime-600"
-                              : "bg-slate-100 text-slate-600"
+                              : "bg-neutral-100 text-neutral-600"
                             }`}>
                               {state}
                             </span>
                           ) : (
-                            <span className="text-xs text-slate-400">—</span>
+                            <span className="text-xs text-neutral-400">—</span>
                           )}
                         </td>
                         {/* Plan */}
                         <td className="px-4 py-3">
                           <div className="flex flex-col">
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-pink-50 text-pink-700 rounded-full text-xs font-semibold w-fit">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-neutral-700 rounded-full text-xs font-semibold w-fit">
                               <i className="fas fa-crown text-[10px]" />
                               {planLabel}
                             </span>
                             {data.price && (
-                              <span className="text-xs text-slate-400 mt-0.5">{data.price}</span>
+                              <span className="text-xs text-neutral-400 mt-0.5">{data.price}</span>
                             )}
                           </div>
                         </td>
@@ -908,14 +910,14 @@ export default function TenantsPage() {
                         <td className="px-4 py-3 text-center">
                           <div className="inline-flex items-center gap-1.5">
                             <i className="fas fa-users text-blue-400 text-[10px]" />
-                            <span className="text-sm font-semibold text-slate-700">{tenantStats[id]?.staffCount ?? 0}</span>
+                            <span className="text-sm font-semibold text-neutral-700">{tenantStats[id]?.staffCount ?? 0}</span>
                           </div>
                         </td>
                         {/* Branches */}
                         <td className="px-4 py-3 text-center">
                           <div className="inline-flex items-center gap-1.5">
                             <i className="fas fa-store text-teal-400 text-[10px]" />
-                            <span className="text-sm font-semibold text-slate-700">{tenantStats[id]?.branchCount ?? 0}</span>
+                            <span className="text-sm font-semibold text-neutral-700">{tenantStats[id]?.branchCount ?? 0}</span>
                           </div>
                         </td>
                         {/* Status */}
@@ -929,7 +931,7 @@ export default function TenantsPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-1">
                             <button
-                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                              className="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
                               onClick={() => {
                                 setPreviewTenant({ id, data });
                                 setPreviewOpen(true);
@@ -939,7 +941,7 @@ export default function TenantsPage() {
                               <i className="fas fa-eye text-xs" />
                             </button>
                             <button
-                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition"
+                              className="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
                               onClick={() => {
                                 setEditTenantId(id);
                                 setEditName(data.name || "");
@@ -958,7 +960,7 @@ export default function TenantsPage() {
                               <i className="fas fa-pen text-xs" />
                             </button>
                             <button
-                              className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              className="w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                               onClick={() => setDeleteId(id)}
                               title="Delete"
                             >
@@ -980,7 +982,7 @@ export default function TenantsPage() {
       {previewOpen && previewTenant && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setPreviewOpen(false)} />
-          <div className="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white border-l border-slate-200 shadow-2xl flex flex-col transform transition-transform duration-300">
+          <div className="absolute right-0 top-0 bottom-0 w-full max-w-lg bg-white border-l border-neutral-200 shadow-2xl flex flex-col transform transition-transform duration-300">
             <div className="relative p-6">
               {/* animated colorful gradient border */}
               <div
@@ -994,7 +996,7 @@ export default function TenantsPage() {
               >
                 <div className="relative rounded-2xl bg-white/90 backdrop-blur-sm p-5">
                   <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-indigo-600 text-white flex items-center justify-center font-semibold shadow-sm">
+                  <div className="w-12 h-12 rounded-xl bg-neutral-900 text-white flex items-center justify-center font-semibold shadow-sm">
                     {(previewTenant.data.name || "?")
                       .split(" ")
                       .map((s) => s[0])
@@ -1004,13 +1006,13 @@ export default function TenantsPage() {
                       .toUpperCase()}
                   </div>
                     <div className="min-w-0 relative z-[1]">
-                      <h3 className="font-bold text-lg text-slate-900 truncate">{previewTenant.data.name}</h3>
-                      <p className="text-xs text-slate-500 truncate">{previewTenant.data.locationText || ""}</p>
+                      <h3 className="font-bold text-lg text-neutral-900 truncate">{previewTenant.data.name}</h3>
+                      <p className="text-xs text-neutral-500 truncate">{previewTenant.data.locationText || ""}</p>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-2 relative z-[1]">
                     {previewTenant.data.plan && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white text-xs font-semibold shadow-sm">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-neutral-900 text-white text-xs font-semibold shadow-sm">
                         <i className="fas fa-crown" /> {previewTenant.data.plan}
                       </span>
                     )}
@@ -1036,7 +1038,7 @@ export default function TenantsPage() {
                 </div>
               </div>
               <button
-                className="absolute top-3 right-3 text-slate-500 hover:text-slate-700 bg-white border border-slate-200 rounded-full w-8 h-8 flex items-center justify-center shadow-sm"
+                className="absolute top-3 right-3 text-neutral-500 hover:text-neutral-700 bg-white border border-neutral-200 rounded-full w-8 h-8 flex items-center justify-center shadow-sm"
                 onClick={() => setPreviewOpen(false)}
                 aria-label="Close preview"
               >
@@ -1051,20 +1053,20 @@ export default function TenantsPage() {
               }
             `}</style>
 
-            <div className="flex-1 overflow-auto bg-slate-50">
+            <div className="flex-1 overflow-auto bg-neutral-50">
               <div className="p-6 space-y-6">
                 {/* Email Section - Creative Read-Only Display */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-pink-500/20">
+                    <div className="w-10 h-10 rounded-xl bg-neutral-900 flex items-center justify-center shadow-lg shadow-neutral-900/20">
                       <i className="fas fa-envelope text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs text-slate-500 flex items-center gap-1.5 mb-0.5">
+                      <div className="text-xs text-neutral-500 flex items-center gap-1.5 mb-0.5">
                         Account Email
-                        <i className="fas fa-lock text-[9px] text-slate-400" title="Cannot be changed" />
+                        <i className="fas fa-lock text-[9px] text-neutral-400" title="Cannot be changed" />
                       </div>
-                      <div className="text-slate-900 font-medium truncate">{previewTenant.data.email || "—"}</div>
+                      <div className="text-neutral-900 font-medium truncate">{previewTenant.data.email || "—"}</div>
                     </div>
                     <div className="flex-shrink-0">
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
@@ -1112,65 +1114,65 @@ export default function TenantsPage() {
 
                 {/* Business Details */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
-                    <i className="fas fa-building text-pink-500" />
+                  <div className="text-xs font-semibold text-neutral-500 mb-3 flex items-center gap-2">
+                    <i className="fas fa-building text-amber-500" />
                     Business Details
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                        <i className="fas fa-hashtag text-pink-400" />
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
+                        <i className="fas fa-hashtag text-amber-400" />
                         ABN
                       </div>
-                      <div className="font-semibold text-slate-900 font-mono">{previewTenant.data.abn || "Pending"}</div>
+                      <div className="font-semibold text-neutral-900 font-mono">{previewTenant.data.abn || "Pending"}</div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-briefcase text-indigo-400" />
                         Business Structure
                       </div>
-                      <div className="font-semibold text-slate-900">{previewTenant.data.businessStructure || "—"}</div>
+                      <div className="font-semibold text-neutral-900">{previewTenant.data.businessStructure || "—"}</div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-receipt text-emerald-400" />
                         GST Registered
                       </div>
-                      <div className="font-semibold text-slate-900 flex items-center gap-2">
+                      <div className="font-semibold text-neutral-900 flex items-center gap-2">
                         {previewTenant.data.gstRegistered ? (
                           <span className="text-emerald-600 flex items-center gap-1">
                             <i className="fas fa-check-circle" /> Yes
                           </span>
                         ) : (
-                          <span className="text-slate-500">No</span>
+                          <span className="text-neutral-500">No</span>
                         )}
                       </div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-map-marker-alt text-rose-400" />
                         State
                       </div>
-                      <div className="font-semibold text-slate-900">{previewTenant.data.state || "—"}</div>
+                      <div className="font-semibold text-neutral-900">{previewTenant.data.state || "—"}</div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-users text-blue-400" />
                         Staff Members
                       </div>
-                      <div className="font-semibold text-slate-900 flex items-center gap-2">
+                      <div className="font-semibold text-neutral-900 flex items-center gap-2">
                         <span className="text-2xl">{tenantStats[previewTenant.id]?.staffCount ?? 0}</span>
-                        <span className="text-sm text-slate-500">active staff</span>
+                        <span className="text-sm text-neutral-500">active staff</span>
                       </div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-store text-teal-400" />
                         Branch Locations
                       </div>
-                      <div className="font-semibold text-slate-900 flex items-center gap-2">
+                      <div className="font-semibold text-neutral-900 flex items-center gap-2">
                         <span className="text-2xl">{tenantStats[previewTenant.id]?.branchCount ?? 0}</span>
-                        <span className="text-sm text-slate-500">branches</span>
+                        <span className="text-sm text-neutral-500">branches</span>
                       </div>
                     </div>
                   </div>
@@ -1178,19 +1180,19 @@ export default function TenantsPage() {
 
                 {/* Subscription Details */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
+                  <div className="text-xs font-semibold text-neutral-500 mb-3 flex items-center gap-2">
                     <i className="fas fa-crown text-amber-500" />
                     Subscription
                   </div>
-                  <div className="bg-gradient-to-br from-pink-50 to-fuchsia-50 border border-pink-200 rounded-xl p-4 shadow-sm">
+                  <div className="bg-gradient-to-br from-amber-50 to-amber-50/50 border border-amber-200 rounded-xl p-4 shadow-sm">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-sm text-pink-600 font-medium">Current Plan</div>
-                        <div className="text-2xl font-bold text-slate-900">{previewTenant.data.plan || "—"}</div>
+                        <div className="text-sm text-amber-600 font-medium">Current Plan</div>
+                        <div className="text-2xl font-bold text-neutral-900">{previewTenant.data.plan || "—"}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-sm text-slate-500">Monthly</div>
-                        <div className="text-xl font-bold text-pink-600">{previewTenant.data.price || "—"}</div>
+                        <div className="text-sm text-neutral-500">Monthly</div>
+                        <div className="text-xl font-bold text-amber-600">{previewTenant.data.price || "—"}</div>
                       </div>
                     </div>
                   </div>
@@ -1198,31 +1200,31 @@ export default function TenantsPage() {
 
                 {/* Contact & Location */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
+                  <div className="text-xs font-semibold text-neutral-500 mb-3 flex items-center gap-2">
                     <i className="fas fa-address-card text-blue-500" />
                     Contact & Location
                   </div>
                   <div className="grid grid-cols-1 gap-3">
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-phone text-green-400" />
                         Contact Phone
                       </div>
-                      <div className="font-semibold text-slate-900">{previewTenant.data.contactPhone || "—"}</div>
+                      <div className="font-semibold text-neutral-900">{previewTenant.data.contactPhone || "—"}</div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-location-dot text-rose-400" />
                         Location
                       </div>
-                      <div className="font-semibold text-slate-900">{previewTenant.data.locationText || "—"}</div>
+                      <div className="font-semibold text-neutral-900">{previewTenant.data.locationText || "—"}</div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                    <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 text-xs text-neutral-500 mb-1">
                         <i className="fas fa-globe text-blue-400" />
                         Time Zone
                       </div>
-                      <div className="font-semibold text-slate-900">{previewTenant.data.timezone || "Australia/Sydney"}</div>
+                      <div className="font-semibold text-neutral-900">{previewTenant.data.timezone || "Australia/Sydney"}</div>
                     </div>
                   </div>
                 </div>
@@ -1230,23 +1232,23 @@ export default function TenantsPage() {
                 {/* Timestamps */}
                 {(previewTenant.data.createdAt || previewTenant.data.updatedAt) && (
                   <div>
-                    <div className="text-xs font-semibold text-slate-500 mb-3 flex items-center gap-2">
-                      <i className="fas fa-clock text-slate-400" />
+                    <div className="text-xs font-semibold text-neutral-500 mb-3 flex items-center gap-2">
+                      <i className="fas fa-clock text-neutral-400" />
                       Activity
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       {previewTenant.data.createdAt && (
-                        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
-                          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Created</div>
-                          <div className="text-xs font-medium text-slate-700 mt-1">
+                        <div className="bg-white border border-neutral-200 rounded-xl p-3 shadow-sm">
+                          <div className="text-[10px] text-neutral-400 uppercase tracking-wide">Created</div>
+                          <div className="text-xs font-medium text-neutral-700 mt-1">
                             {previewTenant.data.createdAt?.toDate?.()?.toLocaleDateString?.() || "—"}
                           </div>
                         </div>
                       )}
                       {previewTenant.data.updatedAt && (
-                        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
-                          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Last Updated</div>
-                          <div className="text-xs font-medium text-slate-700 mt-1">
+                        <div className="bg-white border border-neutral-200 rounded-xl p-3 shadow-sm">
+                          <div className="text-[10px] text-neutral-400 uppercase tracking-wide">Last Updated</div>
+                          <div className="text-xs font-medium text-neutral-700 mt-1">
                             {previewTenant.data.updatedAt?.toDate?.()?.toLocaleDateString?.() || "—"}
                           </div>
                         </div>
@@ -1255,11 +1257,11 @@ export default function TenantsPage() {
                   </div>
                 )}
 
-                <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                  <div className="text-xs font-semibold text-slate-500 mb-3">Quick actions</div>
+                <div className="bg-white border border-neutral-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-xs font-semibold text-neutral-500 mb-3">Quick actions</div>
                   <div className="flex items-center gap-3">
                     <button
-                      className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold shadow-lg shadow-pink-500/25 transition-all"
+                      className="px-4 py-2 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold shadow-lg shadow-neutral-900/25 transition-all"
                       onClick={() => {
                         setEditTenantId(previewTenant.id);
                         const d = previewTenant.data;
@@ -1325,7 +1327,7 @@ export default function TenantsPage() {
           <div className="absolute inset-0 bg-black/50" onClick={() => setEditOpen(false)} />
           <div className="relative flex items-start md:items-center justify-center min-h-screen p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-gradient-to-r from-pink-500 to-fuchsia-600 rounded-t-2xl">
+              <div className="px-6 py-4 border-b border-neutral-200 flex items-center justify-between bg-neutral-900 rounded-t-2xl">
                 <div>
                   <h3 className="text-lg font-semibold text-white">Edit Tenant Details</h3>
                   <p className="text-xs text-white/70">Update business information</p>
@@ -1336,59 +1338,59 @@ export default function TenantsPage() {
               </div>
               <div className="p-6 space-y-5 overflow-auto">
                 {/* Email - Read Only with Creative Display */}
-                <div className="bg-gradient-to-r from-slate-100 to-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-4">
+                <div className="bg-gradient-to-r from-neutral-100 to-neutral-50 border-2 border-dashed border-neutral-300 rounded-xl p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center">
-                        <i className="fas fa-envelope text-slate-500" />
+                      <div className="w-10 h-10 rounded-lg bg-neutral-200 flex items-center justify-center">
+                        <i className="fas fa-envelope text-neutral-500" />
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                        <div className="text-xs text-neutral-500 flex items-center gap-1.5">
                           Account Email
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold">
                             <i className="fas fa-lock text-[8px]" />
                             Read Only
                           </span>
                         </div>
-                        <div className="font-medium text-slate-900">{tenants.find(t => t.id === editTenantId)?.data.email || "—"}</div>
+                        <div className="font-medium text-neutral-900">{tenants.find(t => t.id === editTenantId)?.data.email || "—"}</div>
                       </div>
                     </div>
-                    <div className="text-xs text-slate-400 flex items-center gap-1">
+                    <div className="text-xs text-neutral-400 flex items-center gap-1">
                       <i className="fas fa-shield-alt" />
                       Protected
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-2 pl-13">
+                  <p className="text-[10px] text-neutral-400 mt-2 pl-13">
                     Email cannot be changed as it&apos;s linked to the authentication account
                   </p>
                 </div>
 
                 {/* Business Name */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
-                    <i className="fas fa-store text-pink-500" />
+                  <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
+                    <i className="fas fa-store text-amber-500" />
                     Business Name
                   </label>
-                  <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Enter business name" />
+                  <input className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Enter business name" />
                 </div>
 
                 {/* ABN & State Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-hashtag text-indigo-500" />
                       ABN
                     </label>
-                    <input className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono tracking-wide" value={editAbn} onChange={(e) => setEditAbn(formatAbn(e.target.value))} placeholder="XX XXX XXX XXX" maxLength={14} />
+                    <input className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent font-mono tracking-wide" value={editAbn} onChange={(e) => setEditAbn(formatAbn(e.target.value))} placeholder="XX XXX XXX XXX" maxLength={14} />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-map-marker-alt text-rose-500" />
                       State
                     </label>
                     <div className="relative">
                       <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         value={editState}
                         onChange={(e) => setEditState(e.target.value)}
                       >
@@ -1402,7 +1404,7 @@ export default function TenantsPage() {
                         <option>ACT</option>
                         <option>NT</option>
                       </select>
-                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-neutral-500">
                         <i className="fas fa-chevron-down" />
                       </span>
                     </div>
@@ -1412,13 +1414,13 @@ export default function TenantsPage() {
                 {/* Business Structure & GST Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-briefcase text-purple-500" />
                       Business Structure
                     </label>
                     <div className="relative">
                       <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         value={(tenants.find(t => t.id === editTenantId)?.data as any)?.businessStructure || ""}
                         onChange={(e) => {
                           // Update local tenants state for businessStructure
@@ -1435,17 +1437,17 @@ export default function TenantsPage() {
                         <option value="Partnership">Partnership</option>
                         <option value="Trust">Trust</option>
                       </select>
-                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-neutral-500">
                         <i className="fas fa-chevron-down" />
                       </span>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-receipt text-emerald-500" />
                       GST Registered
                     </label>
-                    <div className="flex items-center gap-3 h-[50px] px-4 border border-slate-300 rounded-lg bg-white">
+                    <div className="flex items-center gap-3 h-[50px] px-4 border border-neutral-300 rounded-lg bg-white">
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
@@ -1459,9 +1461,9 @@ export default function TenantsPage() {
                             ));
                           }}
                         />
-                        <div className="w-11 h-6 bg-slate-300 peer-focus:ring-2 peer-focus:ring-pink-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
+                        <div className="w-11 h-6 bg-neutral-300 peer-focus:ring-2 peer-focus:ring-neutral-900 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
                       </label>
-                      <span className="text-sm text-slate-600">
+                      <span className="text-sm text-neutral-600">
                         {(tenants.find(t => t.id === editTenantId)?.data as any)?.gstRegistered ? "Yes, registered" : "Not registered"}
                       </span>
                     </div>
@@ -1471,13 +1473,13 @@ export default function TenantsPage() {
                 {/* Plan & Status Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-crown text-amber-500" />
                       Plan
                     </label>
                     <div className="relative">
                       <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         value={editPlan}
                         onChange={(e) => {
                           setEditPlan(e.target.value);
@@ -1495,19 +1497,19 @@ export default function TenantsPage() {
                         <option value="Pro">Pro</option>
                         <option value="Enterprise">Enterprise</option>
                       </select>
-                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-neutral-500">
                         <i className="fas fa-chevron-down" />
                       </span>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-circle-check text-blue-500" />
                       Status
                     </label>
                     <div className="relative">
                       <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         value={editStatus}
                         onChange={(e) => setEditStatus(e.target.value)}
                       >
@@ -1517,7 +1519,7 @@ export default function TenantsPage() {
                         <option value="Provisioning">Provisioning</option>
                         <option value="Suspended">Suspended</option>
                       </select>
-                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-500">
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-neutral-500">
                         <i className="fas fa-chevron-down" />
                       </span>
                     </div>
@@ -1526,12 +1528,12 @@ export default function TenantsPage() {
 
                 {/* Location */}
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                  <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                     <i className="fas fa-location-dot text-rose-500" />
                     Location / Address
                   </label>
                   <textarea 
-                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent resize-none" 
+                    className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent resize-none" 
                     rows={2}
                     value={editLocation} 
                     onChange={(e) => setEditLocation(e.target.value)} 
@@ -1542,16 +1544,16 @@ export default function TenantsPage() {
                 {/* Phone & Timezone Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-phone text-green-500" />
                       Contact Phone
                     </label>
                     <div className="flex">
-                      <span className="inline-flex items-center px-3 py-3 rounded-l-lg border border-r-0 border-slate-300 bg-slate-50 text-slate-500 text-sm">
+                      <span className="inline-flex items-center px-3 py-3 rounded-l-lg border border-r-0 border-neutral-300 bg-neutral-50 text-neutral-500 text-sm">
                         +61
                       </span>
                       <input 
-                        className="flex-1 px-4 py-3 border border-slate-300 rounded-r-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent" 
+                        className="flex-1 px-4 py-3 border border-neutral-300 rounded-r-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent" 
                         value={editPhone} 
                         onChange={(e) => setEditPhone(e.target.value)} 
                         placeholder="412 345 678"
@@ -1559,13 +1561,13 @@ export default function TenantsPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
                       <i className="fas fa-globe text-blue-500" />
                       Time Zone
                     </label>
                     <div className="relative">
                       <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         value={editTimezone}
                         onChange={(e) => setEditTimezone(e.target.value)}
                       >
@@ -1575,21 +1577,21 @@ export default function TenantsPage() {
                           </option>
                         ))}
                       </select>
-                      <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
                     </div>
                   </div>
                 </div>
               </div>
-              <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+              <div className="px-6 py-4 border-t border-neutral-200 flex items-center justify-end gap-2">
                 <button
-                  className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold disabled:opacity-60"
+                  className="px-4 py-2 rounded-lg text-neutral-700 hover:bg-neutral-100 text-sm font-semibold disabled:opacity-60"
                   onClick={() => setEditOpen(false)}
                   disabled={savingEdit}
                 >
                   Cancel
                 </button>
                 <button
-                  className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold disabled:opacity-70 inline-flex items-center gap-2 shadow-lg shadow-pink-500/25 transition-all"
+                  className="px-5 py-2.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold disabled:opacity-70 inline-flex items-center gap-2 shadow-lg shadow-neutral-900/25 transition-all"
                   disabled={savingEdit}
 onClick={async () => {
                                     if (!editTenantId) return;
@@ -1658,18 +1660,18 @@ onClick={async () => {
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteId(null)} />
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">Delete tenant</h3>
-                <button className="text-slate-400 hover:text-slate-600" onClick={() => setDeleteId(null)}>
+            <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-neutral-200">
+              <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-neutral-900">Delete tenant</h3>
+                <button className="text-neutral-400 hover:text-neutral-600" onClick={() => setDeleteId(null)}>
                   <i className="fas fa-times" />
                 </button>
               </div>
               <div className="px-5 py-4">
-                <p className="text-sm text-slate-600">This action cannot be undone. Are you sure?</p>
+                <p className="text-sm text-neutral-600">This action cannot be undone. Are you sure?</p>
               </div>
-              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button onClick={() => setDeleteId(null)} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
+              <div className="px-5 py-4 border-t border-neutral-200 flex items-center justify-end gap-2">
+                <button onClick={() => setDeleteId(null)} className="px-4 py-2 rounded-lg text-neutral-700 hover:bg-neutral-100 text-sm font-semibold">
                   Cancel
                 </button>
                 <button
@@ -1715,24 +1717,24 @@ onClick={async () => {
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setSuspendTarget(null)} />
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200">
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-base font-semibold text-slate-900">
+            <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-neutral-200">
+              <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-neutral-900">
                   {suspendTarget.isSuspended ? "Unsuspend tenant" : "Suspend tenant"}
                 </h3>
-                <button className="text-slate-400 hover:text-slate-600" onClick={() => setSuspendTarget(null)}>
+                <button className="text-neutral-400 hover:text-neutral-600" onClick={() => setSuspendTarget(null)}>
                   <i className="fas fa-times" />
                 </button>
               </div>
               <div className="px-5 py-4">
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-neutral-600">
                   {suspendTarget.isSuspended
                     ? "This tenant will regain access. Continue?"
                     : "This tenant will be blocked from logging in. Continue?"}
                 </p>
               </div>
-              <div className="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
-                <button onClick={() => setSuspendTarget(null)} className="px-4 py-2 rounded-lg text-slate-700 hover:bg-slate-100 text-sm font-semibold">
+              <div className="px-5 py-4 border-t border-neutral-200 flex items-center justify-end gap-2">
+                <button onClick={() => setSuspendTarget(null)} className="px-4 py-2 rounded-lg text-neutral-700 hover:bg-neutral-100 text-sm font-semibold">
                   Cancel
                 </button>
                 <button
@@ -1810,72 +1812,79 @@ onClick={async () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={closeOnboardModal} />
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeOnboardModal} />
           <div className="relative flex items-center justify-center min-h-screen p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col my-auto">
-              <div className="px-5 py-4 border-b border-slate-200 shrink-0">
-                <div className="flex items-center justify-between">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col my-auto overflow-hidden">
+              
+              {/* Header — black top */}
+              <div className="bg-neutral-900 px-6 pt-6 pb-5 shrink-0 relative overflow-hidden">
+                {/* Decorative shapes */}
+                <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/[0.03] rounded-full" />
+                <div className="absolute -bottom-6 -left-6 w-24 h-24 bg-white/[0.03] rounded-full" />
+                
+                <div className="relative flex items-center justify-between mb-6">
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900">Onboard New Salon</h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <h2 className="text-xl font-bold text-white tracking-tight">Onboard New Workshop</h2>
+                    <p className="text-sm text-neutral-400 mt-0.5">
                       Setup a new tenant with Australian compliance
                     </p>
                   </div>
-                  <button onClick={closeOnboardModal} className="p-2 hover:bg-slate-100 rounded-lg transition">
-                    <i className="fas fa-times text-slate-400" />
+                  <button onClick={closeOnboardModal} className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                    <i className="fas fa-xmark text-white/70" />
                   </button>
                 </div>
-                <div className="flex items-center mt-6">
-                  {/* Step 1 */}
-                  <div className="flex flex-col items-center">
-                    <div className={stepIndicatorClass(1)}>
-                      {currentStep > 1 ? <i className="fas fa-check text-xs" /> : "1"}
-                    </div>
-                    <span className={`mt-2 ${stepLabelClass(1)}`}>Business</span>
-                  </div>
-                  
-                  {/* Line 1-2 */}
-                  <div className={`${stepLineClass(1)} mx-4`} />
-                  
-                  {/* Step 2 */}
-                  <div className="flex flex-col items-center">
-                    <div className={stepIndicatorClass(2)}>
-                      {currentStep > 2 ? <i className="fas fa-check text-xs" /> : "2"}
-                    </div>
-                    <span className={`mt-2 ${stepLabelClass(2)}`}>Location</span>
-                  </div>
-                  
-                  {/* Line 2-3 */}
-                  <div className={`${stepLineClass(2)} mx-4`} />
-                  
-                  {/* Step 3 */}
-                  <div className="flex flex-col items-center">
-                    <div className={stepIndicatorClass(3)}>3</div>
-                    <span className={`mt-2 ${stepLabelClass(3)}`}>Plan</span>
-                  </div>
-                </div>
+
               </div>
 
-              <div className="px-5 py-4 overflow-y-auto flex-1 min-h-0 max-h-[60vh]">
+
+              {/* Step title bar */}
+              <div className="px-6 py-3.5 border-b border-neutral-100 bg-neutral-50 flex items-center gap-3">
+                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                  <i className={`fas text-[10px] text-white ${
+                    currentStep === 1 ? "fa-briefcase" : currentStep === 2 ? "fa-location-dot" : "fa-tag"
+                  }`} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">
+                    {currentStep === 1 ? "Business Details" : currentStep === 2 ? "Location & Contact" : "Choose a Plan"}
+                  </h3>
+                  <p className="text-[10px] text-neutral-400">
+                    {currentStep === 1 ? "Tell us about your workshop" : currentStep === 2 ? "Where is the workshop located?" : "Select the best fit for the workshop"}
+                  </p>
+                </div>
+                <span className="ml-auto text-[10px] text-neutral-400 font-semibold bg-white border border-neutral-200 px-2.5 py-1 rounded-full">
+                  Step {currentStep} of 3
+                </span>
+              </div>
+
+              <div className="px-6 py-5 overflow-y-auto h-[420px]">
                 {currentStep === 1 && (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Business Name *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Business Name <span className="text-rose-500">*</span>
                       </label>
-                      <input
-                        type="text"
-                        placeholder="e.g., Sydney Style Studio"
-                        value={formBusinessName}
-                        onChange={(e) => setFormBusinessName(e.target.value)}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                      />
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                          <i className="fas fa-shop text-neutral-400 text-sm" />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="e.g., Sydney Auto Workshop"
+                          value={formBusinessName}
+                          onChange={(e) => setFormBusinessName(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
+                        />
+                      </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Australian Business Number (ABN) *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Australian Business Number (ABN) <span className="text-rose-500">*</span>
                       </label>
-                      <div className="flex space-x-3">
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                          <i className="fas fa-id-card text-neutral-400 text-sm" />
+                        </div>
                         <input
                           id="abn-input"
                           type="text"
@@ -1883,17 +1892,20 @@ onClick={async () => {
                           maxLength={14}
                           value={formAbn}
                           onChange={(e) => setFormAbn(formatAbn(e.target.value))}
-                          className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono tracking-wide"
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-mono font-medium tracking-wide"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Business Structure *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Business Structure <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                          <i className="fas fa-sitemap text-neutral-400 text-sm" />
+                        </div>
                         <select
-                          className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                          className="w-full pl-10 py-3 pr-12 bg-white border border-neutral-200 rounded-xl text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent appearance-none transition-all text-sm font-medium"
                           value={formStructure}
                           onChange={(e) => setFormStructure(e.target.value)}
                         >
@@ -1903,55 +1915,64 @@ onClick={async () => {
                           <option>Partnership</option>
                           <option>Trust</option>
                         </select>
-                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs" />
                       </div>
                     </div>
-                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                      <div>
-                        <p className="font-semibold text-slate-900">Registered for GST?</p>
-                        <p className="text-sm text-slate-500 mt-1">
-                          Required for businesses with turnover over AU$75,000
-                        </p>
+                    <div className={`rounded-xl border p-4 flex items-center justify-between transition-all ${formGst ? "bg-emerald-50 border-emerald-200" : "bg-neutral-50 border-neutral-200"}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${formGst ? "bg-emerald-100" : "bg-neutral-100"}`}>
+                          <i className={`fas fa-receipt text-xs ${formGst ? "text-emerald-600" : "text-neutral-400"}`} />
+                        </div>
+                        <div>
+                          <p className={`text-sm font-semibold ${formGst ? "text-neutral-900" : "text-neutral-600"}`}>Registered for GST?</p>
+                          <p className="text-[10px] text-neutral-400">Turnover over AU$75,000</p>
+                        </div>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="sr-only peer"
-                          checked={formGst}
-                          onChange={(e) => setFormGst(e.target.checked)}
-                        />
-                        <div className="w-11 h-6 bg-slate-300 peer-focus:ring-2 peer-focus:ring-pink-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-500" />
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setFormGst(!formGst)}
+                        className={`relative w-12 h-7 rounded-full transition-all duration-300 ${formGst ? "bg-emerald-500" : "bg-neutral-300"}`}
+                      >
+                        <div className={`absolute top-0.5 w-6 h-6 rounded-full shadow-md bg-white transition-all duration-300 ${formGst ? "left-[21px]" : "left-0.5"}`} />
+                      </button>
                     </div>
                   </div>
                 )}
 
                 {currentStep === 2 && (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Business Address *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Business Address <span className="text-rose-500">*</span>
                       </label>
-                      <textarea
-                        rows={3}
-                        placeholder="Street address"
-                        value={formAddress}
-                        onChange={(e) => setFormAddress(e.target.value)}
-                        className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                      />
+                      <div className="relative">
+                        <div className="absolute top-3 left-0 flex items-start pl-3.5 pointer-events-none">
+                          <i className="fas fa-location-dot text-neutral-400 text-sm" />
+                        </div>
+                        <textarea
+                          rows={3}
+                          placeholder="Street address"
+                          value={formAddress}
+                          onChange={(e) => setFormAddress(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm resize-none"
+                        />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">
-                          State *
+                        <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                          State <span className="text-rose-500">*</span>
                         </label>
                         <div className="relative">
+                          <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                            <i className="fas fa-map text-neutral-400 text-sm" />
+                          </div>
                           <select
-                            className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                            className="w-full pl-10 py-3 pr-12 bg-white border border-neutral-200 rounded-xl text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent appearance-none transition-all text-sm font-medium"
                             value={formState}
                             onChange={(e) => setFormState(e.target.value)}
                           >
-                            <option value="">Select state</option>
+                            <option value="">Select</option>
                             <option>NSW</option>
                             <option>VIC</option>
                             <option>QLD</option>
@@ -1961,31 +1982,38 @@ onClick={async () => {
                             <option>ACT</option>
                             <option>NT</option>
                           </select>
-                          <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs" />
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">
-                          Postcode *
+                        <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                          Postcode <span className="text-rose-500">*</span>
                         </label>
-                        <input
-                          type="text"
-                          placeholder="2000"
-                          maxLength={4}
-                          value={formPostcode}
-                          onChange={(e) => setFormPostcode(e.target.value)}
-                          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        />
+                        <div className="relative">
+                          <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                            <i className="fas fa-hashtag text-neutral-400 text-sm" />
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="2000"
+                            maxLength={4}
+                            value={formPostcode}
+                            onChange={(e) => setFormPostcode(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-mono font-medium"
+                          />
+                        </div>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Time Zone *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Time Zone <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative">
-                        <i className="fas fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                          <i className="fas fa-globe text-neutral-400 text-sm" />
+                        </div>
                         <select
-                          className="w-full pl-10 pr-12 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none"
+                          className="w-full pl-10 pr-12 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent appearance-none transition-all text-sm font-medium"
                           value={formTimezone}
                           onChange={(e) => setFormTimezone(e.target.value)}
                         >
@@ -1995,190 +2023,198 @@ onClick={async () => {
                             </option>
                           ))}
                         </select>
-                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs" />
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        This timezone will be used for all bookings and operations
+                      <p className="text-[10px] text-neutral-400 mt-1.5 flex items-center gap-1">
+                        <i className="fas fa-info-circle" />
+                        Used for all bookings and operations
                       </p>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Contact Phone *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Contact Phone <span className="text-rose-500">*</span>
                       </label>
-                      <div className="flex space-x-3">
-                        <input
-                          type="text"
-                          value="+61"
-                          readOnly
-                          className="w-16 px-3 py-3 bg-slate-100 border border-slate-300 rounded-lg font-mono text-center"
-                        />
-                        <input
-                          type="text"
-                          placeholder="412 345 678"
-                          value={formPhone}
-                          onChange={(e) => setFormPhone(e.target.value)}
-                          className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                        />
+                      <div className="flex gap-2">
+                        <div className="flex items-center justify-center px-3.5 py-3 bg-neutral-100 border border-neutral-200 rounded-xl text-sm font-mono font-semibold text-neutral-600 w-16">
+                          +61
+                        </div>
+                        <div className="relative flex-1">
+                          <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                            <i className="fas fa-phone text-neutral-400 text-sm" />
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="412 345 678"
+                            value={formPhone}
+                            onChange={(e) => setFormPhone(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
+                          />
+                        </div>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Email *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Email <span className="text-rose-500">*</span>
                       </label>
-                      <input
-                        type="email"
-                        placeholder="contact@salon.com.au"
-                        value={formEmail}
-                        onChange={(e) => {
-                          setFormEmail(e.target.value);
-                          if (emailError) setEmailError("");
-                        }}
-                        className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent ${
-                          emailError ? "border-rose-500" : "border-slate-300"
-                        }`}
-                      />
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                          <i className="fas fa-envelope text-neutral-400 text-sm" />
+                        </div>
+                        <input
+                          type="email"
+                          placeholder="contact@workshop.com.au"
+                          value={formEmail}
+                          onChange={(e) => {
+                            setFormEmail(e.target.value);
+                            if (emailError) setEmailError("");
+                          }}
+                          className={`w-full pl-10 pr-4 py-3 bg-white border rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium ${
+                            emailError ? "border-rose-300 bg-rose-50/50" : "border-neutral-200"
+                          }`}
+                        />
+                      </div>
                       {emailError && (
-                        <p className="text-sm text-rose-600 mt-1">{emailError}</p>
+                        <p className="text-xs text-rose-500 mt-1.5 flex items-center gap-1">
+                          <i className="fas fa-exclamation-circle text-[10px]" />
+                          {emailError}
+                        </p>
                       )}
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Owner Password *
+                      <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                        Owner Password <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                          <i className="fas fa-lock text-neutral-400 text-sm" />
+                        </div>
                         <input
                           type={showOwnerPassword ? "text" : "password"}
                           placeholder="Temporary password for owner"
                           value={formOwnerPassword}
                           onChange={(e) => setFormOwnerPassword(e.target.value)}
-                          className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                          className="w-full pl-10 pr-12 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
                         />
                         <button
                           type="button"
                           aria-label={showOwnerPassword ? "Hide password" : "Show password"}
                           onClick={() => setShowOwnerPassword((s) => !s)}
-                          className="absolute inset-y-0 right-0 px-3 text-slate-500 hover:text-slate-700"
+                          className="absolute inset-y-0 right-0 px-3.5 text-neutral-400 hover:text-neutral-600 transition-colors"
                         >
-                          <i className={`fas ${showOwnerPassword ? "fa-eye-slash" : "fa-eye"}`} />
+                          <i className={`fas ${showOwnerPassword ? "fa-eye-slash" : "fa-eye"} text-sm`} />
                         </button>
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        A salon owner account will be created with this password.
+                      <p className="text-[10px] text-neutral-400 mt-1.5 flex items-center gap-1">
+                        <i className="fas fa-info-circle" />
+                        A workshop owner account will be created with this password
                       </p>
                     </div>
                   </div>
                 )}
 
                 {currentStep === 3 && (
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-slate-700">
-                      Select a subscription plan
-                    </p>
+                  <div className="space-y-4">
                     {packagesLoading ? (
-                      <div className="flex items-center justify-center py-6">
-                        <div className="flex flex-col items-center gap-2">
-                          <i className="fas fa-circle-notch fa-spin text-2xl text-pink-500" />
-                          <p className="text-xs text-slate-500">Loading packages...</p>
+                      <div className="flex items-center justify-center py-10">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center">
+                            <i className="fas fa-circle-notch fa-spin text-xl text-neutral-400" />
+                          </div>
+                          <p className="text-xs text-neutral-400 font-medium">Loading packages...</p>
                         </div>
                       </div>
                     ) : packages.length === 0 ? (
-                      <div className="text-center py-6">
-                        <p className="text-sm text-slate-500">No packages available.</p>
+                      <div className="text-center py-10">
+                        <div className="w-14 h-14 rounded-xl bg-neutral-100 flex items-center justify-center mx-auto mb-3">
+                          <i className="fas fa-box-open text-xl text-neutral-300" />
+                        </div>
+                        <p className="text-sm text-neutral-500 font-medium">No packages available</p>
+                        <p className="text-[10px] text-neutral-400 mt-1">Create a package first in the Packages section</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-2.5">
                         {packages.map((pkg) => {
                           const isSelected = selectedPlan === pkg.id;
-                          const colorClass = pkg.color === "blue" ? "bg-blue-500" 
-                            : pkg.color === "pink" ? "bg-pink-500" 
-                            : pkg.color === "purple" ? "bg-purple-500" 
-                            : pkg.color === "green" ? "bg-emerald-500"
-                            : pkg.color === "orange" ? "bg-orange-500"
-                            : pkg.color === "teal" ? "bg-teal-500"
-                            : "bg-slate-500";
+                          const gradientClass = pkg.color === "blue" ? "from-blue-500 to-indigo-600" 
+                            : pkg.color === "pink" ? "from-neutral-600 to-neutral-800" 
+                            : pkg.color === "purple" ? "from-purple-500 to-violet-600" 
+                            : pkg.color === "green" ? "from-emerald-500 to-teal-600"
+                            : pkg.color === "orange" ? "from-orange-500 to-amber-600"
+                            : pkg.color === "teal" ? "from-teal-500 to-cyan-600"
+                            : "from-neutral-500 to-neutral-600";
                           
                           return (
                             <button
                               key={pkg.id}
                               onClick={() => setSelectedPlan(pkg.id)}
-                              className={`w-full p-3 rounded-xl border-2 transition-all duration-200 text-left ${
+                              className={`w-full p-4 rounded-2xl border-2 transition-all duration-200 text-left group ${
                                 isSelected 
-                                  ? "border-pink-500 bg-pink-50/50" 
-                                  : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                                  ? "border-neutral-900 bg-neutral-50 shadow-md" 
+                                  : "border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm"
                               }`}
                             >
-                              {/* Header row */}
                               <div className="flex items-center gap-3">
-                                {/* Color indicator & image */}
-                                <div className={`w-10 h-10 rounded-lg ${colorClass} flex items-center justify-center overflow-hidden flex-shrink-0`}>
+                                {/* Color gradient indicator & image */}
+                                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradientClass} flex items-center justify-center overflow-hidden flex-shrink-0 shadow-md`}>
                                   {pkg.image ? (
                                     <img src={pkg.image} alt={pkg.name} className="w-full h-full object-cover" />
                                   ) : (
-                                    <i className="fas fa-box text-white" />
+                                    <i className="fas fa-wrench text-white text-sm" />
                                   )}
                                 </div>
                                 
-                                {/* Plan name & badges */}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
-                                    <h4 className="font-semibold text-slate-900">{pkg.name}</h4>
+                                    <h4 className="font-bold text-neutral-900 text-sm">{pkg.name}</h4>
                                     {pkg.popular && (
-                                      <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                                      <span className="text-[9px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                        <i className="fas fa-crown text-[7px]" />
                                         Popular
                                       </span>
                                     )}
                                   </div>
+                                  <p className="text-xs text-neutral-400 mt-0.5">{pkg.priceLabel}</p>
                                 </div>
                                 
-                                {/* Price & selection */}
-                                <div className="text-right flex-shrink-0 flex items-center gap-2">
-                                  <div className="font-bold text-slate-900">{pkg.priceLabel}</div>
+                                <div className="flex-shrink-0">
                                   {isSelected ? (
-                                    <i className="fas fa-check-circle text-pink-500" />
+                                    <div className="w-7 h-7 rounded-full bg-neutral-900 flex items-center justify-center">
+                                      <i className="fas fa-check text-white text-[10px]" />
+                                    </div>
                                   ) : (
-                                    <div className="w-5 h-5 rounded-full border-2 border-slate-300" />
+                                    <div className="w-7 h-7 rounded-full border-2 border-neutral-200 group-hover:border-neutral-400 transition-colors" />
                                   )}
                                 </div>
                               </div>
                               
-                              {/* Details row */}
-                              <div className="mt-2 pt-2 border-t border-slate-100">
-                                <div className="flex items-center gap-4 text-xs text-slate-600">
-                                  <span className="flex items-center gap-1">
-                                    <i className="fas fa-building text-slate-400" />
-                                    {pkg.branches === -1 ? "Unlimited" : pkg.branches} {pkg.branches === 1 ? "Branch" : "Branches"}
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <i className="fas fa-users text-slate-400" />
-                                    {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
-                                  </span>
-                                </div>
-                                
-                                {/* Features - Line by line */}
-                                {pkg.features && pkg.features.length > 0 && (
-                                  <ul className="mt-2 space-y-1">
-                                    {pkg.features.slice(0, 5).map((feature, idx) => (
-                                      <li key={idx} className="flex items-center gap-2 text-xs text-slate-600">
-                                        <i className="fas fa-check text-emerald-500 text-[10px]" />
+                              {/* Features */}
+                              {isSelected && pkg.features && pkg.features.length > 0 && (
+                                <div className="mt-3 pt-3 border-t border-neutral-200">
+                                  <ul className="space-y-1.5">
+                                    {pkg.features.slice(0, 4).map((feature, idx) => (
+                                      <li key={idx} className="flex items-center gap-2 text-xs text-neutral-600">
+                                        <div className={`w-4 h-4 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0`}>
+                                          <i className="fas fa-check text-white text-[6px]" />
+                                        </div>
                                         {feature}
                                       </li>
                                     ))}
-                                    {pkg.features.length > 5 && (
-                                      <li className="text-xs text-slate-400 pl-4">
-                                        +{pkg.features.length - 5} more features
+                                    {pkg.features.length > 4 && (
+                                      <li className="text-[10px] text-neutral-400 pl-6">
+                                        +{pkg.features.length - 4} more features
                                       </li>
                                     )}
                                   </ul>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </button>
                           );
                         })}
                       </div>
                     )}
-                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-xs text-amber-800">
-                        <i className="fas fa-info-circle mr-1.5" />
+                    <div className="flex items-start gap-2.5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                      <i className="fas fa-info-circle text-amber-500 text-sm mt-0.5" />
+                      <p className="text-xs text-amber-800 leading-relaxed">
                         Invoice will be generated upon tenant activation
                       </p>
                     </div>
@@ -2186,51 +2222,53 @@ onClick={async () => {
                 )}
               </div>
 
-              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between shrink-0">
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-neutral-100 bg-white flex items-center justify-between shrink-0 rounded-b-3xl">
                 <button
                   onClick={goBack}
                   disabled={creating}
-                  className={`inline-flex items-center gap-2 px-4 py-2.5 text-slate-600 font-medium hover:bg-white hover:shadow-sm rounded-lg border border-transparent hover:border-slate-200 transition-all duration-200 disabled:opacity-60 ${
+                  className={`inline-flex items-center gap-2 px-4 py-2.5 text-neutral-500 font-medium hover:text-neutral-700 hover:bg-neutral-100 rounded-xl transition-all duration-200 disabled:opacity-60 ${
                     currentStep === 1 ? "invisible" : ""
                   }`}
                 >
                   <i className="fas fa-chevron-left text-xs" />
                   Back
                 </button>
-                <div className="flex-1" />
-                <button
-                  onClick={closeOnboardModal}
-                  disabled={creating}
-                  className="px-4 py-2.5 text-slate-500 font-medium hover:text-slate-700 hover:bg-white rounded-lg transition-all duration-200 mr-2 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={goNext}
-                  disabled={creating || (currentStep === 3 && !selectedPlan)}
-                  className={`inline-flex items-center gap-2 px-5 py-2.5 font-semibold rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
-                    currentStep === 3 
-                      ? "bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:from-emerald-600 hover:to-emerald-700" 
-                      : "bg-gradient-to-r from-pink-500 to-pink-600 text-white shadow-lg shadow-pink-500/25 hover:shadow-pink-500/40 hover:from-pink-600 hover:to-pink-700"
-                  }`}
-                >
-                  {creating ? (
-                    <>
-                      <i className="fas fa-circle-notch fa-spin text-sm" />
-                      <span>Creating...</span>
-                    </>
-                  ) : currentStep === 3 ? (
-                    <>
-                      <i className="fas fa-check text-sm" />
-                      <span>Complete Onboarding</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Continue</span>
-                      <i className="fas fa-chevron-right text-xs" />
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={closeOnboardModal}
+                    disabled={creating}
+                    className="px-4 py-2.5 text-neutral-500 font-medium hover:text-neutral-700 hover:bg-neutral-100 rounded-xl transition-all duration-200 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={goNext}
+                    disabled={creating || (currentStep === 3 && !selectedPlan)}
+                    className={`inline-flex items-center gap-2 px-6 py-2.5 font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      currentStep === 3 
+                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 hover:bg-emerald-700" 
+                        : "bg-neutral-900 text-white shadow-lg shadow-neutral-900/20 hover:bg-neutral-800"
+                    }`}
+                  >
+                    {creating ? (
+                      <>
+                        <i className="fas fa-circle-notch fa-spin text-sm" />
+                        <span>Creating...</span>
+                      </>
+                    ) : currentStep === 3 ? (
+                      <>
+                        <i className="fas fa-check text-sm" />
+                        <span>Complete Onboarding</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Continue</span>
+                        <i className="fas fa-chevron-right text-xs" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

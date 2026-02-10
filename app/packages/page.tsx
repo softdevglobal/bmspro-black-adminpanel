@@ -13,8 +13,6 @@ type SubscriptionPlan = {
   name: string;
   price: number;
   priceLabel: string;
-  branches: number;
-  staff: number;
   features: string[];
   popular?: boolean;
   color: string;
@@ -53,10 +51,6 @@ export default function PackagesPage() {
     name: "",
     price: "",
     priceLabel: "",
-    branches: "1",
-    staff: "1",
-    unlimitedBranches: false,
-    unlimitedStaff: false,
     features: "",
     popular: false,
     color: "blue",
@@ -213,10 +207,6 @@ export default function PackagesPage() {
       name: "",
       price: "",
       priceLabel: "",
-      branches: "1",
-      staff: "1",
-      unlimitedBranches: false,
-      unlimitedStaff: false,
       features: "",
       popular: false,
       color: "blue",
@@ -234,16 +224,10 @@ export default function PackagesPage() {
   };
 
   const openEditPackage = (pkg: SubscriptionPlan) => {
-    const isUnlimitedBranches = pkg.branches === -1;
-    const isUnlimitedStaff = pkg.staff === -1;
     setFormData({
       name: pkg.name,
       price: pkg.price.toString(),
       priceLabel: pkg.priceLabel,
-      branches: isUnlimitedBranches ? "1" : pkg.branches.toString(),
-      staff: isUnlimitedStaff ? "1" : pkg.staff.toString(),
-      unlimitedBranches: isUnlimitedBranches,
-      unlimitedStaff: isUnlimitedStaff,
       features: pkg.features.join("\n"),
       popular: pkg.popular || false,
       color: pkg.color,
@@ -313,8 +297,8 @@ export default function PackagesPage() {
         name: formData.name.trim(),
         price: parseFloat(formData.price),
         priceLabel: formData.priceLabel.trim(),
-        branches: formData.unlimitedBranches ? -1 : parseInt(formData.branches, 10),
-        staff: formData.unlimitedStaff ? -1 : parseInt(formData.staff, 10),
+        branches: -1,
+        staff: -1,
         features: featuresArray,
         popular: formData.popular,
         color: formData.color,
@@ -412,10 +396,10 @@ export default function PackagesPage() {
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-slate-50">
+        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-neutral-50">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -433,26 +417,28 @@ export default function PackagesPage() {
           )}
 
           {loading || packagesLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="flex flex-col items-center gap-3">
-                <i className="fas fa-circle-notch fa-spin text-4xl text-pink-500" />
-                <p className="text-slate-500 font-medium">Loading packages...</p>
+            <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 120px)' }}>
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900 mx-auto mb-4"></div>
+                <p className="text-neutral-600">Loading packages...</p>
               </div>
             </div>
           ) : (
             <>
               {/* Header */}
               <div className="mb-8">
-                <div className="rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-6 shadow-lg">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                      <i className="fas fa-box text-2xl" />
+                <div className="rounded-2xl bg-neutral-900 text-white p-6 shadow-lg relative overflow-hidden">
+                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500" />
+                  <div className="flex items-center gap-4 pt-1">
+                    <div className="w-14 h-14 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
+                      <i className="fas fa-box text-2xl text-amber-400" />
                     </div>
                     <div>
                       <h1 className="text-2xl font-bold">Subscription Packages</h1>
-                      <p className="text-sm text-white/80 mt-1">Manage subscription plans for tenants</p>
+                      <p className="text-sm text-neutral-400 mt-1">Manage subscription plans for workshops</p>
                     </div>
                   </div>
+                  <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-amber-500 opacity-[0.04] blur-3xl" />
                 </div>
               </div>
 
@@ -462,14 +448,14 @@ export default function PackagesPage() {
                   {activePlans.slice(0, 3).map((plan) => {
                     const planTenants = tenants.filter((t: any) => (t.plan || "").toLowerCase() === plan.name.toLowerCase());
                     const gradientClass = plan.color === "blue" ? "from-blue-500 to-indigo-600" 
-                      : plan.color === "pink" ? "from-pink-500 to-rose-600" 
+                      : plan.color === "pink" ? "from-neutral-700 to-neutral-900" 
                       : plan.color === "purple" ? "from-purple-500 to-violet-600" 
                       : plan.color === "green" ? "from-emerald-500 to-teal-600"
                       : plan.color === "orange" ? "from-orange-500 to-amber-600"
                       : plan.color === "teal" ? "from-teal-500 to-cyan-600"
-                      : "from-slate-500 to-slate-600";
+                      : "from-neutral-500 to-neutral-600";
                     return (
-                      <div key={plan.id} className="group relative bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-xl transition-all duration-300">
+                      <div key={plan.id} className="group relative bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden hover:shadow-xl transition-all duration-300">
                         <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${gradientClass}`} />
                         <div className="p-6">
                           <div className="flex items-center justify-between mb-4">
@@ -484,11 +470,10 @@ export default function PackagesPage() {
                               {planTenants.length} {planTenants.length === 1 ? "Tenant" : "Tenants"}
                             </span>
                           </div>
-                          <h3 className="text-xl font-bold text-slate-900 mb-1">{plan.name}</h3>
+                          <h3 className="text-xl font-bold text-neutral-900 mb-1">{plan.name}</h3>
                           <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>{plan.priceLabel}</p>
-                          <p className="text-sm text-slate-500">
-                            {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
-                            {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
+                          <p className="text-sm text-neutral-500">
+                            {plan.features.length} {plan.features.length === 1 ? "Feature" : "Features"}
                           </p>
                         </div>
                       </div>
@@ -498,28 +483,28 @@ export default function PackagesPage() {
               )}
 
               {/* Divider between Stats and Available Plans */}
-              <hr className="my-10 border-slate-200" />
+              <hr className="my-10 border-neutral-200" />
 
               {/* Subscription Plans */}
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold text-slate-900">Available Plans</h2>
+                  <h2 className="text-xl font-bold text-neutral-900">Available Plans</h2>
                   <button
                     onClick={openCreatePackage}
-                    className="px-5 py-2.5 bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-pink-500/25 flex items-center gap-2"
+                    className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl font-semibold transition-all shadow-lg shadow-neutral-900/25 flex items-center gap-2"
                   >
                     <i className="fas fa-plus" />
                     {activePlans.length === 0 ? "Create First Package" : "New Package"}
                   </button>
                 </div>
                 {activePlans.length === 0 ? (
-                  <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-12 text-center">
-                    <i className="fas fa-box-open text-5xl text-slate-400 mb-4" />
-                    <h3 className="text-xl font-semibold text-slate-700 mb-2">No Packages Yet</h3>
-                    <p className="text-slate-500 mb-6">Create your first subscription package to get started.</p>
+                  <div className="bg-white rounded-2xl border-2 border-dashed border-neutral-300 p-12 text-center">
+                    <i className="fas fa-box-open text-5xl text-neutral-400 mb-4" />
+                    <h3 className="text-xl font-semibold text-neutral-700 mb-2">No Packages Yet</h3>
+                    <p className="text-neutral-500 mb-6">Create your first subscription package to get started.</p>
                     <button
                       onClick={openCreatePackage}
-                      className="px-6 py-3 bg-pink-600 hover:bg-pink-700 text-white rounded-xl font-semibold transition inline-flex items-center gap-2"
+                      className="px-6 py-3 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl font-semibold transition inline-flex items-center gap-2"
                     >
                       <i className="fas fa-plus" />
                       Create Package
@@ -529,24 +514,24 @@ export default function PackagesPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {activePlans.map((plan) => {
                       const gradientClass = plan.color === "blue" ? "from-blue-500 via-blue-600 to-indigo-600" 
-                        : plan.color === "pink" ? "from-pink-500 via-rose-500 to-fuchsia-600" 
+                        : plan.color === "pink" ? "from-neutral-700 via-neutral-800 to-neutral-900" 
                         : plan.color === "purple" ? "from-purple-500 via-violet-500 to-indigo-600" 
                         : plan.color === "green" ? "from-emerald-500 via-green-500 to-teal-600"
                         : plan.color === "orange" ? "from-orange-500 via-amber-500 to-yellow-500"
                         : plan.color === "teal" ? "from-teal-500 via-cyan-500 to-blue-500"
-                        : "from-slate-500 via-slate-600 to-slate-700";
+                        : "from-neutral-500 via-neutral-600 to-neutral-700";
                       const lightBgClass = plan.color === "blue" ? "bg-blue-50" 
-                        : plan.color === "pink" ? "bg-pink-50" 
+                        : plan.color === "pink" ? "bg-neutral-50" 
                         : plan.color === "purple" ? "bg-purple-50" 
                         : plan.color === "green" ? "bg-emerald-50"
                         : plan.color === "orange" ? "bg-orange-50"
                         : plan.color === "teal" ? "bg-teal-50"
-                        : "bg-slate-50";
+                        : "bg-neutral-50";
                       return (
                         <div
                           key={plan.id}
                           className={`group relative bg-white rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 ${
-                            plan.popular ? "ring-2 ring-pink-500 ring-offset-2" : ""
+                            plan.popular ? "ring-2 ring-neutral-900 ring-offset-2" : ""
                           }`}
                         >
                           {/* Gradient Header */}
@@ -605,25 +590,20 @@ export default function PackagesPage() {
                           {/* Card Content */}
                           <div className="pt-16 pb-6 px-6">
                             <div className="text-center mb-6">
-                              <h3 className="text-2xl font-bold text-slate-900 mb-2">{plan.name}</h3>
+                              <h3 className="text-2xl font-bold text-neutral-900 mb-2">{plan.name}</h3>
                               <div className={`text-4xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>
                                 {plan.priceLabel}
                               </div>
-                              <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                              <div className="flex items-center justify-center gap-3 text-sm text-neutral-500">
                                 <span className="flex items-center gap-1">
-                                  <i className="fas fa-building text-xs" />
-                                  {plan.branches === -1 ? "Unlimited" : plan.branches} {plan.branches === 1 ? "Branch" : "Branches"}
-                                </span>
-                                <span className="w-1 h-1 bg-slate-300 rounded-full" />
-                                <span className="flex items-center gap-1">
-                                  <i className="fas fa-users text-xs" />
-                                  {plan.staff === -1 ? "Unlimited" : plan.staff} Staff
+                                  <i className="fas fa-list-check text-xs" />
+                                  {plan.features.length} {plan.features.length === 1 ? "Feature" : "Features"}
                                 </span>
                               </div>
                             </div>
                             
                             {/* Divider */}
-                            <div className={`h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-6`} />
+                            <div className={`h-px bg-gradient-to-r from-transparent via-neutral-200 to-transparent mb-6`} />
                             
                             {/* Features */}
                             <ul className="space-y-3">
@@ -632,7 +612,7 @@ export default function PackagesPage() {
                                   <div className={`w-5 h-5 rounded-full bg-gradient-to-br ${gradientClass} flex items-center justify-center flex-shrink-0 mt-0.5`}>
                                     <i className="fas fa-check text-white text-[10px]" />
                                   </div>
-                                  <span className="text-sm text-slate-600">{feature}</span>
+                                  <span className="text-sm text-neutral-600">{feature}</span>
                                 </li>
                               ))}
                             </ul>
@@ -645,25 +625,25 @@ export default function PackagesPage() {
               </div>
 
               {/* Tenant Plan Management */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-                <div className="p-6 border-b border-slate-200">
-                  <h2 className="text-xl font-bold text-slate-900">Manage Tenant Subscriptions</h2>
-                  <p className="text-sm text-slate-500 mt-1">Update subscription plans for individual tenants</p>
+              <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm">
+                <div className="p-6 border-b border-neutral-200">
+                  <h2 className="text-xl font-bold text-neutral-900">Manage Workshop Subscriptions</h2>
+                  <p className="text-sm text-neutral-500 mt-1">Update subscription plans for individual workshops</p>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-slate-50 border-b border-slate-200">
+                    <thead className="bg-neutral-50 border-b border-neutral-200">
                       <tr>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Tenant</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Current Plan</th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase">Status</th>
-                        <th className="px-6 py-4 text-right text-xs font-semibold text-slate-600 uppercase">Actions</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase">Tenant</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase">Current Plan</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-neutral-600 uppercase">Status</th>
+                        <th className="px-6 py-4 text-right text-xs font-semibold text-neutral-600 uppercase">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200">
+                    <tbody className="divide-y divide-neutral-200">
                       {tenants.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
+                          <td colSpan={4} className="px-6 py-8 text-center text-neutral-500">
                             No tenants found
                           </td>
                         </tr>
@@ -685,15 +665,15 @@ export default function PackagesPage() {
                             : "bg-amber-50 text-amber-700";
 
                           return (
-                            <tr key={tenant.id} className="hover:bg-slate-50 transition">
+                            <tr key={tenant.id} className="hover:bg-neutral-50 transition">
                               <td className="px-6 py-4">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-gradient-to-br from-pink-400 to-pink-600 rounded-lg flex items-center justify-center">
+                                  <div className="w-10 h-10 bg-gradient-to-br from-neutral-700 to-neutral-900 rounded-lg flex items-center justify-center">
                                     <span className="text-white font-semibold text-sm">{initials}</span>
                                   </div>
                                   <div>
-                                    <p className="font-medium text-slate-900">{tenant.name || "Unknown"}</p>
-                                    <p className="text-xs text-slate-500">{tenant.email || ""}</p>
+                                    <p className="font-medium text-neutral-900">{tenant.name || "Unknown"}</p>
+                                    <p className="text-xs text-neutral-500">{tenant.email || ""}</p>
                                   </div>
                                 </div>
                               </td>
@@ -702,15 +682,15 @@ export default function PackagesPage() {
                                   <div className="flex items-center gap-2">
                                     <span className={`px-3 py-1 rounded-lg text-sm font-semibold ${
                                       currentPlan.color === "blue" ? "bg-blue-50 text-blue-700" : 
-                                      currentPlan.color === "pink" ? "bg-pink-50 text-pink-700" : 
-                                      currentPlan.color === "purple" ? "bg-purple-50 text-purple-700" : "bg-slate-50 text-slate-700"
+                                      currentPlan.color === "pink" ? "bg-neutral-50 text-neutral-800" : 
+                                      currentPlan.color === "purple" ? "bg-purple-50 text-purple-700" : "bg-neutral-50 text-neutral-700"
                                     }`}>
                                       {currentPlan.name}
                                     </span>
-                                    <span className="text-sm text-slate-500">{tenant.price || currentPlan.priceLabel}</span>
+                                    <span className="text-sm text-neutral-500">{tenant.price || currentPlan.priceLabel}</span>
                                   </div>
                                 ) : (
-                                  <span className="text-sm text-slate-400">No plan assigned</span>
+                                  <span className="text-sm text-neutral-400">No plan assigned</span>
                                 )}
                               </td>
                               <td className="px-6 py-4">
@@ -721,7 +701,7 @@ export default function PackagesPage() {
                               <td className="px-6 py-4 text-right">
                                 <button
                                   onClick={() => setSelectedTenant(selectedTenant === tenant.id ? null : tenant.id)}
-                                  className="px-4 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded-lg transition"
+                                  className="px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 rounded-lg transition"
                                 >
                                   {selectedTenant === tenant.id ? "Cancel" : "Change Plan"}
                                 </button>
@@ -736,361 +716,574 @@ export default function PackagesPage() {
               </div>
 
               {/* Package Form Modal */}
-              {showPackageForm && (
+              {showPackageForm && (() => {
+                const colorOptions = [
+                  { value: "blue", label: "Blue", gradient: "from-blue-500 to-indigo-600", ring: "ring-blue-400", bg: "bg-blue-500", accent: "text-blue-400" },
+                  { value: "pink", label: "Dark", gradient: "from-neutral-600 to-neutral-800", ring: "ring-neutral-400", bg: "bg-neutral-700", accent: "text-neutral-300" },
+                  { value: "purple", label: "Purple", gradient: "from-purple-500 to-violet-600", ring: "ring-purple-400", bg: "bg-purple-500", accent: "text-purple-400" },
+                  { value: "green", label: "Green", gradient: "from-emerald-500 to-teal-600", ring: "ring-emerald-400", bg: "bg-emerald-500", accent: "text-emerald-400" },
+                  { value: "orange", label: "Orange", gradient: "from-orange-500 to-amber-600", ring: "ring-orange-400", bg: "bg-orange-500", accent: "text-orange-400" },
+                  { value: "teal", label: "Teal", gradient: "from-teal-500 to-cyan-600", ring: "ring-teal-400", bg: "bg-teal-500", accent: "text-teal-400" },
+                ];
+                const selectedColor = colorOptions.find(c => c.value === formData.color) || colorOptions[0];
+                const previewFeatures = formData.features.split("\n").map(f => f.trim()).filter(f => f.length > 0);
+
+                return (
                 <div className="fixed inset-0 z-50">
-                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !savingPackage && setShowPackageForm(false)} />
+                  <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !savingPackage && setShowPackageForm(false)} />
                   <div className="absolute inset-0 flex items-center justify-center p-4 overflow-y-auto">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl my-auto relative max-h-[90vh] overflow-y-auto">
-                      <div className="sticky top-0 bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-5 rounded-t-2xl z-10">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-bold">
-                            {editingPackage ? "Edit Package" : "Create New Package"}
-                          </h3>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl my-auto relative max-h-[92vh] overflow-hidden flex flex-col">
+                      
+                      {/* Header — black top */}
+                      <div className="relative flex-shrink-0 bg-neutral-900 rounded-t-3xl">
+                        <div className="px-6 pt-6 pb-5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
+                                <i className={`fas ${editingPackage ? "fa-pen-to-square" : "fa-wrench"} text-lg text-amber-400`} />
+                              </div>
+                              <div>
+                                <h3 className="text-xl font-bold text-white tracking-tight">
+                                  {editingPackage ? "Edit Package" : "Build New Package"}
+                                </h3>
+                                <p className="text-sm text-neutral-400 mt-0.5">
+                                  {editingPackage ? "Update your workshop subscription plan" : "Create a subscription plan for workshops"}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => !savingPackage && setShowPackageForm(false)}
+                              disabled={savingPackage}
+                              className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all disabled:opacity-50"
+                            >
+                              <i className="fas fa-xmark text-white/70" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Content area with side-by-side layout */}
+                      <div className="flex-1 overflow-y-auto">
+                        <div className="grid grid-cols-1 lg:grid-cols-5 gap-0">
+                          
+                          {/* Left: Form fields (3 cols) */}
+                          <div className="lg:col-span-3 p-6 space-y-6">
+                            
+                            {/* Section: Basic Info */}
+                            <div>
+                              <div className="flex items-center gap-2.5 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                  <i className="fas fa-tag text-[10px] text-white" />
+                                </div>
+                                <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Basic Info</h4>
+                              </div>
+                              <div className="bg-neutral-50 rounded-2xl border border-neutral-200 p-5 space-y-4">
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                    Package Name <span className="text-rose-500">*</span>
+                                  </label>
+                                  <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                      <i className="fas fa-box-open text-neutral-400 text-sm" />
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={formData.name}
+                                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                      className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
+                                      placeholder="e.g., Starter, Pro, Enterprise"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                      Price (AUD) <span className="text-rose-500">*</span>
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                        <span className="text-neutral-900 text-sm font-bold">$</span>
+                                      </div>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.price}
+                                        onChange={(e) => {
+                                          const priceValue = e.target.value;
+                                          let priceLabel = "";
+                                          if (priceValue && !isNaN(parseFloat(priceValue))) {
+                                            const numPrice = parseFloat(priceValue);
+                                            if (numPrice % 1 === 0) {
+                                              priceLabel = `AU$${numPrice}/mo`;
+                                            } else {
+                                              priceLabel = `AU$${numPrice.toFixed(2)}/mo`;
+                                            }
+                                          }
+                                          setFormData({ ...formData, price: priceValue, priceLabel });
+                                        }}
+                                        className="w-full pl-9 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        placeholder="99.00"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                      Display Label <span className="text-rose-500">*</span>
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={formData.priceLabel}
+                                      onChange={(e) => setFormData({ ...formData, priceLabel: e.target.value })}
+                                      className="w-full px-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
+                                      placeholder="AU$99/mo"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Section: Plan Settings */}
+                            <div>
+                              <div className="flex items-center gap-2.5 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                  <i className="fas fa-gears text-[10px] text-white" />
+                                </div>
+                                <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Plan Settings</h4>
+                              </div>
+                              <div className="bg-neutral-50 rounded-2xl border border-neutral-200 p-5 space-y-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                      Free Trial
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                        <i className="fas fa-clock text-neutral-400 text-sm" />
+                                      </div>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={formData.trialDays}
+                                        onChange={(e) => setFormData({ ...formData, trialDays: e.target.value })}
+                                        className="w-full pl-10 pr-16 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        placeholder="0"
+                                      />
+                                      <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none">
+                                        <span className="text-[11px] text-neutral-400 font-medium">days</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                      Plan Key
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                        <i className="fas fa-key text-neutral-400 text-sm" />
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={formData.plan_key}
+                                        onChange={(e) => setFormData({ ...formData, plan_key: e.target.value.toUpperCase() })}
+                                        className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-mono font-medium"
+                                        placeholder="SOLO"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Stripe Price ID */}
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                    Stripe Price ID
+                                  </label>
+                                  <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                      <i className="fab fa-stripe-s text-neutral-400 text-sm" />
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={formData.stripePriceId}
+                                      onChange={(e) => setFormData({ ...formData, stripePriceId: e.target.value })}
+                                      className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-mono font-medium"
+                                      placeholder="price_1234..."
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Section: Features */}
+                            <div>
+                              <div className="flex items-center gap-2.5 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                  <i className="fas fa-list-check text-[10px] text-white" />
+                                </div>
+                                <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Features</h4>
+                                {previewFeatures.length > 0 && (
+                                  <span className="ml-auto text-[10px] text-neutral-600 font-semibold bg-neutral-100 border border-neutral-200 px-2.5 py-0.5 rounded-full">
+                                    {previewFeatures.length} {previewFeatures.length === 1 ? "feature" : "features"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="bg-neutral-50 rounded-2xl border border-neutral-200 p-5">
+                                <textarea
+                                  value={formData.features}
+                                  onChange={(e) => setFormData({ ...formData, features: e.target.value })}
+                                  rows={5}
+                                  className="w-full px-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm resize-none"
+                                  placeholder={"Unlimited Job Cards\nInvoice & Quotation\nInventory Management\nCustomer Management\nReporting & Analytics"}
+                                />
+                                <p className="text-[10px] text-neutral-400 mt-2 flex items-center gap-1.5">
+                                  <i className="fas fa-info-circle" />
+                                  One feature per line — each becomes a bullet point
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Section: Appearance */}
+                            <div>
+                              <div className="flex items-center gap-2.5 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                  <i className="fas fa-palette text-[10px] text-white" />
+                                </div>
+                                <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Appearance</h4>
+                              </div>
+                              <div className="bg-neutral-50 rounded-2xl border border-neutral-200 p-5 space-y-5">
+                                {/* Color Picker Swatches */}
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-3">
+                                    Theme Color
+                                  </label>
+                                  <div className="flex items-center gap-3">
+                                    {colorOptions.map((color) => (
+                                      <button
+                                        key={color.value}
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, color: color.value })}
+                                        className={`group relative w-11 h-11 rounded-xl bg-gradient-to-br ${color.gradient} transition-all duration-200 hover:scale-110 ${
+                                          formData.color === color.value
+                                            ? `ring-2 ring-neutral-900 ring-offset-2 scale-110 shadow-lg`
+                                            : "ring-1 ring-black/10 hover:shadow-md"
+                                        }`}
+                                        title={color.label}
+                                      >
+                                        {formData.color === color.value && (
+                                          <div className="absolute inset-0 flex items-center justify-center">
+                                            <i className="fas fa-check text-white text-xs drop-shadow-md" />
+                                          </div>
+                                        )}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Image Upload */}
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-3">
+                                    Package Image
+                                  </label>
+                                  {imagePreview ? (
+                                    <div className="flex items-center gap-4 p-3.5 bg-white rounded-xl border border-neutral-200">
+                                      <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 border border-neutral-200 shadow-md">
+                                        <img
+                                          src={imagePreview}
+                                          alt="Package preview"
+                                          className="w-full h-full object-cover"
+                                        />
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-semibold text-neutral-700 truncate">
+                                          {imageFile?.name || "Current image"}
+                                        </p>
+                                        <p className="text-xs text-neutral-400 mt-0.5">
+                                          {imageFile ? `${(imageFile.size / 1024).toFixed(1)} KB` : "Uploaded"}
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setImagePreview(null);
+                                            setImageFile(null);
+                                            setFormData({ ...formData, image: "" });
+                                          }}
+                                          className="mt-2 text-xs text-rose-500 hover:text-rose-600 font-semibold flex items-center gap-1 transition"
+                                        >
+                                          <i className="fas fa-trash-can text-[10px]" />
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <label className="group cursor-pointer block">
+                                      <div className="border-2 border-dashed border-neutral-300 rounded-xl p-6 text-center hover:border-neutral-400 hover:bg-white transition-all">
+                                        <div className="w-14 h-14 rounded-xl bg-neutral-100 group-hover:bg-neutral-200 transition-colors flex items-center justify-center mx-auto mb-3">
+                                          <i className="fas fa-cloud-arrow-up text-xl text-neutral-400 group-hover:text-neutral-600 transition-colors" />
+                                        </div>
+                                        <p className="text-sm font-semibold text-neutral-500 group-hover:text-neutral-700 transition-colors">Click to upload image</p>
+                                        <p className="text-[10px] text-neutral-400 mt-1">PNG, JPG, WebP or GIF • Max 5MB</p>
+                                      </div>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0];
+                                          if (file) {
+                                            const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+                                            if (!validTypes.includes(file.type)) {
+                                              alert("Please upload a valid image file (PNG, JPG, WebP, or GIF)");
+                                              return;
+                                            }
+                                            if (file.size > 5 * 1024 * 1024) {
+                                              alert("File size must be less than 5MB");
+                                              return;
+                                            }
+                                            setImageFile(file);
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => {
+                                              setImagePreview(reader.result as string);
+                                            };
+                                            reader.readAsDataURL(file);
+                                          }
+                                        }}
+                                        className="hidden"
+                                        disabled={uploadingImage || savingPackage}
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Section: Options */}
+                            <div>
+                              <div className="flex items-center gap-2.5 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                  <i className="fas fa-sliders text-[10px] text-white" />
+                                </div>
+                                <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Options</h4>
+                              </div>
+                              <div className="space-y-2">
+                                {/* Active Toggle */}
+                                <div className={`rounded-xl border p-4 flex items-center justify-between transition-all ${formData.active ? "bg-emerald-50 border-emerald-200" : "bg-neutral-50 border-neutral-200"}`}>
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${formData.active ? "bg-emerald-100" : "bg-neutral-100"}`}>
+                                      <i className={`fas fa-power-off text-xs ${formData.active ? "text-emerald-600" : "text-neutral-400"}`} />
+                                    </div>
+                                    <div>
+                                      <p className={`text-sm font-semibold ${formData.active ? "text-neutral-900" : "text-neutral-500"}`}>Active</p>
+                                      <p className="text-[10px] text-neutral-400">{formData.active ? "Package is live and available" : "Package is disabled"}</p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, active: !formData.active })}
+                                    className={`relative w-12 h-7 rounded-full transition-all duration-300 ${formData.active ? "bg-emerald-500" : "bg-neutral-300"}`}
+                                  >
+                                    <div className={`absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all duration-300 ${formData.active ? "left-[21px] bg-white" : "left-0.5 bg-white"}`} />
+                                  </button>
+                                </div>
+
+                                {/* Popular Toggle */}
+                                <div className={`rounded-xl border p-4 flex items-center justify-between transition-all ${formData.popular ? "bg-amber-50 border-amber-200" : "bg-neutral-50 border-neutral-200"}`}>
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${formData.popular ? "bg-amber-100" : "bg-neutral-100"}`}>
+                                      <i className={`fas fa-crown text-xs ${formData.popular ? "text-amber-500" : "text-neutral-400"}`} />
+                                    </div>
+                                    <div>
+                                      <p className={`text-sm font-semibold ${formData.popular ? "text-neutral-900" : "text-neutral-500"}`}>Most Popular</p>
+                                      <p className="text-[10px] text-neutral-400">{formData.popular ? "Highlighted with a badge" : "Standard display"}</p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, popular: !formData.popular })}
+                                    className={`relative w-12 h-7 rounded-full transition-all duration-300 ${formData.popular ? "bg-amber-500" : "bg-neutral-300"}`}
+                                  >
+                                    <div className={`absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all duration-300 ${formData.popular ? "left-[21px] bg-white" : "left-0.5 bg-white"}`} />
+                                  </button>
+                                </div>
+
+                                {/* Hidden Toggle */}
+                                <div className={`rounded-xl border p-4 flex items-center justify-between transition-all ${formData.hidden ? "bg-rose-50 border-rose-200" : "bg-neutral-50 border-neutral-200"}`}>
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${formData.hidden ? "bg-rose-100" : "bg-neutral-100"}`}>
+                                      <i className={`fas fa-eye-slash text-xs ${formData.hidden ? "text-rose-500" : "text-neutral-400"}`} />
+                                    </div>
+                                    <div>
+                                      <p className={`text-sm font-semibold ${formData.hidden ? "text-neutral-900" : "text-neutral-500"}`}>Hidden Plan</p>
+                                      <p className="text-[10px] text-neutral-400">
+                                        {formData.hidden ? "Only assignable by super admin" : "Visible to all workshops"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, hidden: !formData.hidden })}
+                                    className={`relative w-12 h-7 rounded-full transition-all duration-300 ${formData.hidden ? "bg-rose-500" : "bg-neutral-300"}`}
+                                  >
+                                    <div className={`absolute top-0.5 w-6 h-6 rounded-full shadow-md transition-all duration-300 ${formData.hidden ? "left-[21px] bg-white" : "left-0.5 bg-white"}`} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right: Live Preview (2 cols) */}
+                          <div className="lg:col-span-2 bg-neutral-50 border-l border-neutral-200 p-6 flex flex-col">
+                            <div className="flex items-center gap-2.5 mb-5">
+                              <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                <i className="fas fa-eye text-[10px] text-white" />
+                              </div>
+                              <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Live Preview</h4>
+                              <div className="ml-auto flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-[9px] text-neutral-400 font-medium uppercase tracking-wider">Live</span>
+                              </div>
+                            </div>
+
+                            {/* Preview Card */}
+                            <div className="bg-white rounded-2xl overflow-hidden shadow-xl border border-neutral-200 flex-shrink-0">
+                              {/* Gradient top */}
+                              <div className={`relative h-28 bg-gradient-to-br ${selectedColor.gradient} overflow-hidden`}>
+                                <div className="absolute -top-8 -right-8 w-32 h-32 bg-white/10 rounded-full" />
+                                <div className="absolute -bottom-8 -left-8 w-28 h-28 bg-white/10 rounded-full" />
+                                <div className="absolute top-4 right-12 w-10 h-10 bg-white/5 rounded-full" />
+                                {formData.popular && (
+                                  <div className="absolute top-3 left-3 bg-white/20 backdrop-blur-sm text-white text-[9px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                                    <i className="fas fa-crown text-yellow-300 text-[8px]" />
+                                    Popular
+                                  </div>
+                                )}
+                                {formData.hidden && (
+                                  <div className="absolute top-3 right-3 bg-black/30 backdrop-blur-sm text-white text-[9px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1">
+                                    <i className="fas fa-eye-slash text-[8px]" />
+                                    Hidden
+                                  </div>
+                                )}
+                                {/* Image/Icon */}
+                                <div className="absolute -bottom-9 left-1/2 -translate-x-1/2 z-10">
+                                  <div className="w-[72px] h-[72px] rounded-2xl flex items-center justify-center overflow-hidden shadow-xl ring-4 ring-white bg-white">
+                                    {imagePreview ? (
+                                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <i className={`fas fa-wrench text-xl bg-gradient-to-br ${selectedColor.gradient} bg-clip-text text-transparent`} />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="pt-12 pb-6 px-5">
+                                <div className="text-center mb-5">
+                                  <h3 className="text-lg font-bold text-neutral-900 mb-1">
+                                    {formData.name || "Package Name"}
+                                  </h3>
+                                  <div className={`text-3xl font-extrabold bg-gradient-to-r ${selectedColor.gradient} bg-clip-text text-transparent`}>
+                                    {formData.priceLabel || "AU$0/mo"}
+                                  </div>
+                                  {formData.trialDays && parseInt(formData.trialDays) > 0 && (
+                                    <p className="text-[10px] text-emerald-600 font-semibold mt-2 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full inline-flex items-center gap-1">
+                                      <i className="fas fa-gift text-[8px]" />{formData.trialDays}-day free trial
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="h-px bg-gradient-to-r from-transparent via-neutral-200 to-transparent mb-4" />
+
+                                {previewFeatures.length > 0 ? (
+                                  <ul className="space-y-2.5">
+                                    {previewFeatures.slice(0, 6).map((feature, idx) => (
+                                      <li key={idx} className="flex items-start gap-2.5">
+                                        <div className={`min-w-[18px] min-h-[18px] w-[18px] h-[18px] rounded-full bg-gradient-to-br ${selectedColor.gradient} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                                          <i className="fas fa-check text-white text-[7px]" />
+                                        </div>
+                                        <span className="text-xs text-neutral-600 leading-relaxed">{feature}</span>
+                                      </li>
+                                    ))}
+                                    {previewFeatures.length > 6 && (
+                                      <li className="text-[10px] text-neutral-400 pl-7">
+                                        +{previewFeatures.length - 6} more features...
+                                      </li>
+                                    )}
+                                  </ul>
+                                ) : (
+                                  <div className="text-center py-6">
+                                    <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center mx-auto mb-3">
+                                      <i className="fas fa-list text-neutral-300 text-lg" />
+                                    </div>
+                                    <p className="text-[10px] text-neutral-400">Add features to see them here</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Status indicators */}
+                            <div className="mt-5 space-y-2.5 bg-white rounded-xl border border-neutral-200 p-4">
+                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-2">Status</p>
+                              <div className="flex items-center gap-2.5 text-[11px]">
+                                <div className={`w-2 h-2 rounded-full ${formData.active ? "bg-emerald-500" : "bg-neutral-300"}`} />
+                                <span className="text-neutral-500">{formData.active ? "Active — visible to workshops" : "Inactive — not available"}</span>
+                              </div>
+                              {formData.plan_key && (
+                                <div className="flex items-center gap-2.5 text-[11px]">
+                                  <div className="w-2 h-2 rounded-full bg-neutral-900" />
+                                  <span className="text-neutral-500">Key: <span className="font-mono font-bold text-neutral-800">{formData.plan_key}</span></span>
+                                </div>
+                              )}
+                              {formData.popular && (
+                                <div className="flex items-center gap-2.5 text-[11px]">
+                                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                                  <span className="text-neutral-500">Marked as popular</span>
+                                </div>
+                              )}
+                              {formData.hidden && (
+                                <div className="flex items-center gap-2.5 text-[11px]">
+                                  <div className="w-2 h-2 rounded-full bg-rose-500" />
+                                  <span className="text-neutral-500">Hidden from workshops</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Footer */}
+                      <div className="flex-shrink-0 px-6 py-4 border-t border-neutral-100 bg-white flex items-center justify-between gap-3 rounded-b-3xl">
+                        <p className="text-[10px] text-neutral-400 flex items-center gap-1.5 max-sm:hidden">
+                          <i className="fas fa-shield-halved text-neutral-300" />
+                          Changes are saved securely to your database
+                        </p>
+                        <div className="flex items-center gap-3 ml-auto">
                           <button
                             onClick={() => !savingPackage && setShowPackageForm(false)}
                             disabled={savingPackage}
-                            className="w-9 h-9 rounded-lg bg-white/20 hover:bg-white/30 backdrop-blur-sm flex items-center justify-center transition disabled:opacity-50"
+                            className="px-5 py-2.5 rounded-xl text-neutral-500 hover:text-neutral-700 hover:bg-neutral-100 text-sm font-semibold transition-all disabled:opacity-50"
                           >
-                            <i className="fas fa-times text-sm" />
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleSavePackage}
+                            disabled={savingPackage || uploadingImage}
+                            className="px-7 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-bold transition-all shadow-lg shadow-neutral-900/20 disabled:opacity-50 flex items-center gap-2"
+                          >
+                            {(savingPackage || uploadingImage) ? (
+                              <>
+                                <i className="fas fa-circle-notch fa-spin" />
+                                {uploadingImage ? "Uploading..." : "Saving..."}
+                              </>
+                            ) : (
+                              <>
+                                <i className={`fas ${editingPackage ? "fa-save" : "fa-plus"}`} />
+                                {editingPackage ? "Update Package" : "Create Package"}
+                              </>
+                            )}
                           </button>
                         </div>
-                      </div>
-
-                      <div className="p-6 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                              Package Name <span className="text-rose-500">*</span>
-                            </label>
-                            <input
-                              type="text"
-                              value={formData.name}
-                              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                              placeholder="e.g., Starter, Pro, Enterprise"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                              Price <span className="text-rose-500">*</span>
-                            </label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={formData.price}
-                              onChange={(e) => {
-                                const priceValue = e.target.value;
-                                // Auto-fill price label with formatted price
-                                let priceLabel = "";
-                                if (priceValue && !isNaN(parseFloat(priceValue))) {
-                                  const numPrice = parseFloat(priceValue);
-                                  // Format as AU$XX/mo, removing unnecessary decimals
-                                  if (numPrice % 1 === 0) {
-                                    priceLabel = `AU$${numPrice}/mo`;
-                                  } else {
-                                    priceLabel = `AU$${numPrice.toFixed(2)}/mo`;
-                                  }
-                                }
-                                setFormData({ ...formData, price: priceValue, priceLabel });
-                              }}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              placeholder="99.00"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-2">
-                            Price Label <span className="text-rose-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={formData.priceLabel}
-                            onChange={(e) => setFormData({ ...formData, priceLabel: e.target.value })}
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                            placeholder="AU$99/mo"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                              Branches
-                            </label>
-                            <div className="space-y-2">
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                value={formData.unlimitedBranches ? "unlimited" : formData.branches}
-                                onChange={(e) => {
-                                  if (!formData.unlimitedBranches) {
-                                    // Only allow numbers
-                                    const value = e.target.value.replace(/[^0-9]/g, '');
-                                    setFormData({ ...formData, branches: value });
-                                  }
-                                }}
-                                disabled={formData.unlimitedBranches}
-                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed"
-                                placeholder="1"
-                              />
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={formData.unlimitedBranches}
-                                  onChange={(e) => {
-                                    setFormData({ 
-                                      ...formData, 
-                                      unlimitedBranches: e.target.checked,
-                                      branches: e.target.checked ? "1" : formData.branches
-                                    });
-                                  }}
-                                  className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
-                                />
-                                <span className="text-sm text-slate-700">Unlimited Branches</span>
-                              </label>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                              Staff
-                            </label>
-                            <div className="space-y-2">
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                value={formData.unlimitedStaff ? "unlimited" : formData.staff}
-                                onChange={(e) => {
-                                  if (!formData.unlimitedStaff) {
-                                    // Only allow numbers
-                                    const value = e.target.value.replace(/[^0-9]/g, '');
-                                    setFormData({ ...formData, staff: value });
-                                  }
-                                }}
-                                disabled={formData.unlimitedStaff}
-                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed"
-                                placeholder="1"
-                              />
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={formData.unlimitedStaff}
-                                  onChange={(e) => {
-                                    setFormData({ 
-                                      ...formData, 
-                                      unlimitedStaff: e.target.checked,
-                                      staff: e.target.checked ? "1" : formData.staff
-                                    });
-                                  }}
-                                  className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
-                                />
-                                <span className="text-sm text-slate-700">Unlimited Staff</span>
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                              Free Trial (Days)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={formData.trialDays}
-                              onChange={(e) => setFormData({ ...formData, trialDays: e.target.value })}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              placeholder="0"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">
-                              Enter 0 for no free trial
-                            </p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-2">
-                              Plan Key (Internal ID)
-                            </label>
-                            <input
-                              type="text"
-                              value={formData.plan_key}
-                              onChange={(e) => setFormData({ ...formData, plan_key: e.target.value.toUpperCase() })}
-                              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent font-mono text-sm"
-                              placeholder="SOLO, TEAM5, ENTERPRISE"
-                            />
-                            <p className="text-xs text-slate-500 mt-1">
-                              Internal identifier for this plan
-                            </p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-2">
-                            Features (one per line)
-                          </label>
-                          <textarea
-                            value={formData.features}
-                            onChange={(e) => setFormData({ ...formData, features: e.target.value })}
-                            rows={6}
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
-                            placeholder="1 Branch Location&#10;1 Staff Member&#10;Admin Account Included"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-2">Color</label>
-                          <div className="relative">
-                            <select
-                              value={formData.color}
-                              onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                              className="w-full pl-4 pr-12 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent appearance-none bg-white cursor-pointer"
-                            >
-                              <option value="blue">Blue</option>
-                              <option value="pink">Pink</option>
-                              <option value="purple">Purple</option>
-                              <option value="green">Green</option>
-                              <option value="orange">Orange</option>
-                              <option value="teal">Teal</option>
-                            </select>
-                            <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
-                              <i className="fas fa-chevron-down text-slate-400 text-sm" />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-2">Package Image</label>
-                          <div className="space-y-3">
-                            {imagePreview && (
-                              <div className="relative w-32 h-32 border-2 border-slate-200 rounded-lg overflow-hidden">
-                                <img
-                                  src={imagePreview}
-                                  alt="Package preview"
-                                  className="w-full h-full object-cover"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setImagePreview(null);
-                                    setImageFile(null);
-                                    setFormData({ ...formData, image: "" });
-                                  }}
-                                  className="absolute top-1 right-1 w-6 h-6 bg-rose-500 text-white rounded-full flex items-center justify-center hover:bg-rose-600 transition text-xs"
-                                >
-                                  <i className="fas fa-times" />
-                                </button>
-                              </div>
-                            )}
-                            <div>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    // Validate file type
-                                    const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-                                    if (!validTypes.includes(file.type)) {
-                                      alert("Please upload a valid image file (PNG, JPG, WebP, or GIF)");
-                                      return;
-                                    }
-                                    // Validate file size (max 5MB)
-                                    if (file.size > 5 * 1024 * 1024) {
-                                      alert("File size must be less than 5MB");
-                                      return;
-                                    }
-                                    setImageFile(file);
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setImagePreview(reader.result as string);
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-pink-50 file:text-pink-700 hover:file:bg-pink-100"
-                                disabled={uploadingImage || savingPackage}
-                              />
-                              <p className="text-xs text-slate-500 mt-1">Upload an image for this package (max 5MB)</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Visibility Section */}
-                        <div className="border border-amber-200 rounded-lg p-4 bg-amber-50/50">
-                          <label className="flex items-center gap-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.hidden}
-                              onChange={(e) => setFormData({ ...formData, hidden: e.target.checked })}
-                              className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500"
-                            />
-                            <div>
-                              <span className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i className="fas fa-eye-slash text-amber-600" />
-                                Hidden (Budget Plan)
-                              </span>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {formData.hidden 
-                                  ? "This package won't appear in subscription page. Only assignable by super admin."
-                                  : "Visible to all salons for upgrade/downgrade"}
-                              </p>
-                            </div>
-                          </label>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-6">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.popular}
-                              onChange={(e) => setFormData({ ...formData, popular: e.target.checked })}
-                              className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
-                            />
-                            <span className="text-sm font-semibold text-slate-700">Mark as Popular</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.active}
-                              onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-                              className="w-4 h-4 text-pink-600 rounded focus:ring-pink-500"
-                            />
-                            <span className="text-sm font-semibold text-slate-700">Active</span>
-                          </label>
-                        </div>
-                      </div>
-
-                      <div className="p-6 border-t border-slate-200 flex items-center justify-end gap-3">
-                        <button
-                          onClick={() => !savingPackage && setShowPackageForm(false)}
-                          disabled={savingPackage}
-                          className="px-5 py-2.5 rounded-xl text-slate-700 hover:bg-slate-100 text-sm font-semibold transition disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleSavePackage}
-                          disabled={savingPackage || uploadingImage}
-                          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold transition-all shadow-lg shadow-pink-500/25 disabled:opacity-50 flex items-center gap-2"
-                        >
-                          {(savingPackage || uploadingImage) ? (
-                            <>
-                              <i className="fas fa-circle-notch fa-spin" />
-                              {uploadingImage ? "Uploading..." : "Saving..."}
-                            </>
-                          ) : (
-                            <>
-                              <i className="fas fa-check" />
-                              {editingPackage ? "Update Package" : "Create Package"}
-                            </>
-                          )}
-                        </button>
                       </div>
                     </div>
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Delete Confirmation Modal */}
               {deletingPackage && (
@@ -1098,22 +1291,22 @@ export default function PackagesPage() {
                   <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => !savingPackage && setDeletingPackage(null)} />
                   <div className="absolute inset-0 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-                      <div className="p-6 border-b border-slate-200">
+                      <div className="p-6 border-b border-neutral-200">
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-xl bg-rose-100 flex items-center justify-center">
                             <i className="fas fa-exclamation-triangle text-rose-600 text-xl" />
                           </div>
                           <div>
-                            <h3 className="text-lg font-bold text-slate-900">Delete Package</h3>
-                            <p className="text-sm text-slate-500">Are you sure you want to delete this package?</p>
+                            <h3 className="text-lg font-bold text-neutral-900">Delete Package</h3>
+                            <p className="text-sm text-neutral-500">Are you sure you want to delete this package?</p>
                           </div>
                         </div>
                       </div>
                       
                       <div className="p-6">
-                        <div className="bg-slate-50 rounded-xl p-4">
-                          <p className="font-semibold text-slate-900">{deletingPackage.name}</p>
-                          <p className="text-sm text-slate-500">{deletingPackage.priceLabel}</p>
+                        <div className="bg-neutral-50 rounded-xl p-4">
+                          <p className="font-semibold text-neutral-900">{deletingPackage.name}</p>
+                          <p className="text-sm text-neutral-500">{deletingPackage.priceLabel}</p>
                         </div>
                         <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
                           <div className="flex items-start gap-2">
@@ -1125,11 +1318,11 @@ export default function PackagesPage() {
                         </div>
                       </div>
 
-                      <div className="p-6 border-t border-slate-200 flex items-center justify-end gap-3">
+                      <div className="p-6 border-t border-neutral-200 flex items-center justify-end gap-3">
                         <button
                           onClick={() => !savingPackage && setDeletingPackage(null)}
                           disabled={savingPackage}
-                          className="px-5 py-2.5 rounded-xl text-slate-700 hover:bg-slate-100 text-sm font-semibold transition disabled:opacity-50"
+                          className="px-5 py-2.5 rounded-xl text-neutral-700 hover:bg-neutral-100 text-sm font-semibold transition disabled:opacity-50"
                         >
                           Cancel
                         </button>
@@ -1162,7 +1355,7 @@ export default function PackagesPage() {
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !updating && setSelectedTenant(null)} />
                   <div className="absolute inset-0 flex items-center justify-center p-4 overflow-y-auto">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl my-auto relative">
-                      <div className="bg-gradient-to-r from-pink-500 via-fuchsia-600 to-indigo-600 text-white p-5 rounded-t-2xl">
+                      <div className="bg-neutral-900 text-white p-5 rounded-t-2xl">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center">
@@ -1185,34 +1378,34 @@ export default function PackagesPage() {
                         </div>
                       </div>
 
-                      <div className="px-6 py-3 border-b border-slate-200 bg-slate-50">
+                      <div className="px-6 py-3 border-b border-neutral-200 bg-neutral-50">
                         {(() => {
                           const tenant = tenants.find(t => t.id === selectedTenant);
                           const currentPlan = activePlans.find(p => p.name.toLowerCase() === (tenant?.plan || "").toLowerCase());
                           return currentPlan ? (
                             <div className="flex items-center gap-2">
                               <div className={`w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden ${
-                                currentPlan.color === "blue" ? "bg-blue-100" : currentPlan.color === "pink" ? "bg-pink-100" : currentPlan.color === "purple" ? "bg-purple-100" : "bg-slate-100"
+                                currentPlan.color === "blue" ? "bg-blue-100" : currentPlan.color === "pink" ? "bg-neutral-100" : currentPlan.color === "purple" ? "bg-purple-100" : "bg-neutral-100"
                               }`}>
                                 {currentPlan.image ? (
                                   <img src={currentPlan.image} alt={currentPlan.name} className="w-full h-full object-cover" />
                                 ) : currentPlan.icon ? (
                                   <i className={`fas ${currentPlan.icon} text-xs ${
-                                    currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-pink-600" : currentPlan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                    currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-neutral-700" : currentPlan.color === "purple" ? "text-purple-600" : "text-neutral-600"
                                   }`} />
                                 ) : (
                                   <i className={`fas fa-box text-xs ${
-                                    currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-pink-600" : currentPlan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                    currentPlan.color === "blue" ? "text-blue-600" : currentPlan.color === "pink" ? "text-neutral-700" : currentPlan.color === "purple" ? "text-purple-600" : "text-neutral-600"
                                   }`} />
                                 )}
                               </div>
-                              <span className="text-xs text-slate-500">Current:</span>
-                              <span className="font-semibold text-slate-900">{currentPlan.name}</span>
-                              <span className="text-xs text-slate-500">•</span>
-                              <span className="text-sm text-slate-600">{tenant?.price || currentPlan.priceLabel}</span>
+                              <span className="text-xs text-neutral-500">Current:</span>
+                              <span className="font-semibold text-neutral-900">{currentPlan.name}</span>
+                              <span className="text-xs text-neutral-500">•</span>
+                              <span className="text-sm text-neutral-600">{tenant?.price || currentPlan.priceLabel}</span>
                             </div>
                           ) : (
-                            <div className="text-xs text-slate-500">No plan currently assigned</div>
+                            <div className="text-xs text-neutral-500">No plan currently assigned</div>
                           );
                         })()}
                       </div>
@@ -1228,19 +1421,19 @@ export default function PackagesPage() {
                                 key={plan.id}
                                 className={`relative rounded-xl border-2 transition-all ${
                                   isCurrentPlan
-                                    ? "border-pink-500 bg-gradient-to-br from-pink-50 to-pink-100 shadow-md"
+                                    ? "border-neutral-900 bg-gradient-to-br from-neutral-50 to-neutral-100 shadow-md"
                                     : plan.popular
-                                    ? "border-pink-300 bg-white hover:border-pink-500 hover:shadow-lg"
-                                    : "border-slate-200 bg-white hover:border-pink-300 hover:shadow-md"
+                                    ? "border-neutral-400 bg-white hover:border-neutral-900 hover:shadow-lg"
+                                    : "border-neutral-200 bg-white hover:border-neutral-400 hover:shadow-md"
                                 }`}
                               >
                                 {plan.popular && !isCurrentPlan && (
-                                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-pink-500 to-fuchsia-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-full shadow-md">
+                                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-neutral-900 text-white text-[10px] font-bold px-3 py-0.5 rounded-full shadow-md">
                                     Popular
                                   </div>
                                 )}
                                 {isCurrentPlan && (
-                                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-pink-500 text-white text-[10px] font-bold px-3 py-0.5 rounded-full shadow-md flex items-center gap-1">
+                                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-neutral-500 text-white text-[10px] font-bold px-3 py-0.5 rounded-full shadow-md flex items-center gap-1">
                                     <i className="fas fa-check-circle text-[8px]" />
                                     Current
                                   </div>
@@ -1249,39 +1442,38 @@ export default function PackagesPage() {
                                 <div className="p-4">
                                   <div className="text-center mb-4">
                                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-2 overflow-hidden ${
-                                      plan.color === "blue" ? "bg-blue-100" : plan.color === "pink" ? "bg-pink-100" : plan.color === "purple" ? "bg-purple-100" : "bg-slate-100"
+                                      plan.color === "blue" ? "bg-blue-100" : plan.color === "pink" ? "bg-neutral-100" : plan.color === "purple" ? "bg-purple-100" : "bg-neutral-100"
                                     }`}>
                                       {plan.image ? (
                                         <img src={plan.image} alt={plan.name} className="w-full h-full object-cover" />
                                       ) : plan.icon ? (
                                         <i className={`fas ${plan.icon} ${
-                                          plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-pink-600" : plan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                          plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-neutral-700" : plan.color === "purple" ? "text-purple-600" : "text-neutral-600"
                                         }`} />
                                       ) : (
                                         <i className={`fas fa-box ${
-                                          plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-pink-600" : plan.color === "purple" ? "text-purple-600" : "text-slate-600"
+                                          plan.color === "blue" ? "text-blue-600" : plan.color === "pink" ? "text-neutral-700" : plan.color === "purple" ? "text-purple-600" : "text-neutral-600"
                                         }`} />
                                       )}
                                     </div>
-                                    <h4 className="text-lg font-bold text-slate-900 mb-1">{plan.name}</h4>
+                                    <h4 className="text-lg font-bold text-neutral-900 mb-1">{plan.name}</h4>
                                     <div className="mb-2">
-                                      <span className="text-3xl font-bold text-slate-900">{plan.priceLabel}</span>
+                                      <span className="text-3xl font-bold text-neutral-900">{plan.priceLabel}</span>
                                     </div>
-                                    <div className="text-xs text-slate-600">
-                                      {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} • {" "}
-                                      {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} ${plan.staff === 1 ? "Staff" : "Staff"}`}
+                                    <div className="text-xs text-neutral-600">
+                                      {plan.features.length} {plan.features.length === 1 ? "Feature" : "Features"} included
                                     </div>
                                   </div>
 
                                   {isCurrentPlan ? (
-                                    <div className="w-full py-2.5 px-4 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold text-center cursor-not-allowed">
+                                    <div className="w-full py-2.5 px-4 rounded-lg bg-neutral-100 text-neutral-500 text-xs font-semibold text-center cursor-not-allowed">
                                       Current Plan
                                     </div>
                                   ) : (
                                     <button
                                       onClick={() => handlePlanChange(selectedTenant!, plan)}
                                       disabled={updating}
-                                      className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-xs font-semibold transition-all shadow-md shadow-pink-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                                      className="w-full py-2.5 px-4 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-semibold transition-all shadow-md shadow-neutral-900/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
                                     >
                                       <i className="fas fa-arrow-right text-[10px]" />
                                       Switch to {plan.name}
@@ -1315,14 +1507,14 @@ export default function PackagesPage() {
                   <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={cancelPlanChange} />
                   <div className="absolute inset-0 flex items-center justify-center p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-                      <div className="p-6 border-b border-slate-200">
+                      <div className="p-6 border-b border-neutral-200">
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
                             <i className="fas fa-exclamation-triangle text-amber-600 text-xl" />
                           </div>
                           <div>
-                            <h3 className="text-lg font-bold text-slate-900">Confirm Plan Change</h3>
-                            <p className="text-sm text-slate-500">Are you sure you want to change the subscription plan?</p>
+                            <h3 className="text-lg font-bold text-neutral-900">Confirm Plan Change</h3>
+                            <p className="text-sm text-neutral-500">Are you sure you want to change the subscription plan?</p>
                           </div>
                         </div>
                       </div>
@@ -1334,22 +1526,22 @@ export default function PackagesPage() {
                           
                           return (
                             <div className="space-y-4">
-                              <div className="bg-slate-50 rounded-xl p-4">
-                                <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Tenant</p>
-                                <p className="font-semibold text-slate-900">{tenant?.name || "Unknown"}</p>
+                              <div className="bg-neutral-50 rounded-xl p-4">
+                                <p className="text-xs text-neutral-500 uppercase tracking-wide mb-2">Tenant</p>
+                                <p className="font-semibold text-neutral-900">{tenant?.name || "Unknown"}</p>
                               </div>
                               
-                              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                              <div className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl">
                                 <div>
-                                  <p className="text-xs text-slate-500 mb-1">Current Plan</p>
-                                  <p className="font-semibold text-slate-900">{currentPlan?.name || "No Plan"}</p>
-                                  <p className="text-sm text-slate-500">{currentPlan?.priceLabel || "—"}</p>
+                                  <p className="text-xs text-neutral-500 mb-1">Current Plan</p>
+                                  <p className="font-semibold text-neutral-900">{currentPlan?.name || "No Plan"}</p>
+                                  <p className="text-sm text-neutral-500">{currentPlan?.priceLabel || "—"}</p>
                                 </div>
-                                <i className="fas fa-arrow-right text-slate-400 text-xl mx-4" />
+                                <i className="fas fa-arrow-right text-neutral-400 text-xl mx-4" />
                                 <div>
-                                  <p className="text-xs text-slate-500 mb-1">New Plan</p>
-                                  <p className="font-semibold text-slate-900">{confirmingPlan.name}</p>
-                                  <p className="text-sm text-slate-500">{confirmingPlan.priceLabel}</p>
+                                  <p className="text-xs text-neutral-500 mb-1">New Plan</p>
+                                  <p className="font-semibold text-neutral-900">{confirmingPlan.name}</p>
+                                  <p className="text-sm text-neutral-500">{confirmingPlan.priceLabel}</p>
                                 </div>
                               </div>
 
@@ -1366,18 +1558,18 @@ export default function PackagesPage() {
                         })()}
                       </div>
 
-                      <div className="p-6 border-t border-slate-200 flex items-center justify-end gap-3">
+                      <div className="p-6 border-t border-neutral-200 flex items-center justify-end gap-3">
                         <button
                           onClick={cancelPlanChange}
                           disabled={updating}
-                          className="px-5 py-2.5 rounded-xl text-slate-700 hover:bg-slate-100 text-sm font-semibold transition disabled:opacity-50"
+                          className="px-5 py-2.5 rounded-xl text-neutral-700 hover:bg-neutral-100 text-sm font-semibold transition disabled:opacity-50"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={confirmPlanChange}
                           disabled={updating}
-                          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-fuchsia-600 hover:from-pink-700 hover:to-fuchsia-700 text-white text-sm font-semibold transition-all shadow-lg shadow-pink-500/25 disabled:opacity-50 flex items-center gap-2"
+                          className="px-5 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold transition-all shadow-lg shadow-neutral-900/25 disabled:opacity-50 flex items-center gap-2"
                         >
                           {updating ? (
                             <>

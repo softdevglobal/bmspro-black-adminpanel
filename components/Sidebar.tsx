@@ -268,7 +268,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             href={role === "super_admin" ? "/admin-dashboard" : "/dashboard"}
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
               isDashboard
-                ? "bg-amber-500/15 text-amber-400 font-semibold"
+                ? "bg-white/10 text-white font-semibold"
                 : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
             }`}
           >
@@ -278,19 +278,19 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
         {/* Super Admin - Only Dashboard and Tenants */}
         {mounted && role === "super_admin" && (
-          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-store w-5" />
             <span>Tenant Management</span>
           </Link>
         )}
         {mounted && role === "super_admin" && (
-          <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-box w-5" />
             <span>Packages</span>
           </Link>
         )}
         {mounted && role === "super_admin" && (
-          <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-shield-halved w-5" />
             <span>Audit Logs</span>
           </Link>
@@ -303,7 +303,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               onClick={(e) => toggleBookings(e)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleBookings(e as unknown as React.MouseEvent); }}
               className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
-                isBookings ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+                isBookings ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
               }`}
             >
               <i className="fas fa-calendar-check w-5" />
@@ -374,7 +374,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link
             href="/services"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-              isServices ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+              isServices ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
             }`}
           >
             <i className="fas fa-tags w-5" />
@@ -385,7 +385,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         <Link
           href="/customers"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isCustomers ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            isCustomers ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
           }`}
         >
           <i className="fas fa-user-group w-5" />
@@ -396,7 +396,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         <Link
           href="/loyalty"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isLoyalty ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            isLoyalty ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
           }`}
         >
           <i className="fas fa-gem w-5" />
@@ -407,7 +407,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         <Link
           href="/branches"
           className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isBranches ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            isBranches ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
           }`}
         >
           <i className="fas fa-store w-5" />
@@ -422,7 +422,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               onClick={(e) => toggleStaff(e)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleStaff(e as unknown as React.MouseEvent); }}
               className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
-                isStaff ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+                isStaff ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
               }`}
             >
               <i className="fas fa-users w-5" />
@@ -471,25 +471,25 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </>
         )}
         {/* {mounted && role !== "salon_branch_admin" && (
-          <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/billing" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isBilling ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-credit-card w-5" />
             <span>Billing & Invoices</span>
           </Link>
         )} */}
         {mounted && role === "salon_owner" && (
-          <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-clipboard-list w-5" />
             <span>Audit Logs</span>
           </Link>
         )}
         {mounted && role === "salon_owner" && (
-          <Link href="/subscription" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSubscription ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/subscription" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSubscription ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-crown w-5" />
             <span>Subscription</span>
           </Link>
         )}
         {mounted && role === "salon_owner" && (
-          <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-amber-500/15 text-amber-400 font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+          <Link href="/owner-settings" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isOwnerSettings ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-cog w-5" />
             <span>Settings</span>
           </Link>

@@ -30,13 +30,13 @@ const ACTION_TYPE_CONFIG: Record<string, { icon: string; color: string; bgColor:
   status_change: { icon: "fa-arrows-rotate", color: "text-purple-600", bgColor: "bg-purple-100" },
   login: { icon: "fa-right-to-bracket", color: "text-teal-600", bgColor: "bg-teal-100" },
   logout: { icon: "fa-right-from-bracket", color: "text-orange-600", bgColor: "bg-orange-100" },
-  other: { icon: "fa-circle-info", color: "text-slate-600", bgColor: "bg-slate-100" },
+  other: { icon: "fa-circle-info", color: "text-neutral-600", bgColor: "bg-neutral-100" },
 };
 
 const ENTITY_TYPE_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
-  tenant: { icon: "fa-store", label: "Tenant", color: "text-pink-600" },
+  tenant: { icon: "fa-store", label: "Tenant", color: "text-neutral-700" },
   subscription: { icon: "fa-crown", label: "Subscription", color: "text-amber-600" },
-  system: { icon: "fa-server", label: "System", color: "text-slate-600" },
+  system: { icon: "fa-server", label: "System", color: "text-neutral-600" },
   super_admin: { icon: "fa-user-shield", label: "Super Admin", color: "text-indigo-600" },
 };
 
@@ -226,7 +226,7 @@ export default function SuperAdminAuditLogsPage() {
   };
 
   const getActionConfig = (type: string) => ACTION_TYPE_CONFIG[type] || ACTION_TYPE_CONFIG.other;
-  const getEntityConfig = (type: string) => ENTITY_TYPE_CONFIG[type] || { icon: "fa-circle", label: type, color: "text-slate-600" };
+  const getEntityConfig = (type: string) => ENTITY_TYPE_CONFIG[type] || { icon: "fa-circle", label: type, color: "text-neutral-600" };
 
   // Format role for display
   const formatRole = (details?: string): string => {
@@ -274,10 +274,10 @@ export default function SuperAdminAuditLogsPage() {
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-slate-50">
+        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-neutral-50">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-slate-700 shadow-sm hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -296,80 +296,82 @@ export default function SuperAdminAuditLogsPage() {
 
           {/* Header */}
           <div className="mb-8">
-            <div className="rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white p-6 shadow-lg">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
-                  <i className="fas fa-shield-halved text-2xl" />
+            <div className="rounded-2xl bg-neutral-900 text-white p-6 shadow-lg relative overflow-hidden">
+              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500" />
+              <div className="flex items-center gap-4 pt-1">
+                <div className="w-14 h-14 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center">
+                  <i className="fas fa-shield-halved text-2xl text-amber-400" />
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold">Super Admin Audit Logs</h1>
-                  <p className="text-sm text-white/80 mt-1">Track all administrative activities across the platform</p>
+                  <p className="text-sm text-neutral-400 mt-1">Track all administrative activities across the platform</p>
                 </div>
               </div>
+              <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 rounded-full bg-amber-500 opacity-[0.04] blur-3xl" />
             </div>
           </div>
 
           <div className="max-w-7xl mx-auto">
             {/* Stats Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
-                    <i className="fas fa-list text-indigo-600" />
+                  <div className="w-10 h-10 rounded-lg bg-neutral-900 flex items-center justify-center">
+                    <i className="fas fa-list text-white" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-900">{logs.length}</div>
-                    <div className="text-xs text-slate-500">Total Logs</div>
+                    <div className="text-2xl font-bold text-neutral-900">{logs.length}</div>
+                    <div className="text-xs text-neutral-500">Total Logs</div>
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <i className="fas fa-clock text-blue-600" />
+                  <div className="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center">
+                    <i className="fas fa-clock text-white" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-900">{todayLogs.length}</div>
-                    <div className="text-xs text-slate-500">Today</div>
+                    <div className="text-2xl font-bold text-neutral-900">{todayLogs.length}</div>
+                    <div className="text-xs text-neutral-500">Today</div>
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-pink-100 flex items-center justify-center">
-                    <i className="fas fa-store text-pink-600" />
+                  <div className="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center">
+                    <i className="fas fa-warehouse text-white" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-900">{tenantActions}</div>
-                    <div className="text-xs text-slate-500">Tenant Actions</div>
+                    <div className="text-2xl font-bold text-neutral-900">{tenantActions}</div>
+                    <div className="text-xs text-neutral-500">Workshop Actions</div>
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                    <i className="fas fa-crown text-amber-600" />
+                  <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
+                    <i className="fas fa-crown text-white" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-slate-900">{subscriptionActions}</div>
-                    <div className="text-xs text-slate-500">Plan Changes</div>
+                    <div className="text-2xl font-bold text-neutral-900">{subscriptionActions}</div>
+                    <div className="text-xs text-neutral-500">Plan Changes</div>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Filters */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 shadow-sm">
+            <div className="bg-white rounded-xl border border-neutral-200 p-4 mb-6 shadow-sm">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <div className="relative">
-                    <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
                     <input
                       type="text"
                       placeholder="Search logs..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      className="w-full pl-10 pr-4 py-2.5 border border-neutral-300 rounded-lg text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -378,7 +380,7 @@ export default function SuperAdminAuditLogsPage() {
                     <select
                       value={filterType}
                       onChange={(e) => setFilterType(e.target.value)}
-                      className="w-full appearance-none pl-4 pr-10 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer hover:border-slate-400 transition-colors"
+                      className="w-full appearance-none pl-4 pr-10 py-2.5 border border-neutral-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-neutral-900 focus:outline-none cursor-pointer hover:border-neutral-400 transition-colors"
                     >
                       <option value="all">All Actions</option>
                       <option value="create">Created</option>
@@ -388,13 +390,13 @@ export default function SuperAdminAuditLogsPage() {
                       <option value="login">Login</option>
                       <option value="logout">Logout</option>
                     </select>
-                    <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none" />
+                    <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 text-xs pointer-events-none" />
                   </div>
                   <div className="relative min-w-[160px]">
                     <select
                       value={filterEntity}
                       onChange={(e) => setFilterEntity(e.target.value)}
-                      className="w-full appearance-none pl-4 pr-10 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none cursor-pointer hover:border-slate-400 transition-colors"
+                      className="w-full appearance-none pl-4 pr-10 py-2.5 border border-neutral-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-neutral-900 focus:outline-none cursor-pointer hover:border-neutral-400 transition-colors"
                     >
                       <option value="all">All Categories</option>
                       <option value="tenant">Tenants</option>
@@ -402,33 +404,33 @@ export default function SuperAdminAuditLogsPage() {
                       <option value="super_admin">Super Admin</option>
                       <option value="system">System</option>
                     </select>
-                    <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none" />
+                    <i className="fas fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 text-xs pointer-events-none" />
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Logs List */}
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">
               {loading ? (
                 <div className="p-12 text-center">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-                  <p className="text-slate-500">Loading audit logs...</p>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-neutral-900 mx-auto mb-4"></div>
+                  <p className="text-neutral-600">Loading audit logs...</p>
                 </div>
               ) : filteredLogs.length === 0 ? (
                 <div className="p-12 text-center">
-                  <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
-                    <i className="fas fa-shield-halved text-slate-400 text-2xl" />
+                  <div className="w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-shield-halved text-neutral-400 text-2xl" />
                   </div>
-                  <h3 className="font-semibold text-slate-700 mb-2">No audit logs found</h3>
-                  <p className="text-sm text-slate-500">
+                  <h3 className="font-semibold text-neutral-700 mb-2">No audit logs found</h3>
+                  <p className="text-sm text-neutral-500">
                     {searchQuery || filterType !== "all" || filterEntity !== "all"
                       ? "Try adjusting your filters"
                       : "Administrative activities will appear here"}
                   </p>
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-neutral-100">
                   {filteredLogs.map((log) => {
                     const actionConfig = getActionConfig(log.actionType);
                     const entityConfig = getEntityConfig(log.entityType);
@@ -436,7 +438,7 @@ export default function SuperAdminAuditLogsPage() {
                     return (
                       <div
                         key={log.id}
-                        className="p-4 hover:bg-slate-50 transition-colors cursor-pointer"
+                        className="p-4 hover:bg-neutral-50 transition-colors cursor-pointer"
                         onClick={() => {
                           setPreviewLog(log);
                           setPreviewOpen(true);
@@ -451,24 +453,24 @@ export default function SuperAdminAuditLogsPage() {
                           {/* Content */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2 mb-1">
-                              <div className="font-semibold text-sm text-slate-900 line-clamp-1">
+                              <div className="font-semibold text-sm text-neutral-900 line-clamp-1">
                                 {log.action}
                               </div>
-                              <div className="text-xs text-slate-400 whitespace-nowrap">
+                              <div className="text-xs text-neutral-400 whitespace-nowrap">
                                 {formatTimestamp(log.timestamp)}
                               </div>
                             </div>
                             
                             <div className="flex flex-wrap items-center gap-2 text-xs">
                               {/* Entity Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 ${entityConfig.color}`}>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 ${entityConfig.color}`}>
                                 <i className={`fas ${entityConfig.icon} text-[10px]`} />
                                 {entityConfig.label}
-                                {log.entityName && <span className="font-medium text-slate-700">: {log.entityName}</span>}
+                                {log.entityName && <span className="font-medium text-neutral-700">: {log.entityName}</span>}
                               </span>
                               
                               {/* Performer Badge */}
-                              <span className="inline-flex items-center gap-1 text-slate-500">
+                              <span className="inline-flex items-center gap-1 text-neutral-500">
                                 <i className="fas fa-user-shield text-[10px]" />
                                 {log.performedByName || log.performedBy}
                               </span>
@@ -476,14 +478,14 @@ export default function SuperAdminAuditLogsPage() {
                             
                             {/* Details Preview */}
                             {log.details && (
-                              <div className="mt-2 text-xs text-slate-500 line-clamp-1">
+                              <div className="mt-2 text-xs text-neutral-500 line-clamp-1">
                                 {formatDetails(log.details)}
                               </div>
                             )}
                           </div>
                           
                           {/* Chevron */}
-                          <i className="fas fa-chevron-right text-slate-300 text-xs mt-3" />
+                          <i className="fas fa-chevron-right text-neutral-300 text-xs mt-3" />
                         </div>
                       </div>
                     );
@@ -493,7 +495,7 @@ export default function SuperAdminAuditLogsPage() {
               
               {/* Load More */}
               {!loading && filteredLogs.length >= logsLimit && (
-                <div className="p-4 border-t border-slate-100 text-center">
+                <div className="p-4 border-t border-neutral-100 text-center">
                   <button
                     onClick={() => setLogsLimit((prev) => prev + 100)}
                     className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-lg transition"
@@ -517,12 +519,12 @@ export default function SuperAdminAuditLogsPage() {
           className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${previewOpen ? "opacity-100" : "opacity-0"}`}
         />
         <aside
-          className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[32rem] bg-white shadow-2xl border-l border-slate-200 transform transition-transform duration-300 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
+          className={`absolute top-0 h-full right-0 w-[92vw] sm:w-[32rem] bg-white shadow-2xl border-l border-neutral-200 transform transition-transform duration-300 ${previewOpen ? "translate-x-0" : "translate-x-full"}`}
         >
           {previewLog && (
             <div className="flex h-full flex-col">
               {/* Fixed Header */}
-              <div className="shrink-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 p-5">
+              <div className="shrink-0 bg-neutral-900 p-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-xl ${getActionConfig(previewLog.actionType).bgColor} flex items-center justify-center`}>
@@ -545,8 +547,8 @@ export default function SuperAdminAuditLogsPage() {
               {/* Scrollable Content */}
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
                 {/* Action Summary */}
-                <div className="bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-4 border-2 border-slate-200">
-                  <h4 className="font-bold text-lg text-slate-900 mb-2">{previewLog.action}</h4>
+                <div className="bg-gradient-to-r from-neutral-50 to-neutral-100 rounded-xl p-4 border-2 border-neutral-200">
+                  <h4 className="font-bold text-lg text-neutral-900 mb-2">{previewLog.action}</h4>
                   <div className="flex flex-wrap gap-2">
                     <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${getActionConfig(previewLog.actionType).bgColor} ${getActionConfig(previewLog.actionType).color}`}>
                       <i className={`fas ${getActionConfig(previewLog.actionType).icon}`} />
@@ -560,23 +562,23 @@ export default function SuperAdminAuditLogsPage() {
                 </div>
 
                 {/* Timestamp */}
-                <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
-                  <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                  <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
                     <i className="fas fa-clock text-indigo-600" />
                     Timestamp
                   </h5>
-                  <div className="text-sm text-slate-900 font-medium">
+                  <div className="text-sm text-neutral-900 font-medium">
                     {formatFullTimestamp(previewLog.timestamp)}
                   </div>
-                  <div className="mt-2 text-xs text-slate-400 flex items-center gap-1">
+                  <div className="mt-2 text-xs text-neutral-400 flex items-center gap-1">
                     <i className="fas fa-globe" />
                     {adminTimezone.replace(/_/g, " ")}
                   </div>
                 </div>
 
                 {/* Performed By */}
-                <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
-                  <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                  <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
                     <i className="fas fa-user-shield text-indigo-600" />
                     Performed By
                   </h5>
@@ -585,31 +587,31 @@ export default function SuperAdminAuditLogsPage() {
                       formatRole(previewLog.details) === "Super Admin" 
                         ? "bg-gradient-to-br from-indigo-500 to-purple-600"
                         : formatRole(previewLog.details) === "Salon Owner"
-                        ? "bg-gradient-to-br from-pink-500 to-rose-600"
+                        ? "bg-gradient-to-br from-neutral-700 to-neutral-900"
                         : "bg-gradient-to-br from-teal-500 to-cyan-600"
                     }`}>
                       {(previewLog.performedByName || previewLog.performedBy || "A").charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div className="font-semibold text-slate-900">
+                      <div className="font-semibold text-neutral-900">
                         {previewLog.performedByName || previewLog.performedBy}
                       </div>
-                      <div className="text-xs text-slate-500">{formatRole(previewLog.details)}</div>
+                      <div className="text-xs text-neutral-500">{formatRole(previewLog.details)}</div>
                     </div>
                   </div>
                 </div>
 
                 {/* Entity Details */}
                 {previewLog.entityName && (
-                  <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
-                    <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                  <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                    <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
                       <i className={`fas ${getEntityConfig(previewLog.entityType).icon} text-indigo-600`} />
                       {getEntityConfig(previewLog.entityType).label} Details
                     </h5>
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Name</span>
-                        <span className="font-medium text-slate-900">{previewLog.entityName}</span>
+                        <span className="text-neutral-500">Name</span>
+                        <span className="font-medium text-neutral-900">{previewLog.entityName}</span>
                       </div>
                     </div>
                   </div>
@@ -617,8 +619,8 @@ export default function SuperAdminAuditLogsPage() {
 
                 {/* Value Changes */}
                 {(previewLog.previousValue || previewLog.newValue) && (
-                  <div className="bg-white rounded-xl p-4 border-2 border-slate-200">
-                    <h5 className="font-semibold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                  <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                    <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
                       <i className="fas fa-code-compare text-indigo-600" />
                       Changes
                     </h5>
@@ -626,7 +628,7 @@ export default function SuperAdminAuditLogsPage() {
                       {previewLog.previousValue && (
                         <div>
                           <div className="text-xs font-medium text-red-600 mb-1">Previous Value</div>
-                          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-slate-700 font-mono whitespace-pre-wrap">
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-neutral-700 font-mono whitespace-pre-wrap">
                             {previewLog.previousValue}
                           </div>
                         </div>
@@ -634,7 +636,7 @@ export default function SuperAdminAuditLogsPage() {
                       {previewLog.newValue && (
                         <div>
                           <div className="text-xs font-medium text-emerald-600 mb-1">New Value</div>
-                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-slate-700 font-mono whitespace-pre-wrap">
+                          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-neutral-700 font-mono whitespace-pre-wrap">
                             {previewLog.newValue}
                           </div>
                         </div>
@@ -646,38 +648,38 @@ export default function SuperAdminAuditLogsPage() {
                 {/* Details */}
                 {previewLog.details && (
                   <div className="bg-amber-50 rounded-xl p-4 border-2 border-amber-200">
-                    <h5 className="font-semibold text-sm text-slate-900 mb-2 flex items-center gap-2">
+                    <h5 className="font-semibold text-sm text-neutral-900 mb-2 flex items-center gap-2">
                       <i className="fas fa-info-circle text-amber-600" />
                       Additional Details
                     </h5>
-                    <div className="text-sm text-slate-700 whitespace-pre-wrap">{formatDetails(previewLog.details)}</div>
+                    <div className="text-sm text-neutral-700 whitespace-pre-wrap">{formatDetails(previewLog.details)}</div>
                   </div>
                 )}
 
                 {/* Metadata - Salon/Branch Info */}
                 {previewLog.metadata && (previewLog.metadata.salonName || previewLog.metadata.branchName || previewLog.metadata.originalEntityType) && (
-                  <div className="bg-pink-50 rounded-xl p-4 border-2 border-pink-200">
-                    <h5 className="font-semibold text-sm text-slate-900 mb-3 flex items-center gap-2">
-                      <i className="fas fa-store text-pink-600" />
+                  <div className="bg-amber-50 rounded-xl p-4 border-2 border-amber-200">
+                    <h5 className="font-semibold text-sm text-neutral-900 mb-3 flex items-center gap-2">
+                      <i className="fas fa-store text-amber-600" />
                       Salon Activity Details
                     </h5>
                     <div className="space-y-2 text-sm">
                       {previewLog.metadata.salonName && (
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Salon Name</span>
-                          <span className="font-medium text-pink-700">{previewLog.metadata.salonName}</span>
+                          <span className="text-neutral-500">Salon Name</span>
+                          <span className="font-medium text-amber-700">{previewLog.metadata.salonName}</span>
                         </div>
                       )}
                       {previewLog.metadata.originalEntityType && (
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Activity Type</span>
-                          <span className="font-medium text-slate-900 capitalize">{previewLog.metadata.originalEntityType}</span>
+                          <span className="text-neutral-500">Activity Type</span>
+                          <span className="font-medium text-neutral-900 capitalize">{previewLog.metadata.originalEntityType}</span>
                         </div>
                       )}
                       {previewLog.metadata.branchName && (
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Branch</span>
-                          <span className="font-medium text-slate-900">{previewLog.metadata.branchName}</span>
+                          <span className="text-neutral-500">Branch</span>
+                          <span className="font-medium text-neutral-900">{previewLog.metadata.branchName}</span>
                         </div>
                       )}
                     </div>
@@ -687,10 +689,10 @@ export default function SuperAdminAuditLogsPage() {
               </div>
 
               {/* Footer */}
-              <div className="shrink-0 border-t border-slate-200 p-4 bg-white">
+              <div className="shrink-0 border-t border-neutral-200 p-4 bg-white">
                 <button 
                   onClick={() => setPreviewOpen(false)} 
-                  className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-slate-200 hover:bg-slate-300 text-slate-700 transition"
+                  className="w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-neutral-200 hover:bg-neutral-300 text-neutral-700 transition"
                 >
                   <i className="fas fa-times mr-2" />
                   Close

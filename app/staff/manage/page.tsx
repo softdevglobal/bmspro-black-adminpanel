@@ -816,7 +816,7 @@ export default function SettingsPage() {
           </div>
 
           {/* Staff Limit Info Banner */}
-          {ownerPlan && (
+          {ownerPlan && ownerPlan.staffLimit !== -1 && (
             <div className="mb-4 sm:mb-6 bg-gradient-to-r from-indigo-50 to-neutral-50 border border-indigo-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
@@ -1446,12 +1446,14 @@ export default function SettingsPage() {
                         <div className="text-sm sm:text-base font-bold text-neutral-900">{ownerPlan.name}</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-[10px] sm:text-xs text-neutral-600 font-semibold">Staff Limit</div>
-                      <div className={`text-sm sm:text-base font-bold ${isStaffLimitReached() ? "text-rose-600" : "text-neutral-700"}`}>
-                        {data.staff.length}/{ownerPlan.staffLimit === -1 ? "∞" : ownerPlan.staffLimit}
+                    {ownerPlan.staffLimit !== -1 && (
+                      <div className="text-right">
+                        <div className="text-[10px] sm:text-xs text-neutral-600 font-semibold">Staff Limit</div>
+                        <div className={`text-sm sm:text-base font-bold ${isStaffLimitReached() ? "text-rose-600" : "text-neutral-700"}`}>
+                          {data.staff.length}/{ownerPlan.staffLimit}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                   {isStaffLimitReached() && !editingStaffId && (
                     <div className="mt-3 bg-rose-100 border border-rose-200 rounded-lg p-2 text-xs text-rose-700 flex items-center gap-2">

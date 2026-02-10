@@ -581,7 +581,7 @@ export default function BranchesPage() {
             </div>
 
             {/* Branch Limit Info Banner */}
-            {role === "workshop_owner" && ownerData && (
+            {role === "workshop_owner" && ownerData && ownerData.branchLimit !== -1 && (
               <div className="mb-6 bg-neutral-50 border border-neutral-200 rounded-xl p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center flex-shrink-0">
@@ -684,7 +684,7 @@ export default function BranchesPage() {
                   </div>
                   <h3 className="text-lg font-semibold text-neutral-900 mb-2">No branches yet</h3>
                   <p className="text-neutral-600 mb-4">Use "Add Branch" to create your first branch.</p>
-                  {role === "workshop_owner" && ownerData && (
+                  {role === "workshop_owner" && ownerData && ownerData.branchLimit !== -1 && (
                     <div className="mt-4 pt-4 border-t border-neutral-200">
                       <p className="text-sm text-neutral-500 mb-2">
                         Your <span className="font-semibold text-neutral-700">{ownerData.plan || "current plan"}</span> includes{" "}

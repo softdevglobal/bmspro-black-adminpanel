@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "BMS PRO BLACK",
-  description: "Bms Pro Pink Admin",
+  description: "BMS Pro Black — Workshop & Mechanic Management",
 };
 
 export default function RootLayout({

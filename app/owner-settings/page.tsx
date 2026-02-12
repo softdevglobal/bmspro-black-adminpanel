@@ -429,6 +429,17 @@ export default function OwnerSettingsPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-white">
+        <div className="flex flex-col items-center gap-3">
+          <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
+          <p className="text-neutral-500 font-medium">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -453,14 +464,7 @@ export default function OwnerSettingsPage() {
             </div>
           )}
 
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="flex flex-col items-center gap-3">
-                <i className="fas fa-circle-notch fa-spin text-4xl text-neutral-900" />
-                <p className="text-neutral-500 font-medium">Loading settings...</p>
-              </div>
-            </div>
-          ) : mounted && userData && (
+          {mounted && userData && (
             <>
               {/* Header Banner */}
               <div className="mb-8">

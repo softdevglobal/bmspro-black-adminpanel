@@ -63,6 +63,7 @@ function hasAnyStaffBooking(
       const hasAnyStaffName = !!(s.staffName && (
         s.staffName.toLowerCase().includes("any available") ||
         s.staffName.toLowerCase().includes("any staff") ||
+        s.staffName.toLowerCase().includes("not assigned yet") ||
         s.staffName.toLowerCase() === "any"
       ));
       return hasAnyStaffId || hasAnyStaffName;
@@ -73,6 +74,7 @@ function hasAnyStaffBooking(
   const hasAnyStaffName = !!(staffName && (
     staffName.toLowerCase().includes("any available") ||
     staffName.toLowerCase().includes("any staff") ||
+    staffName.toLowerCase().includes("not assigned yet") ||
     staffName.toLowerCase() === "any"
   ));
   return hasAnyStaffId || hasAnyStaffName;

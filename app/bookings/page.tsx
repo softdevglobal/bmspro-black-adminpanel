@@ -217,7 +217,7 @@ function BookingsPageContent() {
           if (Array.isArray(b.services) && b.services.length > 0) {
             servicesHtml = b.services.map((svc: any) => {
               const svcName = svc.name || svc.serviceName || "Service";
-              const svcStaff = svc.staffName || "Any Staff";
+              const svcStaff = svc.staffName || "Not Assigned Yet";
               return `<div class="flex items-center gap-2 py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100 mb-1">
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
                   <i class="fas fa-wrench text-neutral-600" style="font-size:10px"></i>
@@ -230,7 +230,7 @@ function BookingsPageContent() {
           } else {
             const serviceName = String(b.serviceName || (service ? service.name : "Unknown Service"));
             let staffName = "Unassigned";
-            if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+            if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff" && b.staffName !== "Not Assigned Yet") {
               staffName = b.staffName;
             } else if (staff) {
               staffName = staff.name;
@@ -297,7 +297,7 @@ function BookingsPageContent() {
           if (hasMultipleServices) {
             // Check if any service needs staff assignment
             const needsStaffAssignment = booking.services.some((s: any) => 
-              !s.staffId || s.staffId === "null" || s.staffName === "Any Available" || s.staffName === "Any Staff"
+              !s.staffId || s.staffId === "null" || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.staffName === "Not Assigned Yet"
             );
             
             if (needsStaffAssignment) {
@@ -308,7 +308,7 @@ function BookingsPageContent() {
             }
           } else {
             // Single service booking - check if needs staff assignment
-            if (!booking.staffId || booking.staffId === "null" || booking.staffName === "Any Available" || booking.staffName === "Any Staff") {
+            if (!booking.staffId || booking.staffId === "null" || booking.staffName === "Any Available" || booking.staffName === "Any Staff" || booking.staffName === "Not Assigned Yet") {
               // Trigger staff assignment modal via React state
               const event = new CustomEvent("openStaffAssignModal", { detail: booking });
               window.dispatchEvent(event);
@@ -466,7 +466,7 @@ function BookingsPageContent() {
         const isAnyStaff = (sid: any): boolean => {
           if (!sid) return true; // null, undefined
           const str = String(sid).trim();
-          return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff";
+          return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff" || str.toLowerCase() === "not assigned yet";
         };
         
         const isAnyStaffSelected = isAnyStaff(staffId);
@@ -1073,7 +1073,7 @@ function BookingsPageContent() {
         booking.services.forEach((s: any) => {
           // Use consistent key format: id || serviceId || name
           const serviceKey = String(s.id || s.serviceId || s.name);
-          if (s.staffId && s.staffId !== "null" && s.staffName !== "Any Available" && s.staffName !== "Any Staff") {
+          if (s.staffId && s.staffId !== "null" && s.staffName !== "Any Available" && s.staffName !== "Any Staff" && s.staffName !== "Not Assigned Yet") {
             initialStaffSelection[serviceKey] = s.staffId;
           }
         });
@@ -1124,28 +1124,23 @@ function BookingsPageContent() {
               // Start with active staff
               let filtered = staffData.filter((s: any) => s.status === "Active");
               
-              // CRITICAL: Filter by service qualification
+              // Filter by service qualification (only if service has specific staff assigned)
               if (qualifiedStaffIds.length > 0) {
                 filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
               }
               
-              // Filter by branch and day (check weeklySchedule)
-              if (bookingToConfirm.branchId && bookingToConfirm.date) {
-                const bookingDate = new Date(bookingToConfirm.date);
-                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                const dayName = daysOfWeek[bookingDate.getDay()];
-                
+              // Filter by branch association (staff who work at this branch on ANY day)
+              if (bookingToConfirm.branchId) {
                 filtered = filtered.filter((s: any) => {
+                  // Check home branch
+                  if (s.branchId === bookingToConfirm.branchId) return true;
+                  // Check if staff has ANY day scheduled at this branch
                   if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                    const daySchedule = s.weeklySchedule[dayName];
-                    if (daySchedule && daySchedule.branchId) {
-                      return daySchedule.branchId === bookingToConfirm.branchId;
-                    }
-                    if (daySchedule === null || daySchedule === undefined) {
-                      return false;
-                    }
+                    return Object.values(s.weeklySchedule).some(
+                      (day: any) => day && day.branchId === bookingToConfirm.branchId
+                    );
                   }
-                  return s.branchId === bookingToConfirm.branchId;
+                  return false;
                 });
               }
               
@@ -1170,28 +1165,23 @@ function BookingsPageContent() {
             
             let filtered = staffData.filter((s: any) => s.status === "Active");
 
-            // CRITICAL: Filter by service qualification
+            // Filter by service qualification (only if service has specific staff assigned)
             if (qualifiedStaffIds.length > 0) {
               filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
             }
 
-            // Filter by branch and day (check weeklySchedule)
-            if (bookingToConfirm.branchId && bookingToConfirm.date) {
-              const bookingDate = new Date(bookingToConfirm.date);
-              const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-              const dayName = daysOfWeek[bookingDate.getDay()];
-
+            // Filter by branch association (staff who work at this branch on ANY day)
+            if (bookingToConfirm.branchId) {
               filtered = filtered.filter((s: any) => {
+                // Check home branch
+                if (s.branchId === bookingToConfirm.branchId) return true;
+                // Check if staff has ANY day scheduled at this branch
                 if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                  const daySchedule = s.weeklySchedule[dayName];
-                  if (daySchedule && daySchedule.branchId) {
-                    return daySchedule.branchId === bookingToConfirm.branchId;
-                  }
-                  if (daySchedule === null || daySchedule === undefined) {
-                    return false;
-                  }
+                  return Object.values(s.weeklySchedule).some(
+                    (day: any) => day && day.branchId === bookingToConfirm.branchId
+                  );
                 }
-                return s.branchId === bookingToConfirm.branchId;
+                return false;
               });
             }
 
@@ -1863,12 +1853,12 @@ function BookingsPageContent() {
     // Determine main staff info
     const uniqueStaffIds = new Set(Object.values(bkServiceStaff).filter(Boolean));
     let mainStaffId: string | null = null;
-    let mainStaffName = "Any Available";
+    let mainStaffName = "Not Assigned Yet";
     
     if (uniqueStaffIds.size === 1) {
       const sid = Array.from(uniqueStaffIds)[0];
       mainStaffId = sid;
-      mainStaffName = staffList.find(st => st.id === sid)?.name || "Any Available";
+      mainStaffName = staffList.find(st => st.id === sid)?.name || "Not Assigned Yet";
     } else if (uniqueStaffIds.size > 1) {
       mainStaffName = "Multiple Staff";
     }
@@ -1895,7 +1885,7 @@ function BookingsPageContent() {
       services: selectedServiceObjects.map(s => {
         const sId = String(s?.id);
         const stId = bkServiceStaff[sId];
-        const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Available";
+        const stName = stId ? staffList.find(st => st.id === stId)?.name : "Not Assigned Yet";
         return {
           id: s?.id,
           name: s?.name,
@@ -2642,7 +2632,7 @@ function BookingsPageContent() {
                         {bkSelectedServices.map(id => {
                           const s = servicesList.find((srv: any) => String(srv.id) === String(id));
                           const stId = bkServiceStaff[String(id)];
-                          const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Staff";
+                          const stName = stId ? staffList.find(st => st.id === stId)?.name : "Not Assigned Yet";
                           return (
                             <div key={id} className="bg-white/60 p-2 rounded border border-neutral-200">
                               <div className="flex justify-between">
@@ -2774,7 +2764,7 @@ function BookingsPageContent() {
                           const serviceKey = String(service.id || service.serviceId || service.name);
                           const serviceStaff = availableStaffPerServiceForModal[serviceKey] || [];
                           const selectedStaff = selectedStaffPerService[serviceKey];
-                          const needsAssignment = !service.staffId || service.staffId === "null" || service.staffName === "Any Available" || service.staffName === "Any Staff";
+                          const needsAssignment = !service.staffId || service.staffId === "null" || service.staffName === "Any Available" || service.staffName === "Any Staff" || service.staffName === "Not Assigned Yet";
                           
                           return (
                             <div key={String(service.id)} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">

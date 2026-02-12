@@ -466,7 +466,7 @@ export function getNotificationContent(
     // Format: " for Facial with John, Hair Cut with Jane"
     const parts = services.map(s => {
       const sName = s.name || "Service";
-      const stName = s.staffName && s.staffName !== "Any Available" && s.staffName !== "Any Staff" ? ` with ${s.staffName}` : "";
+      const stName = s.staffName && s.staffName !== "Any Available" && s.staffName !== "Any Staff" && s.staffName !== "Not Assigned Yet" ? ` with ${s.staffName}` : "";
       return `${sName}${stName}`;
     });
     serviceAndStaff = ` for ${parts.join(", ")}`;
@@ -474,7 +474,7 @@ export function getNotificationContent(
     // Fallback to single service/staff logic
     const service = serviceName ? ` for ${serviceName}` : "";
     // Don't show staff name in the main message if it's "Multiple Staff" or "Any Available"
-    const showStaff = staffName && staffName !== "Multiple Staff" && staffName !== "Any Available" && staffName !== "Any Staff";
+    const showStaff = staffName && staffName !== "Multiple Staff" && staffName !== "Any Available" && staffName !== "Any Staff" && staffName !== "Not Assigned Yet";
     const staff = showStaff ? ` with ${staffName}` : "";
     serviceAndStaff = `${service}${staff}`;
   }

@@ -712,9 +712,9 @@ function ScheduleTab({
                 if (Array.isArray(b.services) && b.services.length > 0) {
                   const names = b.services
                     .map((s: any) => s.staffName)
-                    .filter((n: string) => n && n !== "Any Available" && n !== "Any Staff");
+                    .filter((n: string) => n && n !== "Any Available" && n !== "Any Staff" && n !== "Not Assigned Yet");
                   if (names.length > 0) staffName = [...new Set(names)].join(", ");
-                } else if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+                } else if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff" && b.staffName !== "Not Assigned Yet") {
                   staffName = b.staffName;
                 }
 
@@ -1283,13 +1283,13 @@ export default function BranchDetailsPage() {
                                       if (Array.isArray(b.services) && b.services.length > 0) {
                                         const staffNames = b.services
                                           .map((s: any) => s.staffName)
-                                          .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff");
+                                          .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff" && name !== "Not Assigned Yet");
                                         if (staffNames.length > 0) {
                                           const uniqueNames = [...new Set(staffNames)];
                                           return uniqueNames.join(", ");
                                         }
                                       }
-                                      if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+                                      if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff" && b.staffName !== "Not Assigned Yet") {
                                         return b.staffName;
                                       }
                                       return "—";
@@ -1428,13 +1428,13 @@ export default function BranchDetailsPage() {
                                     if (Array.isArray(b.services) && b.services.length > 0) {
                                       const staffNames = b.services
                                         .map((s: any) => s.staffName)
-                                        .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff");
+                                        .filter((name: string) => name && name !== "Any Available" && name !== "Any Staff" && name !== "Not Assigned Yet");
                                       if (staffNames.length > 0) {
                                         const uniqueNames = [...new Set(staffNames)];
                                         return uniqueNames.join(", ");
                                       }
                                     }
-                                    if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff") {
+                                    if (b.staffName && b.staffName !== "Any Available" && b.staffName !== "Any Staff" && b.staffName !== "Not Assigned Yet") {
                                       return b.staffName;
                                     }
                                     return "—";

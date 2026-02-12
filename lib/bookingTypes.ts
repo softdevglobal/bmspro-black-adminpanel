@@ -188,7 +188,7 @@ export function getServiceApprovalLabel(status: ServiceApprovalStatus | undefine
     case "rejected":
       return "Rejected";
     case "needs_assignment":
-      return "Needs Staff Assignment";
+      return "Not Assigned Yet";
     default:
       return "Unknown";
   }

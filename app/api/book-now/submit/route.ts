@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
           duration: serviceData.duration || 0,
           time: svc.time || time,
           staffId: null,
-          staffName: "Any Available",
+          staffName: "Not Assigned Yet",
           approvalStatus: "needs_assignment",
         });
       }
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
       serviceId: serviceDetails.length === 1 ? serviceDetails[0].id : serviceDetails.map((s: any) => s.id).join(","),
       serviceName: serviceDetails.map((s: any) => s.name).join(", "),
       staffId: null,
-      staffName: "Any Available",
+      staffName: "Not Assigned Yet",
       branchId,
       branchName: branchName || null,
       branchTimezone,
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       services: serviceDetails,
       bookingSource: "Online Booking Engine",
       bookingCode,
-      customerId: body.customerId || null, // booking_customers doc ID (scoped to this workshop)
+      customerId: body.customerId || null, // customers doc ID (scoped to this workshop)
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
         clientName: customerName,
         serviceName: serviceDetails.map((s: any) => s.name).join(", "),
         branchName: branchName || null,
-        staffName: "Any Available",
+        staffName: "Not Assigned Yet",
         price: totalPrice,
         date,
         time,

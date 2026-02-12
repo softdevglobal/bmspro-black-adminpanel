@@ -616,62 +616,84 @@ export default function BranchesPage() {
                 <div id="branch-grid" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {branches.map((b) => {
                 return (
-                  <div key={b.id} className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6 overflow-hidden">
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="flex items-center gap-4 min-w-0 flex-1">
-                        <div className="w-12 h-12 bg-neutral-100 text-neutral-700 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
-                          <i className="fas fa-building" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-bold text-lg text-neutral-900 truncate">{b.name}</h3>
-                          <p className="text-sm text-neutral-500 truncate max-w-full" title={b.address}>{b.address}</p>
-                          <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500 flex-wrap">
-                            {b.manager && <span className="inline-flex items-center gap-1 truncate"><i className="fas fa-user-tie" /> {b.manager}</span>}
-                            {b.status && (
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 ${b.status === "Active" ? "bg-emerald-50 text-emerald-700" : b.status === "Pending" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>
-                                <i className="fas fa-circle text-[6px]" />
-                                {b.status}
-                              </span>
-                            )}
+                  <div key={b.id} className="group relative bg-neutral-900 rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-amber-500/[0.06] transition-all duration-500 hover:-translate-y-0.5">
+                    {/* Top amber accent */}
+                    <div className="h-1 bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 opacity-80 group-hover:opacity-100 transition-opacity" />
+                    
+                    <div className="p-6">
+                      {/* Top row: icon + name + actions */}
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-4 min-w-0 flex-1">
+                          <div className="w-14 h-14 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl flex items-center justify-center text-xl flex-shrink-0 group-hover:bg-amber-500/15 transition-colors">
+                            <i className="fas fa-warehouse text-lg" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-black text-lg text-white truncate tracking-tight">{b.name}</h3>
+                            <p className="text-sm text-neutral-400 truncate max-w-full mt-0.5" title={b.address}>
+                              <i className="fas fa-map-marker-alt text-amber-500/60 mr-1.5 text-xs" />{b.address}
+                            </p>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 text-neutral-400 flex-shrink-0">
-                        <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg hover:bg-neutral-100 hover:text-neutral-600 flex items-center justify-center transition-colors">
-                          <i className="fas fa-eye" />
-                        </button>
-                        {role === "workshop_owner" && (
-                          <button onClick={() => openEditModal(b)} title="Edit" className="w-8 h-8 rounded-lg hover:bg-blue-50 hover:text-blue-600 flex items-center justify-center transition-colors">
-                            <i className="fas fa-pen" />
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 -translate-y-1 group-hover:translate-y-0 transition-all duration-300">
+                          <button onClick={() => router.push(`/branches/${b.id}`)} title="Preview" className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all border border-white/[0.06]">
+                            <i className="fas fa-eye text-xs" />
                           </button>
+                          {role === "workshop_owner" && (
+                            <button onClick={() => openEditModal(b)} title="Edit" className="w-8 h-8 rounded-lg bg-white/10 hover:bg-blue-500/80 text-white flex items-center justify-center transition-all border border-white/[0.06]">
+                              <i className="fas fa-pen text-xs" />
+                            </button>
+                          )}
+                          {role === "workshop_owner" && (
+                            <button onClick={() => setDeleteTarget(b)} title="Delete" className="w-8 h-8 rounded-lg bg-white/10 hover:bg-rose-500/80 text-white flex items-center justify-center transition-all border border-white/[0.06]">
+                              <i className="fas fa-trash text-xs" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Info row */}
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        {b.manager && (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-white/[0.06] text-neutral-300 px-2.5 py-1.5 rounded-lg border border-white/[0.06]">
+                            <i className="fas fa-user-tie text-[9px] text-amber-500/70" />
+                            {b.manager}
+                          </span>
                         )}
-                        {role === "workshop_owner" && (
-                          <button onClick={() => setDeleteTarget(b)} title="Delete" className="w-8 h-8 rounded-lg hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center transition-colors">
-                            <i className="fas fa-trash" />
-                          </button>
+                        {b.status && (
+                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border ${b.status === "Active" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/15" : b.status === "Pending" ? "bg-amber-500/10 text-amber-400 border-amber-500/15" : "bg-rose-500/10 text-rose-400 border-rose-500/15"}`}>
+                            <i className="fas fa-circle text-[5px]" />
+                            {b.status}
+                          </span>
                         )}
                       </div>
-                    </div>
-                    {/* Location & Contact Info */}
-                    <div className="pt-4 border-t border-neutral-100">
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        {/* Geofencing Status */}
-                        {b.location?.latitude && b.location?.longitude ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                            <i className="fas fa-map-marker-alt" />
-                            Geofencing: {b.allowedCheckInRadius || 100}m
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-50 text-amber-700">
-                            <i className="fas fa-map-marker-alt" />
-                            No location set
-                          </span>
-                        )}
-                        {b.phone && (
-                          <span className="inline-flex items-center gap-1 text-neutral-500">
-                            <i className="fas fa-phone" /> {b.phone}
-                          </span>
-                        )}
+
+                      {/* Bottom info */}
+                      <div className="pt-4 border-t border-white/[0.06]">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          {b.location?.latitude && b.location?.longitude ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/10">
+                              <i className="fas fa-map-marker-alt text-[10px]" />
+                              Geofencing: {b.allowedCheckInRadius || 100}m
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/10">
+                              <i className="fas fa-map-marker-alt text-[10px]" />
+                              No location set
+                            </span>
+                          )}
+                          {b.phone && (
+                            <span className="inline-flex items-center gap-1.5 text-neutral-400 font-medium">
+                              <i className="fas fa-phone text-[10px]" /> {b.phone}
+                            </span>
+                          )}
+                          <button 
+                            onClick={() => router.push(`/branches/${b.id}`)}
+                            className="group/link ml-auto text-xs font-semibold text-amber-500 hover:text-amber-400 flex items-center gap-1 transition-colors"
+                          >
+                            View details <i className="fas fa-arrow-right text-[9px] group-hover/link:translate-x-0.5 transition-transform" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

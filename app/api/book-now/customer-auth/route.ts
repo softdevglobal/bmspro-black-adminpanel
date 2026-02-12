@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     const normalizedEmail = email.trim().toLowerCase();
     const db = adminDb();
-    const customersRef = db.collection("booking_customers");
+    const customersRef = db.collection("customers");
 
     // ---------- LOGIN ----------
     if (action === "login") {
@@ -125,5 +125,38 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("Customer auth error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH: Update customer profile (name, phone only — email is immutable)
+ */
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { customerId, name, phone } = body;
+
+    if (!customerId || !name?.trim() || !phone?.trim()) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const db = adminDb();
+    const docRef = db.collection("customers").doc(customerId);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    await docRef.update({
+      name: name.trim(),
+      phone: phone.trim(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return NextResponse.json({ success: true, name: name.trim(), phone: phone.trim() });
+  } catch (error: any) {
+    console.error("Customer profile update error:", error);
+    return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
   }
 }

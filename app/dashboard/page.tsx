@@ -2198,7 +2198,7 @@ export default function DashboardPage() {
                                 if (Array.isArray(activity.services) && activity.services.length > 0) {
                                   staffNames = activity.services
                                     .map((s: any) => s.staffName)
-                                    .filter((name: string) => name && name !== "Any Available");
+                                    .filter((name: string) => name && name !== "Any Available" && name !== "Not Assigned Yet");
                                 } else if (activity.staffName) {
                                   // staffName might be comma-separated for multiple staff
                                   staffNames = activity.staffName.split(",").map((n: string) => n.trim()).filter(Boolean);

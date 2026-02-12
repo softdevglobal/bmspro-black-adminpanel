@@ -150,7 +150,7 @@ function generateEmailHTML(
   const isAnyStaff = (staffName?: string | null): boolean => {
     if (!staffName) return true;
     const name = staffName.toLowerCase();
-    return name.includes("any available") || name.includes("any staff") || name === "any" || name.trim() === "";
+    return name.includes("any available") || name.includes("any staff") || name.includes("not assigned yet") || name === "any" || name.trim() === "";
   };
 
   // Check if any service has unassigned staff

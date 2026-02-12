@@ -503,7 +503,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           serviceName: finalServiceName,
           services: finalServices?.map((s: any) => ({
             name: s.name || "Service",
-            staffName: s.staffName || "Any Available"
+            staffName: s.staffName || "Not Assigned Yet"
           })),
           branchName: data.branchName,
           bookingDate: finalBookingDate,
@@ -570,7 +570,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           finalBookingTime,
           finalServices?.map((s: any) => ({
             name: s.name || "Service",
-            staffName: s.staffName || "Any Available"
+            staffName: s.staffName || "Not Assigned Yet"
           }))
         );
         
@@ -596,7 +596,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         if (finalServices && Array.isArray(finalServices) && finalServices.length > 0) {
           notificationData.services = finalServices.map((s: any) => ({
             name: s.name || "Service",
-            staffName: s.staffName || "Any Available"
+            staffName: s.staffName || "Not Assigned Yet"
           }));
         }
         

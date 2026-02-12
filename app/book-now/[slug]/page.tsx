@@ -2,11 +2,25 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 type Branch = { id: string; name: string; address: string; phone: string; timezone: string };
 type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: string[]; branches: string[] };
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
+type CustomerBooking = {
+  id: string;
+  bookingCode: string;
+  serviceName: string;
+  status: string;
+  date: string;
+  time: string;
+  branchName: string;
+  price: number;
+  createdAt: any;
+  updatedAt: any;
+};
 
 export default function BookingEnginePage() {
   const params = useParams();
@@ -46,6 +60,13 @@ export default function BookingEnginePage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedService, setExpandedService] = useState<string | null>(null);
 
+  // Notification panel state
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [customerBookings, setCustomerBookings] = useState<CustomerBooking[]>([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+
   // Navigate between steps with animation direction
   const goToStep = useCallback((target: number) => {
     setAnimDir(target > step ? "forward" : "back");
@@ -77,6 +98,89 @@ export default function BookingEnginePage() {
       }
     } catch {}
   }, [slug]);
+
+  // Load dismissed & read notification IDs from localStorage
+  useEffect(() => {
+    if (!customer?.customerId) return;
+    try {
+      const storedDismissed = localStorage.getItem(`bms_dismissed_notifs_${customer.customerId}`);
+      if (storedDismissed) setDismissedIds(new Set(JSON.parse(storedDismissed)));
+      const storedRead = localStorage.getItem(`bms_read_notifs_${customer.customerId}`);
+      if (storedRead) setReadIds(new Set(JSON.parse(storedRead)));
+    } catch {}
+  }, [customer?.customerId]);
+
+  const dismissNotification = (bookingId: string) => {
+    setDismissedIds((prev) => {
+      const next = new Set(prev);
+      next.add(bookingId);
+      if (customer?.customerId) {
+        localStorage.setItem(`bms_dismissed_notifs_${customer.customerId}`, JSON.stringify([...next]));
+      }
+      return next;
+    });
+  };
+
+  const markAllAsRead = () => {
+    const ids = visibleBookings.map((b) => b.id);
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      if (customer?.customerId) {
+        localStorage.setItem(`bms_read_notifs_${customer.customerId}`, JSON.stringify([...next]));
+      }
+      return next;
+    });
+  };
+
+  const visibleBookings = customerBookings.filter((b) => !dismissedIds.has(b.id));
+  const unreadCount = visibleBookings.filter((b) => !readIds.has(b.id)).length;
+
+  // Real-time listener for customer bookings (notifications)
+  useEffect(() => {
+    if (!customer?.customerId) {
+      setCustomerBookings([]);
+      return;
+    }
+    setNotifLoading(true);
+    const q = query(
+      collection(db, "bookings"),
+      where("customerId", "==", customer.customerId)
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const bookings: CustomerBooking[] = snap.docs.map((doc) => {
+          const d = doc.data();
+          return {
+            id: doc.id,
+            bookingCode: d.bookingCode || "",
+            serviceName: d.serviceName || (Array.isArray(d.services) ? d.services.map((s: any) => s.name).join(", ") : "Service"),
+            status: d.status || "Pending",
+            date: d.date || "",
+            time: d.time || "",
+            branchName: d.branchName || "",
+            price: d.price || 0,
+            createdAt: d.createdAt,
+            updatedAt: d.updatedAt,
+          };
+        });
+        // Sort client-side: newest first (avoids needing a composite Firestore index)
+        bookings.sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() || 0;
+          const bTime = b.createdAt?.toMillis?.() || 0;
+          return bTime - aTime;
+        });
+        setCustomerBookings(bookings.slice(0, 20));
+        setNotifLoading(false);
+      },
+      (err) => {
+        console.error("Customer bookings listener error:", err);
+        setNotifLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [customer?.customerId]);
 
   const branchServices = useMemo(() => {
     if (!selectedBranch) return [];
@@ -110,18 +214,52 @@ export default function BookingEnginePage() {
       });
       const data = await res.json();
       if (!res.ok) { setAuthError(data.error || "Authentication failed"); return; }
-      const session: CustomerSession = { customerId: data.customer.id, name: data.customer.name, email: data.customer.email, phone: data.customer.phone };
-      setCustomer(session); setCustomerName(data.customer.name); setCustomerEmail(data.customer.email); setCustomerPhone(data.customer.phone);
+      const session: CustomerSession = { customerId: data.customerId, name: data.name, email: data.email, phone: data.phone };
+      setCustomer(session); setCustomerName(data.name); setCustomerEmail(data.email); setCustomerPhone(data.phone);
       sessionStorage.setItem(`bms_customer_${slug}`, JSON.stringify(session));
       setShowAuth(false); setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthPhone("");
     } catch (err: any) { setAuthError(err.message || "Something went wrong"); }
     finally { setAuthLoading(false); }
   };
 
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+
   const handleLogout = () => {
     setCustomer(null); setCustomerName(""); setCustomerEmail(""); setCustomerPhone("");
     sessionStorage.removeItem(`bms_customer_${slug}`);
+    setShowLogoutConfirm(false);
+    setShowProfileMenu(false);
   };
+
+  const handleSaveProfile = async () => {
+    if (!customer || !editName.trim() || !editPhone.trim()) return;
+    setSavingProfile(true);
+    try {
+      const res = await fetch("/api/book-now/customer-auth", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: customer.customerId, name: editName.trim(), phone: editPhone.trim() }),
+      });
+      if (res.ok) {
+        const updated = { ...customer, name: editName.trim(), phone: editPhone.trim() };
+        setCustomer(updated);
+        setCustomerName(editName.trim());
+        setCustomerPhone(editPhone.trim());
+        sessionStorage.setItem(`bms_customer_${slug}`, JSON.stringify(updated));
+        setEditingProfile(false);
+      }
+    } catch (err) {
+      console.error("Failed to save profile:", err);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
 
   const handleSubmit = async () => {
     if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !date || !time) return;
@@ -214,15 +352,27 @@ export default function BookingEnginePage() {
             </div>
           </div>
           {customer ? (
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200/60 rounded-full px-3 py-1.5">
-                <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
-                  <i className="fas fa-check text-white text-[7px]" />
-                </div>
-                <span className="text-xs font-semibold text-emerald-700 hidden sm:block">{customer.name}</span>
-              </div>
-              <button onClick={handleLogout} className="text-[11px] text-neutral-400 hover:text-neutral-700 font-medium transition px-2">
-                Sign out
+            <div className="flex items-center gap-1.5">
+              {/* Notification Bell */}
+              <button
+                onClick={() => { setShowNotifications((v) => { if (!v) markAllAsRead(); return !v; }); }}
+                className="relative w-9 h-9 rounded-xl bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition-all active:scale-95"
+                title="Notifications"
+              >
+                <i className="fas fa-bell text-sm text-neutral-600" />
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-amber-500 text-white text-[9px] font-bold rounded-full px-1 shadow-lg shadow-amber-500/30 animate-[popIn_0.3s_ease-out]">
+                      {unreadCount}
+                  </span>
+                )}
+              </button>
+              {/* Profile Icon */}
+              <button
+                onClick={() => { setShowProfileMenu((v) => !v); setEditingProfile(false); }}
+                className="w-9 h-9 rounded-full bg-neutral-900 flex items-center justify-center text-white text-xs font-bold hover:bg-neutral-800 transition-all active:scale-95 shadow-sm"
+                title="Profile"
+              >
+                {customer.name?.charAt(0)?.toUpperCase() || <i className="fas fa-user text-[10px]" />}
               </button>
             </div>
           ) : (
@@ -233,6 +383,307 @@ export default function BookingEnginePage() {
           )}
         </div>
       </nav>
+
+      {/* ═══════════════════ NOTIFICATIONS DROPDOWN ═══════════════════ */}
+      {showNotifications && (
+        <>
+          {/* Backdrop - click to close */}
+          <div className="fixed inset-0 z-50 bg-black/20 sm:bg-black/10" onClick={() => setShowNotifications(false)} />
+
+          {/* Panel: mobile bottom-sheet / desktop top-right card */}
+          <div className="fixed inset-x-0 bottom-0 sm:bottom-auto sm:top-[68px] sm:inset-x-auto sm:right-[max(1rem,calc((100vw-56rem)/2+0.5rem))] sm:w-[380px] z-50 max-h-[75vh] sm:max-h-[70vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl shadow-neutral-900/20 border border-neutral-200/80 flex flex-col overflow-hidden animate-[slideUpSheet_0.25s_ease-out] sm:animate-[dropdownPop_0.2s_ease-out]">
+
+            {/* Drag handle (mobile only) */}
+            <div className="sm:hidden flex justify-center pt-2 pb-1">
+              <div className="w-10 h-1 rounded-full bg-neutral-300" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 bg-neutral-50/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                  <i className="fas fa-bell text-amber-400 text-[10px]" />
+                </div>
+                <h3 className="text-sm font-extrabold text-neutral-900">Notifications</h3>
+              </div>
+              <button
+                onClick={() => setShowNotifications(false)}
+                className="w-7 h-7 rounded-lg hover:bg-neutral-200/60 flex items-center justify-center transition-colors"
+              >
+                <i className="fas fa-times text-[10px] text-neutral-400" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto overscroll-contain">
+              {notifLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <div className="w-8 h-8 rounded-full border-[3px] border-neutral-200 border-t-amber-500 animate-spin" />
+                  <p className="text-[11px] text-neutral-400 font-medium">Loading...</p>
+                </div>
+              ) : visibleBookings.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-3 text-center px-6">
+                  <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center">
+                    <i className="fas fa-bell-slash text-lg text-neutral-300" />
+                  </div>
+                  <p className="text-xs font-bold text-neutral-600">No notifications</p>
+                  <p className="text-[11px] text-neutral-400 -mt-1.5">Your booking updates will appear here.</p>
+                </div>
+              ) : (
+                <div className="px-3 py-3 space-y-2.5">
+                  {visibleBookings.map((bk) => {
+                    const notifMap: Record<string, { iconBg: string; iconColor: string; icon: string; title: string; message: string }> = {
+                      Pending: {
+                        iconBg: "bg-amber-100",
+                        iconColor: "text-amber-600",
+                        icon: "fa-paper-plane",
+                        title: "Request Received",
+                        message: `Your booking for ${bk.serviceName} has been submitted and is awaiting confirmation.`,
+                      },
+                      AwaitingStaffApproval: {
+                        iconBg: "bg-purple-100",
+                        iconColor: "text-purple-600",
+                        icon: "fa-user-clock",
+                        title: "Awaiting Staff Approval",
+                        message: `Your booking for ${bk.serviceName} is being reviewed by our staff.`,
+                      },
+                      PartiallyApproved: {
+                        iconBg: "bg-purple-100",
+                        iconColor: "text-purple-600",
+                        icon: "fa-hourglass-half",
+                        title: "In Review",
+                        message: `Your booking for ${bk.serviceName} is partially approved and under review.`,
+                      },
+                      Confirmed: {
+                        iconBg: "bg-emerald-100",
+                        iconColor: "text-emerald-600",
+                        icon: "fa-circle-check",
+                        title: "Booking Confirmed",
+                        message: `Great news! Your booking for ${bk.serviceName} on ${bk.date} at ${bk.time} has been confirmed.`,
+                      },
+                      Completed: {
+                        iconBg: "bg-blue-100",
+                        iconColor: "text-blue-600",
+                        icon: "fa-flag-checkered",
+                        title: "Service Completed",
+                        message: `Your ${bk.serviceName} service has been completed. Thank you for choosing us!`,
+                      },
+                      Canceled: {
+                        iconBg: "bg-rose-100",
+                        iconColor: "text-rose-600",
+                        icon: "fa-ban",
+                        title: "Booking Cancelled",
+                        message: `Your booking for ${bk.serviceName} on ${bk.date} has been cancelled.`,
+                      },
+                      StaffRejected: {
+                        iconBg: "bg-orange-100",
+                        iconColor: "text-orange-600",
+                        icon: "fa-exclamation-triangle",
+                        title: "Action Required",
+                        message: `Your booking for ${bk.serviceName} needs attention. Please contact us for details.`,
+                      },
+                    };
+                    const notif = notifMap[bk.status] || notifMap.Pending;
+
+                    // Format time ago
+                    const timeAgo = (() => {
+                      const updated = bk.updatedAt?.toDate?.() || bk.createdAt?.toDate?.();
+                      if (!updated) return "";
+                      const diff = Date.now() - updated.getTime();
+                      const mins = Math.floor(diff / 60000);
+                      if (mins < 1) return "Just now";
+                      if (mins < 60) return `${mins}m ago`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h ago`;
+                      const days = Math.floor(hrs / 24);
+                      return `${days}d ago`;
+                    })();
+
+                    return (
+                      <div key={bk.id} className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all group overflow-hidden">
+                        {/* Top color accent */}
+                        <div className={`h-[3px] ${notif.iconBg.replace("100", "400").replace("bg-amber-400", "bg-amber-400").replace("bg-emerald-400", "bg-emerald-400").replace("bg-purple-400", "bg-purple-400").replace("bg-blue-400", "bg-blue-400").replace("bg-rose-400", "bg-rose-400").replace("bg-orange-400", "bg-orange-400")}`} style={{ background: notif.iconColor.includes("amber") ? "#f59e0b" : notif.iconColor.includes("emerald") ? "#10b981" : notif.iconColor.includes("purple") ? "#9333ea" : notif.iconColor.includes("blue") ? "#3b82f6" : notif.iconColor.includes("rose") ? "#f43f5e" : "#f97316" }} />
+                        <div className="px-3.5 pt-3 pb-3">
+                          {/* Header row */}
+                          <div className="flex items-start gap-2.5 mb-2">
+                            <div className={`w-8 h-8 rounded-lg ${notif.iconBg} flex items-center justify-center shrink-0`}>
+                              <i className={`fas ${notif.icon} text-xs ${notif.iconColor}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="text-[11px] font-bold text-neutral-900 leading-snug">{notif.title}</h4>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {timeAgo && <span className="text-[9px] text-neutral-300 font-medium">{timeAgo}</span>}
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); dismissNotification(bk.id); }}
+                                    title="Remove notification"
+                                    className="opacity-0 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 max-sm:opacity-60 w-5 h-5 flex items-center justify-center rounded-full text-neutral-300 hover:text-rose-500 hover:bg-rose-50 transition-all"
+                                  >
+                                    <i className="fas fa-trash-can text-[8px]" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-neutral-500 leading-relaxed mt-0.5">{notif.message}</p>
+                            </div>
+                          </div>
+                          {/* Details */}
+                          <div className="bg-neutral-50/80 rounded-lg px-3 py-2 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5"><i className="fas fa-hashtag text-[7px]" />Booking Code</span>
+                              <span className="text-[10px] text-neutral-700 font-bold font-mono tracking-wide">{bk.bookingCode}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5"><i className="fas fa-wrench text-[7px]" />Service</span>
+                              <span className="text-[10px] text-neutral-700 font-semibold">{bk.serviceName}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5"><i className="fas fa-calendar text-[7px]" />Date & Time</span>
+                              <span className="text-[10px] text-neutral-700 font-semibold">{bk.date} at {bk.time}</span>
+                            </div>
+                            {bk.branchName && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5"><i className="fas fa-location-dot text-[7px]" />Branch</span>
+                                <span className="text-[10px] text-neutral-700 font-semibold">{bk.branchName}</span>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between pt-0.5 border-t border-neutral-100">
+                              <span className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5"><i className="fas fa-dollar-sign text-[7px]" />Amount</span>
+                              <span className="text-[10px] text-neutral-900 font-bold">${bk.price}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Safe area for mobile */}
+            <div className="sm:hidden h-[env(safe-area-inset-bottom)]" />
+          </div>
+        </>
+      )}
+
+      {/* ═══════════════════ PROFILE DROPDOWN ═══════════════════ */}
+      {showProfileMenu && customer && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/20 sm:bg-black/10" onClick={() => { setShowProfileMenu(false); setEditingProfile(false); }} />
+          <div className="fixed inset-x-0 bottom-0 sm:bottom-auto sm:top-[68px] sm:inset-x-auto sm:right-[max(1rem,calc((100vw-56rem)/2+0.5rem))] sm:w-[320px] z-50 bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl shadow-neutral-900/20 border border-neutral-200/80 overflow-hidden animate-[slideUpSheet_0.25s_ease-out] sm:animate-[dropdownPop_0.2s_ease-out]">
+
+            {/* Drag handle (mobile) */}
+            <div className="sm:hidden flex justify-center pt-2 pb-1">
+              <div className="w-10 h-1 rounded-full bg-neutral-300" />
+            </div>
+
+            {/* Profile Header */}
+            <div className="px-5 pt-4 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-neutral-900 flex items-center justify-center text-white text-base font-bold shrink-0">
+                  {customer.name?.charAt(0)?.toUpperCase() || "?"}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-neutral-900 truncate">{customer.name}</p>
+                  <p className="text-[11px] text-neutral-400 truncate">{customer.email}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-neutral-100" />
+
+            {/* Edit Profile Section */}
+            {!editingProfile ? (
+              <div className="px-5 py-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-neutral-500">
+                      <i className="fas fa-user text-[10px] text-neutral-300 w-4 text-center" />
+                      <span className="font-medium">{customer.name}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-neutral-500">
+                    <i className="fas fa-envelope text-[10px] text-neutral-300 w-4 text-center" />
+                    <span className="font-medium">{customer.email}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-neutral-500">
+                    <i className="fas fa-phone text-[10px] text-neutral-300 w-4 text-center" />
+                    <span className="font-medium">{customer.phone || "—"}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setEditName(customer.name); setEditPhone(customer.phone); setEditingProfile(true); }}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-xs font-semibold text-neutral-700 transition-colors"
+                >
+                  <i className="fas fa-pen text-[9px]" />
+                  Edit Details
+                </button>
+              </div>
+            ) : (
+              <div className="px-5 py-3 space-y-3">
+                <div>
+                  <label className="block text-[10px] font-semibold text-neutral-400 mb-1 uppercase tracking-wider">Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full border-2 border-neutral-200 rounded-xl px-3 py-2 text-sm font-medium text-neutral-900 focus:border-neutral-900 focus:ring-0 outline-none transition-colors bg-neutral-50/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-neutral-400 mb-1 uppercase tracking-wider">Email</label>
+                  <div className="w-full border-2 border-neutral-100 rounded-xl px-3 py-2 text-sm font-medium text-neutral-400 bg-neutral-50 cursor-not-allowed flex items-center gap-2">
+                    <i className="fas fa-lock text-[9px] text-neutral-300" />
+                    {customer.email}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-neutral-400 mb-1 uppercase tracking-wider">Phone</label>
+                  <input
+                    type="tel"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="w-full border-2 border-neutral-200 rounded-xl px-3 py-2 text-sm font-medium text-neutral-900 focus:border-neutral-900 focus:ring-0 outline-none transition-colors bg-neutral-50/50"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setEditingProfile(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-xs font-bold text-neutral-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveProfile}
+                    disabled={savingProfile || !editName.trim() || !editPhone.trim()}
+                    className="flex-1 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {savingProfile ? (
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                    ) : (
+                      <><i className="fas fa-check text-[9px]" />Save</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-neutral-100" />
+
+            {/* Sign Out */}
+            <button
+              onClick={() => { setShowProfileMenu(false); setShowLogoutConfirm(true); }}
+              className="w-full px-5 py-3 flex items-center justify-center gap-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors"
+            >
+              <i className="fas fa-arrow-right-from-bracket text-[10px]" />
+              Sign Out
+            </button>
+
+            {/* Bottom spacing + safe area for mobile */}
+            <div className="h-4 sm:h-1" />
+            <div className="sm:hidden h-[env(safe-area-inset-bottom)]" />
+          </div>
+        </>
+      )}
 
       {/* ═══════════════════ HERO BANNER (Step 1 only) ═══════════════════ */}
       {step === 1 && (
@@ -660,7 +1111,7 @@ export default function BookingEnginePage() {
                         <p className="text-[11px] text-neutral-400">{customer.email}</p>
                       </div>
                     </div>
-                    <button onClick={handleLogout} className="text-xs text-neutral-400 hover:text-neutral-700 font-medium bg-neutral-100 px-3 py-1.5 rounded-lg hover:bg-neutral-200 transition">
+                    <button onClick={() => setShowLogoutConfirm(true)} className="text-xs text-neutral-400 hover:text-neutral-700 font-medium bg-neutral-100 px-3 py-1.5 rounded-lg hover:bg-neutral-200 transition">
                       Sign out
                     </button>
                   </div>
@@ -963,6 +1414,40 @@ export default function BookingEnginePage() {
         )}
       </main>
 
+      {/* ═══════════════════ SIGN OUT CONFIRM ═══════════════════ */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]">
+          <div className="w-full max-w-[340px] bg-white rounded-2xl shadow-2xl shadow-neutral-900/20 border border-neutral-200/50 animate-[modalPop_0.3s_ease-out] overflow-hidden">
+            {/* Top accent */}
+            <div className="h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500" />
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 rounded-xl bg-rose-100 flex items-center justify-center mx-auto mb-4">
+                <i className="fas fa-arrow-right-from-bracket text-rose-500 text-lg" />
+              </div>
+              <h3 className="text-base font-extrabold text-neutral-900 mb-1">Sign out?</h3>
+              <p className="text-xs text-neutral-500 leading-relaxed">
+                You will need to sign in again to manage your bookings.
+              </p>
+            </div>
+            <div className="flex border-t border-neutral-100">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 px-4 py-3.5 text-xs font-bold text-neutral-600 hover:bg-neutral-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <div className="w-px bg-neutral-100" />
+              <button
+                onClick={handleLogout}
+                className="flex-1 px-4 py-3.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════════ AUTH MODAL ═══════════════════ */}
       {showAuth && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]">
@@ -1129,6 +1614,14 @@ export default function BookingEnginePage() {
         @keyframes confetti {
           0% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
           100% { transform: translateY(100vh) rotate(720deg) scale(0); opacity: 0; }
+        }
+        @keyframes dropdownPop {
+          from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes slideUpSheet {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
         }
         @keyframes shakeX {
           0%, 100% { transform: translateX(0); }

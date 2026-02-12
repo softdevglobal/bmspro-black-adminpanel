@@ -333,28 +333,23 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
               // Start with active staff
               let filtered = staffData.filter((s: any) => s.status === "Active");
               
-              // CRITICAL: Filter by service qualification
+              // Filter by service qualification (only if service has specific staff assigned)
               if (qualifiedStaffIds.length > 0) {
                 filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
               }
               
-              // Filter by branch and day
-              if (bookingToConfirm.branchId && bookingToConfirm.date) {
-                const bookingDate = new Date(bookingToConfirm.date);
-                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                const dayName = daysOfWeek[bookingDate.getDay()];
-                
+              // Filter by branch association (staff who work at this branch on ANY day)
+              if (bookingToConfirm.branchId) {
                 filtered = filtered.filter((s: any) => {
+                  // Check home branch
+                  if (s.branchId === bookingToConfirm.branchId) return true;
+                  // Check if staff has ANY day scheduled at this branch
                   if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                    const daySchedule = s.weeklySchedule[dayName];
-                    if (daySchedule && daySchedule.branchId) {
-                      return daySchedule.branchId === bookingToConfirm.branchId;
-                    }
-                    if (daySchedule === null || daySchedule === undefined) {
-                      return false;
-                    }
+                    return Object.values(s.weeklySchedule).some(
+                      (day: any) => day && day.branchId === bookingToConfirm.branchId
+                    );
                   }
-                  return s.branchId === bookingToConfirm.branchId;
+                  return false;
                 });
               }
               
@@ -380,27 +375,23 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             
             let filtered = staffData.filter((s: any) => s.status === "Active");
 
-            // CRITICAL: Filter by service qualification
+            // Filter by service qualification (only if service has specific staff assigned)
             if (qualifiedStaffIds.length > 0) {
               filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
             }
 
-            if (bookingToConfirm.branchId && bookingToConfirm.date) {
-              const bookingDate = new Date(bookingToConfirm.date);
-              const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-              const dayName = daysOfWeek[bookingDate.getDay()];
-
+            // Filter by branch association (staff who work at this branch on ANY day)
+            if (bookingToConfirm.branchId) {
               filtered = filtered.filter((s: any) => {
+                // Check home branch
+                if (s.branchId === bookingToConfirm.branchId) return true;
+                // Check if staff has ANY day scheduled at this branch
                 if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                  const daySchedule = s.weeklySchedule[dayName];
-                  if (daySchedule && daySchedule.branchId) {
-                    return daySchedule.branchId === bookingToConfirm.branchId;
-                  }
-                  if (daySchedule === null || daySchedule === undefined) {
-                    return false;
-                  }
+                  return Object.values(s.weeklySchedule).some(
+                    (day: any) => day && day.branchId === bookingToConfirm.branchId
+                  );
                 }
-                return s.branchId === bookingToConfirm.branchId;
+                return false;
               });
             }
 
@@ -483,7 +474,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                 bs.approvalStatus === "needs_assignment" ||
                 !bs.staffId ||
                 bs.staffName === "Any Available" ||
-                bs.staffName === "Any Staff"
+                bs.staffName === "Any Staff" ||
+                bs.staffName === "Not Assigned Yet"
               )
               .forEach(bookingService => {
               // Use consistent key format (same as assign staff modal)
@@ -631,7 +623,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     if (hasMultipleServices) {
       // Check if any service needs staff assignment
       const needsStaffAssignment = row.services!.some(s => 
-        !s.staffId || s.staffId === "null" || s.staffName === "Any Available" || s.staffName === "Any Staff"
+        !s.staffId || s.staffId === "null" || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.staffName === "Not Assigned Yet"
       );
       
       if (needsStaffAssignment) {
@@ -656,7 +648,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
       }
     } else {
       // Single service booking - check if needs staff assignment
-      if (!row.staffId || row.staffId === "null" || row.staffName === "Any Available" || row.staffName === "Any Staff") {
+      if (!row.staffId || row.staffId === "null" || row.staffName === "Any Available" || row.staffName === "Any Staff" || row.staffName === "Not Assigned Yet") {
         // Open staff assignment modal
         setBookingToConfirm(row);
         setSelectedStaffId("");
@@ -1117,7 +1109,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending", border: "border-amber-200" },
                               accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted", border: "border-emerald-200" },
                               rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected", border: "border-rose-200" },
-                              needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Needs Staff", border: "border-purple-200" },
+                              needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Not Assigned Yet", border: "border-purple-200" },
                             };
                             const completionBadgeMap = {
                               pending: { bg: "bg-blue-100", text: "text-blue-700", icon: "fa-hourglass-half", label: "In Progress", border: "border-blue-200" },
@@ -1183,7 +1175,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                  </div>
                                  <div className="flex items-center gap-1.5 bg-neutral-50 px-2 py-1 rounded-md">
                                     <i className="far fa-user text-purple-400" />
-                                    <span className="font-medium text-neutral-700">{svc.staffName || previewRow.staffName || "Any Staff"}</span>
+                                    <span className="font-medium text-neutral-700">{svc.staffName || previewRow.staffName || "Not Assigned Yet"}</span>
                                  </div>
                               </div>
                               {/* Show rejection reason if service was rejected */}
@@ -1335,12 +1327,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
             <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
               <div className="relative overflow-x-auto">
-                <table className="min-w-[960px] w-full text-left text-sm text-neutral-600">
+                <table className="min-w-[800px] w-full text-left text-sm text-neutral-600">
                   <thead className="bg-neutral-50/90 backdrop-blur text-neutral-800 font-semibold border-b border-neutral-100 sticky top-0 z-10">
                   <tr>
                     <th className="p-4 pl-6">Client &amp; Service</th>
                     <th className="p-4">Date &amp; Time</th>
-                    <th className="p-4">Staff</th>
                     <th className="p-4">Branch</th>
                     <th className="p-4 text-right pr-6">Price</th>
                     <th className="p-4 text-right pr-6">Actions</th>
@@ -1354,12 +1345,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   )}
                   {!loading && error && (
                     <tr>
-                      <td className="p-6 text-rose-600" colSpan={6}>{error}</td>
+                      <td className="p-6 text-rose-600" colSpan={5}>{error}</td>
                     </tr>
                   )}
                   {!loading && rows.length === 0 && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={6}>No bookings.</td>
+                      <td className="p-6 text-neutral-500" colSpan={5}>No bookings.</td>
                     </tr>
                   )}
                   {!loading &&
@@ -1408,7 +1399,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                       pending: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-clock", label: "Pending" },
                                       accepted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check", label: "Accepted" },
                                       rejected: { bg: "bg-rose-100", text: "text-rose-700", icon: "fa-times", label: "Rejected" },
-                                      needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Needs Staff" },
+                                      needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Not Assigned Yet" },
                                     };
                                     const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
                                     
@@ -1419,8 +1410,6 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                             <i className="fas fa-spa text-[10px] text-neutral-600" />
                                             <span className="text-xs font-semibold text-neutral-800">{svc.name || "Service"}</span>
                                           </span>
-                                          <i className="fas fa-user text-[9px] text-neutral-400" />
-                                          <span className="text-xs font-medium text-neutral-600 truncate">{svc.staffName || "Any Staff"}</span>
                                         </div>
                                         {/* Show approval status badge for multi-service bookings or pending with needs_assignment */}
                                         {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected" || r.status === "Pending") && (
@@ -1447,42 +1436,6 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         <td className="p-4">
                           <div className="font-medium text-neutral-700">{r.date}</div>
                           <div className="text-xs text-neutral-500">{r.time}</div>
-                        </td>
-                        {/* Staff Column - show all staff names in one line */}
-                        <td className="p-4">
-                          {(() => {
-                            // Determine staff display from services
-                            if (r.services && r.services.length > 0) {
-                              const staffNames: string[] = [];
-                              r.services.forEach((s: any) => {
-                                const name = s.staffName;
-                                if (name && name !== "Any Available" && name !== "Any Staff" && name !== "null") {
-                                  if (!staffNames.includes(name)) {
-                                    staffNames.push(name);
-                                  }
-                                }
-                              });
-                              
-                              // Check if any service needs assignment
-                              const hasUnassigned = r.services.some((s: any) => 
-                                !s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.approvalStatus === "needs_assignment"
-                              );
-                              
-                              if (staffNames.length === 0) {
-                                return <span className="text-xs font-medium text-neutral-500 italic">Any Available</span>;
-                              } else {
-                                return (
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-medium text-neutral-700">{staffNames.join(", ")}</span>
-                                    {hasUnassigned && (
-                                      <span className="text-[10px] text-purple-600 font-medium">+ Needs Assignment</span>
-                                    )}
-                                  </div>
-                                );
-                              }
-                            }
-                            return <span>{r.staffName || "-"}</span>;
-                          })()}
                         </td>
                         <td className="p-4">{r.branchName || "-"}</td>
                         <td className="p-4 text-right pr-6">
@@ -1929,7 +1882,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           s.staffId && 
                           s.staffName && 
                           s.staffName !== "Any Available" && 
-                          s.staffName !== "Any Staff"
+                          s.staffName !== "Any Staff" &&
+                          s.staffName !== "Not Assigned Yet"
                         ).length > 0 && (
                           <div className="mb-4">
                             <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
@@ -1942,7 +1896,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 s.staffId && 
                                 s.staffName && 
                                 s.staffName !== "Any Available" && 
-                                s.staffName !== "Any Staff"
+                                s.staffName !== "Any Staff" &&
+                                s.staffName !== "Not Assigned Yet"
                               ).map((service) => (
                                 <div key={String(service.id || service.name)} className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200">
                                   <div className="flex items-center gap-2">
@@ -1966,7 +1921,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         {bookingToReassign.services.filter(s => 
                           s.approvalStatus === "rejected" || 
                           s.approvalStatus === "needs_assignment" ||
-                          (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
+                          (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.staffName === "Not Assigned Yet")
                         ).length > 0 && (
                           <div>
                             <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
@@ -1977,7 +1932,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               .filter(s => 
                                 s.approvalStatus === "rejected" || 
                                 s.approvalStatus === "needs_assignment" ||
-                                (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
+                                (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.staffName === "Not Assigned Yet")
                               )
                               .map((service) => {
                                 const serviceKey = String(service.id || service.serviceId || service.name);
@@ -1996,10 +1951,10 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                           Rejected
                                         </span>
                                       )}
-                                      {(service.approvalStatus === "needs_assignment" || !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff") && service.approvalStatus !== "rejected" && (
+                                      {(service.approvalStatus === "needs_assignment" || !service.staffId || service.staffName === "Any Available" || service.staffName === "Any Staff" || service.staffName === "Not Assigned Yet") && service.approvalStatus !== "rejected" && (
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-semibold">
                                           <i className="fas fa-user-clock text-[8px]"></i>
-                                          Needs Staff
+                                          Not Assigned Yet
                                         </span>
                                       )}
                                     </div>
@@ -2147,7 +2102,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       s.approvalStatus === "rejected" || 
                       s.approvalStatus === "needs_assignment" ||
                       !s.approvalStatus ||
-                      (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff")
+                      (!s.staffId || s.staffName === "Any Available" || s.staffName === "Any Staff" || s.staffName === "Not Assigned Yet")
                     );
                     
                     // If no services to reassign, allow button (edge case)

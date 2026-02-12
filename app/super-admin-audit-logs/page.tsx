@@ -656,17 +656,17 @@ export default function SuperAdminAuditLogsPage() {
                   </div>
                 )}
 
-                {/* Metadata - Salon/Branch Info */}
+                {/* Metadata - Workshop/Branch Info */}
                 {previewLog.metadata && (previewLog.metadata.salonName || previewLog.metadata.branchName || previewLog.metadata.originalEntityType) && (
                   <div className="bg-amber-50 rounded-xl p-4 border-2 border-amber-200">
                     <h5 className="font-semibold text-sm text-neutral-900 mb-3 flex items-center gap-2">
                       <i className="fas fa-store text-amber-600" />
-                      Salon Activity Details
+                      Workshop Activity Details
                     </h5>
                     <div className="space-y-2 text-sm">
                       {previewLog.metadata.salonName && (
                         <div className="flex justify-between">
-                          <span className="text-neutral-500">Salon Name</span>
+                          <span className="text-neutral-500">Workshop Name</span>
                           <span className="font-medium text-amber-700">{previewLog.metadata.salonName}</span>
                         </div>
                       )}

@@ -29,7 +29,8 @@ export type ServiceInput = {
   imageUrl?: string;
   reviews?: number;
   branches: string[]; // branchIds
-  staffIds: string[]; // salon_staff ids
+  staffIds: string[]; // staff ids
+  checklist?: string[]; // service checklist items
 };
 
 /**

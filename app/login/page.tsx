@@ -249,8 +249,8 @@ export default function LoginPage() {
         <div className="absolute -top-32 -left-32 w-96 h-96 bg-white/[0.03] rounded-full blur-3xl" />
         <div className="absolute -bottom-48 -right-48 w-[500px] h-[500px] bg-white/[0.02] rounded-full blur-3xl" />
 
-        <div className={`relative z-10 flex flex-col justify-between p-12 xl:p-16 w-full transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-          <div className="flex items-center gap-3">
+        <div className={`relative z-10 flex flex-col p-12 xl:p-16 w-full transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+          <div className="flex items-center gap-3 mb-auto">
             <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
               <i className="fas fa-wrench text-neutral-900 text-sm" />
             </div>
@@ -260,7 +260,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="max-w-lg">
+          <div className="max-w-lg my-auto">
             <h1 className="text-4xl xl:text-5xl font-bold text-white leading-[1.1] tracking-tight mb-5">
               Your workshop,
               <br />
@@ -283,17 +283,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2 text-neutral-500 text-xs">
-              <i className="fas fa-shield-halved text-sm text-neutral-600" />
-              <span>Secured by Firebase</span>
-            </div>
-            <div className="w-px h-4 bg-neutral-800" />
-            <div className="flex items-center gap-2 text-neutral-500 text-xs">
-              <i className="fas fa-lock text-sm text-neutral-600" />
-              <span>End-to-end encrypted</span>
-            </div>
-          </div>
         </div>
       </div>
 

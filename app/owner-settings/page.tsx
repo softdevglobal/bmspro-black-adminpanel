@@ -27,6 +27,8 @@ type UserData = {
   role: string;
   logoUrl?: string;
   termsAndConditions?: string;
+  bookingEngineUrl?: string;
+  slug?: string;
 };
 
 // Format ABN as XX XXX XXX XXX
@@ -119,6 +121,8 @@ export default function OwnerSettingsPage() {
           role: role,
           logoUrl: data?.logoUrl || "",
           termsAndConditions: data?.termsAndConditions || "",
+          bookingEngineUrl: data?.bookingEngineUrl || "",
+          slug: data?.slug || "",
         };
         
         setUserData(userData);
@@ -950,6 +954,36 @@ Example:
                       )}
                     </div>
                   </div>
+
+                  {/* Booking Engine URL */}
+                  {userData.bookingEngineUrl && (
+                    <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden">
+                      <div className="flex items-center gap-3 px-5 py-3.5 border-b border-neutral-100 bg-neutral-50/50">
+                        <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
+                          <i className="fas fa-link text-xs text-amber-400" />
+                        </div>
+                        <h3 className="text-sm font-bold text-neutral-900">Online Booking Link</h3>
+                      </div>
+                      <div className="p-5">
+                        <p className="text-xs text-neutral-500 mb-3">Share this link with your customers so they can book online.</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-neutral-50 border border-neutral-200 rounded-xl px-3.5 py-2.5 text-sm text-neutral-700 font-mono truncate select-all">
+                            {userData.bookingEngineUrl}
+                          </div>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(userData.bookingEngineUrl || "");
+                              showToast("Booking link copied!");
+                            }}
+                            className="flex-shrink-0 w-10 h-10 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl flex items-center justify-center transition-colors"
+                            title="Copy to clipboard"
+                          >
+                            <i className="fas fa-copy text-sm" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Branding - Logo Upload */}
                   <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden">

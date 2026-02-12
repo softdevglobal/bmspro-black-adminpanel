@@ -35,13 +35,13 @@ export default function BillingStatusBanner({
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
               isGraceExpired ? "bg-white/20" : "bg-white/20"
-            }`}>
+          }`}>
               <i className={`fas ${isGraceExpired ? "fa-exclamation-triangle" : "fa-clock"} text-lg`} />
-            </div>
+          </div>
             <div>
               <h3 className="font-bold text-lg">
-                {isGraceExpired ? "Account Suspension Imminent" : "Payment Required"}
-              </h3>
+              {isGraceExpired ? "Account Suspension Imminent" : "Payment Required"}
+            </h3>
               <p className="text-sm text-white/80">
                 {isGraceExpired
                   ? "Your grace period has expired"
@@ -54,23 +54,23 @@ export default function BillingStatusBanner({
         <div className="p-5">
           <p className={`text-sm mb-4 ${
             isGraceExpired ? "text-red-700" : "text-amber-700"
-          }`}>
-            {isGraceExpired
+            }`}>
+              {isGraceExpired
               ? "Please update your payment method immediately to avoid account suspension."
-              : `Payment failed. Update your payment method by ${graceDate} to avoid account suspension.`
-            }
-          </p>
-          <button
-            onClick={onUpdatePayment}
+                : `Payment failed. Update your payment method by ${graceDate} to avoid account suspension.`
+              }
+            </p>
+            <button
+              onClick={onUpdatePayment}
             className={`px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors ${
-              isGraceExpired
+                isGraceExpired
                 ? "bg-red-600 text-white hover:bg-red-700"
                 : "bg-amber-500 text-white hover:bg-amber-600"
-            }`}
-          >
-            <i className="fas fa-credit-card mr-2" />
-            Update Payment Method
-          </button>
+              }`}
+            >
+              <i className="fas fa-credit-card mr-2" />
+              Update Payment Method
+            </button>
         </div>
       </div>
     );
@@ -83,11 +83,11 @@ export default function BillingStatusBanner({
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center">
               <i className="fas fa-lock text-red-400 text-lg" />
-            </div>
+          </div>
             <div>
               <h3 className="font-bold text-lg">
-                Account {billingStatus === "suspended" ? "Suspended" : "Cancelled"}
-              </h3>
+              Account {billingStatus === "suspended" ? "Suspended" : "Cancelled"}
+            </h3>
               <p className="text-sm text-neutral-400">
                 {billingStatus === "suspended" ? "Action required to restore access" : "Your subscription has ended"}
               </p>
@@ -96,17 +96,17 @@ export default function BillingStatusBanner({
         </div>
         <div className="p-5">
           <p className="text-sm text-neutral-600 mb-4">
-            {billingStatus === "suspended"
-              ? "Your account has been suspended due to payment failure. Please update your payment method to restore access."
-              : "Your subscription has been cancelled. You can reactivate by subscribing to a plan."}
-          </p>
-          <button
-            onClick={onUpdatePayment}
+              {billingStatus === "suspended"
+                ? "Your account has been suspended due to payment failure. Please update your payment method to restore access."
+                : "Your subscription has been cancelled. You can reactivate by subscribing to a plan."}
+            </p>
+              <button
+                onClick={onUpdatePayment}
             className="px-5 py-2.5 bg-neutral-900 text-white rounded-xl font-semibold text-sm hover:bg-neutral-800 transition-colors"
-          >
+              >
             <i className="fas fa-credit-card mr-2 text-amber-400" />
-            {billingStatus === "suspended" ? "Update Payment & Restore" : "Subscribe to Plan"}
-          </button>
+                {billingStatus === "suspended" ? "Update Payment & Restore" : "Subscribe to Plan"}
+              </button>
         </div>
       </div>
     );
@@ -120,13 +120,13 @@ export default function BillingStatusBanner({
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
               <i className="fas fa-gift text-amber-400 text-lg" />
-            </div>
+          </div>
             <div>
               <h3 className="font-bold text-lg">Free Trial Active</h3>
               <p className="text-sm text-neutral-400">
                 You&apos;re currently on a {days}-day free trial. Your subscription will begin automatically after the trial ends.
-                {nextBillingDate && ` Trial ends on ${new Date(nextBillingDate).toLocaleDateString()}.`}
-              </p>
+              {nextBillingDate && ` Trial ends on ${new Date(nextBillingDate).toLocaleDateString()}.`}
+            </p>
             </div>
           </div>
         </div>

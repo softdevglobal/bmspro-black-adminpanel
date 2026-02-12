@@ -1017,7 +1017,7 @@ export default function DashboardPage() {
               <div className="mb-2">
                 <h3 className="text-3xl font-bold text-neutral-900">{activeStaff}</h3>
               </div>
-              <div className="text-xs text-neutral-500">{isSuperAdmin ? "Active salon owners" : "Available for booking"}</div>
+              <div className="text-xs text-neutral-500">{isSuperAdmin ? "Active workshop owners" : "Available for booking"}</div>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">

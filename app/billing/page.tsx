@@ -337,7 +337,7 @@ export default function BillingPage() {
                         <span className="text-4xl font-bold text-neutral-900">${price.starter}</span>
                         <span className="text-neutral-500 text-sm">{price.suffix}</span>
                       </div>
-                      <p className="text-sm text-neutral-600">Perfect for small salons</p>
+                      <p className="text-sm text-neutral-600">Perfect for small workshops</p>
                     </div>
                     <ul className="space-y-3 mb-8">
                       <li className="flex items-center text-sm text-neutral-700"><i className="fas fa-check text-emerald-500 mr-3" />1 Location</li>

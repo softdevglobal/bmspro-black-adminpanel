@@ -610,7 +610,7 @@ export default function SignupPage() {
               {/* Phone */}
               <div>
                 <label className="block text-[13px] font-semibold text-neutral-700 mb-1.5">
-                  Business Phone <span className="text-neutral-400 text-xs">(Optional)</span>
+                  Business Phone <span className="text-red-500 text-xs">*</span>
                 </label>
                 <div className="flex">
                   <span className="inline-flex items-center px-3.5 py-3 rounded-l-xl border-2 border-r-0 border-neutral-200 bg-neutral-100 text-neutral-500 text-sm font-mono">
@@ -621,6 +621,7 @@ export default function SignupPage() {
                     value={formPhone}
                     onChange={(e) => setFormPhone(e.target.value)}
                     placeholder="412 345 678"
+                    required
                     className={`flex-1 px-4 py-3 text-sm bg-neutral-50/80 border-2 border-l-0 rounded-r-xl focus:ring-0 focus:border-neutral-900 focus:bg-white transition-all outline-none placeholder:text-neutral-400 border-neutral-200 hover:border-neutral-300`}
                   />
                 </div>
@@ -795,75 +796,101 @@ export default function SignupPage() {
                   <p className="text-neutral-500 font-medium text-sm">No plans available at the moment.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {packages.map((pkg) => {
                     const isSelected = selectedPlan === pkg.id;
                     return (
                       <div
                         key={pkg.id}
                         onClick={() => setSelectedPlan(pkg.id)}
-                        className={`relative cursor-pointer rounded-xl border-2 transition-all duration-200 hover:shadow-lg ${
+                        className={`relative cursor-pointer rounded-2xl transition-all duration-200 group overflow-hidden ${
                           isSelected
-                            ? "border-neutral-900 bg-neutral-50 shadow-lg shadow-neutral-900/10"
-                            : "border-neutral-200 bg-white hover:border-neutral-300"
+                            ? "bg-neutral-900 text-white shadow-xl"
+                            : "bg-white border border-neutral-200 hover:border-neutral-300 hover:shadow-md"
                         }`}
                       >
+                        {/* Popular badge */}
                         {pkg.popular && (
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-neutral-900 text-white text-[11px] font-bold px-3.5 py-1 rounded-full shadow-md">
-                            Most Popular
-                          </div>
-                        )}
-                        
-                        {isSelected && (
-                          <div className="absolute top-3.5 right-3.5 w-6 h-6 bg-neutral-900 rounded-full flex items-center justify-center">
-                            <i className="fas fa-check text-white text-[10px]" />
+                          <div className={`absolute top-4 right-4 text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                            isSelected ? "bg-amber-400 text-neutral-900" : "bg-neutral-900 text-white"
+                          }`}>
+                            ★ Popular
                           </div>
                         )}
 
-                        <div className="p-5">
-                          <div className="mb-4">
-                            <h4 className="font-bold text-base text-neutral-900">{pkg.name}</h4>
-                            <p className="text-2xl font-bold text-neutral-900 mt-1">
-                              {pkg.priceLabel}
-                            </p>
+                        <div className="p-6">
+                          {/* Plan name */}
+                          <p className={`text-sm font-semibold mb-1 ${isSelected ? "text-neutral-400" : "text-neutral-500"}`}>
+                            {pkg.name}
+                          </p>
+
+                          {/* Price */}
+                          <div className="flex items-baseline gap-1 mb-5">
+                            <span className={`text-3xl font-extrabold tracking-tight ${isSelected ? "text-white" : "text-neutral-900"}`}>
+                              {pkg.priceLabel?.replace('/mo', '')}
+                            </span>
+                            <span className={`text-sm font-medium ${isSelected ? "text-neutral-400" : "text-neutral-400"}`}>/mo</span>
                           </div>
 
                           {/* Limits */}
-                          <div className="flex items-center gap-3 text-xs text-neutral-500 mb-4 pb-4 border-b border-neutral-100">
+                          <div className={`flex items-center gap-4 text-xs font-medium mb-4 pb-4 border-b ${
+                            isSelected ? "border-neutral-700 text-neutral-300" : "border-neutral-100 text-neutral-500"
+                          }`}>
                             <span className="flex items-center gap-1.5">
-                              <i className="fas fa-building" />
+                              <i className="fas fa-building text-[10px]" />
                               {pkg.branches === -1 ? "Unlimited" : pkg.branches} Branch{pkg.branches !== 1 ? "es" : ""}
                             </span>
                             <span className="flex items-center gap-1.5">
-                              <i className="fas fa-users" />
+                              <i className="fas fa-users text-[10px]" />
                               {pkg.staff === -1 ? "Unlimited" : pkg.staff} Staff
                             </span>
                           </div>
 
                           {/* Trial badge */}
                           {pkg.trialDays && pkg.trialDays > 0 && (
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold mb-3">
-                              <i className="fas fa-gift" />
+                            <div className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg mb-4 ${
+                              isSelected ? "bg-emerald-500/20 text-emerald-300" : "bg-emerald-50 text-emerald-600"
+                            }`}>
+                              <i className="fas fa-gift text-[10px]" />
                               {pkg.trialDays}-day free trial
                             </div>
                           )}
 
                           {/* Features */}
                           {pkg.features && pkg.features.length > 0 && (
-                            <ul className="space-y-1.5">
+                            <ul className="space-y-2.5">
                               {pkg.features.slice(0, 5).map((feature, idx) => (
-                                <li key={idx} className="flex items-start gap-2 text-xs text-neutral-600">
-                                  <i className={`fas fa-check text-[10px] mt-1 ${isSelected ? "text-neutral-900" : "text-emerald-500"}`} />
+                                <li key={idx} className={`flex items-start gap-2.5 text-[13px] ${
+                                  isSelected ? "text-neutral-300" : "text-neutral-600"
+                                }`}>
+                                  <i className={`fas fa-check text-[10px] mt-1 ${
+                                    isSelected ? "text-amber-400" : "text-neutral-900"
+                                  }`} />
                                   {feature}
                                 </li>
                               ))}
                               {pkg.features.length > 5 && (
-                                <li className="text-[11px] text-neutral-400 pl-5">
-                                  +{pkg.features.length - 5} more features
+                                <li className={`text-[11px] font-medium pl-5 ${
+                                  isSelected ? "text-neutral-500" : "text-neutral-400"
+                                }`}>
+                                  +{pkg.features.length - 5} more
                                 </li>
                               )}
                             </ul>
                           )}
+
+                          {/* Select indicator */}
+                          <div className={`mt-5 w-full py-2.5 rounded-xl text-center text-xs font-bold transition-all ${
+                            isSelected
+                              ? "bg-white text-neutral-900"
+                              : "bg-neutral-100 text-neutral-500 group-hover:bg-neutral-900 group-hover:text-white"
+                          }`}>
+                            {isSelected ? (
+                              <span><i className="fas fa-check mr-1.5" />Selected</span>
+                            ) : (
+                              <span>Select Plan</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

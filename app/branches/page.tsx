@@ -722,7 +722,7 @@ export default function BranchesPage() {
               <div className="relative z-10">
                 <h3 className="text-2xl font-bold">{editingId ? "Edit Branch" : "New Branch"}</h3>
                 <p className="text-neutral-400 text-sm mt-1">
-                  {editingId ? "Update branch details and settings." : "Set up a new salon location."}
+                  {editingId ? "Update branch details and settings." : "Set up a new workshop location."}
                 </p>
               </div>
             </div>

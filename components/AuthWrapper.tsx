@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import AuthGuard from "./AuthGuard";
 
 // Pages that don't need AuthGuard
-const PUBLIC_PAGES = ["/login", "/signup", "/reset-password"];
+const PUBLIC_PAGES = ["/login", "/signup", "/reset-password", "/book-now"];
 
 export default function AuthWrapper({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

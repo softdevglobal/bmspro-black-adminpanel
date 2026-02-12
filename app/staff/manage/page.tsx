@@ -1484,7 +1484,7 @@ export default function SettingsPage() {
                           ? "border-red-500 focus:ring-red-500" 
                           : "border-neutral-300 focus:ring-neutral-900"
                       }`}
-                      placeholder="name@salon.com"
+                      placeholder="name@workshop.com"
                       defaultValue={editingStaff?.email || ""}
                       onChange={(e) => {
                         const value = e.target.value.trim();

@@ -20,6 +20,7 @@ type Service = {
   reviews?: number;
   staffIds: string[];
   branches: string[];
+  checklist?: string[];
 };
 
 type Staff = { id: string; name: string; role: string; branch: string; status: "Active" | "Suspended"; avatar: string };
@@ -50,6 +51,8 @@ export default function ServicesPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Record<string, boolean>>({});
   const [selectedBranches, setSelectedBranches] = useState<Record<string, boolean>>({});
+  const [checklist, setChecklist] = useState<string[]>([]);
+  const [newChecklistItem, setNewChecklistItem] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // guard
@@ -115,6 +118,7 @@ export default function ServicesPage() {
           reviews: Number(r.reviews || 0),
           branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
           staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
+          checklist: Array.isArray((r as any).checklist) ? (r as any).checklist.map(String) : [],
         }))
       );
     });
@@ -141,6 +145,8 @@ export default function ServicesPage() {
     setImageUrl("");
     setImageFile(null);
     setImagePreview(null);
+    setChecklist([]);
+    setNewChecklistItem("");
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = false));
@@ -163,6 +169,8 @@ export default function ServicesPage() {
     setImageUrl(svc.imageUrl || "");
     setImagePreview(svc.imageUrl || null);
     setImageFile(null);
+    setChecklist(svc.checklist || []);
+    setNewChecklistItem("");
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = svc.staffIds?.includes(s.id) || false));
@@ -254,6 +262,7 @@ export default function ServicesPage() {
           imageUrl: finalImageUrl || "",
           staffIds: qualifiedStaff,
           branches: selectedBrs,
+          checklist: checklist.filter(item => item.trim() !== ""),
         });
       } else {
         await createServiceForOwner(ownerUid, {
@@ -264,6 +273,7 @@ export default function ServicesPage() {
           reviews: 0,
           staffIds: qualifiedStaff,
           branches: selectedBrs,
+          checklist: checklist.filter(item => item.trim() !== ""),
         });
       }
       setIsModalOpen(false);
@@ -354,80 +364,133 @@ export default function ServicesPage() {
                 Add New Service
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
               {services.map((s) => {
                 const staffCount = s.staffIds?.length || 0;
                 const branchCount = s.branches?.length || 0;
-                const branchLabel = branchCount === totalBranches ? "All Branches" : `${branchCount} Branches`;
+                const branchLabel = branchCount === totalBranches ? "All Branches" : `${branchCount} Branch${branchCount !== 1 ? "es" : ""}`;
                 return (
-                  <div key={s.id} className="group bg-white rounded-xl overflow-hidden hover:shadow-xl transition-all duration-300 border border-neutral-200 hover:border-neutral-300">
+                  <div key={s.id} className="group bg-white rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-neutral-900/[0.08] transition-all duration-300 border border-neutral-200 hover:border-neutral-300 hover:-translate-y-0.5">
                     {/* Service Image */}
-                    <div className="relative w-full h-48 bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-100 overflow-hidden">
+                    <div className="relative w-full h-52 bg-neutral-900 overflow-hidden">
                       {s.imageUrl ? (
                         <img 
                           src={s.imageUrl} 
                           alt={s.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <i className="fas fa-wrench text-6xl text-neutral-300/50" />
+                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-neutral-800 via-neutral-900 to-neutral-800 relative">
+                          <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.15) 1px, transparent 0)`, backgroundSize: '20px 20px' }} />
+                          <div className="relative flex flex-col items-center gap-2">
+                            <div className="w-16 h-16 rounded-2xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
+                              <i className="fas fa-wrench text-2xl text-amber-500/60" />
+                            </div>
+                            <span className="text-xs text-neutral-500 font-medium">No image</span>
+                          </div>
                         </div>
                       )}
                       
+                      {/* Dark overlay on hover */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                      
                       {/* Price badge */}
-                      <div className="absolute top-3 left-3 bg-neutral-900 text-white px-3 py-1.5 rounded-lg shadow-lg">
-                        <span className="text-lg font-bold">${s.price}</span>
+                      <div className="absolute top-3 left-3 z-10">
+                        <div className="bg-neutral-900/90 backdrop-blur-md text-white px-3.5 py-2 rounded-xl shadow-lg border border-white/[0.08] flex items-baseline gap-0.5">
+                          <span className="text-xs font-medium text-neutral-400">$</span>
+                          <span className="text-xl font-extrabold tracking-tight">{s.price}</span>
+                        </div>
+                      </div>
+
+                      {/* Duration badge */}
+                      <div className="absolute top-3 right-3 z-10">
+                        <div className="bg-amber-500 text-neutral-900 px-2.5 py-1.5 rounded-lg shadow-lg flex items-center gap-1.5">
+                          <i className="far fa-clock text-[10px]" />
+                          <span className="text-xs font-bold">{s.duration} min</span>
+                        </div>
                       </div>
                       
-                      {/* Action buttons - always visible with backdrop for light images */}
-                      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                      {/* Action buttons - show on hover */}
+                      <div className="absolute bottom-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300 z-10">
                         <button 
                           onClick={() => setPreviewService(s)} 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-neutral-900/70 backdrop-blur-sm text-white hover:bg-neutral-700 transition-all shadow-lg"
+                          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/90 backdrop-blur-sm text-neutral-700 hover:bg-white hover:text-neutral-900 transition-all shadow-lg"
                           title="View Details"
                         >
-                          <i className="fas fa-eye" />
+                          <i className="fas fa-eye text-sm" />
                         </button>
                         <button 
                           onClick={() => openEdit(s)} 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-neutral-900/70 backdrop-blur-sm text-white hover:bg-blue-600 transition-all shadow-lg"
+                          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/90 backdrop-blur-sm text-neutral-700 hover:bg-blue-500 hover:text-white transition-all shadow-lg"
                           title="Edit Service"
                         >
-                          <i className="fas fa-pen" />
+                          <i className="fas fa-pen text-sm" />
                         </button>
                         <button 
                           onClick={() => handleDeleteClick(s)} 
-                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-neutral-900/70 backdrop-blur-sm text-white hover:bg-rose-600 transition-all shadow-lg"
+                          className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/90 backdrop-blur-sm text-neutral-700 hover:bg-rose-500 hover:text-white transition-all shadow-lg"
                           title="Delete Service"
                         >
-                          <i className="fas fa-trash" />
+                          <i className="fas fa-trash text-sm" />
                         </button>
                       </div>
                     </div>
                     
                     {/* Service Details */}
-                    <div className="p-4">
-                      <h3 className="font-bold text-lg text-neutral-900 mb-2 line-clamp-1">{s.name}</h3>
-                      
-                      <div className="flex items-center gap-3 text-sm text-neutral-600 mb-3">
-                        <span className="flex items-center gap-1">
-                          <i className="fas fa-clock text-neutral-500" />
-                          {s.duration} min
-                        </span>
-                        <span className="text-neutral-300">•</span>
-                        <span className="text-neutral-600 font-medium">{branchLabel}</span>
+                    <div className="p-5">
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <h3 className="font-extrabold text-lg text-neutral-900 line-clamp-1 tracking-tight">{s.name}</h3>
                       </div>
                       
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1">
+                      {/* Info pills row */}
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-neutral-100 text-neutral-600 px-2.5 py-1 rounded-lg">
+                          <i className="fas fa-building text-[9px] text-neutral-400" />
+                          {branchLabel}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-lg">
+                          <i className="fas fa-users text-[9px]" />
+                          {staffCount} Staff
+                        </span>
+                        {s.checklist && s.checklist.length > 0 && (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-lg">
+                            <i className="fas fa-clipboard-check text-[9px]" />
+                            {s.checklist.length} Checks
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Checklist preview */}
+                      {s.checklist && s.checklist.length > 0 && (
+                        <div className="border-t border-neutral-100 pt-3">
+                          <div className="space-y-1.5">
+                            {s.checklist.slice(0, 3).map((item, i) => (
+                              <div key={i} className="flex items-center gap-2 text-xs text-neutral-600">
+                                <div className="w-4 h-4 rounded-md bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                  <i className="fas fa-check text-amber-600 text-[7px]" />
+                                </div>
+                                <span className="truncate font-medium">{item}</span>
+                              </div>
+                            ))}
+                            {s.checklist.length > 3 && (
+                              <p className="text-[11px] text-neutral-400 font-medium pl-6">+{s.checklist.length - 3} more items</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Bottom bar */}
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-neutral-100">
+                        <div className="flex items-center gap-1.5">
                           <i className="fas fa-star text-amber-400 text-xs" />
-                          <span className="text-xs text-neutral-500">({s.reviews || 0})</span>
+                          <span className="text-xs text-neutral-500 font-medium">({s.reviews || 0} reviews)</span>
                         </div>
-                        <div className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium">
-                          <i className="fas fa-users text-xs" />
-                          <span>{staffCount}</span>
-                        </div>
+                        <button 
+                          onClick={() => setPreviewService(s)}
+                          className="text-xs font-semibold text-neutral-500 hover:text-neutral-900 flex items-center gap-1 transition-colors"
+                        >
+                          View details <i className="fas fa-arrow-right text-[9px]" />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -480,7 +543,7 @@ export default function ServicesPage() {
                   <div className="space-y-2.5 sm:space-y-3">
                     <div>
                       <label className="block text-xs font-bold text-neutral-600 mb-1">Service Name</label>
-                      <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="e.g. Deep Tissue Massage" />
+                      <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="e.g. Full Vehicle Service" />
                     </div>
                     <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                       <div>
@@ -584,6 +647,88 @@ export default function ServicesPage() {
                     </div>
                   </div>
                 </div>
+                {/* Service Checklist */}
+                <div className="bg-amber-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-amber-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-clipboard-list text-amber-600" />
+                    Service Checklist
+                  </h4>
+                  <p className="text-[10px] text-amber-700 mb-2">
+                    <i className="fas fa-info-circle mr-1" />
+                    Add the tasks included in this service, point by point
+                  </p>
+                  
+                  {/* Existing checklist items */}
+                  {checklist.length > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {checklist.map((item, index) => (
+                        <div key={index} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-200 group">
+                          <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
+                          </div>
+                          <input
+                            type="text"
+                            value={item}
+                            onChange={(e) => {
+                              const updated = [...checklist];
+                              updated[index] = e.target.value;
+                              setChecklist(updated);
+                            }}
+                            className="flex-1 text-xs sm:text-sm text-neutral-700 bg-transparent focus:outline-none focus:ring-0 border-none p-0"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
+                            className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-all flex-shrink-0"
+                          >
+                            <i className="fas fa-times text-[10px]" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* Add new item */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newChecklistItem}
+                      onChange={(e) => setNewChecklistItem(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (newChecklistItem.trim()) {
+                            setChecklist([...checklist, newChecklistItem.trim()]);
+                            setNewChecklistItem("");
+                          }
+                        }
+                      }}
+                      placeholder="e.g. Oil & filter change"
+                      className="flex-1 border border-amber-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newChecklistItem.trim()) {
+                          setChecklist([...checklist, newChecklistItem.trim()]);
+                          setNewChecklistItem("");
+                        }
+                      }}
+                      className="px-3 sm:px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all text-xs sm:text-sm font-medium flex items-center gap-1.5 flex-shrink-0"
+                    >
+                      <i className="fas fa-plus text-[10px]" />
+                      Add
+                    </button>
+                  </div>
+                  
+                  {checklist.length > 0 && (
+                    <div className="mt-2 text-[10px] text-amber-600 font-medium">
+                      <i className="fas fa-list-check mr-1" />
+                      {checklist.length} item{checklist.length !== 1 ? "s" : ""} in checklist
+                    </div>
+                  )}
+                </div>
+
                 {/* Available Branches */}
                 <div className="bg-blue-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-blue-200">
                   <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -838,6 +983,29 @@ export default function ServicesPage() {
                   </div>
                 )}
               
+              {/* Service Checklist */}
+                {previewService.checklist && previewService.checklist.length > 0 && (
+                  <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border-2 border-amber-200">
+                    <h3 className="text-sm font-bold text-neutral-800 mb-3 flex items-center gap-2">
+                      <i className="fas fa-clipboard-list text-amber-600" />
+                      Service Checklist
+                      <span className="ml-auto text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
+                        {previewService.checklist.length} item{previewService.checklist.length !== 1 ? "s" : ""}
+                      </span>
+                    </h3>
+                    <div className="space-y-1.5">
+                      {previewService.checklist.map((item, index) => (
+                        <div key={index} className="flex items-start gap-2.5 bg-white rounded-lg p-2.5 border border-amber-100">
+                          <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <i className="fas fa-check text-white text-[8px]" />
+                          </div>
+                          <span className="text-sm text-neutral-700 font-medium">{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
               {/* Available Branches */}
                 <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
                   <h3 className="text-sm font-bold text-neutral-800 mb-3 flex items-center gap-2">

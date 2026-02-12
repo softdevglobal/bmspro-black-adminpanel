@@ -1,9 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 type Branch = { id: string; name: string; address: string; phone: string; timezone: string };
 type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: string[]; branches: string[] };
@@ -18,8 +16,8 @@ type CustomerBooking = {
   time: string;
   branchName: string;
   price: number;
-  createdAt: any;
-  updatedAt: any;
+  createdAt: string | null;
+  updatedAt: string | null;
 };
 
 export default function BookingEnginePage() {
@@ -140,51 +138,37 @@ export default function BookingEnginePage() {
   const visibleBookings = customerBookings.filter((b) => !dismissedIds.has(b.id));
   const unreadCount = visibleBookings.filter((b) => !readIds.has(b.id)).length;
 
-  // Real-time listener for customer bookings (notifications)
+  // Fetch customer bookings via API (server-side, no Firestore permissions needed)
+  const fetchBookingsRef = useRef(false);
+  const fetchCustomerBookings = useCallback(async () => {
+    if (!customer?.customerId) return;
+    try {
+      const res = await fetch(`/api/book-now/customer-bookings?customerId=${customer.customerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerBookings(data.bookings || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch customer bookings:", err);
+    } finally {
+      setNotifLoading(false);
+    }
+  }, [customer?.customerId]);
+
   useEffect(() => {
     if (!customer?.customerId) {
       setCustomerBookings([]);
       return;
     }
-    setNotifLoading(true);
-    const q = query(
-      collection(db, "bookings"),
-      where("customerId", "==", customer.customerId)
-    );
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const bookings: CustomerBooking[] = snap.docs.map((doc) => {
-          const d = doc.data();
-          return {
-            id: doc.id,
-            bookingCode: d.bookingCode || "",
-            serviceName: d.serviceName || (Array.isArray(d.services) ? d.services.map((s: any) => s.name).join(", ") : "Service"),
-            status: d.status || "Pending",
-            date: d.date || "",
-            time: d.time || "",
-            branchName: d.branchName || "",
-            price: d.price || 0,
-            createdAt: d.createdAt,
-            updatedAt: d.updatedAt,
-          };
-        });
-        // Sort client-side: newest first (avoids needing a composite Firestore index)
-        bookings.sort((a, b) => {
-          const aTime = a.createdAt?.toMillis?.() || 0;
-          const bTime = b.createdAt?.toMillis?.() || 0;
-          return bTime - aTime;
-        });
-        setCustomerBookings(bookings.slice(0, 20));
-        setNotifLoading(false);
-      },
-      (err) => {
-        console.error("Customer bookings listener error:", err);
-        setNotifLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [customer?.customerId]);
+    if (!fetchBookingsRef.current) {
+      setNotifLoading(true);
+      fetchBookingsRef.current = true;
+    }
+    fetchCustomerBookings();
+    // Poll every 30 seconds for updates
+    const interval = setInterval(fetchCustomerBookings, 30000);
+    return () => clearInterval(interval);
+  }, [customer?.customerId, fetchCustomerBookings]);
 
   const branchServices = useMemo(() => {
     if (!selectedBranch) return [];
@@ -276,6 +260,7 @@ export default function BookingEnginePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to submit booking");
       setBookingResult({ bookingCode: data.bookingCode, totalPrice: data.totalPrice, totalDuration: data.totalDuration });
+      fetchCustomerBookings(); // Refresh bookings list immediately
       goToStep(4);
       setTimeout(() => setShowConfetti(true), 400);
     } catch (err: any) { alert(err.message || "Something went wrong"); }
@@ -525,8 +510,9 @@ export default function BookingEnginePage() {
 
                     // Format time ago
                     const timeAgo = (() => {
-                      const updated = bk.updatedAt?.toDate?.() || bk.createdAt?.toDate?.();
-                      if (!updated) return "";
+                      const raw = bk.updatedAt || bk.createdAt;
+                      if (!raw) return "";
+                      const updated = new Date(raw);
                       const diff = Date.now() - updated.getTime();
                       const mins = Math.floor(diff / 60000);
                       if (mins < 1) return "Just now";
@@ -1671,8 +1657,8 @@ export default function BookingEnginePage() {
                   {filtered.map((bk, idx) => {
                     const cfg = statusConfig[bk.status] || statusConfig.Pending;
                     const createdDate = (() => {
-                      const d = bk.createdAt?.toDate?.();
-                      if (!d) return "";
+                      if (!bk.createdAt) return "";
+                      const d = new Date(bk.createdAt);
                       return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
                     })();
 

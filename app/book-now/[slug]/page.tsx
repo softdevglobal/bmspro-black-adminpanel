@@ -32,6 +32,9 @@ export default function BookingEnginePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [activeView, setActiveView] = useState<"booking" | "myBookings">("booking");
+  const [bookingsFilter, setBookingsFilter] = useState("All");
+
   const [step, setStep] = useState(1);
   const [prevStep, setPrevStep] = useState(1);
   const [animDir, setAnimDir] = useState<"forward" | "back">("forward");
@@ -39,6 +42,7 @@ export default function BookingEnginePage() {
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() }; });
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -382,6 +386,40 @@ export default function BookingEnginePage() {
             </button>
           )}
         </div>
+        {/* ── View Tabs (logged in only) ── */}
+        {customer && (
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center gap-1 pt-2 pb-1">
+            <button
+              onClick={() => setActiveView("booking")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                activeView === "booking"
+                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
+                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+              }`}
+            >
+              <i className="fas fa-calendar-plus text-[9px]" />
+              Book Now
+            </button>
+            <button
+              onClick={() => setActiveView("myBookings")}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                activeView === "myBookings"
+                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
+                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+              }`}
+            >
+              <i className="fas fa-list-check text-[9px]" />
+              My Bookings
+              {customerBookings.length > 0 && (
+                <span className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 ${
+                  activeView === "myBookings" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-600"
+                }`}>
+                  {customerBookings.length}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </nav>
 
       {/* ═══════════════════ NOTIFICATIONS DROPDOWN ═══════════════════ */}
@@ -686,7 +724,7 @@ export default function BookingEnginePage() {
       )}
 
       {/* ═══════════════════ HERO BANNER (Step 1 only) ═══════════════════ */}
-      {step === 1 && (
+      {activeView === "booking" && step === 1 && (
         <div className="relative z-10 overflow-hidden">
           <div className="bg-neutral-900 relative">
             {/* Abstract shapes */}
@@ -764,7 +802,7 @@ export default function BookingEnginePage() {
       )}
 
       {/* ═══════════════════ PROGRESS BAR ═══════════════════ */}
-      {step < 4 && (
+      {activeView === "booking" && step < 4 && (
         <div className="relative z-10 bg-white/70 backdrop-blur-md border-b border-neutral-100">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
             <div className="flex items-center">
@@ -817,6 +855,7 @@ export default function BookingEnginePage() {
       )}
 
       {/* ═══════════════════ MAIN CONTENT ═══════════════════ */}
+      {activeView === "booking" && (
       <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full relative z-10">
 
         {/* ── STEP 1: Branch Selection ── */}
@@ -1126,18 +1165,125 @@ export default function BookingEnginePage() {
                     When would you like to visit?
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Custom Calendar */}
                     <div>
                       <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Date <span className="text-red-400">*</span></label>
-                      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} min={today} required
-                        className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 font-medium" />
+                      {(() => {
+                        const { year, month } = calendarMonth;
+                        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                        const dayNames = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+                        const firstDay = new Date(year, month, 1);
+                        const lastDay = new Date(year, month + 1, 0);
+                        const startDow = (firstDay.getDay() + 6) % 7; // Monday=0
+                        const daysInMonth = lastDay.getDate();
+                        const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+
+                        const prevMonth = () => setCalendarMonth((p) => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 });
+                        const nextMonth = () => setCalendarMonth((p) => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 });
+                        const goToday = () => { const now = new Date(); setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() }); };
+
+                        const canGoPrev = new Date(year, month, 1) > new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+                        const cells: (number | null)[] = [];
+                        for (let i = 0; i < startDow; i++) cells.push(null);
+                        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                        while (cells.length % 7 !== 0) cells.push(null);
+
+                        return (
+                          <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white">
+                            {/* Month nav */}
+                            <div className="flex items-center justify-between px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
+                              <button type="button" onClick={prevMonth} disabled={!canGoPrev}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                <i className="fas fa-chevron-left text-[10px]" />
+                              </button>
+                              <span className="text-xs font-bold text-neutral-800">{monthNames[month]} {year}</span>
+                              <button type="button" onClick={nextMonth}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-all">
+                                <i className="fas fa-chevron-right text-[10px]" />
+                              </button>
+                            </div>
+                            {/* Day headers */}
+                            <div className="grid grid-cols-7 px-2 pt-2">
+                              {dayNames.map((d) => (
+                                <div key={d} className="text-center text-[10px] font-bold text-neutral-400 py-1">{d}</div>
+                              ))}
+                            </div>
+                            {/* Day cells */}
+                            <div className="grid grid-cols-7 px-2 pb-2 gap-y-0.5">
+                              {cells.map((day, i) => {
+                                if (day === null) return <div key={`e-${i}`} />;
+                                const cellDate = new Date(year, month, day); cellDate.setHours(0, 0, 0, 0);
+                                const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                                const isPast = cellDate < todayDate;
+                                const isSelected = date === dateStr;
+                                const isToday = cellDate.getTime() === todayDate.getTime();
+
+                                return (
+                                  <button
+                                    key={dateStr}
+                                    type="button"
+                                    disabled={isPast}
+                                    onClick={() => setDate(dateStr)}
+                                    className={`w-full aspect-square rounded-lg flex items-center justify-center text-xs font-semibold transition-all
+                                      ${isPast ? "text-neutral-300 cursor-not-allowed" : ""}
+                                      ${isSelected ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : ""}
+                                      ${isToday && !isSelected ? "bg-amber-100 text-amber-700 font-bold" : ""}
+                                      ${!isPast && !isSelected && !isToday ? "text-neutral-700 hover:bg-neutral-100" : ""}
+                                    `}
+                                  >
+                                    {day}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {/* Footer */}
+                            <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50">
+                              <button type="button" onClick={() => { setDate(""); }} className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors">Clear</button>
+                              <button type="button" onClick={() => { goToday(); setDate(today); }} className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 transition-colors">Today</button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      {date && (
+                        <div className="mt-2 flex items-center gap-2 px-1">
+                          <i className="fas fa-calendar-check text-[10px] text-emerald-500" />
+                          <span className="text-xs font-semibold text-neutral-700">{date}</span>
+                        </div>
+                      )}
                     </div>
+                    {/* Time picker */}
                     <div>
                       <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Time <span className="text-red-400">*</span></label>
-                      <select value={time} onChange={(e) => setTime(e.target.value)} required
-                        className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 appearance-none font-medium">
-                        <option value="">Select time</option>
-                        {timeSlots.map((t) => (<option key={t} value={t}>{t}</option>))}
-                      </select>
+                      <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white">
+                        <div className="px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
+                          <span className="text-xs font-bold text-neutral-800">Available Times</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5 p-2.5 max-h-[280px] overflow-y-auto">
+                          {timeSlots.length === 0 ? (
+                            <p className="col-span-3 text-center text-[11px] text-neutral-400 py-6">No times available</p>
+                          ) : (
+                            timeSlots.map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => setTime(t)}
+                                className={`px-2 py-2 rounded-lg text-xs font-semibold transition-all text-center
+                                  ${time === t ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800"}
+                                `}
+                              >
+                                {t}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      {time && (
+                        <div className="mt-2 flex items-center gap-2 px-1">
+                          <i className="fas fa-clock text-[10px] text-emerald-500" />
+                          <span className="text-xs font-semibold text-neutral-700">{time}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1413,6 +1559,182 @@ export default function BookingEnginePage() {
           </div>
         )}
       </main>
+      )}
+
+      {/* ═══════════════════ MY BOOKINGS VIEW ═══════════════════ */}
+      {activeView === "myBookings" && customer && (
+        <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full relative z-10">
+          <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+            {/* Header */}
+            <div className="flex items-start sm:items-center justify-between mb-6 gap-3 flex-col sm:flex-row">
+              <div>
+                <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">My Bookings</h3>
+                <p className="text-neutral-500 text-sm mt-1">View and track all your bookings</p>
+              </div>
+              <button
+                onClick={() => setActiveView("booking")}
+                className="flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg shadow-neutral-900/10 active:scale-[0.97]"
+              >
+                <i className="fas fa-plus text-[9px]" />
+                New Booking
+              </button>
+            </div>
+
+            {/* Status filter tabs */}
+            <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-1 scrollbar-hide">
+              {[
+                { key: "All", icon: "fa-border-all", count: customerBookings.length },
+                { key: "Pending", icon: "fa-clock", count: customerBookings.filter((b) => b.status === "Pending" || b.status === "AwaitingStaffApproval" || b.status === "PartiallyApproved").length },
+                { key: "Confirmed", icon: "fa-circle-check", count: customerBookings.filter((b) => b.status === "Confirmed").length },
+                { key: "Completed", icon: "fa-flag-checkered", count: customerBookings.filter((b) => b.status === "Completed").length },
+                { key: "Cancelled", icon: "fa-ban", count: customerBookings.filter((b) => b.status === "Canceled").length },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setBookingsFilter(tab.key)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[11px] font-bold transition-all whitespace-nowrap ${
+                    bookingsFilter === tab.key
+                      ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
+                      : "bg-white text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 border border-neutral-200/80"
+                  }`}
+                >
+                  <i className={`fas ${tab.icon} text-[9px]`} />
+                  {tab.key}
+                  {tab.count > 0 && (
+                    <span className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 ${
+                      bookingsFilter === tab.key ? "bg-white/20 text-white" : "bg-neutral-100 text-neutral-500"
+                    }`}>
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Booking cards */}
+            {(() => {
+              const filtered = customerBookings.filter((bk) => {
+                if (bookingsFilter === "All") return true;
+                if (bookingsFilter === "Pending") return bk.status === "Pending" || bk.status === "AwaitingStaffApproval" || bk.status === "PartiallyApproved";
+                if (bookingsFilter === "Confirmed") return bk.status === "Confirmed";
+                if (bookingsFilter === "Completed") return bk.status === "Completed";
+                if (bookingsFilter === "Cancelled") return bk.status === "Canceled";
+                return true;
+              });
+
+              if (notifLoading) {
+                return (
+                  <div className="flex flex-col items-center justify-center py-20 gap-3">
+                    <div className="w-10 h-10 rounded-full border-[3px] border-neutral-200 border-t-amber-500 animate-spin" />
+                    <p className="text-xs text-neutral-400 font-medium">Loading bookings...</p>
+                  </div>
+                );
+              }
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="text-center py-20 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                    <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <i className="fas fa-calendar-xmark text-2xl text-neutral-300" />
+                    </div>
+                    <p className="text-neutral-600 font-bold text-base">No bookings found</p>
+                    <p className="text-neutral-400 text-sm mt-1.5 max-w-xs mx-auto">
+                      {bookingsFilter === "All"
+                        ? "You haven't made any bookings yet. Book a service to get started!"
+                        : `No ${bookingsFilter.toLowerCase()} bookings.`}
+                    </p>
+                    {bookingsFilter === "All" && (
+                      <button
+                        onClick={() => setActiveView("booking")}
+                        className="mt-5 inline-flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold px-5 py-2.5 rounded-xl transition-all shadow-lg shadow-neutral-900/10"
+                      >
+                        <i className="fas fa-plus text-[9px]" />
+                        Book a Service
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              const statusConfig: Record<string, { bg: string; text: string; icon: string; label: string; dot: string }> = {
+                Pending: { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock", label: "Pending", dot: "bg-amber-400" },
+                Confirmed: { bg: "bg-emerald-50", text: "text-emerald-700", icon: "fa-circle-check", label: "Confirmed", dot: "bg-emerald-400" },
+                AwaitingStaffApproval: { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock", label: "Pending", dot: "bg-amber-400" },
+                PartiallyApproved: { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock", label: "Pending", dot: "bg-amber-400" },
+                StaffRejected: { bg: "bg-amber-50", text: "text-amber-700", icon: "fa-clock", label: "Pending", dot: "bg-amber-400" },
+                Completed: { bg: "bg-blue-50", text: "text-blue-700", icon: "fa-flag-checkered", label: "Completed", dot: "bg-blue-400" },
+                Canceled: { bg: "bg-rose-50", text: "text-rose-700", icon: "fa-ban", label: "Cancelled", dot: "bg-rose-400" },
+              };
+
+              return (
+                <div className="space-y-3">
+                  {filtered.map((bk, idx) => {
+                    const cfg = statusConfig[bk.status] || statusConfig.Pending;
+                    const createdDate = (() => {
+                      const d = bk.createdAt?.toDate?.();
+                      if (!d) return "";
+                      return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+                    })();
+
+                    return (
+                      <div
+                        key={bk.id}
+                        className="bg-white rounded-2xl border border-neutral-200/80 shadow-sm hover:shadow-lg hover:shadow-neutral-900/[0.04] transition-all overflow-hidden"
+                        style={{ animation: `fadeSlideUp 0.4s ease-out ${idx * 60}ms both` }}
+                      >
+                        {/* Status accent */}
+                        <div className={`h-[3px] ${cfg.dot}`} />
+
+                        <div className="p-4 sm:p-5">
+                          {/* Top row: service name + status badge */}
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-sm font-bold text-neutral-900 leading-snug truncate">{bk.serviceName}</h4>
+                              <p className="text-[11px] text-neutral-400 font-medium mt-0.5">Booked {createdDate}</p>
+                            </div>
+                            <span className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold ${cfg.bg} ${cfg.text}`}>
+                              <i className={`fas ${cfg.icon} text-[8px]`} />
+                              {cfg.label}
+                            </span>
+                          </div>
+
+                          {/* Details grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-neutral-50 rounded-xl px-3 py-2.5">
+                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Booking Code</p>
+                              <p className="text-[11px] font-bold text-neutral-800 font-mono">{bk.bookingCode}</p>
+                            </div>
+                            <div className="bg-neutral-50 rounded-xl px-3 py-2.5">
+                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Date</p>
+                              <p className="text-[11px] font-bold text-neutral-800">{bk.date}</p>
+                            </div>
+                            <div className="bg-neutral-50 rounded-xl px-3 py-2.5">
+                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Time</p>
+                              <p className="text-[11px] font-bold text-neutral-800">{bk.time}</p>
+                            </div>
+                            <div className="bg-neutral-50 rounded-xl px-3 py-2.5">
+                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Amount</p>
+                              <p className="text-[11px] font-bold text-neutral-800">${bk.price}</p>
+                            </div>
+                          </div>
+
+                          {/* Branch */}
+                          {bk.branchName && (
+                            <div className="flex items-center gap-2 mt-3 text-[11px] text-neutral-500">
+                              <i className="fas fa-location-dot text-[9px] text-neutral-400" />
+                              <span className="font-medium">{bk.branchName}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </main>
+      )}
 
       {/* ═══════════════════ SIGN OUT CONFIRM ═══════════════════ */}
       {showLogoutConfirm && (

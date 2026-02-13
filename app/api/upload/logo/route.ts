@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { userData } = authResult;
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await req.json();
     const { imageData, fileExtension = "jpg" } = body;
 

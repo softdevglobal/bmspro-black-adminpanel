@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
     }
 
     const { userData } = authResult;
-    
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const body = await req.json();
     const { email, displayName, password, ownerUid } = body;
 
@@ -55,11 +56,14 @@ export async function POST(req: NextRequest) {
 
     // Security: If ownerUid is provided, verify it matches the authenticated user's ownerUid
     // This prevents creating staff for other salons
-    if (ownerUid && !verifyTenantAccess(ownerUid, userData.ownerUid)) {
-      return NextResponse.json(
-        { error: "You can only create staff for your own salon" },
-        { status: 403 }
-      );
+    if (ownerUid) {
+      const tenantCheck = await verifyTenantAccess(userData.uid, userData.role, userData.ownerUid, ownerUid);
+      if (!tenantCheck.allowed) {
+        return NextResponse.json(
+          { error: tenantCheck.error || "You can only create staff for your own salon" },
+          { status: 403 }
+        );
+      }
     }
 
     const auth = adminAuth();

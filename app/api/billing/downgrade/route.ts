@@ -5,9 +5,9 @@ import { verifyAdminAuth } from "@/lib/authHelpers";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 /**
  * POST /api/billing/downgrade
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { userData } = authResult;
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await req.json();
     const { newPlanId } = body;
 
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get current subscription from Stripe
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
     const currentPriceId = (subscription as any).items.data[0]?.price?.id;
     const currentPeriodEnd = (subscription as any).current_period_end;
 
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create a new price in Stripe for the downgrade plan
-    const newPrice = await stripe.prices.create({
+    const newPrice = await getStripe().prices.create({
       currency: "aud",
       unit_amount: Math.round(newPlanData.price * 100), // Convert to cents
       recurring: {
@@ -120,9 +121,9 @@ export async function POST(req: NextRequest) {
     if (scheduleId) {
       try {
         // Try to update existing schedule
-        const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+        const schedule = await getStripe().subscriptionSchedules.retrieve(scheduleId);
         
-        await stripe.subscriptionSchedules.update(scheduleId, {
+        await getStripe().subscriptionSchedules.update(scheduleId, {
           phases: [
             {
               items: [{ price: currentPriceId, quantity: 1 }],
@@ -148,12 +149,12 @@ export async function POST(req: NextRequest) {
     
     if (!scheduleId) {
       // Create new schedule from the subscription
-      const schedule = await stripe.subscriptionSchedules.create({
+      const schedule = await getStripe().subscriptionSchedules.create({
         from_subscription: subscriptionId,
       });
 
       // Update the schedule with phases
-      await stripe.subscriptionSchedules.update(schedule.id, {
+      await getStripe().subscriptionSchedules.update(schedule.id, {
         end_behavior: "release",
         phases: [
           {

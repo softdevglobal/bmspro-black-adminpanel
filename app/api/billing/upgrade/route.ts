@@ -5,9 +5,9 @@ import { verifyAdminAuth } from "@/lib/authHelpers";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 /**
  * POST /api/billing/upgrade
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { userData } = authResult;
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await req.json();
     const { newPlanId } = body;
 
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get current subscription from Stripe
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
     const subscriptionItemId = subscription.items.data[0]?.id;
 
     if (!subscriptionItemId) {
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create a new price in Stripe for this plan
-    const newPrice = await stripe.prices.create({
+    const newPrice = await getStripe().prices.create({
       currency: "aud",
       unit_amount: Math.round(newPlanData.price * 100), // Convert to cents
       recurring: {
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Update subscription: immediate charge + restart cycle
-    await stripe.subscriptions.update(subscriptionId, {
+    await getStripe().subscriptions.update(subscriptionId, {
       items: [{
         id: subscriptionItemId,
         price: newPrice.id,
@@ -132,7 +133,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Retrieve updated subscription to get latest period dates
-    const updatedSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const updatedSubscription = await getStripe().subscriptions.retrieve(subscriptionId);
 
     // Update Firestore
     const updateData: any = {

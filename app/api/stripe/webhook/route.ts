@@ -4,9 +4,9 @@ import { adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     let event: Stripe.Event;
 
     try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+      event = getStripe().webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err: any) {
       console.error("[WEBHOOK] Signature verification failed:", err.message);
       return NextResponse.json(
@@ -190,7 +190,7 @@ async function handleCheckoutCompleted(
   }
 
   // Get subscription details from Stripe
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
   const sub = subscription as any;
   const priceId = sub.items?.data[0]?.price?.id;
   
@@ -281,7 +281,7 @@ async function handlePaymentSucceeded(
   }
 
   // Get subscription to get current price
-  const subscription = await stripe.subscriptions.retrieve(inv.subscription as string);
+  const subscription = await getStripe().subscriptions.retrieve(inv.subscription as string);
   const sub = subscription as any;
   const priceId = sub.items?.data[0]?.price?.id;
 

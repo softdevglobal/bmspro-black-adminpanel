@@ -22,6 +22,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     const { userData } = authResult;
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const db = adminDb();
 
     // Query all notifications for this tenant

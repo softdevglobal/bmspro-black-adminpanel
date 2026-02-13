@@ -4,9 +4,9 @@ import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     // Create billing portal session
     const baseUrl = req.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     
-    const session = await stripe.billingPortal.sessions.create({
+    const session = await getStripe().billingPortal.sessions.create({
       customer: userData.stripeCustomerId,
       return_url: returnUrl || `${baseUrl}/subscription`,
     });

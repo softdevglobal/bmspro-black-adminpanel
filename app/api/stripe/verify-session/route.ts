@@ -4,9 +4,9 @@ import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 /**
  * POST /api/stripe/verify-session
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     const db = adminDb();
 
     // Get the checkout session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await getStripe().checkout.sessions.retrieve(sessionId);
     
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get subscription details from Stripe
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
     const sub = subscription as any;
     const priceId = sub.items.data[0]?.price?.id;
     

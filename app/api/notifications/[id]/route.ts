@@ -25,6 +25,7 @@ export async function DELETE(
     }
 
     const { userData } = authResult;
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const { id } = await context.params;
 
     const db = adminDb();
@@ -48,9 +49,10 @@ export async function DELETE(
                                    notificationData.targetAdminUid ||
                                    notificationData.branchAdminUid;
 
-    if (!verifyTenantAccess(notificationOwnerUid, userData.ownerUid)) {
+    const tenantCheck = await verifyTenantAccess(userData.uid, userData.role, userData.ownerUid, notificationOwnerUid || "");
+    if (!tenantCheck.allowed) {
       return NextResponse.json(
-        { error: "You do not have permission to delete this notification" },
+        { error: tenantCheck.error || "You do not have permission to delete this notification" },
         { status: 403 }
       );
     }

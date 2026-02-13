@@ -5,9 +5,9 @@ import { verifyAdminAuth } from "@/lib/authHelpers";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 /**
  * POST /api/billing/cancel
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { userData } = authResult;
+    if (!userData) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const db = adminDb();
     const userId = userData.uid;
 
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get current subscription from Stripe
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
 
     if (subscription.cancel_at_period_end) {
       return NextResponse.json(
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Cancel at period end
-    await stripe.subscriptions.update(subscriptionId, {
+    await getStripe().subscriptions.update(subscriptionId, {
       cancel_at_period_end: true,
       metadata: {
         ...subscription.metadata,

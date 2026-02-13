@@ -4,9 +4,9 @@ import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover",
-});
+let _stripe: Stripe;
+const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
+
 
 // Default product name for BMS Pro subscriptions
 const PRODUCT_NAME = "BMS Pro Subscription";
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     if (!stripeCustomerId) {
       // Create a new Stripe customer
-      const customer = await stripe.customers.create({
+      const customer = await getStripe().customers.create({
         email: userData?.email || decodedToken.email,
         name: userData?.name || userData?.displayName || "",
         metadata: {
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
       },
     ];
     
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       customer: stripeCustomerId,
       payment_method_types: ["card"],
       mode: "subscription",

@@ -2,11 +2,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { TIMEZONES } from "@/lib/timezone";
-import { generateUniqueSlug } from "@/lib/slug";
 
 interface Package {
   id: string;
@@ -212,80 +210,57 @@ export default function SignupPage() {
 
     try {
       setCreating(true);
-      
-      let ownerUid: string;
-      try {
-        const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, formPassword);
-        ownerUid = userCredential.user.uid;
-      } catch (e: any) {
-        console.error("Firebase Auth error:", e?.code, e?.message);
-        if (e?.code === "auth/email-already-in-use") {
+
+      // ---- Call server API to create auth user + Firestore document ----
+      const registerRes = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          password: formPassword,
+          ownerName: formOwnerName.trim(),
+          businessName: formBusinessName.trim(),
+          businessType: formBusinessType || null,
+          abn: formAbn.replace(/\s/g, '').trim() || null,
+          businessStructure: formStructure || null,
+          gstRegistered: formGst,
+          state: formState || null,
+          timezone: formTimezone || "Australia/Sydney",
+          address: formAddress || null,
+          postcode: formPostcode || null,
+          phone: formPhone.trim() || null,
+          planId: selectedPackage.id,
+          planName: selectedPackage.name,
+          planPrice: selectedPackage.priceLabel || null,
+          planKey: selectedPackage.plan_key || null,
+          planBranches: selectedPackage.branches,
+          planStaff: selectedPackage.staff,
+          trialDays: selectedPackage.trialDays || 0,
+        }),
+      });
+
+      const registerData = await registerRes.json();
+
+      if (!registerRes.ok) {
+        if (registerData.error === "email-already-in-use") {
           setEmailAlreadyExists(true);
           setGeneralError("");
           return;
-        } else if (e?.code === "auth/invalid-email") {
+        }
+        if (registerData.error === "invalid-email") {
           setGeneralError("Invalid email address format.");
           return;
-        } else if (e?.code === "auth/weak-password") {
+        }
+        if (registerData.error === "weak-password") {
           setGeneralError("Password is too weak. Please use a stronger password.");
           return;
         }
-        throw e;
+        setGeneralError(registerData.message || registerData.error || "Registration failed.");
+        return;
       }
 
-      // Calculate trial info
-      const trialDays = selectedPackage.trialDays ? parseInt(String(selectedPackage.trialDays), 10) : 0;
-      const hasFreeTrial = trialDays > 0;
-      const now = new Date();
-      const trialStart = hasFreeTrial ? now : null;
-      const trialEnd = hasFreeTrial ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000) : null;
-
-      // Generate unique slug for booking engine URL
-      const slug = await generateUniqueSlug(formBusinessName.trim());
-      const bookingEngineBaseUrl = process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL || "https://black.bmspros.com.au/book-now";
-      const bookingEngineUrl = `${bookingEngineBaseUrl}/${slug}`;
-
-      // Create Firestore document
-      const newTenantRef = doc(db, "users", ownerUid);
-      await setDoc(newTenantRef, {
-        email: trimmedEmail,
-        displayName: formOwnerName.trim() || formBusinessName.trim(),
-        role: "workshop_owner",
-        provider: "password",
-        uid: ownerUid,
-        name: formBusinessName.trim(),
-        slug,
-        bookingEngineUrl,
-        businessType: formBusinessType || null,
-        abn: formAbn.replace(/\s/g, '').trim() || null,
-        businessStructure: formStructure || null,
-        gstRegistered: formGst,
-        state: formState || null,
-        timezone: formTimezone || "Australia/Sydney",
-        locationText: formAddress ? `${formAddress}${formPostcode ? ` ${formPostcode}` : ""}` : null,
-        contactPhone: formPhone.trim() || null,
-        plan: selectedPackage.name,
-        price: selectedPackage.priceLabel || null,
-        planId: selectedPackage.id,
-        plan_key: selectedPackage.plan_key || null,
-        branchLimit: selectedPackage.branches,
-        currentBranchCount: 0,
-        branchNames: [],
-        staffLimit: selectedPackage.staff,
-        currentStaffCount: 0,
-        status: hasFreeTrial ? "Free Trial Active" : "Pending Payment",
-        accountStatus: hasFreeTrial ? "active_trial" : "pending_payment",
-        subscriptionStatus: hasFreeTrial ? "trialing" : "pending",
-        billing_status: hasFreeTrial ? "trialing" : "pending",
-        trialDays: trialDays,
-        hasFreeTrial: hasFreeTrial,
-        trial_start: trialStart,
-        trial_end: trialEnd,
-        paymentDetailsRequired: !hasFreeTrial,
-        signupSource: "self_registration",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      // ---- Sign in on the client so AuthGuard recognises the session ----
+      await signInWithEmailAndPassword(auth, trimmedEmail, formPassword);
 
       // Send welcome email (non-blocking)
       try {
@@ -303,8 +278,8 @@ export default function SignupPage() {
             planName: selectedPackage.name,
             planPrice: selectedPackage.priceLabel,
             paymentUrl: paymentUrl,
-            trialDays: trialDays,
-            bookingEngineUrl: bookingEngineUrl,
+            trialDays: registerData.trialDays || 0,
+            bookingEngineUrl: registerData.bookingEngineUrl || "",
             businessType: businessTypeLabel,
             state: formState || undefined,
             phone: formPhone.trim() || undefined,
@@ -351,9 +326,7 @@ export default function SignupPage() {
       <div className="bg-neutral-950 sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center">
-              <i className="fas fa-wrench text-neutral-900 text-sm" />
-            </div>
+            <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-9 h-9 rounded-xl object-cover" />
             <div>
               <span className="text-white font-bold text-base tracking-tight">BMS PRO</span>
               <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>

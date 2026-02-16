@@ -207,20 +207,15 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col lg:flex-row bg-neutral-100">
       {/* ===== MOBILE: Dark branded header ===== */}
       <div className={`lg:hidden relative overflow-hidden bg-neutral-950 px-6 pt-12 pb-10 transition-all duration-700 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
-        {/* Gradient + dot pattern */}
-        <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black" />
-        <div className="absolute inset-0 opacity-[0.04]" style={{
-          backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.15) 1px, transparent 0)`,
-          backgroundSize: '24px 24px'
-        }} />
-        <div className="absolute -top-20 -right-20 w-60 h-60 bg-white/[0.03] rounded-full blur-3xl" />
+        {/* Background image */}
+        <img src="/login-form.jpeg" alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/60" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/50" />
         
         <div className="relative z-10">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-black/20">
-              <i className="fas fa-wrench text-neutral-900 text-sm" />
-            </div>
+            <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-10 h-10 rounded-xl shadow-lg shadow-black/20 object-cover" />
             <div>
               <span className="text-white font-bold text-lg tracking-tight">BMS PRO</span>
               <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>
@@ -241,19 +236,14 @@ export default function LoginPage() {
 
       {/* ===== DESKTOP: Left Panel - Hero Branding ===== */}
       <div className="hidden lg:flex lg:w-[55%] relative overflow-hidden bg-neutral-950">
-        <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black" />
-        <div className="absolute inset-0 opacity-[0.03]" style={{
-          backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.15) 1px, transparent 0)`,
-          backgroundSize: '32px 32px'
-        }} />
-        <div className="absolute -top-32 -left-32 w-96 h-96 bg-white/[0.03] rounded-full blur-3xl" />
-        <div className="absolute -bottom-48 -right-48 w-[500px] h-[500px] bg-white/[0.02] rounded-full blur-3xl" />
+        {/* Background image */}
+        <img src="/login-form.jpeg" alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/50" />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-black/30" />
 
         <div className={`relative z-10 flex flex-col p-12 xl:p-16 w-full transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
           <div className="flex items-center gap-3 mb-auto">
-            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-              <i className="fas fa-wrench text-neutral-900 text-sm" />
-            </div>
+            <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-10 h-10 rounded-xl object-cover" />
             <div>
               <span className="text-white font-bold text-lg tracking-tight">BMS PRO</span>
               <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>

@@ -205,13 +205,13 @@ function ResetPasswordForm() {
         <div className="rounded-2xl border border-neutral-200 shadow-sm p-6">
           <div className="flex items-center gap-3 mb-6">
             <img
-              src="/bmspink-icon.jpeg"
+              src="/bmsblack-icon.jpeg"
               alt="BMS PRO BLACK"
               className="w-10 h-10 rounded-xl shadow-lg object-cover"
             />
             <div>
               <h1 className="font-bold text-lg text-neutral-900">BMS PRO</h1>
-              <p className="text-xs font-semibold text-neutral-600">PINK — Admin</p>
+              <p className="text-xs font-semibold text-neutral-600">BLACK — Admin</p>
             </div>
           </div>
 

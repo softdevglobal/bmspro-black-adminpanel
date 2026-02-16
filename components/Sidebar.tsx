@@ -243,9 +243,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     >
       <div className="p-6 border-b border-neutral-800">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
-            <i className="fas fa-wrench text-white text-sm" />
-          </div>
+          <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-10 h-10 rounded-xl shadow-lg object-cover" />
           <div>
             <h1 className="font-bold text-base text-white">BMS PRO</h1>
             <p className="text-[10px] font-semibold tracking-[0.2em] text-neutral-500 uppercase">Black</p>

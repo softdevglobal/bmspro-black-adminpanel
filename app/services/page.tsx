@@ -8,7 +8,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
-import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService } from "@/lib/services";
+import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService, type ChecklistItem, normalizeChecklist } from "@/lib/services";
 
 type Service = {
   id: string;
@@ -20,7 +20,7 @@ type Service = {
   reviews?: number;
   staffIds: string[];
   branches: string[];
-  checklist?: string[];
+  checklist?: ChecklistItem[];
 };
 
 type Staff = { id: string; name: string; role: string; branch: string; status: "Active" | "Suspended"; avatar: string };
@@ -51,8 +51,9 @@ export default function ServicesPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Record<string, boolean>>({});
   const [selectedBranches, setSelectedBranches] = useState<Record<string, boolean>>({});
-  const [checklist, setChecklist] = useState<string[]>([]);
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState("");
+  const [newChecklistDesc, setNewChecklistDesc] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // guard
@@ -118,7 +119,7 @@ export default function ServicesPage() {
           reviews: Number(r.reviews || 0),
           branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
           staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
-          checklist: Array.isArray((r as any).checklist) ? (r as any).checklist.map(String) : [],
+          checklist: normalizeChecklist((r as any).checklist),
         }))
       );
     });
@@ -147,6 +148,7 @@ export default function ServicesPage() {
     setImagePreview(null);
     setChecklist([]);
     setNewChecklistItem("");
+    setNewChecklistDesc("");
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = false));
@@ -171,6 +173,7 @@ export default function ServicesPage() {
     setImageFile(null);
     setChecklist(svc.checklist || []);
     setNewChecklistItem("");
+    setNewChecklistDesc("");
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = svc.staffIds?.includes(s.id) || false));
@@ -262,7 +265,7 @@ export default function ServicesPage() {
           imageUrl: finalImageUrl || "",
           staffIds: qualifiedStaff,
           branches: selectedBrs,
-          checklist: checklist.filter(item => item.trim() !== ""),
+          checklist: checklist.filter(item => item.name.trim() !== ""),
         });
       } else {
         await createServiceForOwner(ownerUid, {
@@ -273,7 +276,7 @@ export default function ServicesPage() {
           reviews: 0,
           staffIds: qualifiedStaff,
           branches: selectedBrs,
-          checklist: checklist.filter(item => item.trim() !== ""),
+          checklist: checklist.filter(item => item.name.trim() !== ""),
         });
       }
       setIsModalOpen(false);
@@ -466,25 +469,30 @@ export default function ServicesPage() {
                           {s.checklist && s.checklist.length > 0 && (
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-amber-500/10 text-amber-400 px-2.5 py-1.5 rounded-lg border border-amber-500/10">
                               <i className="fas fa-clipboard-check text-[9px]" />
-                              {s.checklist.length} Checks
+                              {s.checklist.length} Tasks
                             </span>
                           )}
                         </div>
 
-                        {/* Checklist preview */}
+                        {/* Todo list preview */}
                         {s.checklist && s.checklist.length > 0 && (
                           <div className="bg-white/[0.04] rounded-xl border border-white/[0.06] p-3.5 mb-4">
                             <div className="flex items-center gap-2 mb-2.5">
                               <i className="fas fa-clipboard-list text-amber-500 text-[10px]" />
-                              <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Service Checklist</span>
+                              <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest">Todo List</span>
                             </div>
                             <div className="space-y-1.5">
                               {s.checklist.slice(0, 3).map((item, i) => (
-                                <div key={i} className="flex items-center gap-2">
-                                  <div className="w-4 h-4 rounded bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                                <div key={i} className="flex items-start gap-2">
+                                  <div className="w-4 h-4 rounded bg-amber-500/15 flex items-center justify-center flex-shrink-0 mt-0.5">
                                     <i className="fas fa-check text-amber-400 text-[7px]" />
                                   </div>
-                                  <span className="text-xs text-neutral-300 truncate font-medium">{item}</span>
+                                  <div className="min-w-0">
+                                    <span className="text-xs text-neutral-300 truncate font-medium block">{item.name}</span>
+                                    {item.description && (
+                                      <span className="text-[10px] text-neutral-500 truncate block">{item.description}</span>
+                                    )}
+                                  </div>
                                 </div>
                               ))}
                               {s.checklist.length > 3 && (
@@ -492,7 +500,7 @@ export default function ServicesPage() {
                                   onClick={() => setPreviewService(s)} 
                                   className="text-[11px] text-amber-500 hover:text-amber-400 font-semibold pl-6 transition-colors cursor-pointer"
                                 >
-                                  +{s.checklist.length - 3} more items →
+                                  +{s.checklist.length - 3} more tasks →
                                 </button>
                               )}
                             </div>
@@ -669,49 +677,70 @@ export default function ServicesPage() {
                     </div>
                   </div>
                 </div>
-                {/* Service Checklist */}
+                {/* Service Todo List */}
                 <div className="bg-amber-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-amber-200">
                   <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
                     <i className="fas fa-clipboard-list text-amber-600" />
-                    Service Checklist
+                    Service Todo List
                   </h4>
-                  <p className="text-[10px] text-amber-700 mb-2">
+                  <p className="text-[10px] text-amber-700 mb-3">
                     <i className="fas fa-info-circle mr-1" />
-                    Add the tasks included in this service, point by point
+                    Add tasks that staff must complete for this service. Each item has a name and optional description.
                   </p>
                   
-                  {/* Existing checklist items */}
+                  {/* Existing todo items */}
                   {checklist.length > 0 && (
-                    <div className="space-y-1.5 mb-3">
+                    <div className="space-y-2.5 mb-3">
                       {checklist.map((item, index) => (
-                        <div key={index} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-200 group">
-                          <div className="w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-                            <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
+                        <div key={index} className="bg-white rounded-xl border border-amber-200 overflow-hidden group">
+                          <div className="flex items-start gap-2.5 p-3">
+                            <div className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
+                            </div>
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <input
+                                type="text"
+                                value={item.name}
+                                onChange={(e) => {
+                                  const updated = [...checklist];
+                                  updated[index] = { ...updated[index], name: e.target.value };
+                                  setChecklist(updated);
+                                }}
+                                placeholder="Task name"
+                                className="w-full text-xs sm:text-sm font-semibold text-neutral-800 bg-transparent focus:outline-none focus:ring-0 border-none p-0"
+                              />
+                              <textarea
+                                value={item.description}
+                                onChange={(e) => {
+                                  const updated = [...checklist];
+                                  updated[index] = { ...updated[index], description: e.target.value };
+                                  setChecklist(updated);
+                                }}
+                                placeholder="Description (optional)"
+                                rows={2}
+                                className="w-full text-[11px] sm:text-xs text-neutral-500 bg-neutral-50 rounded-lg border border-neutral-200 p-2 focus:outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400 resize-none"
+                              />
+                              {/* Image upload placeholder */}
+                              <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+                                <i className="fas fa-camera text-[9px]" />
+                                <span>Task photo upload — <span className="font-semibold text-amber-600">coming soon</span></span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
+                              className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-all flex-shrink-0 mt-0.5"
+                            >
+                              <i className="fas fa-trash-can text-[9px]" />
+                            </button>
                           </div>
-                          <input
-                            type="text"
-                            value={item}
-                            onChange={(e) => {
-                              const updated = [...checklist];
-                              updated[index] = e.target.value;
-                              setChecklist(updated);
-                            }}
-                            className="flex-1 text-xs sm:text-sm text-neutral-700 bg-transparent focus:outline-none focus:ring-0 border-none p-0"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
-                            className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-all flex-shrink-0"
-                          >
-                            <i className="fas fa-times text-[10px]" />
-                          </button>
                         </div>
                       ))}
                     </div>
                   )}
                   
                   {/* Add new item */}
-                  <div className="flex gap-2">
+                  <div className="bg-white rounded-xl border border-dashed border-amber-300 p-3 space-y-2">
                     <input
                       type="text"
                       value={newChecklistItem}
@@ -720,35 +749,55 @@ export default function ServicesPage() {
                         if (e.key === "Enter") {
                           e.preventDefault();
                           if (newChecklistItem.trim()) {
-                            setChecklist([...checklist, newChecklistItem.trim()]);
+                            setChecklist([...checklist, { name: newChecklistItem.trim(), description: newChecklistDesc.trim(), done: false, imageUrl: "" }]);
                             setNewChecklistItem("");
+                            setNewChecklistDesc("");
                           }
                         }
                       }}
-                      placeholder="e.g. Oil & filter change"
-                      className="flex-1 border border-amber-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white"
+                      placeholder="Task name — e.g. Oil & filter change"
+                      className="w-full border border-amber-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                    <textarea
+                      value={newChecklistDesc}
+                      onChange={(e) => setNewChecklistDesc(e.target.value)}
+                      placeholder="Description (optional)"
+                      rows={2}
+                      className="w-full border border-neutral-200 rounded-lg p-2 text-[11px] sm:text-xs text-neutral-500 focus:ring-1 focus:ring-amber-400 focus:outline-none resize-none"
                     />
                     <button
                       type="button"
                       onClick={() => {
                         if (newChecklistItem.trim()) {
-                          setChecklist([...checklist, newChecklistItem.trim()]);
+                          setChecklist([...checklist, { name: newChecklistItem.trim(), description: newChecklistDesc.trim(), done: false, imageUrl: "" }]);
                           setNewChecklistItem("");
+                          setNewChecklistDesc("");
                         }
                       }}
-                      className="px-3 sm:px-4 py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all text-xs sm:text-sm font-medium flex items-center gap-1.5 flex-shrink-0"
+                      className="w-full py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5"
                     >
                       <i className="fas fa-plus text-[10px]" />
-                      Add
+                      Add Task
                     </button>
                   </div>
                   
                   {checklist.length > 0 && (
                     <div className="mt-2 text-[10px] text-amber-600 font-medium">
                       <i className="fas fa-list-check mr-1" />
-                      {checklist.length} item{checklist.length !== 1 ? "s" : ""} in checklist
+                      {checklist.length} task{checklist.length !== 1 ? "s" : ""} in todo list
                     </div>
                   )}
+
+                  {/* Completion image placeholder */}
+                  <div className="mt-3 flex items-center gap-2 bg-white/60 rounded-lg p-2.5 border border-amber-200/60">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-image text-amber-500 text-xs" />
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-semibold text-neutral-700">Service Completion Photo</p>
+                      <p className="text-[10px] text-neutral-400">Staff will upload a photo after completing the service — <span className="font-semibold text-amber-600">coming soon</span></p>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Available Branches */}
@@ -994,23 +1043,28 @@ export default function ServicesPage() {
                     </div>
                   )}
 
-                  {/* Service Checklist */}
+                  {/* Service Todo List */}
                   {previewService.checklist && previewService.checklist.length > 0 && (
                     <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border-2 border-amber-200">
                       <h3 className="text-sm font-bold text-neutral-800 mb-3 flex items-center gap-2">
                         <i className="fas fa-clipboard-list text-amber-600" />
-                        Service Checklist
+                        Service Todo List
                         <span className="ml-auto text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
-                          {previewService.checklist.length} item{previewService.checklist.length !== 1 ? "s" : ""}
+                          {previewService.checklist.length} task{previewService.checklist.length !== 1 ? "s" : ""}
                         </span>
                       </h3>
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {previewService.checklist.map((item, index) => (
-                          <div key={index} className="flex items-start gap-2.5 bg-white rounded-lg p-2.5 border border-amber-100">
-                            <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <i className="fas fa-check text-white text-[8px]" />
+                          <div key={index} className="flex items-start gap-2.5 bg-white rounded-lg p-3 border border-amber-100">
+                            <div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <span className="text-[10px] font-bold text-white">{index + 1}</span>
                             </div>
-                            <span className="text-sm text-neutral-700 font-medium">{item}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-neutral-800 font-semibold">{item.name}</p>
+                              {item.description && (
+                                <p className="text-xs text-neutral-500 mt-0.5">{item.description}</p>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>

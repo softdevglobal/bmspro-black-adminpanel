@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
+import { type ChecklistItem, normalizeChecklist } from "@/lib/services";
 
 type Branch = { id: string; name: string; address: string; phone: string; timezone: string };
-type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: string[]; branches: string[] };
+type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
 type CustomerBooking = {
@@ -84,7 +85,8 @@ export default function BookingEnginePage() {
         const res = await fetch(`/api/book-now/${slug}`);
         if (!res.ok) { const data = await res.json(); setError(data.error || "Workshop not found"); return; }
         const data = await res.json();
-        setWorkshop(data.workshop); setBranches(data.branches); setAllServices(data.services);
+        setWorkshop(data.workshop); setBranches(data.branches);
+        setAllServices((data.services || []).map((s: any) => ({ ...s, checklist: normalizeChecklist(s.checklist) })));
       } catch { setError("Failed to load workshop data"); }
       finally { setLoading(false); }
     })();
@@ -1003,7 +1005,7 @@ export default function BookingEnginePage() {
                                 {service.checklist.length > 0 && (
                                   <span className="text-xs text-amber-600 flex items-center gap-1">
                                     <i className="fas fa-list-check text-[9px]" />
-                                    {service.checklist.length} items
+                                    {service.checklist.length} tasks
                                   </span>
                                 )}
                               </div>
@@ -1032,7 +1034,7 @@ export default function BookingEnginePage() {
                         </div>
                       )}
 
-                      {/* Expanded checklist */}
+                      {/* Expanded todo list */}
                       {service.checklist.length > 0 && isExpanded && (
                         <div className="px-5 pb-5 animate-[fadeSlideUp_0.3s_ease-out]">
                           <div className="bg-gradient-to-br from-amber-50/80 to-orange-50/50 rounded-xl border border-amber-200/40 p-4">
@@ -1040,7 +1042,7 @@ export default function BookingEnginePage() {
                               <div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center">
                                 <i className="fas fa-clipboard-list text-white text-[9px]" />
                               </div>
-                              <h5 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">Service Checklist</h5>
+                              <h5 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">What&apos;s Included</h5>
                             </div>
                             <div className="space-y-2">
                               {service.checklist.map((item, i) => (
@@ -1048,7 +1050,12 @@ export default function BookingEnginePage() {
                                   <div className="w-5 h-5 rounded-md bg-white border border-amber-200 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
                                     <i className="fas fa-check text-amber-500 text-[8px]" />
                                   </div>
-                                  <span className="text-sm text-neutral-700 font-medium leading-snug">{item}</span>
+                                  <div className="min-w-0">
+                                    <span className="text-sm text-neutral-700 font-medium leading-snug block">{item.name}</span>
+                                    {item.description && (
+                                      <span className="text-xs text-neutral-400 leading-snug block mt-0.5">{item.description}</span>
+                                    )}
+                                  </div>
                                 </div>
                               ))}
                             </div>

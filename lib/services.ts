@@ -21,6 +21,20 @@ import {
   logServiceDeleted 
 } from "@/lib/auditLog";
 
+export type ChecklistItem = {
+  name: string;
+  description: string;
+  done: boolean;       // default false — used by mobile app during bookings
+  imageUrl: string;    // upcoming: staff uploads image after task completion
+};
+
+export const normalizeChecklist = (raw: any[]): ChecklistItem[] =>
+  (raw || []).map((item) =>
+    typeof item === "string"
+      ? { name: item, description: "", done: false, imageUrl: "" }
+      : { name: item.name || "", description: item.description || "", done: !!item.done, imageUrl: item.imageUrl || "" }
+  );
+
 export type ServiceInput = {
   name: string;
   price: number;
@@ -30,7 +44,8 @@ export type ServiceInput = {
   reviews?: number;
   branches: string[]; // branchIds
   staffIds: string[]; // staff ids
-  checklist?: string[]; // service checklist items
+  checklist?: ChecklistItem[]; // structured service checklist/todo items
+  completionImageUrl?: string; // upcoming: overall service completion photo
 };
 
 /**

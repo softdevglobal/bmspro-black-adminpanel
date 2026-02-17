@@ -62,7 +62,8 @@ export type BookingInput = {
   branchName?: string;
   branchTimezone?: string; // IANA timezone of the branch
   date: string; // YYYY-MM-DD in branch's local timezone
-  time: string; // HH:mm in branch's local timezone
+  time: string; // HH:mm in branch's local timezone (drop-off time)
+  pickupTime?: string | null; // HH:mm in branch's local timezone (pick-up time)
   dateTimeUtc?: string; // UTC ISO string for storage
   duration: number; // minutes
   status?: BookingStatus;

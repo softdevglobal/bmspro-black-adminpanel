@@ -4,7 +4,12 @@ import React, { useEffect, useState, useMemo, useCallback, useRef } from "react"
 import { useParams } from "next/navigation";
 import { type ChecklistItem, normalizeChecklist } from "@/lib/services";
 
-type Branch = { id: string; name: string; address: string; phone: string; timezone: string };
+type DayHours = { open?: string; close?: string; closed?: boolean };
+type BranchHoursMap = {
+  Monday?: DayHours; Tuesday?: DayHours; Wednesday?: DayHours; Thursday?: DayHours;
+  Friday?: DayHours; Saturday?: DayHours; Sunday?: DayHours;
+};
+type Branch = { id: string; name: string; address: string; phone: string; timezone: string; hours?: BranchHoursMap | string | null };
 type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
@@ -15,6 +20,7 @@ type CustomerBooking = {
   status: string;
   date: string;
   time: string;
+  pickupTime: string | null;
   branchName: string;
   price: number;
   createdAt: string | null;
@@ -40,7 +46,8 @@ export default function BookingEnginePage() {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
+  const [time, setTime] = useState(""); // drop-off time
+  const [pickupTime, setPickupTime] = useState(""); // pick-up time
   const [calendarMonth, setCalendarMonth] = useState(() => { const now = new Date(); return { year: now.getFullYear(), month: now.getMonth() }; });
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -181,12 +188,149 @@ export default function BookingEnginePage() {
   const totalPrice = useMemo(() => selectedServiceDetails.reduce((sum, s) => sum + s.price, 0), [selectedServiceDetails]);
   const totalDuration = useMemo(() => selectedServiceDetails.reduce((sum, s) => sum + s.duration, 0), [selectedServiceDetails]);
 
-  const today = new Date().toISOString().split("T")[0];
-  const timeSlots = useMemo(() => {
-    const slots: string[] = [];
-    for (let h = 7; h <= 19; h++) for (let m = 0; m < 60; m += 30) slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
-    return slots;
+  // ─── Real-time clock that ticks every 30s so time slots stay current ───
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const iv = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(iv);
   }, []);
+
+  // ─── Branch-timezone-aware "today" date and current time ───
+  const branchTimezone = selectedBranch?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const branchToday = useMemo(() => {
+    try {
+      // en-CA locale gives YYYY-MM-DD format
+      return new Intl.DateTimeFormat("en-CA", { timeZone: branchTimezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(nowTick));
+    } catch {
+      return new Date().toISOString().split("T")[0];
+    }
+  }, [branchTimezone, nowTick]);
+
+  const branchCurrentTime = useMemo(() => {
+    try {
+      return new Intl.DateTimeFormat("en-GB", { timeZone: branchTimezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(nowTick));
+    } catch {
+      const n = new Date();
+      return `${n.getHours().toString().padStart(2, "0")}:${n.getMinutes().toString().padStart(2, "0")}`;
+    }
+  }, [branchTimezone, nowTick]);
+
+  // ─── Branch opening hours for the selected date ───
+  const branchDayHours = useMemo<{ open: string; close: string } | null>(() => {
+    if (!selectedBranch?.hours || typeof selectedBranch.hours === "string" || !date) return null;
+    const hoursMap = selectedBranch.hours as BranchHoursMap;
+    // Get the day-of-week name for the selected date in the branch timezone
+    let dayName: string;
+    try {
+      dayName = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: branchTimezone }).format(new Date(date + "T12:00:00"));
+    } catch {
+      dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(date + "T12:00:00"));
+    }
+    const dayHours = hoursMap[dayName as keyof BranchHoursMap];
+    if (!dayHours || dayHours.closed) return null; // branch is closed this day
+    return {
+      open: dayHours.open || "09:00",
+      close: dayHours.close || "17:00",
+    };
+  }, [selectedBranch, date, branchTimezone]);
+
+  // All possible time slots — restricted to branch opening hours
+  const allTimeSlots = useMemo(() => {
+    const openTime = branchDayHours?.open || "07:00";
+    const closeTime = branchDayHours?.close || "19:30";
+    const [openH, openM] = openTime.split(":").map(Number);
+    const [closeH, closeM] = closeTime.split(":").map(Number);
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+    const slots: string[] = [];
+    for (let mins = openMins; mins < closeMins; mins += 30) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+    }
+    return slots;
+  }, [branchDayHours]);
+
+  // Available drop-off time slots — filter out past times and times where the service can't finish before closing
+  const timeSlots = useMemo(() => {
+    let slots = allTimeSlots;
+    // Filter out past times if the selected date is today
+    if (date && date === branchToday) {
+      slots = slots.filter(t => t > branchCurrentTime);
+    }
+    // Filter out times where service can't finish before branch closes
+    if (totalDuration > 0 && branchDayHours) {
+      const [closeH, closeM] = branchDayHours.close.split(":").map(Number);
+      const closeMins = closeH * 60 + closeM;
+      slots = slots.filter(t => {
+        const [h, m] = t.split(":").map(Number);
+        return (h * 60 + m) + totalDuration <= closeMins;
+      });
+    }
+    return slots;
+  }, [allTimeSlots, date, branchToday, branchCurrentTime, totalDuration, branchDayHours]);
+
+  // Earliest allowed pick-up time = drop-off time + total service duration
+  const earliestPickupTime = useMemo(() => {
+    if (!time || totalDuration === 0) return null;
+    const [h, m] = time.split(":").map(Number);
+    const totalMins = h * 60 + m + totalDuration;
+    const pH = Math.floor(totalMins / 60);
+    const pM = totalMins % 60;
+    if (pH > 23) return null; // past end of day
+    return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
+  }, [time, totalDuration]);
+
+  // Filtered pick-up time slots: only times >= earliest pick-up time, within branch hours, and not past for today
+  const pickupTimeSlots = useMemo(() => {
+    if (!earliestPickupTime) return [];
+    // Pick-up can go up to branch close time (inclusive)
+    const closeTime = branchDayHours?.close || "19:30";
+    const openTime = branchDayHours?.open || "07:00";
+    const [openH, openM] = openTime.split(":").map(Number);
+    const [closeH, closeM] = closeTime.split(":").map(Number);
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+    const slots: string[] = [];
+    for (let mins = openMins; mins <= closeMins; mins += 30) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+    }
+    let filtered = slots.filter(t => t >= earliestPickupTime);
+    // Also filter out past times if date is today
+    if (date === branchToday) {
+      filtered = filtered.filter(t => t > branchCurrentTime);
+    }
+    return filtered;
+  }, [branchDayHours, earliestPickupTime, date, branchToday, branchCurrentTime]);
+
+  // Clear pick-up time if it becomes invalid after drop-off or duration changes
+  useEffect(() => {
+    if (pickupTime && earliestPickupTime && pickupTime < earliestPickupTime) {
+      setPickupTime("");
+    }
+    if (!time) setPickupTime("");
+  }, [earliestPickupTime, pickupTime, time]);
+
+  // Clear drop-off time if it becomes past (e.g. time ticked past selected slot for today)
+  // Also clear if the selected time is outside branch hours
+  useEffect(() => {
+    if (time && date === branchToday && time <= branchCurrentTime) {
+      setTime("");
+    }
+    // Clear time if branch is closed on the selected day
+    if (time && branchDayHours === null && date && selectedBranch?.hours && typeof selectedBranch.hours !== "string") {
+      setTime("");
+    }
+    // Clear time if it's outside the branch opening hours
+    if (time && branchDayHours) {
+      if (time < branchDayHours.open || time >= branchDayHours.close) {
+        setTime("");
+      }
+    }
+  }, [time, date, branchToday, branchCurrentTime, branchDayHours, selectedBranch]);
 
   const handleBranchSelect = (branch: Branch) => { setSelectedBranch(branch); setSelectedServices([]); goToStep(2); };
   const toggleService = (serviceId: string) => {
@@ -252,12 +396,12 @@ export default function BookingEnginePage() {
 
 
   const handleSubmit = async () => {
-    if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !date || !time) return;
+    if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !date || !time || !pickupTime) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/book-now/submit", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, branchId: selectedBranch.id, branchName: selectedBranch.name, services: selectedServiceDetails.map((s) => ({ id: s.id, time })), customerName, customerEmail, customerPhone, notes, date, time, customerId: customer?.customerId || null }),
+        body: JSON.stringify({ slug, branchId: selectedBranch.id, branchName: selectedBranch.name, services: selectedServiceDetails.map((s) => ({ id: s.id, time })), customerName, customerEmail, customerPhone, notes, date, time, pickupTime, customerId: customer?.customerId || null }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to submit booking");
@@ -564,7 +708,7 @@ export default function BookingEnginePage() {
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] text-neutral-400 font-medium flex items-center gap-1.5"><i className="fas fa-calendar text-[7px]" />Date & Time</span>
-                              <span className="text-[10px] text-neutral-700 font-semibold">{bk.date} at {bk.time}</span>
+                              <span className="text-[10px] text-neutral-700 font-semibold">{bk.date} · Drop-off {bk.time}{bk.pickupTime ? ` · Pick-up ${bk.pickupTime}` : ""}</span>
                             </div>
                             {bk.branchName && (
                               <div className="flex items-center justify-between">
@@ -1157,9 +1301,11 @@ export default function BookingEnginePage() {
                     </div>
                     When would you like to visit?
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                  {/* Row 1: Calendar + Drop-off Time (equal height) */}
+                  <div className="flex flex-col sm:flex-row gap-4">
                     {/* Custom Calendar */}
-                    <div>
+                    <div className="flex-1 flex flex-col">
                       <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Date <span className="text-red-400">*</span></label>
                       {(() => {
                         const { year, month } = calendarMonth;
@@ -1167,13 +1313,15 @@ export default function BookingEnginePage() {
                         const dayNames = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
                         const firstDay = new Date(year, month, 1);
                         const lastDay = new Date(year, month + 1, 0);
-                        const startDow = (firstDay.getDay() + 6) % 7; // Monday=0
+                        const startDow = (firstDay.getDay() + 6) % 7;
                         const daysInMonth = lastDay.getDate();
-                        const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+                        // Use branch timezone "today" for past-date calculations
+                        const [tY, tM, tD] = branchToday.split("-").map(Number);
+                        const todayDate = new Date(tY, tM - 1, tD); todayDate.setHours(0, 0, 0, 0);
 
                         const prevMonth = () => setCalendarMonth((p) => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 });
                         const nextMonth = () => setCalendarMonth((p) => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 });
-                        const goToday = () => { const now = new Date(); setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() }); };
+                        const goToday = () => { setCalendarMonth({ year: tY, month: tM - 1 }); };
 
                         const canGoPrev = new Date(year, month, 1) > new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
 
@@ -1183,7 +1331,7 @@ export default function BookingEnginePage() {
                         while (cells.length % 7 !== 0) cells.push(null);
 
                         return (
-                          <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white">
+                          <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white flex-1 flex flex-col">
                             {/* Month nav */}
                             <div className="flex items-center justify-between px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
                               <button type="button" onClick={prevMonth} disabled={!canGoPrev}
@@ -1203,12 +1351,24 @@ export default function BookingEnginePage() {
                               ))}
                             </div>
                             {/* Day cells */}
-                            <div className="grid grid-cols-7 px-2 pb-2 gap-y-0.5">
+                            <div className="grid grid-cols-7 px-2 pb-2 gap-y-0.5 flex-1">
                               {cells.map((day, i) => {
                                 if (day === null) return <div key={`e-${i}`} />;
                                 const cellDate = new Date(year, month, day); cellDate.setHours(0, 0, 0, 0);
                                 const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                                 const isPast = cellDate < todayDate;
+
+                                // Check if branch is closed on this day
+                                let isClosed = false;
+                                if (selectedBranch?.hours && typeof selectedBranch.hours !== "string") {
+                                  let dayName: string;
+                                  try { dayName = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: branchTimezone }).format(new Date(dateStr + "T12:00:00")); }
+                                  catch { dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(dateStr + "T12:00:00")); }
+                                  const dh = (selectedBranch.hours as BranchHoursMap)[dayName as keyof BranchHoursMap];
+                                  if (dh?.closed) isClosed = true;
+                                }
+
+                                const isDisabled = isPast || isClosed;
                                 const isSelected = date === dateStr;
                                 const isToday = cellDate.getTime() === todayDate.getTime();
 
@@ -1216,13 +1376,15 @@ export default function BookingEnginePage() {
                                   <button
                                     key={dateStr}
                                     type="button"
-                                    disabled={isPast}
+                                    disabled={isDisabled}
                                     onClick={() => setDate(dateStr)}
+                                    title={isClosed ? "Branch closed" : undefined}
                                     className={`w-full aspect-square rounded-lg flex items-center justify-center text-xs font-semibold transition-all
-                                      ${isPast ? "text-neutral-300 cursor-not-allowed" : ""}
+                                      ${isDisabled ? "text-neutral-300 cursor-not-allowed" : ""}
+                                      ${isClosed && !isPast ? "line-through decoration-red-300" : ""}
                                       ${isSelected ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : ""}
-                                      ${isToday && !isSelected ? "bg-amber-100 text-amber-700 font-bold" : ""}
-                                      ${!isPast && !isSelected && !isToday ? "text-neutral-700 hover:bg-neutral-100" : ""}
+                                      ${isToday && !isSelected && !isDisabled ? "bg-amber-100 text-amber-700 font-bold" : ""}
+                                      ${!isDisabled && !isSelected && !isToday ? "text-neutral-700 hover:bg-neutral-100" : ""}
                                     `}
                                   >
                                     {day}
@@ -1233,7 +1395,7 @@ export default function BookingEnginePage() {
                             {/* Footer */}
                             <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50">
                               <button type="button" onClick={() => { setDate(""); }} className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors">Clear</button>
-                              <button type="button" onClick={() => { goToday(); setDate(today); }} className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 transition-colors">Today</button>
+                              <button type="button" onClick={() => { goToday(); setDate(branchToday); }} className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 transition-colors">Today</button>
                             </div>
                           </div>
                         );
@@ -1245,23 +1407,43 @@ export default function BookingEnginePage() {
                         </div>
                       )}
                     </div>
-                    {/* Time picker */}
-                    <div>
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Time <span className="text-red-400">*</span></label>
-                      <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white">
+
+                    {/* Drop-off Time picker */}
+                    <div className="flex-1 flex flex-col">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                        <i className="fas fa-arrow-right-to-bracket text-[9px] text-amber-500 mr-1" />
+                        Drop-off Time <span className="text-red-400">*</span>
+                      </label>
+                      <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white flex-1 flex flex-col">
                         <div className="px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
-                          <span className="text-xs font-bold text-neutral-800">Available Times</span>
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-clock text-[10px] text-amber-500" />
+                            <span className="text-xs font-bold text-neutral-800">When do you drop off?</span>
+                          </div>
+                          {branchDayHours && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <i className="fas fa-store text-[9px] text-neutral-300" />
+                              <span className="text-[10px] font-medium text-neutral-400">
+                                Opening hours: {branchDayHours.open} – {branchDayHours.close}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <div className="grid grid-cols-3 gap-1.5 p-2.5 max-h-[280px] overflow-y-auto">
+                        <div className="grid grid-cols-3 gap-1.5 p-2.5 flex-1 overflow-y-auto" style={{ alignContent: "start" }}>
                           {timeSlots.length === 0 ? (
-                            <p className="col-span-3 text-center text-[11px] text-neutral-400 py-6">No times available</p>
+                            <p className="col-span-3 text-center text-[11px] text-neutral-400 py-6">
+                              {!date ? "Select a date first to see available times."
+                                : branchDayHours === null && date ? "Branch is closed on this day. Please select another date."
+                                : date === branchToday ? "No more drop-off times available today. Please pick a future date."
+                                : "No available times for this date."}
+                            </p>
                           ) : (
                             timeSlots.map((t) => (
                               <button
                                 key={t}
                                 type="button"
                                 onClick={() => setTime(t)}
-                                className={`px-2 py-2 rounded-lg text-xs font-semibold transition-all text-center
+                                className={`h-9 rounded-lg text-xs font-semibold transition-all text-center
                                   ${time === t ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800"}
                                 `}
                               >
@@ -1273,12 +1455,69 @@ export default function BookingEnginePage() {
                       </div>
                       {time && (
                         <div className="mt-2 flex items-center gap-2 px-1">
-                          <i className="fas fa-clock text-[10px] text-emerald-500" />
-                          <span className="text-xs font-semibold text-neutral-700">{time}</span>
+                          <i className="fas fa-arrow-right-to-bracket text-[10px] text-emerald-500" />
+                          <span className="text-xs font-semibold text-neutral-700">Drop-off: {time}</span>
                         </div>
                       )}
                     </div>
                   </div>
+
+                  {/* Row 2: Pick-up Time (shown after drop-off time is selected) */}
+                  {time && (
+                    <div className="mt-4 animate-[fadeSlideUp_0.3s_ease-out]">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                        <i className="fas fa-arrow-right-from-bracket text-[9px] text-emerald-500 mr-1" />
+                        Pick-up Time <span className="text-red-400">*</span>
+                        {earliestPickupTime && (
+                          <span className="ml-2 text-[10px] font-medium text-neutral-400 normal-case tracking-normal">
+                            (earliest: {earliestPickupTime} — based on {totalDuration} min service)
+                          </span>
+                        )}
+                      </label>
+                      <div className="border-2 border-emerald-200 rounded-xl overflow-hidden bg-white">
+                        <div className="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-600" />
+                            <span className="text-xs font-bold text-emerald-800">When do you pick up?</span>
+                          </div>
+                          {branchDayHours && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <i className="fas fa-store text-[9px] text-emerald-300" />
+                              <span className="text-[10px] font-medium text-emerald-400">
+                                Branch closes at {branchDayHours.close}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        {pickupTimeSlots.length === 0 ? (
+                          <div className="p-4 text-center">
+                            <p className="text-[11px] text-neutral-400">No pick-up times available for this drop-off time and service duration.</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-1.5 p-2.5 max-h-[200px] overflow-y-auto" style={{ alignContent: "start" }}>
+                            {pickupTimeSlots.map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => setPickupTime(t)}
+                                className={`h-9 rounded-lg text-xs font-semibold transition-all text-center
+                                  ${pickupTime === t ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"}
+                                `}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {pickupTime && (
+                        <div className="mt-2 flex items-center gap-2 px-1">
+                          <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-500" />
+                          <span className="text-xs font-semibold text-neutral-700">Pick-up: {pickupTime}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Personal Info */}
@@ -1354,10 +1593,18 @@ export default function BookingEnginePage() {
                       )}
                       {time && (
                         <div className="flex items-center gap-2.5 text-sm">
-                          <div className="w-7 h-7 rounded-lg bg-neutral-100 flex items-center justify-center flex-shrink-0">
-                            <i className="far fa-clock text-neutral-500 text-[10px]" />
+                          <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-arrow-right-to-bracket text-amber-500 text-[10px]" />
                           </div>
-                          <span className="text-neutral-600 text-xs">{time}</span>
+                          <span className="text-neutral-600 text-xs">Drop-off: <span className="font-semibold text-neutral-700">{time}</span></span>
+                        </div>
+                      )}
+                      {pickupTime && (
+                        <div className="flex items-center gap-2.5 text-sm">
+                          <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-arrow-right-from-bracket text-emerald-500 text-[10px]" />
+                          </div>
+                          <span className="text-neutral-600 text-xs">Pick-up: <span className="font-semibold text-neutral-700">{pickupTime}</span></span>
                         </div>
                       )}
                     </div>
@@ -1389,14 +1636,14 @@ export default function BookingEnginePage() {
                     {/* Confirm button */}
                     <button
                       onClick={handleSubmit}
-                      disabled={submitting || !customerName || !customerPhone || !date || !time}
+                      disabled={submitting || !customerName || !customerPhone || !date || !time || !pickupTime}
                       className={`w-full mt-5 font-bold py-3.5 rounded-xl transition-all text-sm relative overflow-hidden group ${
-                        submitting || !customerName || !customerPhone || !date || !time
+                        submitting || !customerName || !customerPhone || !date || !time || !pickupTime
                           ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
                           : "bg-neutral-900 text-white hover:bg-neutral-800 active:scale-[0.98] shadow-xl shadow-neutral-900/15"
                       }`}
                     >
-                      {!(submitting || !customerName || !customerPhone || !date || !time) && (
+                      {!(submitting || !customerName || !customerPhone || !date || !time || !pickupTime) && (
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent group-hover:animate-[shimmerBg_1.5s_linear_infinite]" style={{ backgroundSize: "200% 100%" }} />
                       )}
                       <span className="relative z-10 flex items-center justify-center gap-2">
@@ -1508,9 +1755,15 @@ export default function BookingEnginePage() {
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Time</p>
+                      <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Drop-off</p>
                       <p className="text-sm font-semibold text-neutral-900 mt-1">{time}</p>
                     </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Pick-up</p>
+                      <p className="text-sm font-semibold text-neutral-900 mt-1">{pickupTime}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
                     <div>
                       <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">Duration</p>
                       <p className="text-sm font-semibold text-neutral-900 mt-1">{bookingResult.totalDuration} min</p>
@@ -1540,7 +1793,7 @@ export default function BookingEnginePage() {
             <div className="mt-8 animate-[fadeSlideUp_0.6s_ease-out_0.6s_both]">
               <button
                 onClick={() => {
-                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setDate(""); setTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
+                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
                 }}
                 className="group bg-neutral-900 text-white font-bold px-8 py-3.5 rounded-xl hover:bg-neutral-800 transition-all text-sm active:scale-[0.97] shadow-xl shadow-neutral-900/15 inline-flex items-center gap-2"
               >
@@ -1702,9 +1955,15 @@ export default function BookingEnginePage() {
                               <p className="text-[11px] font-bold text-neutral-800">{bk.date}</p>
                             </div>
                             <div className="bg-neutral-50 rounded-xl px-3 py-2.5">
-                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Time</p>
+                              <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Drop-off</p>
                               <p className="text-[11px] font-bold text-neutral-800">{bk.time}</p>
                             </div>
+                            {bk.pickupTime && (
+                              <div className="bg-emerald-50 rounded-xl px-3 py-2.5">
+                                <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-wider mb-0.5">Pick-up</p>
+                                <p className="text-[11px] font-bold text-emerald-800">{bk.pickupTime}</p>
+                              </div>
+                            )}
                             <div className="bg-neutral-50 rounded-xl px-3 py-2.5">
                               <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">Amount</p>
                               <p className="text-[11px] font-bold text-neutral-800">${bk.price}</p>

@@ -66,6 +66,7 @@ export async function GET(
         address: data.address || data.locationText || "",
         phone: data.phone || "",
         timezone: data.timezone || "Australia/Sydney",
+        hours: data.hours || null,
       };
     });
 

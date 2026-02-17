@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingCode } from "@/lib/bookings";
+import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
 
@@ -24,10 +25,11 @@ export async function POST(req: NextRequest) {
       notes,
       date,
       time,
+      pickupTime,
     } = body;
 
     // Validate required fields
-    if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !date || !time) {
+    if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !date || !time || !pickupTime) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -85,16 +87,65 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Get branch timezone
+    // Get branch timezone and hours
     let branchTimezone = "Australia/Sydney";
+    let branchHours: Record<string, { open?: string; close?: string; closed?: boolean }> | null = null;
     try {
       const branchDoc = await db.collection("branches").doc(branchId).get();
       if (branchDoc.exists) {
-        branchTimezone = branchDoc.data()?.timezone || "Australia/Sydney";
+        const branchData = branchDoc.data();
+        branchTimezone = branchData?.timezone || "Australia/Sydney";
+        if (branchData?.hours && typeof branchData.hours === "object") {
+          branchHours = branchData.hours;
+        }
       }
     } catch {}
 
+    // Validate booking is within branch opening hours
+    if (branchHours) {
+      // Get the day name for the booking date
+      const bookingDate = new Date(date + "T12:00:00");
+      const dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(bookingDate);
+      const dayHours = branchHours[dayName];
+      if (!dayHours || dayHours.closed) {
+        return NextResponse.json(
+          { error: `The branch is closed on ${dayName}. Please select a different date.` },
+          { status: 400 }
+        );
+      }
+      const openTime = dayHours.open || "09:00";
+      const closeTime = dayHours.close || "17:00";
+      // Validate drop-off time is within opening hours
+      if (time < openTime || time >= closeTime) {
+        return NextResponse.json(
+          { error: `Drop-off time must be within branch hours (${openTime} – ${closeTime}).` },
+          { status: 400 }
+        );
+      }
+      // Validate pick-up time is within opening hours (can be at closing time)
+      if (pickupTime < openTime || pickupTime > closeTime) {
+        return NextResponse.json(
+          { error: `Pick-up time must be within branch hours (${openTime} – ${closeTime}).` },
+          { status: 400 }
+        );
+      }
+    }
+
     const bookingCode = generateBookingCode();
+
+    // Validate pick-up time is >= drop-off time + total service duration
+    const [dropH, dropM] = time.split(":").map(Number);
+    const [pickH, pickM] = pickupTime.split(":").map(Number);
+    const dropOffMins = dropH * 60 + dropM;
+    const pickupMins = pickH * 60 + pickM;
+    const earliestPickupMins = dropOffMins + totalDuration;
+
+    if (pickupMins < earliestPickupMins) {
+      return NextResponse.json(
+        { error: `Pick-up time must be at least ${totalDuration} minutes after drop-off time (earliest: ${Math.floor(earliestPickupMins / 60).toString().padStart(2, "0")}:${(earliestPickupMins % 60).toString().padStart(2, "0")})` },
+        { status: 400 }
+      );
+    }
 
     // Create the booking
     const bookingPayload: any = {
@@ -112,6 +163,7 @@ export async function POST(req: NextRequest) {
       branchTimezone,
       date,
       time,
+      pickupTime,
       duration: totalDuration,
       status: "Pending",
       price: totalPrice,
@@ -139,6 +191,7 @@ export async function POST(req: NextRequest) {
         price: totalPrice,
         date,
         time,
+        pickupTime,
         previousStatus: null,
         newStatus: "Pending",
         createdAt: FieldValue.serverTimestamp(),
@@ -153,7 +206,7 @@ export async function POST(req: NextRequest) {
         ownerUid,
         type: "online_booking",
         title: "New Online Booking",
-        message: `${customerName} booked ${serviceDetails.map((s: any) => s.name).join(", ")} for ${date} at ${time} via online booking.`,
+        message: `${customerName} booked ${serviceDetails.map((s: any) => s.name).join(", ")} for ${date} — Drop-off: ${time}, Pick-up: ${pickupTime} via online booking.`,
         bookingId: ref.id,
         bookingCode,
         branchId,
@@ -166,6 +219,35 @@ export async function POST(req: NextRequest) {
       });
     } catch (notifError) {
       console.error("Failed to create notification:", notifError);
+    }
+
+    // Send booking confirmation email to customer
+    try {
+      await sendBookingRequestReceivedEmail(
+        ref.id,
+        bookingCode,
+        customerEmail,
+        customerName,
+        ownerUid,
+        {
+          branchName: branchName || null,
+          bookingDate: date,
+          bookingTime: `Drop-off: ${time} | Pick-up: ${pickupTime}`,
+          duration: totalDuration,
+          price: totalPrice,
+          serviceName: serviceDetails.map((s: any) => s.name).join(", "),
+          services: serviceDetails.map((s: any) => ({
+            name: s.name,
+            staffName: s.staffName || null,
+            time: s.time || time,
+            duration: s.duration,
+          })),
+          staffName: "Not Assigned Yet",
+        }
+      );
+    } catch (emailError) {
+      console.error("Failed to send booking confirmation email:", emailError);
+      // Don't fail the booking if email fails
     }
 
     return NextResponse.json({

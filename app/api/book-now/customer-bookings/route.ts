@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
         status: d.status || "Pending",
         date: d.date || "",
         time: d.time || "",
+        pickupTime: d.pickupTime || null,
         branchName: d.branchName || "",
         price: d.price || 0,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,

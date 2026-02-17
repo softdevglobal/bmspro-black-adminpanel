@@ -788,16 +788,6 @@ export default function ServicesPage() {
                     </div>
                   )}
 
-                  {/* Completion image placeholder */}
-                  <div className="mt-3 flex items-center gap-2 bg-white/60 rounded-lg p-2.5 border border-amber-200/60">
-                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <i className="fas fa-image text-amber-500 text-xs" />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-semibold text-neutral-700">Service Completion Photo</p>
-                      <p className="text-[10px] text-neutral-400">Staff will upload a photo after completing the service — <span className="font-semibold text-amber-600">coming soon</span></p>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Available Branches */}

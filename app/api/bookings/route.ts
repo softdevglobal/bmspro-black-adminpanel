@@ -219,7 +219,8 @@ type CreateBookingInput = {
   branchName?: string;
   branchTimezone?: string; // IANA timezone for the branch
   date: string; // YYYY-MM-DD in branch's local timezone
-  time: string; // HH:mm in branch's local timezone
+  time: string; // HH:mm in branch's local timezone (drop-off time)
+  pickupTime?: string | null; // HH:mm in branch's local timezone (pick-up time)
   dateTimeUtc?: string; // ISO string in UTC for consistent storage
   duration: number;
   status?: string;
@@ -695,7 +696,8 @@ export async function POST(req: NextRequest) {
       branchName: branchName,
       branchTimezone: branchTimezone, // Store branch timezone
       date: String(body.date), // YYYY-MM-DD in branch's local timezone (for backward compatibility)
-      time: String(body.time), // HH:mm in branch's local timezone (for backward compatibility)
+      time: String(body.time), // HH:mm in branch's local timezone - drop-off time
+      pickupTime: body.pickupTime || null, // HH:mm in branch's local timezone - pick-up time
       dateTimeUtc: body.dateTimeUtc || null, // UTC ISO string for consistent storage
       duration: Number(body.duration) || 0,
       status: finalStatus,
@@ -724,6 +726,7 @@ export async function POST(req: NextRequest) {
           price: Number(body.price) || 0,
           date: String(body.date),
           time: String(body.time),
+          pickupTime: body.pickupTime || null,
           previousStatus: null,
           newStatus: normalizeBookingStatus(body.status || "Pending"),
           createdAt: FieldValue.serverTimestamp(),
@@ -841,7 +844,7 @@ export async function POST(req: NextRequest) {
             ownerUid,
             branchName: branchName || null,
             bookingDate: String(body.date),
-            bookingTime: String(body.time),
+            bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
             duration: Number(body.duration) || null,
             price: Number(body.price) || null,
             serviceName: serviceName || null,
@@ -932,7 +935,7 @@ export async function POST(req: NextRequest) {
               })),
               branchName: branchName || undefined,
               bookingDate: String(body.date),
-              bookingTime: String(body.time),
+              bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
               duration: Number(body.duration) || 0,
               price: Number(body.price) || 0,
               ownerUid: ownerUid,
@@ -975,7 +978,7 @@ export async function POST(req: NextRequest) {
             branchName: branchName || undefined,
             branchId: String(body.branchId),
             bookingDate: String(body.date),
-            bookingTime: String(body.time),
+            bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
             type: "booking_needs_assignment",
             status: finalStatus,
           });
@@ -1014,7 +1017,7 @@ export async function POST(req: NextRequest) {
                 branchName: branchName || undefined,
                 branchId: String(body.branchId), // CRITICAL: Must be a string, not null
                 bookingDate: String(body.date),
-                bookingTime: String(body.time),
+                bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
                 status: finalStatus,
                 type: "booking_needs_assignment", // Explicitly set type for "any-staff" bookings
               });

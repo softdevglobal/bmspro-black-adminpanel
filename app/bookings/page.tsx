@@ -37,6 +37,7 @@ function BookingsPageContent() {
   const [bkClientEmail, setBkClientEmail] = useState<string>("");
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
   const [bkNotes, setBkNotes] = useState<string>("");
+  const [bkPickupTime, setBkPickupTime] = useState<string>("");
   const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
   
   // Branch timezone time - refreshes every minute to keep time slots accurate
@@ -275,6 +276,7 @@ function BookingsPageContent() {
               </td>
               <td class="p-4">
                 <span class="font-medium text-neutral-700">${b.time} - ${endTime}</span>
+                ${b.pickupTime ? `<div class="text-[10px] text-emerald-600 font-medium mt-0.5"><i class="fas fa-arrow-right-from-bracket mr-1"></i>Pick-up: ${b.pickupTime}</div>` : ""}
               </td>
               <td class="p-4 text-center">
                 <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full ${statusClass}">
@@ -1360,6 +1362,7 @@ function BookingsPageContent() {
     setBkSelectedServices([]);
     setBkServiceTimes({});
     setBkServiceStaff({});
+    setBkPickupTime("");
     const t = new Date();
     setBkMonthYear({ month: t.getMonth(), year: t.getFullYear() });
     setBkDate(null);
@@ -1820,6 +1823,102 @@ function BookingsPageContent() {
     }
     return slots;
   };
+
+  // ─── Pick-up time logic (same as booking engine) ───
+  // Total duration of all selected services
+  const bkTotalServiceDuration = bkSelectedServices.reduce((sum, id) => {
+    const s = servicesList.find((srv) => String(srv.id) === String(id));
+    return sum + (Number(s?.duration) || 0);
+  }, 0);
+
+  // Get branch day hours for the selected date
+  const bkBranchDayHours = (() => {
+    if (!bkDate || !bkBranchId) return null;
+    const selectedBranch = branches.find((b) => b.id === bkBranchId);
+    if (!selectedBranch?.hours || typeof selectedBranch.hours !== "object" || Array.isArray(selectedBranch.hours)) return null;
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayOfWeek = dayNames[bkDate.getDay()];
+    const dayHours = (selectedBranch.hours as any)[dayOfWeek];
+    if (!dayHours || dayHours.closed) return null;
+    return { open: dayHours.open || "09:00", close: dayHours.close || "17:00" };
+  })();
+
+  // Earliest allowed pick-up time = latest drop-off time + its service duration
+  const bkEarliestPickupTime = (() => {
+    if (Object.keys(bkServiceTimes).length === 0 || bkTotalServiceDuration === 0) return null;
+    // Find the latest "end time" among all selected services
+    let latestEndMin = 0;
+    for (const serviceId of bkSelectedServices) {
+      const t = bkServiceTimes[String(serviceId)];
+      if (!t) return null; // Not all times selected yet
+      const s = servicesList.find((srv) => String(srv.id) === String(serviceId));
+      const dur = Number(s?.duration) || 0;
+      const [h, m] = t.split(":").map(Number);
+      const endMin = h * 60 + m + dur;
+      if (endMin > latestEndMin) latestEndMin = endMin;
+    }
+    if (latestEndMin === 0) return null;
+    const pH = Math.floor(latestEndMin / 60);
+    const pM = latestEndMin % 60;
+    if (pH > 23) return null;
+    return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
+  })();
+
+  // Pick-up time slots: times >= earliest pick-up time, within branch hours, not past for today
+  const bkPickupTimeSlots = (() => {
+    if (!bkEarliestPickupTime) return [];
+    const closeTime = bkBranchDayHours?.close || "17:00";
+    const openTime = bkBranchDayHours?.open || "09:00";
+    const [openH, openM] = openTime.split(":").map(Number);
+    const [closeH, closeM] = closeTime.split(":").map(Number);
+    const openMins = openH * 60 + openM;
+    const closeMins = closeH * 60 + closeM;
+    const slots: string[] = [];
+    for (let mins = openMins; mins <= closeMins; mins += 30) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+    }
+    let filtered = slots.filter((t) => t >= bkEarliestPickupTime);
+    // Filter past times if date is today in branch timezone
+    if (bkDate && bkBranchId) {
+      const selectedBranch = branches.find((b) => b.id === bkBranchId);
+      const branchTimezone = selectedBranch?.timezone || "Australia/Sydney";
+      const branchNow = getCurrentDateTimeInTimezone(branchTimezone);
+      const selectedDateStr = formatLocalYmd(bkDate);
+      if (selectedDateStr === branchNow.date) {
+        filtered = filtered.filter((t) => t > branchNow.time);
+      }
+    }
+    return filtered;
+  })();
+
+  // Clear pick-up time when drop-off times change or become invalid
+  // Using a separate handler since we can't use useEffect inside computations
+  const prevEarliestRef = React.useRef<string | null>(null);
+  if (prevEarliestRef.current !== bkEarliestPickupTime) {
+    prevEarliestRef.current = bkEarliestPickupTime;
+    if (bkPickupTime && bkEarliestPickupTime && bkPickupTime < bkEarliestPickupTime) {
+      // Defer state update
+      setTimeout(() => setBkPickupTime(""), 0);
+    }
+  }
+  // Clear pickup time if all service times are cleared
+  if (bkPickupTime && Object.keys(bkServiceTimes).length === 0) {
+    setTimeout(() => setBkPickupTime(""), 0);
+  }
+
+  // Helper: check if a date is a closed day
+  const isBranchClosedOnDate = (d: Date): boolean => {
+    if (!bkBranchId) return false;
+    const selectedBranch = branches.find((b) => b.id === bkBranchId);
+    if (!selectedBranch?.hours || typeof selectedBranch.hours !== "object" || Array.isArray(selectedBranch.hours)) return false;
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const dayOfWeek = dayNames[d.getDay()];
+    const dayHours = (selectedBranch.hours as any)[dayOfWeek];
+    return dayHours?.closed === true;
+  };
+
   const handleConfirmBooking = () => {
     const app = appRef();
     if (bkSelectedServices.length === 0 || !bkBranchId || !bkDate) return;
@@ -1827,6 +1926,12 @@ function BookingsPageContent() {
     // Validate all services have times
     if (Object.keys(bkServiceTimes).length !== bkSelectedServices.length) {
       app?.showToast("Please select a time for each service.", "error");
+      return;
+    }
+
+    // Validate pick-up time is selected
+    if (!bkPickupTime) {
+      app?.showToast("Please select a pick-up time.", "error");
       return;
     }
 
@@ -1876,6 +1981,7 @@ function BookingsPageContent() {
       branchName,
       date: formatLocalYmd(bkDate),
       time: mainTime,
+      pickupTime: bkPickupTime || null,
       duration: totalDuration,
       status: "Pending",
       price: totalPrice,
@@ -1915,6 +2021,7 @@ function BookingsPageContent() {
           branchTimezone: branchTimezone, // Include branch timezone for proper conversion
           date: newBooking.date,
           time: newBooking.time,
+          pickupTime: newBooking.pickupTime, // Pick-up time
           duration: newBooking.duration,
           status: newBooking.status as any,
           price: newBooking.price,
@@ -2070,186 +2177,370 @@ function BookingsPageContent() {
       {/* Toasts */}
       <div id="toast-container" className="fixed bottom-5 right-5 z-50" />
 
-      {/* Booking Modal - New Multi-step Wizard */}
+      {/* Booking Modal - Creative Multi-step Wizard */}
       <div id="modal-booking" className="modal-backdrop">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 sm:mx-0 max-h-[92vh] flex flex-col">
-          {/* Fixed Header */}
-          <div className="bg-neutral-900 text-white p-4 sm:p-5 flex justify-between items-center rounded-t-2xl shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
-                <i className="fas fa-calendar-check" />
-              </div>
-              <h3 className="font-bold text-lg">Book an Appointment</h3>
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl mx-4 sm:mx-0 h-[88vh] flex flex-col overflow-hidden relative">
+          
+          {/* Decorative Header with Gradient */}
+          <div className="relative overflow-hidden shrink-0">
+            <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900" />
+            <div className="absolute inset-0 opacity-10">
+              <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <pattern id="admin-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5" />
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#admin-grid)" />
+              </svg>
             </div>
-            <button onClick={() => appRef()?.closeModal("booking")} className="text-white/80 hover:text-white transition w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center">
-              <i className="fas fa-xmark text-xl" />
-            </button>
-          </div>
-
-          {/* Fixed Stepper */}
-          <div className="px-4 sm:px-6 pt-4 sm:pt-5 pb-4 bg-neutral-50 border-b border-neutral-200 shrink-0">
-            <div className="flex items-center justify-between max-w-xl mx-auto">
-              {[
-                { num: 1, label: "Branch & Service" },
-                { num: 2, label: "Date, Time & Staff" },
-                { num: 3, label: "Confirm Details" }
-              ].map((step, i) => (
-                <div key={step.num} className="flex-1 flex items-center">
-                  <div className="flex flex-col items-center gap-1">
-                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-sm font-bold transition-all ${bkStep >= step.num ? "bg-neutral-900 text-white shadow-lg" : "bg-white border-2 border-neutral-300 text-neutral-500"}`}>
-                      {bkStep > step.num ? <i className="fas fa-check" /> : step.num}
-                    </div>
-                    <span className="text-[10px] text-neutral-600 font-semibold hidden sm:block text-center whitespace-nowrap">{step.label}</span>
+            <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+            <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
+            
+            <div className="relative z-10 p-5 sm:p-6">
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/25">
+                    <i className="fas fa-calendar-check text-white text-lg" />
                   </div>
-                  {i < 2 && <div className={`h-1 flex-1 mx-1 sm:mx-2 rounded transition-all ${bkStep > step.num ? "bg-neutral-900" : "bg-neutral-300"}`} />}
+                  <div>
+                    <h3 className="text-xl font-black text-white tracking-tight">Book an Appointment</h3>
+                    <p className="text-neutral-400 text-xs mt-0.5 font-medium">
+                      {bkStep === 1 ? "Choose location & services" : bkStep === 2 ? "Select date, time & staff" : "Review & confirm booking"}
+                    </p>
+                  </div>
                 </div>
-              ))}
+                <button onClick={() => appRef()?.closeModal("booking")} className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/60 hover:text-white flex items-center justify-center transition-all group">
+                  <i className="fas fa-xmark text-sm group-hover:rotate-90 transition-transform duration-300" />
+                </button>
+              </div>
+
+              {/* Progress Bar - Booking Engine Style */}
+              <div className="flex items-center mt-5">
+                {[
+                  { n: 1, label: "Location", icon: "fa-location-dot" },
+                  { n: 2, label: "Schedule", icon: "fa-clock" },
+                  { n: 3, label: "Confirm", icon: "fa-check-circle" },
+                ].map((s, i) => (
+                  <React.Fragment key={s.n}>
+                    {i > 0 && (
+                      <div className="flex-1 mx-2 sm:mx-3 h-[3px] rounded-full bg-white/10 relative overflow-hidden">
+                        <div
+                          className="absolute inset-y-0 left-0 bg-amber-500 rounded-full transition-all duration-700 ease-out"
+                          style={{ width: bkStep > s.n - 1 ? "100%" : "0%" }}
+                        />
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { if (s.n < bkStep) setBkStep(s.n as 1 | 2 | 3); }}
+                      disabled={s.n > bkStep}
+                      className="flex items-center gap-2 group"
+                    >
+                      <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold transition-all duration-500 ${
+                        bkStep > s.n
+                          ? "bg-amber-500 text-neutral-900 shadow-lg shadow-amber-500/25"
+                          : bkStep === s.n
+                          ? "bg-white text-neutral-900 shadow-lg shadow-white/15 scale-105"
+                          : "bg-white/10 text-white/40"
+                      }`}>
+                        {bkStep > s.n ? (
+                          <i className="fas fa-check text-[10px]" />
+                        ) : (
+                          <i className={`fas ${s.icon} text-[11px]`} />
+                        )}
+                        {bkStep === s.n && (
+                          <div className="absolute inset-0 rounded-xl border-2 border-white/40 animate-pulse" />
+                        )}
+                      </div>
+                      <span className={`text-xs font-semibold hidden sm:block transition-colors duration-300 ${
+                        bkStep >= s.n ? "text-white" : "text-white/30"
+                      }`}>
+                        {s.label}
+                      </span>
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-5 sm:p-7 bg-neutral-50/50 custom-scrollbar">
             {/* Step 1 - Branch & Service (Combined) */}
             {bkStep === 1 && (
-              <div className="space-y-6">
+              <div className="animate-[fadeSlideUp_0.5s_ease-out]">
                 {/* Branch Selection */}
-                <div>
-                  <div className="font-bold text-neutral-700 mb-3 flex items-center gap-2">
-                    <i className="fas fa-map-marker-alt text-neutral-900" />
-                    Select Location
-                    {userRole === "salon_branch_admin" && <span className="text-xs font-normal text-neutral-500">(Your assigned branch)</span>}
+                <div className="mb-6">
+                  <div className="flex items-end justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Choose a location</h3>
+                      <p className="text-neutral-500 text-xs mt-0.5">
+                        {userRole === "salon_branch_admin" ? "Your assigned branch is pre-selected" : "Select the workshop branch"}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-neutral-400 font-semibold bg-neutral-100 px-2.5 py-1 rounded-full hidden sm:block">
+                      {branches.length} location{branches.length !== 1 ? "s" : ""}
+                    </span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {branches.map((br: any) => {
-                      const selected = bkBranchId === br.id;
-                      const isBranchAdmin = userRole === "salon_branch_admin";
-                      return (
-                        <button
-                          key={br.id}
-                          onClick={() => !isBranchAdmin && (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
-                          disabled={isBranchAdmin}
-                          className={`text-left border rounded-lg p-3 transition ${isBranchAdmin ? "cursor-not-allowed" : "hover:shadow-md cursor-pointer"} ${selected ? "border-neutral-900 bg-neutral-50 shadow-md" : "border-neutral-200 bg-white"}`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div className={`w-10 h-10 rounded-lg ${selected ? "bg-neutral-100" : "bg-neutral-100"} flex items-center justify-center shrink-0`}>
-                              <i className={`fas fa-store ${selected ? "text-neutral-900" : "text-neutral-400"}`} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-semibold text-neutral-800 truncate text-sm">{br.name}</div>
-                              <div className="text-xs text-neutral-500 truncate">{br.address}</div>
-                            </div>
-                            {selected && <i className="fas fa-check-circle text-neutral-900 shrink-0" />}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
 
-                {/* Service Selection */}
-                <div className={!bkBranchId ? "opacity-50 pointer-events-none" : ""}>
-                  <div className="font-bold text-neutral-700 mb-3 flex items-center gap-2">
-                    <i className="fas fa-concierge-bell text-purple-600" />
-                    Select Service {!bkBranchId && <span className="text-xs font-normal text-neutral-500">(Select branch first)</span>}
-                  </div>
-                  {!bkBranchId ? (
-                    <div className="bg-neutral-50 border-2 border-dashed border-neutral-300 rounded-lg p-8 text-center">
-                      <i className="fas fa-map-marker-alt text-4xl text-neutral-300 mb-2 block" />
-                      <p className="text-neutral-500 font-medium text-sm">Select a branch first</p>
+                  {branches.length === 0 ? (
+                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <i className="fas fa-store text-xl text-neutral-300" />
+                      </div>
+                      <p className="text-neutral-500 font-medium text-sm">No locations available</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {servicesList
-                        .filter((srv: any) => {
-                          // Filter services by selected branch
-                          // Service must have at least one branch assigned, and selected branch must be in the list
-                          if (!srv.branches || srv.branches.length === 0) return false; // Not available if no branches assigned
-                          return srv.branches.includes(bkBranchId);
-                        })
-                        .map((srv: any) => {
-                        const isSelected = bkSelectedServices.includes(srv.id);
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {branches.map((br: any, idx: number) => {
+                        const selected = bkBranchId === br.id;
+                        const isBranchAdmin = userRole === "salon_branch_admin";
                         return (
                           <button
-                            key={srv.id}
-                            onClick={() => {
-                              if (isSelected) {
-                                setBkSelectedServices(bkSelectedServices.filter(id => id !== srv.id));
-                                const newTimes = { ...bkServiceTimes };
-                                delete newTimes[String(srv.id)];
-                                setBkServiceTimes(newTimes);
-                              } else {
-                                setBkSelectedServices([...bkSelectedServices, srv.id]);
-                              }
-                              setBkDate(null);
-                            }}
-                            className={`text-left border rounded-lg p-3 hover:shadow-md transition ${isSelected ? "border-purple-400 bg-purple-50 shadow-md" : "border-neutral-200 bg-white"}`}
+                            key={br.id}
+                            onClick={() => !isBranchAdmin && (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
+                            disabled={isBranchAdmin}
+                            className={`text-left rounded-2xl border-2 p-4 transition-all duration-300 group ${
+                              isBranchAdmin ? "cursor-not-allowed" : "cursor-pointer"
+                            } ${selected
+                              ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                              : "border-neutral-200/80 bg-white hover:border-neutral-300 hover:shadow-lg hover:shadow-neutral-900/[0.03]"
+                            }`}
+                            style={{ animation: `fadeSlideUp 0.4s ease-out ${idx * 80}ms both` }}
                           >
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-10 h-10 rounded-lg ${isSelected ? "bg-purple-100" : "bg-neutral-100"} flex items-center justify-center shrink-0 overflow-hidden`}>
-                                {srv.imageUrl ? (
-                                  <img src={srv.imageUrl} alt={srv.name} className="w-full h-full object-cover" />
-                                ) : (
-                                  <i className={`fas fa-cut ${isSelected ? "text-purple-600" : "text-neutral-400"}`} />
-                                )}
+                            <div className="flex items-stretch">
+                              <div className={`w-1.5 flex-shrink-0 rounded-full transition-all duration-300 mr-3 ${selected ? "bg-amber-500" : "bg-transparent group-hover:bg-neutral-200"}`} />
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 ${
+                                  selected ? "bg-neutral-900 shadow-md shadow-neutral-900/20" : "bg-neutral-100 group-hover:bg-neutral-200"
+                                }`}>
+                                  {selected ? (
+                                    <i className="fas fa-check text-white text-xs" />
+                                  ) : (
+                                    <i className="fas fa-store text-neutral-400 text-sm" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-bold text-neutral-900 truncate text-sm">{br.name}</div>
+                                  <div className="text-xs text-neutral-400 truncate mt-0.5">{br.address}</div>
+                                </div>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold text-neutral-800 truncate text-sm">{srv.name}</div>
-                                <div className="text-xs text-neutral-500">{srv.duration} min • ${srv.price}</div>
-                              </div>
-                              {isSelected && <i className="fas fa-check-circle text-purple-600 shrink-0" />}
                             </div>
                           </button>
                         );
                       })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Service Selection */}
+                <div className={`transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
+                  <div className="flex items-start sm:items-center justify-between mb-4 gap-2 flex-col sm:flex-row">
+                    <div>
+                      {bkBranchId && (
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="inline-flex items-center gap-1.5 bg-neutral-900 text-white text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
+                            <i className="fas fa-location-dot text-amber-400 text-[8px]" />
+                            {branches.find((b: any) => b.id === bkBranchId)?.name}
+                          </span>
+                        </div>
+                      )}
+                      <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Pick your services</h3>
+                      <p className="text-neutral-500 text-xs mt-0.5">Select one or more services for the booking</p>
+                    </div>
+                    {bkSelectedServices.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200/50 rounded-xl px-3 py-1.5 flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">{bkSelectedServices.length}</span>
+                        <span className="text-xs font-semibold text-amber-800">selected</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {!bkBranchId ? (
+                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4 relative">
+                        <i className="fas fa-wrench text-xl text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[8px]" />
+                        </div>
+                      </div>
+                      <p className="text-neutral-500 font-medium text-sm">Select a branch first</p>
+                      <p className="text-neutral-400 text-xs mt-1">Choose a location above to see available services</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {servicesList
+                        .filter((srv: any) => {
+                          if (!srv.branches || srv.branches.length === 0) return false;
+                          return srv.branches.includes(bkBranchId);
+                        })
+                        .map((srv: any, idx: number) => {
+                        const isSelected = bkSelectedServices.includes(srv.id);
+                        return (
+                          <div
+                            key={srv.id}
+                            className={`rounded-2xl border-2 transition-all duration-300 overflow-hidden ${
+                              isSelected
+                                ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                                : "border-neutral-200/80 bg-white hover:border-neutral-300 hover:shadow-lg hover:shadow-neutral-900/[0.03]"
+                            }`}
+                            style={{ animation: `fadeSlideUp 0.4s ease-out ${idx * 60}ms both` }}
+                          >
+                            <button
+                              onClick={() => {
+                                if (isSelected) {
+                                  setBkSelectedServices(bkSelectedServices.filter(id => id !== srv.id));
+                                  const newTimes = { ...bkServiceTimes };
+                                  delete newTimes[String(srv.id)];
+                                  setBkServiceTimes(newTimes);
+                                } else {
+                                  setBkSelectedServices([...bkSelectedServices, srv.id]);
+                                }
+                                setBkDate(null);
+                              }}
+                              className="w-full text-left group"
+                            >
+                              <div className="flex items-stretch">
+                                <div className={`w-1.5 flex-shrink-0 transition-all duration-300 ${isSelected ? "bg-amber-500" : "bg-transparent group-hover:bg-neutral-200"}`} />
+                                <div className="flex items-center gap-3 p-3.5 sm:p-4 flex-1 min-w-0">
+                                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
+                                    isSelected
+                                      ? "bg-neutral-900 shadow-md shadow-neutral-900/20 scale-105"
+                                      : "bg-neutral-100 group-hover:bg-neutral-200"
+                                  }`}>
+                                    {isSelected ? (
+                                      <i className="fas fa-check text-white text-[10px]" />
+                                    ) : (
+                                      <i className="fas fa-plus text-neutral-400 text-[10px]" />
+                                    )}
+                                  </div>
+                                  {srv.imageUrl ? (
+                                    <img src={srv.imageUrl} alt={srv.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0 border border-neutral-100" />
+                                  ) : (
+                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-50 flex items-center justify-center flex-shrink-0">
+                                      <i className="fas fa-wrench text-neutral-300 text-sm" />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="font-bold text-neutral-900 text-sm truncate">{srv.name}</h4>
+                                    <div className="flex items-center gap-3 mt-0.5">
+                                      <span className="text-[10px] text-neutral-400 flex items-center gap-1">
+                                        <i className="far fa-clock text-[8px]" />
+                                        {srv.duration} min
+                                      </span>
+                                      <span className="text-[10px] text-neutral-400">•</span>
+                                      <span className="text-xs font-bold text-neutral-700">${srv.price}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      })}
                       {servicesList.filter((srv: any) => srv.branches && srv.branches.length > 0 && srv.branches.includes(bkBranchId)).length === 0 && (
-                        <div className="col-span-full bg-neutral-50 border-2 border-dashed border-neutral-300 rounded-lg p-8 text-center">
-                          <i className="fas fa-concierge-bell text-4xl text-neutral-300 mb-2 block" />
-                          <p className="text-neutral-500 font-medium text-sm">No services available at this branch</p>
+                        <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                          <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <i className="fas fa-wrench text-xl text-neutral-300" />
+                          </div>
+                          <p className="text-neutral-500 font-medium text-sm">No services available</p>
+                          <p className="text-neutral-400 text-xs mt-1">This branch doesn&apos;t have services listed yet.</p>
                         </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* Navigation */}
-                <div className="flex justify-end pt-2 border-t border-neutral-200">
-                  <button
-                    disabled={!bkBranchId || bkSelectedServices.length === 0}
-                    onClick={() => setBkStep(2)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 ? "bg-neutral-900 hover:bg-neutral-800 hover:shadow-lg" : "bg-neutral-300 cursor-not-allowed"}`}
-                  >
-                    Continue to Date & Time
-                  </button>
-                </div>
+                {/* Summary Footer + Navigation */}
+                {bkSelectedServices.length > 0 && (
+                  <div className="mt-6 bg-neutral-900 rounded-2xl p-4 text-white relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
+                    <div className="relative z-10 flex items-center justify-between">
+                      <div>
+                        <p className="text-neutral-400 text-[10px] font-medium">
+                          {bkSelectedServices.length} service{bkSelectedServices.length > 1 ? "s" : ""} · {bkSelectedServices.reduce((sum: number, id) => {
+                            const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                            return sum + (Number(s?.duration) || 0);
+                          }, 0)} min
+                        </p>
+                        <p className="text-xl font-extrabold tracking-tight mt-0.5">
+                          ${bkSelectedServices.reduce((sum: number, id) => {
+                            const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                            return sum + (Number(s?.price) || 0);
+                          }, 0)}
+                        </p>
+                      </div>
+                      <button
+                        disabled={!bkBranchId || bkSelectedServices.length === 0}
+                        onClick={() => setBkStep(2)}
+                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-5 py-2.5 rounded-xl transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2"
+                      >
+                        Continue
+                        <i className="fas fa-arrow-right text-xs group-hover:translate-x-1 transition-transform" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {bkSelectedServices.length === 0 && (
+                  <div className="flex justify-end pt-3 mt-4 border-t border-neutral-200/50">
+                    <button
+                      disabled
+                      className="px-5 py-2.5 rounded-xl bg-neutral-200 text-neutral-400 text-sm font-semibold cursor-not-allowed"
+                    >
+                      Continue to Date & Time
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Step 2 - Date, Time & Staff */}
             {bkStep === 2 && (
-              <div className="space-y-6">
-                {/* Date Selection */}
-                <div className="bg-white p-4 rounded-xl border border-neutral-200">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="font-bold text-neutral-700 text-sm flex items-center gap-2">
-                      <i className="fas fa-calendar text-neutral-900"></i>
-                      Select Date
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={goPrevMonth} className="w-7 h-7 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs">
-                        <i className="fas fa-chevron-left" />
+              <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+                <div className="flex items-start sm:items-center justify-between mb-5 gap-2 flex-col sm:flex-row">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <button onClick={() => setBkStep(1)} className="w-8 h-8 rounded-xl bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition group">
+                        <i className="fas fa-arrow-left text-[10px] text-neutral-500 group-hover:-translate-x-0.5 transition-transform" />
                       </button>
-                      <div className="text-xs font-semibold text-neutral-800 px-2">{monthName}</div>
-                      <button onClick={goNextMonth} className="w-7 h-7 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs">
-                        <i className="fas fa-chevron-right" />
-                      </button>
+                      <span className="inline-flex items-center gap-1.5 bg-neutral-900 text-white text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
+                        <i className="fas fa-location-dot text-amber-400 text-[8px]" />
+                        {branches.find((b: any) => b.id === bkBranchId)?.name}
+                      </span>
+                      <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200/50 text-amber-700 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                        {bkSelectedServices.length} service{bkSelectedServices.length > 1 ? "s" : ""}
+                      </span>
                     </div>
+                    <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Schedule your visit</h3>
+                    <p className="text-neutral-500 text-xs mt-0.5">Choose a date, assign staff, and set drop-off & pick-up times</p>
                   </div>
-                  <div className="rounded-lg border border-neutral-200 overflow-hidden">
-                    <div className="grid grid-cols-7 text-[10px] font-semibold bg-neutral-50 text-neutral-600">
-                      {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-                        <div key={i} className="px-1 py-1.5 text-center">
-                          {d}
-                        </div>
+                </div>
+
+                {/* Date & Time Section - Booking Engine Style */}
+                <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 sm:p-5 shadow-sm mb-5">
+                  <h4 className="font-bold text-neutral-900 mb-4 flex items-center gap-2.5 text-sm">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md shadow-amber-500/10">
+                      <i className="fas fa-calendar text-white text-xs" />
+                    </div>
+                    When would you like to book?
+                  </h4>
+
+                  {/* Calendar */}
+                  <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white">
+                    <div className="px-3 py-2.5 bg-neutral-50 border-b border-neutral-100 flex items-center justify-between">
+                      <span className="text-xs font-bold text-neutral-800">{monthName}</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={goPrevMonth} className="w-7 h-7 rounded-lg bg-white hover:bg-neutral-100 text-neutral-600 text-xs border border-neutral-200 flex items-center justify-center transition">
+                          <i className="fas fa-chevron-left text-[9px]" />
+                        </button>
+                        <button onClick={goNextMonth} className="w-7 h-7 rounded-lg bg-white hover:bg-neutral-100 text-neutral-600 text-xs border border-neutral-200 flex items-center justify-center transition">
+                          <i className="fas fa-chevron-right text-[9px]" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-7 text-[10px] font-bold bg-neutral-50/50 text-neutral-400 uppercase tracking-wider">
+                      {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d, i) => (
+                        <div key={i} className="px-1 py-2 text-center">{d}</div>
                       ))}
                     </div>
                     <div className="grid grid-cols-7">
@@ -2257,84 +2548,125 @@ function BookingsPageContent() {
                         const isSelected =
                           c.date && bkDate && bkDate.getFullYear() === c.date.getFullYear() && bkDate.getMonth() === c.date.getMonth() && bkDate.getDate() === c.date.getDate();
                         
-                        // Use branch timezone to determine "today" and past dates
                         const selectedBranch = branches.find((b) => b.id === bkBranchId);
                         const branchTimezone = selectedBranch?.timezone || 'Australia/Sydney';
                         const branchCurrentDate = getCurrentDateTimeInTimezone(branchTimezone).date;
                         
-                        // Compare cell date with branch's current date
                         let isPast = false;
+                        const isClosed = c.date ? isBranchClosedOnDate(c.date) : false;
                         if (c.date) {
                           const cellDateStr = formatLocalYmd(c.date);
                           isPast = cellDateStr < branchCurrentDate;
                         }
+
+                        // Check if today
+                        let isToday = false;
+                        if (c.date) {
+                          const cellDateStr = formatLocalYmd(c.date);
+                          isToday = cellDateStr === branchCurrentDate;
+                        }
                         
-                        const baseClickable = c.date && !isPast ? "cursor-pointer hover:bg-neutral-50" : "bg-neutral-50/40 cursor-not-allowed opacity-60";
+                        const isDisabledDay = isPast || isClosed;
                         return (
                           <div
                             key={idx}
-                            className={`h-10 border border-neutral-100 p-1 text-xs flex items-center justify-center ${baseClickable} ${isSelected ? "bg-neutral-50 ring-2 ring-neutral-900 font-bold" : ""}`}
-                            onClick={() => c.date && !isPast && (setBkDate(c.date), setBkServiceTimes({}))}
+                            className={`h-10 p-0.5 flex items-center justify-center text-xs transition-all cursor-pointer
+                              ${!c.date ? "cursor-default" : ""}
+                              ${isDisabledDay ? "cursor-not-allowed" : "hover:bg-neutral-50"}
+                              ${isSelected ? "relative" : ""}
+                            `}
+                            onClick={() => c.date && !isDisabledDay && (setBkDate(c.date), setBkServiceTimes({}), setBkPickupTime(""))}
+                            title={isClosed && c.date ? "Branch closed" : undefined}
                           >
-                            <span className={`text-neutral-700 ${!c.date ? "opacity-0" : ""}`}>{c.label}</span>
+                            {c.date ? (
+                              <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold transition-all
+                                ${isSelected
+                                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20 font-bold"
+                                  : isToday
+                                  ? "bg-amber-50 text-amber-700 border border-amber-200 font-bold"
+                                  : isPast
+                                  ? "text-neutral-300"
+                                  : isClosed
+                                  ? "text-red-300 line-through"
+                                  : "text-neutral-700 hover:bg-neutral-100"
+                                }
+                              `}>
+                                {c.label}
+                              </span>
+                            ) : (
+                              <span className="opacity-0">{c.label}</span>
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   </div>
+
+                  {bkDate && (
+                    <div className="mt-3 flex items-center gap-2 px-1">
+                      <i className="fas fa-calendar-check text-[10px] text-emerald-500" />
+                      <span className="text-xs font-semibold text-neutral-700">{bkDate.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Services Configuration */}
-                <div className={!bkDate ? "opacity-50 pointer-events-none" : ""}>
-                  <div className="font-bold text-neutral-700 mb-3 flex items-center gap-2 text-sm">
-                    <i className="fas fa-clock text-purple-600" />
-                    Select Staff & Time for Each Service
-                  </div>
-                  
+                {/* Staff & Time for Each Service */}
+                <div className={`transition-all duration-300 ${!bkDate ? "opacity-40 pointer-events-none" : ""}`}>
                   {/* Branch Timezone Indicator */}
                   {bkBranchId && (() => {
                     const selectedBranch = branches.find((b) => b.id === bkBranchId);
                     const branchTimezone = selectedBranch?.timezone || 'Australia/Sydney';
-                    
-                    // Get timezone display name
                     const tzLabel = branchTimezone.split('/').pop()?.replace(/_/g, ' ') || branchTimezone;
                     
                     return (
-                      <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                      <div className="mb-4 bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-sm">
                         <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2">
-                            <i className="fas fa-globe text-blue-600"></i>
-                            <span className="text-xs font-medium text-blue-800">
-                              Branch Time Zone: <span className="font-bold">{tzLabel}</span>
-                            </span>
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                              <i className="fas fa-globe text-blue-600 text-xs"></i>
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-neutral-800 block">
+                                {tzLabel}
+                              </span>
+                              <span className="text-[10px] text-neutral-400">Branch timezone</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-blue-200">
-                            <i className="fas fa-clock text-blue-500 text-xs"></i>
-                            <span className="text-xs font-bold text-blue-700">
-                              Current Time: {branchCurrentTime.time || '--:--'}
+                          <div className="flex items-center gap-2 bg-neutral-900 px-3 py-1.5 rounded-full">
+                            <i className="fas fa-clock text-amber-400 text-[10px]"></i>
+                            <span className="text-xs font-bold text-white">
+                              {branchCurrentTime.time || '--:--'}
                             </span>
                           </div>
                         </div>
-                        <p className="text-[10px] text-blue-600 mt-2">
-                          <i className="fas fa-info-circle mr-1"></i>
-                          Times shown are in the branch's local timezone. Past slots are automatically hidden.
+                        <p className="text-[10px] text-neutral-400 mt-2 ml-[42px]">
+                          Past time slots are automatically hidden based on branch local time.
                         </p>
                       </div>
                     );
                   })()}
+
+                  <h4 className="font-bold text-neutral-900 mb-3 flex items-center gap-2.5 text-sm">
+                    <div className="w-9 h-9 rounded-xl bg-neutral-900 flex items-center justify-center shadow-md shadow-neutral-900/10">
+                      <i className="fas fa-clock text-white text-xs" />
+                    </div>
+                    Staff & Drop-off Time
+                  </h4>
                   
                   {!bkDate ? (
-                    <div className="text-center text-neutral-400 text-xs py-8 bg-neutral-50 rounded-lg border border-neutral-200 border-dashed">
-                      <i className="fas fa-calendar-day text-2xl mb-2 block text-neutral-300" />
-                      Select a date above to continue
-                    </div>
-                  ) : bkSelectedServices.length === 0 ? (
-                    <div className="text-center text-neutral-400 text-xs py-8 bg-neutral-50 rounded-lg border border-neutral-200 border-dashed">
-                      Select services in previous step
+                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4 relative">
+                        <i className="fas fa-calendar-day text-xl text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[8px]" />
+                        </div>
+                      </div>
+                      <p className="text-neutral-500 font-medium text-sm">Select a date first</p>
+                      <p className="text-neutral-400 text-xs mt-1">Choose a date above to see available time slots</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 gap-4">
-                      {bkSelectedServices.map((serviceId) => {
+                    <div className="space-y-3">
+                      {bkSelectedServices.map((serviceId, sIdx) => {
                         const service = servicesList.find((s) => String(s.id) === String(serviceId));
                         if (!service) return null;
                         
@@ -2342,207 +2674,194 @@ function BookingsPageContent() {
                         const selectedTime = bkServiceTimes[String(serviceId)];
                         const selectedStaffId = bkServiceStaff[String(serviceId)];
                         
-                        // Inline staff filtering - STRICT: only show staff who can perform this service AT this branch
                         const selectedBranchName = branches.find((b: any) => b.id === bkBranchId)?.name;
-                        
-                        // Get day of week from selected date
                         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                         const selectedDayName = bkDate ? dayNames[bkDate.getDay()] : null;
                         
-                        // Check if service has specific staff assigned
                         const serviceStaffIds: string[] = (service?.staffIds ?? []).map(String);
                         const serviceHasStaffAssigned = serviceStaffIds.length > 0;
                         
-                        // Helper function to check if staff works at selected branch
                         const staffWorksAtBranch = (st: typeof staffList[0]): boolean => {
-                           if (!bkBranchId) return true; // No branch selected = show all
-                           
-                           // Check weekly schedule first (day-specific branch assignment)
+                           if (!bkBranchId) return true;
                            if (selectedDayName && st.weeklySchedule) {
                               const daySchedule = st.weeklySchedule[selectedDayName];
-                              if (!daySchedule) return false; // Staff is off this day
-                              // Check if scheduled at selected branch
+                              if (!daySchedule) return false;
                               return daySchedule.branchId === bkBranchId || daySchedule.branchName === selectedBranchName;
                            }
-                           
-                           // Fall back to home branch check
                            const staffBranchId = String(st.branchId || "");
                            const staffBranchName = String(st.branch || "");
-                           
-                           // Staff MUST have a branch assignment matching the selected branch
                            return staffBranchId === bkBranchId || staffBranchName === selectedBranchName;
                         };
                         
-                        // FILTER: Staff must be non-suspended + work at branch + (if service has staffIds, be in that list)
-                        let availableStaffForService = staffList.filter(st => {
-                           // 1. Filter out suspended staff
+                        const availableStaffForService = staffList.filter(st => {
                            if (st.status === "Suspended" || st.status === "suspended") return false;
-                           
-                           // 2. If service has specific staff assigned, ONLY show those
                            if (serviceHasStaffAssigned) {
                               if (!serviceStaffIds.includes(String(st.id))) return false;
                            }
-                           
-                           // 3. Staff must work at the selected branch (mandatory)
                            if (!staffWorksAtBranch(st)) return false;
-                           
                            return true;
                         });
                         
-                        // Debug log
-                        console.log('[Booking] Staff filtering:', {
-                           serviceName: service.name,
-                           serviceHasStaffAssigned,
-                           serviceStaffIds,
-                           selectedDay: selectedDayName,
-                           selectedBranch: { id: bkBranchId, name: selectedBranchName },
-                           allStaffCount: staffList.length,
-                           allStaffNames: staffList.map(s => `${s.name} (branch: ${s.branchId || 'none'})`),
-                           filteredCount: availableStaffForService.length,
-                           filteredNames: availableStaffForService.map(s => s.name),
-                        });
-                        
                         return (
-                          <div key={String(serviceId)} className="bg-white rounded-xl border border-purple-100 shadow-sm p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="font-bold text-neutral-800 text-sm flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 text-xs">
-                                  <i className="fas fa-cut"></i>
-                                </div>
-                                {service.name}
-                              </div>
-                              <span className="text-[10px] bg-purple-50 px-2 py-1 rounded text-purple-700 font-medium">
-                                {service.duration} min
-                              </span>
-                            </div>
-
-                            {/* Staff Selector */}
-                            <div className="mb-3">
-                              <label className="text-[10px] font-bold text-neutral-400 uppercase mb-1 block">Stylist</label>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  onClick={() => {
-                                    const newStaff = { ...bkServiceStaff };
-                                    delete newStaff[String(serviceId)];
-                                    setBkServiceStaff(newStaff);
-                                    // Reset time
-                                    const newTimes = { ...bkServiceTimes };
-                                    delete newTimes[String(serviceId)];
-                                    setBkServiceTimes(newTimes);
-                                  }}
-                                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 ${
-                                    !selectedStaffId 
-                                      ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
-                                      : "bg-white border-neutral-200 text-neutral-600 hover:border-indigo-200"
-                                  }`}
-                                >
-                                  <i className="fas fa-random flex-shrink-0"></i> <span>Any</span>
-                                </button>
-                                {availableStaffForService.map(st => (
-                                  <button
-                                    key={st.id}
-                                    onClick={() => {
-                                      setBkServiceStaff({ ...bkServiceStaff, [String(serviceId)]: st.id });
-                                      // Reset time
-                                      const newTimes = { ...bkServiceTimes };
-                                      delete newTimes[String(serviceId)];
-                                      setBkServiceTimes(newTimes);
-                                    }}
-                                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 ${
-                                      selectedStaffId === st.id
-                                        ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
-                                        : "bg-white border-neutral-200 text-neutral-600 hover:border-indigo-200"
-                                    }`}
-                                  >
-                                    {/* Avatar */}
-                                    <div className="w-4 h-4 rounded-full bg-neutral-200 overflow-hidden flex-shrink-0">
-                                       {st.avatar ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar)}`} className="w-full h-full object-cover" alt="" /> : null}
+                          <div
+                            key={String(serviceId)}
+                            className={`rounded-2xl border-2 overflow-hidden transition-all duration-300 ${
+                              selectedTime
+                                ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                                : "border-neutral-200/80 bg-white hover:shadow-lg"
+                            }`}
+                            style={{ animation: `fadeSlideUp 0.4s ease-out ${sIdx * 80}ms both` }}
+                          >
+                            <div className="flex items-stretch">
+                              <div className={`w-1.5 flex-shrink-0 transition-all duration-300 ${selectedTime ? "bg-amber-500" : "bg-neutral-200"}`} />
+                              <div className="flex-1 p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2.5">
+                                    {service.imageUrl ? (
+                                      <img src={service.imageUrl} alt={service.name} className="w-10 h-10 rounded-xl object-cover border border-neutral-100" />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-50 flex items-center justify-center">
+                                        <i className="fas fa-wrench text-neutral-300 text-sm" />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <h5 className="font-bold text-neutral-900 text-sm">{service.name}</h5>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[10px] text-neutral-400 flex items-center gap-1">
+                                          <i className="far fa-clock text-[8px]" /> {service.duration} min
+                                        </span>
+                                        <span className="text-[10px] text-neutral-400">•</span>
+                                        <span className="text-xs font-bold text-neutral-700">${service.price}</span>
+                                      </div>
                                     </div>
-                                    <span>{st.name}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* Time Selector */}
-                            <div>
-                              <label className="text-[10px] font-bold text-neutral-400 uppercase mb-1 block">Time Slot</label>
-                              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                                {slots.length === 0 ? (
-                                  <div className="col-span-full text-center text-neutral-400 text-[10px] py-2 italic">
-                                    No slots available
                                   </div>
-                                ) : (
-                                  slots.map((slot) => {
-                                    const isSelected = selectedTime === slot.time;
-                                    const isDisabled = !slot.available;
-                                    const isBookedByOther = slot.reason === 'booked';
-                                    const isSelectedForOtherService = slot.reason === 'selected';
-                                    const isInsufficientTime = slot.reason === 'insufficient_time' || slot.reason === 'insufficient_time_selected';
-                                    const isClosesBeforeFinish = slot.reason === 'closes_before_finish';
-                                    
-                                    // Determine tooltip message
-                                    let tooltipMessage = 'Available';
-                                    if (isDisabled) {
-                                      if (isClosesBeforeFinish) {
-                                        tooltipMessage = (slot as any).message || 'Service would end after branch closing time';
-                                      } else if (isInsufficientTime) {
-                                        tooltipMessage = 'Not enough time - service would overlap with next booking';
-                                      } else if (isBookedByOther) {
-                                        tooltipMessage = 'Already booked';
-                                      } else if (isSelectedForOtherService) {
-                                        tooltipMessage = 'Selected for another service';
-                                      }
-                                    }
-                                    
-                                    return (
+                                  {selectedTime && (
+                                    <span className="bg-neutral-900 text-white text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                                      <i className="fas fa-check text-[8px]" /> {selectedTime}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Staff Selector */}
+                                <div className="mb-3">
+                                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5 block">Assign Staff</label>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <button
+                                      onClick={() => {
+                                        const newStaff = { ...bkServiceStaff };
+                                        delete newStaff[String(serviceId)];
+                                        setBkServiceStaff(newStaff);
+                                        const newTimes = { ...bkServiceTimes };
+                                        delete newTimes[String(serviceId)];
+                                        setBkServiceTimes(newTimes);
+                                      }}
+                                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                        !selectedStaffId 
+                                          ? "bg-neutral-900 border-neutral-900 text-white shadow-md shadow-neutral-900/15" 
+                                          : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-400"
+                                      }`}
+                                    >
+                                      <i className="fas fa-random text-[9px]"></i> Any Available
+                                    </button>
+                                    {availableStaffForService.map(st => (
                                       <button
-                                        key={slot.time}
+                                        key={st.id}
                                         onClick={() => {
-                                          if (!isDisabled) {
-                                            setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: slot.time });
-                                          }
+                                          setBkServiceStaff({ ...bkServiceStaff, [String(serviceId)]: st.id });
+                                          const newTimes = { ...bkServiceTimes };
+                                          delete newTimes[String(serviceId)];
+                                          setBkServiceTimes(newTimes);
                                         }}
-                                        disabled={isDisabled}
-                                        title={tooltipMessage}
-                                        className={`py-1.5 rounded text-[10px] font-bold transition-all relative group ${
-                                          isSelected 
-                                            ? "bg-neutral-900 text-white shadow-sm" 
-                                            : isClosesBeforeFinish
-                                              ? "bg-orange-50 text-orange-400 border border-orange-200 cursor-not-allowed"
-                                              : isInsufficientTime
-                                                ? "bg-yellow-50 text-yellow-600 border border-yellow-300 cursor-not-allowed"
-                                                : isBookedByOther
-                                                  ? "bg-red-50 text-red-400 border border-red-200 cursor-not-allowed line-through"
-                                                  : isSelectedForOtherService
-                                                    ? "bg-amber-50 text-amber-500 border border-amber-200 cursor-not-allowed"
-                                                    : "bg-white text-neutral-700 border border-neutral-200 hover:border-neutral-400"
+                                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                                          selectedStaffId === st.id
+                                            ? "bg-neutral-900 border-neutral-900 text-white shadow-md shadow-neutral-900/15" 
+                                            : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-400"
                                         }`}
                                       >
-                                        {slot.time}
-                                        {(isClosesBeforeFinish || isInsufficientTime) && (
-                                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full flex items-center justify-center">
-                                            <span className="text-white text-[8px]">!</span>
-                                          </span>
-                                        )}
+                                        <div className="w-4 h-4 rounded-full bg-neutral-200 overflow-hidden flex-shrink-0">
+                                           {st.avatar ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar)}`} className="w-full h-full object-cover" alt="" /> : null}
+                                        </div>
+                                        {st.name}
                                       </button>
-                                    );
-                                  })
-                                )}
-                              </div>
-                              {/* Show legend for unavailable slot reasons */}
-                              {slots.some(s => s.reason === 'closes_before_finish' || s.reason === 'insufficient_time') && (
-                                <div className="mt-2 text-[9px] text-neutral-500 flex flex-wrap gap-3">
-                                  <span className="flex items-center gap-1">
-                                    <span className="w-2 h-2 rounded bg-orange-300"></span>
-                                    Closes before service ends
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <span className="w-2 h-2 rounded bg-yellow-300"></span>
-                                    Overlaps with next booking
-                                  </span>
+                                    ))}
+                                  </div>
                                 </div>
-                              )}
+
+                                {/* Time Selector */}
+                                <div>
+                                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5 block">
+                                    <i className="fas fa-arrow-right-to-bracket text-[8px] text-amber-500 mr-1" />
+                                    Drop-off Time
+                                  </label>
+                                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5" style={{ alignContent: "start" }}>
+                                    {slots.length === 0 ? (
+                                      <div className="col-span-full text-center text-neutral-400 text-[10px] py-4 italic">
+                                        No time slots available for this date
+                                      </div>
+                                    ) : (
+                                      slots.map((slot) => {
+                                        const isSlotSelected = selectedTime === slot.time;
+                                        const isDisabled = !slot.available;
+                                        const isBookedByOther = slot.reason === 'booked';
+                                        const isSelectedForOtherService = slot.reason === 'selected';
+                                        const isInsufficientTime = slot.reason === 'insufficient_time' || slot.reason === 'insufficient_time_selected';
+                                        const isClosesBeforeFinish = slot.reason === 'closes_before_finish';
+                                        
+                                        let tooltipMessage = 'Available';
+                                        if (isDisabled) {
+                                          if (isClosesBeforeFinish) tooltipMessage = (slot as any).message || 'Service ends after closing';
+                                          else if (isInsufficientTime) tooltipMessage = 'Overlaps with another booking';
+                                          else if (isBookedByOther) tooltipMessage = 'Already booked';
+                                          else if (isSelectedForOtherService) tooltipMessage = 'Selected for another service';
+                                        }
+                                        
+                                        return (
+                                          <button
+                                            key={slot.time}
+                                            onClick={() => {
+                                              if (!isDisabled) setBkServiceTimes({ ...bkServiceTimes, [String(serviceId)]: slot.time });
+                                            }}
+                                            disabled={isDisabled}
+                                            title={tooltipMessage}
+                                            className={`h-9 rounded-lg text-[10px] font-bold transition-all relative ${
+                                              isSlotSelected 
+                                                ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" 
+                                                : isClosesBeforeFinish
+                                                  ? "bg-orange-50 text-orange-400 border border-orange-200 cursor-not-allowed"
+                                                  : isInsufficientTime
+                                                    ? "bg-yellow-50 text-yellow-500 border border-yellow-200 cursor-not-allowed"
+                                                    : isBookedByOther
+                                                      ? "bg-red-50 text-red-400 border border-red-200 cursor-not-allowed line-through"
+                                                      : isSelectedForOtherService
+                                                        ? "bg-amber-50 text-amber-500 border border-amber-200 cursor-not-allowed"
+                                                        : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800"
+                                            }`}
+                                          >
+                                            {slot.time}
+                                            {(isClosesBeforeFinish || isInsufficientTime) && (
+                                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full flex items-center justify-center">
+                                                <span className="text-white text-[7px]">!</span>
+                                              </span>
+                                            )}
+                                          </button>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                  {slots.some(s => s.reason === 'closes_before_finish' || s.reason === 'insufficient_time') && (
+                                    <div className="mt-2 text-[9px] text-neutral-400 flex flex-wrap gap-3">
+                                      <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded bg-orange-300"></span>
+                                        Closes before service ends
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <span className="w-2 h-2 rounded bg-yellow-300"></span>
+                                        Overlaps with booking
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         );
@@ -2551,133 +2870,298 @@ function BookingsPageContent() {
                   )}
                 </div>
 
-                {/* Navigation */}
-                <div className="flex justify-between pt-3 border-t border-neutral-200">
-                  <button onClick={() => setBkStep(1)} className="px-5 py-2 rounded-lg border border-neutral-300 text-neutral-700 hover:bg-neutral-50 font-medium">
-                    Back
-                  </button>
-                  <button
-                    disabled={!bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length}
-                    onClick={() => setBkStep(3)}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length ? "bg-neutral-900 hover:bg-neutral-800" : "bg-neutral-300 cursor-not-allowed"}`}
-                  >
-                    Continue to Details
-                  </button>
-                </div>
+                {/* Pick-up Time Section */}
+                {bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkSelectedServices.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 sm:p-5 shadow-sm mt-5 animate-[fadeSlideUp_0.3s_ease-out]">
+                    <h4 className="font-bold text-neutral-900 mb-3 flex items-center gap-2.5 text-sm">
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center shadow-md shadow-emerald-500/10">
+                        <i className="fas fa-arrow-right-from-bracket text-white text-xs" />
+                      </div>
+                      When does the customer pick up?
+                      {bkEarliestPickupTime && (
+                        <span className="ml-auto text-[10px] font-medium text-neutral-400 normal-case tracking-normal">
+                          earliest: {bkEarliestPickupTime} — {bkTotalServiceDuration} min service
+                        </span>
+                      )}
+                    </h4>
+
+                    <div className="border-2 border-emerald-200 rounded-xl overflow-hidden bg-white">
+                      <div className="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                        <div className="flex items-center gap-2">
+                          <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-600" />
+                          <span className="text-xs font-bold text-emerald-800">Select pick-up time</span>
+                        </div>
+                        {bkBranchDayHours && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <i className="fas fa-store text-[9px] text-emerald-300" />
+                            <span className="text-[10px] font-medium text-emerald-400">
+                              Branch closes at {bkBranchDayHours.close}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {bkPickupTimeSlots.length === 0 ? (
+                        <div className="p-4 text-center">
+                          <p className="text-[11px] text-neutral-400">No pick-up times available for this drop-off time and service duration.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 p-2.5 max-h-[200px] overflow-y-auto" style={{ alignContent: "start" }}>
+                          {bkPickupTimeSlots.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setBkPickupTime(t)}
+                              className={`h-9 rounded-lg text-xs font-semibold transition-all text-center ${
+                                bkPickupTime === t
+                                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {bkPickupTime && (
+                      <div className="mt-3 flex items-center gap-2 px-1">
+                        <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-500" />
+                        <span className="text-xs font-semibold text-neutral-700">Pick-up: {bkPickupTime}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Summary Footer + Navigation */}
+                {bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkPickupTime && bkSelectedServices.length > 0 ? (
+                  <div className="mt-6 bg-neutral-900 rounded-2xl p-4 text-white relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
+                    <div className="relative z-10 flex items-center justify-between">
+                      <div>
+                        <p className="text-neutral-400 text-[10px] font-medium">
+                          Drop-off: {Object.values(bkServiceTimes)[0]} · Pick-up: {bkPickupTime}
+                        </p>
+                        <p className="text-sm font-bold mt-0.5">
+                          {bkDate.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" })} · {bkSelectedServices.length} service{bkSelectedServices.length > 1 ? "s" : ""}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setBkStep(3)}
+                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-5 py-2.5 rounded-xl transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2"
+                      >
+                        Continue
+                        <i className="fas fa-arrow-right text-xs group-hover:translate-x-1 transition-transform" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-between pt-4 mt-5 border-t border-neutral-200/50">
+                    <button onClick={() => setBkStep(1)} className="px-4 py-2 rounded-xl border border-neutral-200 text-neutral-600 hover:bg-neutral-50 font-medium text-sm transition group flex items-center gap-2">
+                      <i className="fas fa-arrow-left text-[10px] group-hover:-translate-x-0.5 transition-transform" />
+                      Back
+                    </button>
+                    <button
+                      disabled
+                      className="px-5 py-2.5 rounded-xl bg-neutral-200 text-neutral-400 text-sm font-semibold cursor-not-allowed"
+                    >
+                      Continue to Details
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Step 3 - Customer Details + Summary */}
             {bkStep === 3 && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Customer Details Form */}
-                <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
-                  <div className="font-bold text-neutral-700 mb-4">Your Details</div>
-                  <div className="space-y-4">
-              <div>
-                      <label className="block text-xs font-medium text-neutral-500 mb-1">Full Name <span className="text-red-500">*</span></label>
-                      <input
-                        type="text"
-                        value={bkClientName}
-                        onChange={(e) => setBkClientName(e.target.value)}
-                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-                        placeholder="John Doe"
-                        required
-                      />
-                </div>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-500 mb-1">Email Address <span className="text-red-500">*</span></label>
-                      <input
-                        type="email"
-                        value={bkClientEmail}
-                        onChange={(e) => setBkClientEmail(e.target.value)}
-                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-                        placeholder="john@example.com"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-500 mb-1">Phone Number <span className="text-red-500">*</span></label>
-                      <input
-                        type="tel"
-                        value={bkClientPhone}
-                        onChange={(e) => setBkClientPhone(e.target.value)}
-                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-                        placeholder="+1 555 000 1111"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-neutral-500 mb-1">Additional Notes (Optional)</label>
-                      <textarea
-                        value={bkNotes}
-                        onChange={(e) => setBkNotes(e.target.value)}
-                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900"
-                        placeholder="Any special requests or information…"
-                        rows={4}
-                      />
-                    </div>
+              <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+                <div className="flex items-center gap-2 mb-5">
+                  <button onClick={() => setBkStep(2)} className="w-8 h-8 rounded-xl bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition group">
+                    <i className="fas fa-arrow-left text-[10px] text-neutral-500 group-hover:-translate-x-0.5 transition-transform" />
+                  </button>
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Complete the booking</h3>
+                    <p className="text-neutral-500 text-xs mt-0.5">Fill in customer details and review the summary</p>
                   </div>
                 </div>
 
-                {/* Booking Summary */}
-                <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6">
-                  <div className="font-bold text-neutral-700 mb-4">Booking Summary</div>
-                  <div className="bg-neutral-50 rounded-xl border border-neutral-200 p-4 space-y-3 text-sm">
-                    <div className="flex justify-between"><span className="text-neutral-500">Branch</span><span className="font-semibold text-neutral-800">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</span></div>
-                    
-                    <div className="border-t border-neutral-200 pt-2 mt-2">
-                      <span className="text-neutral-500 block mb-2">Services ({bkSelectedServices.length})</span>
-                      <div className="space-y-2">
-                        {bkSelectedServices.map(id => {
-                          const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                          const stId = bkServiceStaff[String(id)];
-                          const stName = stId ? staffList.find(st => st.id === stId)?.name : "Not Assigned Yet";
-                          return (
-                            <div key={id} className="bg-white/60 p-2 rounded border border-neutral-200">
-                              <div className="flex justify-between">
-                                <span className="font-semibold text-neutral-800">{s?.name || "-"}</span>
-                                <span className="font-bold text-neutral-900">${s?.price || 0}</span>
-                              </div>
-                              <div className="flex justify-between text-xs text-neutral-500 mt-1">
-                                <span className="flex items-center gap-2">
-                                   <span>{bkServiceTimes[String(id)]}</span>
-                                   <span className="text-neutral-400">•</span>
-                                   <span><i className="fas fa-user mr-1"></i> {stName}</span>
-                                </span>
-                                <span>{s?.duration} min</span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+                  {/* Left Column - Customer Form */}
+                  <div className="lg:col-span-3 space-y-4">
+                    {/* Customer Info Card */}
+                    <div className="bg-white rounded-2xl border border-neutral-200/80 p-5 shadow-sm hover:shadow-md transition-shadow">
+                      <h4 className="font-bold text-neutral-900 mb-4 flex items-center gap-2.5 text-sm">
+                        <div className="w-9 h-9 rounded-xl bg-neutral-900 flex items-center justify-center shadow-md shadow-neutral-900/10">
+                          <i className="fas fa-user text-white text-xs" />
+                        </div>
+                        Customer information
+                      </h4>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Full Name <span className="text-red-400">*</span></label>
+                            <input
+                              type="text"
+                              value={bkClientName}
+                              onChange={(e) => setBkClientName(e.target.value)}
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium"
+                              placeholder="John Smith"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Phone <span className="text-red-400">*</span></label>
+                            <input
+                              type="tel"
+                              value={bkClientPhone}
+                              onChange={(e) => setBkClientPhone(e.target.value)}
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium"
+                              placeholder="0412 345 678"
+                              required
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Email <span className="text-red-400">*</span></label>
+                          <input
+                            type="email"
+                            value={bkClientEmail}
+                            onChange={(e) => setBkClientEmail(e.target.value)}
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium"
+                            placeholder="john@example.com"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Additional Notes <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                          <textarea
+                            value={bkNotes}
+                            onChange={(e) => setBkNotes(e.target.value)}
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium resize-none"
+                            placeholder="Any special requests or information…"
+                            rows={3}
+                          />
+                        </div>
                       </div>
                     </div>
+                  </div>
 
-                    <div className="flex justify-between"><span className="text-neutral-500">Date</span><span className="font-semibold text-neutral-800">{bkDate ? bkDate.toLocaleDateString() : "-"}</span></div>
-                    
-                    <div className="flex justify-between border-t-2 border-neutral-300 pt-2 mt-2">
-                      <span className="text-neutral-700 font-bold">Total Price</span>
-                      <span className="font-black text-neutral-900 text-lg">
-                        ${bkSelectedServices.reduce((sum: number, id) => {
-                          const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                          return sum + (Number(s?.price) || 0);
-                        }, 0)}
-                      </span>
+                  {/* Right Column - Booking Summary */}
+                  <div className="lg:col-span-2">
+                    <div className="bg-white rounded-2xl border border-neutral-200/80 p-5 shadow-sm hover:shadow-md transition-shadow sticky top-4">
+                      <h4 className="font-bold text-neutral-900 mb-4 flex items-center gap-2.5 text-sm">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md shadow-amber-500/10">
+                          <i className="fas fa-receipt text-white text-xs" />
+                        </div>
+                        Booking summary
+                      </h4>
+
+                      <div className="space-y-3">
+                        {/* Branch */}
+                        <div className="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+                          <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
+                            <i className="fas fa-store text-neutral-500 text-[10px]" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-neutral-400 font-medium">Branch</p>
+                            <p className="text-sm font-bold text-neutral-900">{branches.find((b: any) => b.id === bkBranchId)?.name || "-"}</p>
+                          </div>
+                        </div>
+
+                        {/* Date & Times */}
+                        <div className="flex items-center gap-2.5 pb-3 border-b border-neutral-100">
+                          <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
+                            <i className="fas fa-calendar text-neutral-500 text-[10px]" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-[10px] text-neutral-400 font-medium">Date</p>
+                            <p className="text-sm font-bold text-neutral-900">{bkDate ? bkDate.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "long" }) : "-"}</p>
+                          </div>
+                        </div>
+
+                        {bkPickupTime && (
+                          <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200/50">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1.5">
+                                <i className="fas fa-arrow-right-to-bracket text-[8px]" /> Drop-off
+                              </span>
+                              <span className="text-xs font-bold text-neutral-900">{Object.values(bkServiceTimes)[0] || "-"}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-emerald-700 font-bold flex items-center gap-1.5">
+                                <i className="fas fa-arrow-right-from-bracket text-[8px]" /> Pick-up
+                              </span>
+                              <span className="text-xs font-bold text-emerald-700">{bkPickupTime}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Services */}
+                        <div className="pt-1">
+                          <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-wider mb-2">
+                            Services ({bkSelectedServices.length})
+                          </p>
+                          <div className="space-y-2">
+                            {bkSelectedServices.map(id => {
+                              const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                              const stId = bkServiceStaff[String(id)];
+                              const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Available";
+                              return (
+                                <div key={id} className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-100">
+                                  <div className="flex justify-between items-start">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold text-neutral-900 truncate">{s?.name || "-"}</p>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-[10px] text-neutral-400">{bkServiceTimes[String(id)]}</span>
+                                        <span className="text-[10px] text-neutral-300">•</span>
+                                        <span className="text-[10px] text-neutral-400"><i className="fas fa-user mr-0.5 text-[8px]" />{stName}</span>
+                                      </div>
+                                    </div>
+                                    <span className="text-sm font-black text-neutral-900 ml-2">${s?.price || 0}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Total */}
+                        <div className="flex justify-between items-center pt-3 border-t-2 border-neutral-200 mt-2">
+                          <span className="text-sm font-bold text-neutral-700">Total</span>
+                          <span className="text-xl font-black text-neutral-900">
+                            ${bkSelectedServices.reduce((sum: number, id) => {
+                              const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                              return sum + (Number(s?.price) || 0);
+                            }, 0)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Confirm Button */}
+                      <button
+                        disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || !bkPickupTime || !bkClientName.trim() || !bkClientEmail.trim() || !bkClientPhone.trim() || submittingBooking}
+                        onClick={handleConfirmBooking}
+                        className={`w-full mt-4 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${
+                          bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkPickupTime && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && !submittingBooking
+                            ? "bg-neutral-900 text-white hover:bg-neutral-800 shadow-lg shadow-neutral-900/20"
+                            : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+                        }`}
+                      >
+                        {submittingBooking ? (
+                          <>
+                            <i className="fas fa-circle-notch animate-spin text-xs" />
+                            Confirming booking…
+                          </>
+                        ) : (
+                          <>
+                            <i className="fas fa-check text-xs" />
+                            Confirm Booking
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
-                </div>
-
-                <div className="lg:col-span-2 mt-1 flex justify-between">
-                  <button disabled={submittingBooking} onClick={() => setBkStep(2)} className={`px-5 py-2 rounded-lg border border-neutral-300 ${submittingBooking ? "text-neutral-400 cursor-not-allowed" : "text-neutral-700 hover:bg-neutral-50"} font-medium`}>
-                    Back
-                  </button>
-                  <button
-                    disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || !bkClientName.trim() || !bkClientEmail.trim() || !bkClientPhone.trim() || submittingBooking}
-                    onClick={handleConfirmBooking}
-                    className={`px-5 py-2 rounded-lg text-white font-semibold ${bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && !submittingBooking ? "bg-neutral-900 hover:bg-neutral-800" : "bg-neutral-300 cursor-not-allowed"}`}
-                  >
-                    {submittingBooking ? <span className="inline-flex items-center"><i className="fas fa-spinner animate-spin mr-2" /> Confirming…</span> : "Confirm Booking"}
-                  </button>
                 </div>
               </div>
             )}
@@ -2936,16 +3420,24 @@ function BookingsPageContent() {
         </div>
       )}
 
-      {/* Minimal CSS for modal, toasts, status badges, and time slots */}
+      {/* Minimal CSS for modal, toasts, status badges, time slots, and animations */}
       <style>{`
         .view-section.active { display: block; }
-        .modal-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); z-index: 50; align-items: center; justify-content: center; }
-        .modal-backdrop.open { display: flex; }
+        .modal-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15,23,42,0.65); backdrop-filter: blur(8px); z-index: 50; align-items: center; justify-content: center; }
+        .modal-backdrop.open { display: flex; animation: modalFadeIn 0.3s ease-out; }
+        .modal-backdrop.open > div { animation: modalSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         .toast { background: #1e293b; color: white; padding: 12px 24px; border-radius: 8px; margin-top: 10px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 12px; border-left: 4px solid #ec4899; }
         .status-Confirmed { background-color: #dcfce7; color: #15803d; }
         .status-Pending { background-color: #fef9c3; color: #a16207; }
         .status-Canceled { background-color: #fee2e2; color: #b91c1c; }
         .status-Completed { background-color: #e0f2fe; color: #075985; }
+        @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
       `}</style>
     </>
   );

@@ -46,6 +46,7 @@ type Row = {
   branchName?: string | null;
   date: string;
   time: string;
+  pickupTime?: string | null;
   duration: number;
   price: number;
   clientEmail?: string | null;
@@ -140,6 +141,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               branchName: d.branchName || null,
               date: String(d.date || ""),
               time: String(d.time || ""),
+              pickupTime: d.pickupTime || null,
               duration: Number(d.duration || 0),
               price: Number(d.price || 0),
               clientEmail: d.clientEmail || null,
@@ -1214,6 +1216,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             <i className="fas fa-clock text-neutral-400" />
                             {previewRow.date} {previewRow.time}
                           </p>
+                          {previewRow.pickupTime && (
+                            <p className="text-xs text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
+                              <i className="fas fa-arrow-right-from-bracket text-[10px]" />
+                              Pick-up: {previewRow.pickupTime}
+                            </p>
+                          )}
                         </div>
                         <div>
                           <p className="text-neutral-400">Duration</p>
@@ -1436,6 +1444,11 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         <td className="p-4">
                           <div className="font-medium text-neutral-700">{r.date}</div>
                           <div className="text-xs text-neutral-500">{r.time}</div>
+                          {r.pickupTime && (
+                            <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
+                              <i className="fas fa-arrow-right-from-bracket mr-1" style={{fontSize: "8px"}} />Pick-up: {r.pickupTime}
+                            </div>
+                          )}
                         </td>
                         <td className="p-4">{r.branchName || "-"}</td>
                         <td className="p-4 text-right pr-6">

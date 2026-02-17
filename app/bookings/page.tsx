@@ -2215,52 +2215,55 @@ function BookingsPageContent() {
                 </button>
               </div>
 
-              {/* Progress Bar - Booking Engine Style */}
-              <div className="flex items-center mt-5">
-                {[
-                  { n: 1, label: "Location", icon: "fa-location-dot" },
-                  { n: 2, label: "Schedule", icon: "fa-clock" },
-                  { n: 3, label: "Confirm", icon: "fa-check-circle" },
-                ].map((s, i) => (
-                  <React.Fragment key={s.n}>
-                    {i > 0 && (
-                      <div className="flex-1 mx-2 sm:mx-3 h-[3px] rounded-full bg-white/10 relative overflow-hidden">
-                        <div
-                          className="absolute inset-y-0 left-0 bg-amber-500 rounded-full transition-all duration-700 ease-out"
-                          style={{ width: bkStep > s.n - 1 ? "100%" : "0%" }}
-                        />
-                      </div>
-                    )}
-                    <button
-                      onClick={() => { if (s.n < bkStep) setBkStep(s.n as 1 | 2 | 3); }}
-                      disabled={s.n > bkStep}
-                      className="flex items-center gap-2 group"
-                    >
-                      <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold transition-all duration-500 ${
-                        bkStep > s.n
-                          ? "bg-amber-500 text-neutral-900 shadow-lg shadow-amber-500/25"
-                          : bkStep === s.n
-                          ? "bg-white text-neutral-900 shadow-lg shadow-white/15 scale-105"
-                          : "bg-white/10 text-white/40"
-                      }`}>
-                        {bkStep > s.n ? (
-                          <i className="fas fa-check text-[10px]" />
-                        ) : (
-                          <i className={`fas ${s.icon} text-[11px]`} />
-                        )}
-                        {bkStep === s.n && (
-                          <div className="absolute inset-0 rounded-xl border-2 border-white/40 animate-pulse" />
-                        )}
-                      </div>
-                      <span className={`text-xs font-semibold hidden sm:block transition-colors duration-300 ${
-                        bkStep >= s.n ? "text-white" : "text-white/30"
-                      }`}>
-                        {s.label}
-                      </span>
-                    </button>
-                  </React.Fragment>
-                ))}
-              </div>
+            </div>
+          </div>
+
+          {/* Progress Bar - Booking Engine Style */}
+          <div className="px-5 sm:px-6 py-4 bg-white border-b border-neutral-200/80">
+            <div className="flex items-center">
+              {[
+                { n: 1, label: "Location", icon: "fa-location-dot" },
+                { n: 2, label: "Schedule", icon: "fa-clock" },
+                { n: 3, label: "Confirm", icon: "fa-check-circle" },
+              ].map((s, i) => (
+                <React.Fragment key={s.n}>
+                  {i > 0 && (
+                    <div className="flex-1 mx-2 sm:mx-3 h-[3px] rounded-full bg-neutral-200 relative overflow-hidden">
+                      <div
+                        className="absolute inset-y-0 left-0 bg-amber-500 rounded-full transition-all duration-700 ease-out"
+                        style={{ width: bkStep > s.n - 1 ? "100%" : "0%" }}
+                      />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => { if (s.n < bkStep) setBkStep(s.n as 1 | 2 | 3); }}
+                    disabled={s.n > bkStep}
+                    className="flex items-center gap-2 group"
+                  >
+                    <div className={`relative w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold transition-all duration-500 ${
+                      bkStep > s.n
+                        ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25"
+                        : bkStep === s.n
+                        ? "bg-neutral-900 text-white shadow-lg shadow-neutral-900/15 scale-105"
+                        : "bg-neutral-200 text-neutral-400"
+                    }`}>
+                      {bkStep > s.n ? (
+                        <i className="fas fa-check text-[10px]" />
+                      ) : (
+                        <i className={`fas ${s.icon} text-[11px]`} />
+                      )}
+                      {bkStep === s.n && (
+                        <div className="absolute inset-0 rounded-xl border-2 border-neutral-700/40 animate-pulse" />
+                      )}
+                    </div>
+                    <span className={`text-xs font-semibold hidden sm:block transition-colors duration-300 ${
+                      bkStep >= s.n ? "text-neutral-900" : "text-neutral-400"
+                    }`}>
+                      {s.label}
+                    </span>
+                  </button>
+                </React.Fragment>
+              ))}
             </div>
           </div>
 
@@ -2572,7 +2575,7 @@ function BookingsPageContent() {
                             key={idx}
                             className={`h-10 p-0.5 flex items-center justify-center text-xs transition-all cursor-pointer
                               ${!c.date ? "cursor-default" : ""}
-                              ${isDisabledDay ? "cursor-not-allowed" : "hover:bg-neutral-50"}
+                              ${isDisabledDay ? "cursor-not-allowed" : ""}
                               ${isSelected ? "relative" : ""}
                             `}
                             onClick={() => c.date && !isDisabledDay && (setBkDate(c.date), setBkServiceTimes({}), setBkPickupTime(""))}
@@ -2650,7 +2653,7 @@ function BookingsPageContent() {
                     <div className="w-9 h-9 rounded-xl bg-neutral-900 flex items-center justify-center shadow-md shadow-neutral-900/10">
                       <i className="fas fa-clock text-white text-xs" />
                     </div>
-                    Staff & Drop-off Time
+                    Drop-off Time
                   </h4>
                   
                   {!bkDate ? (
@@ -2672,35 +2675,6 @@ function BookingsPageContent() {
                         
                         const slots = computeSlots(serviceId);
                         const selectedTime = bkServiceTimes[String(serviceId)];
-                        const selectedStaffId = bkServiceStaff[String(serviceId)];
-                        
-                        const selectedBranchName = branches.find((b: any) => b.id === bkBranchId)?.name;
-                        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                        const selectedDayName = bkDate ? dayNames[bkDate.getDay()] : null;
-                        
-                        const serviceStaffIds: string[] = (service?.staffIds ?? []).map(String);
-                        const serviceHasStaffAssigned = serviceStaffIds.length > 0;
-                        
-                        const staffWorksAtBranch = (st: typeof staffList[0]): boolean => {
-                           if (!bkBranchId) return true;
-                           if (selectedDayName && st.weeklySchedule) {
-                              const daySchedule = st.weeklySchedule[selectedDayName];
-                              if (!daySchedule) return false;
-                              return daySchedule.branchId === bkBranchId || daySchedule.branchName === selectedBranchName;
-                           }
-                           const staffBranchId = String(st.branchId || "");
-                           const staffBranchName = String(st.branch || "");
-                           return staffBranchId === bkBranchId || staffBranchName === selectedBranchName;
-                        };
-                        
-                        const availableStaffForService = staffList.filter(st => {
-                           if (st.status === "Suspended" || st.status === "suspended") return false;
-                           if (serviceHasStaffAssigned) {
-                              if (!serviceStaffIds.includes(String(st.id))) return false;
-                           }
-                           if (!staffWorksAtBranch(st)) return false;
-                           return true;
-                        });
                         
                         return (
                           <div
@@ -2740,51 +2714,6 @@ function BookingsPageContent() {
                                       <i className="fas fa-check text-[8px]" /> {selectedTime}
                                     </span>
                                   )}
-                                </div>
-
-                                {/* Staff Selector */}
-                                <div className="mb-3">
-                                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5 block">Assign Staff</label>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    <button
-                                      onClick={() => {
-                                        const newStaff = { ...bkServiceStaff };
-                                        delete newStaff[String(serviceId)];
-                                        setBkServiceStaff(newStaff);
-                                        const newTimes = { ...bkServiceTimes };
-                                        delete newTimes[String(serviceId)];
-                                        setBkServiceTimes(newTimes);
-                                      }}
-                                      className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                                        !selectedStaffId 
-                                          ? "bg-neutral-900 border-neutral-900 text-white shadow-md shadow-neutral-900/15" 
-                                          : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-400"
-                                      }`}
-                                    >
-                                      <i className="fas fa-random text-[9px]"></i> Any Available
-                                    </button>
-                                    {availableStaffForService.map(st => (
-                                      <button
-                                        key={st.id}
-                                        onClick={() => {
-                                          setBkServiceStaff({ ...bkServiceStaff, [String(serviceId)]: st.id });
-                                          const newTimes = { ...bkServiceTimes };
-                                          delete newTimes[String(serviceId)];
-                                          setBkServiceTimes(newTimes);
-                                        }}
-                                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                                          selectedStaffId === st.id
-                                            ? "bg-neutral-900 border-neutral-900 text-white shadow-md shadow-neutral-900/15" 
-                                            : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-400"
-                                        }`}
-                                      >
-                                        <div className="w-4 h-4 rounded-full bg-neutral-200 overflow-hidden flex-shrink-0">
-                                           {st.avatar ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(st.avatar)}`} className="w-full h-full object-cover" alt="" /> : null}
-                                        </div>
-                                        {st.name}
-                                      </button>
-                                    ))}
-                                  </div>
                                 </div>
 
                                 {/* Time Selector */}
@@ -3105,8 +3034,6 @@ function BookingsPageContent() {
                           <div className="space-y-2">
                             {bkSelectedServices.map(id => {
                               const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                              const stId = bkServiceStaff[String(id)];
-                              const stName = stId ? staffList.find(st => st.id === stId)?.name : "Any Available";
                               return (
                                 <div key={id} className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-100">
                                   <div className="flex justify-between items-start">
@@ -3114,8 +3041,6 @@ function BookingsPageContent() {
                                       <p className="text-xs font-bold text-neutral-900 truncate">{s?.name || "-"}</p>
                                       <div className="flex items-center gap-2 mt-0.5">
                                         <span className="text-[10px] text-neutral-400">{bkServiceTimes[String(id)]}</span>
-                                        <span className="text-[10px] text-neutral-300">•</span>
-                                        <span className="text-[10px] text-neutral-400"><i className="fas fa-user mr-0.5 text-[8px]" />{stName}</span>
                                       </div>
                                     </div>
                                     <span className="text-sm font-black text-neutral-900 ml-2">${s?.price || 0}</span>

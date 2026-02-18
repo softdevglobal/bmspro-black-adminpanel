@@ -681,6 +681,52 @@ export async function POST(req: NextRequest) {
       console.error("Failed to check user role for auto-confirmation:", roleError);
     }
     
+    // ─── Build tasks array from service checklists ───────────────────────────
+    let bookingTasks: any[] = [];
+    try {
+      // Collect unique service IDs from the booking
+      const serviceIds: string[] = [];
+      if (processedServices && Array.isArray(processedServices)) {
+        for (const svc of processedServices) {
+          if (svc.id) serviceIds.push(String(svc.id));
+        }
+      } else if (body.serviceId) {
+        // Single service or comma-separated IDs
+        const ids = String(body.serviceId).split(",").map((s: string) => s.trim()).filter(Boolean);
+        serviceIds.push(...ids);
+      }
+
+      // Fetch each service doc and copy its checklist items as tasks
+      let taskIndex = 0;
+      for (const svcId of serviceIds) {
+        const svcDoc = await adminDb().collection("services").doc(svcId).get();
+        if (!svcDoc.exists) continue;
+        const svcData = svcDoc.data();
+        const checklist = svcData?.checklist;
+        if (!Array.isArray(checklist) || checklist.length === 0) continue;
+
+        const svcName = svcData?.name || "";
+        for (const item of checklist) {
+          bookingTasks.push({
+            id: `task_${taskIndex++}`,
+            serviceId: svcId,
+            serviceName: svcName,
+            name: typeof item === "string" ? item : (item.name || ""),
+            description: typeof item === "string" ? "" : (item.description || ""),
+            done: false,
+            imageUrl: "",
+            staffNote: "",
+            completedAt: null,
+            completedByStaffUid: null,
+            completedByStaffName: null,
+          });
+        }
+      }
+    } catch (taskError) {
+      console.error("Failed to build tasks from service checklists:", taskError);
+      // Non-blocking: proceed without tasks
+    }
+
     const payload: any = {
       ownerUid,
       client: String(body.client),
@@ -704,6 +750,10 @@ export async function POST(req: NextRequest) {
       services: processedServices,
       bookingSource: bookingSource,
       bookingCode: bookingCode,
+      // Task management fields
+      tasks: bookingTasks.length > 0 ? bookingTasks : [],
+      taskProgress: 0,
+      finalSubmission: null,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };

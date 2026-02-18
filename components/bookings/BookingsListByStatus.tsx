@@ -63,6 +63,29 @@ type Row = {
   lastRejectedByStaffName?: string | null;
   lastRejectionReason?: string | null;
   services?: ServiceRow[] | null;
+  // Task management
+  tasks?: TaskRow[] | null;
+  taskProgress?: number;
+  finalSubmission?: {
+    description: string;
+    imageUrl: string;
+    submittedAt?: string | null;
+    submittedByStaffName?: string | null;
+  } | null;
+};
+
+type TaskRow = {
+  id: string;
+  serviceId?: string;
+  serviceName?: string;
+  name: string;
+  description: string;
+  done: boolean;
+  imageUrl: string;
+  staffNote: string;
+  completedAt?: string | null;
+  completedByStaffUid?: string | null;
+  completedByStaffName?: string | null;
 };
 
 function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
@@ -177,6 +200,22 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 completedByStaffUid: s.completedByStaffUid,
                 completedByStaffName: s.completedByStaffName,
               })) || null,
+              // Task management
+              tasks: Array.isArray(d.tasks) ? d.tasks.map((t: any) => ({
+                id: t.id || "",
+                serviceId: t.serviceId || "",
+                serviceName: t.serviceName || "",
+                name: t.name || "",
+                description: t.description || "",
+                done: !!t.done,
+                imageUrl: t.imageUrl || "",
+                staffNote: t.staffNote || "",
+                completedAt: t.completedAt || null,
+                completedByStaffUid: t.completedByStaffUid || null,
+                completedByStaffName: t.completedByStaffName || null,
+              })) : null,
+              taskProgress: typeof d.taskProgress === "number" ? d.taskProgress : 0,
+              finalSubmission: d.finalSubmission || null,
             });
           }
         });
@@ -267,6 +306,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   }, [status]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null);
 
   // Staff assignment modal state
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
@@ -1208,6 +1248,140 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           })}
                         </div>
                       </div>
+
+                      {/* ─── Task Progress & List ─────────────────────────── */}
+                      {previewRow.tasks && previewRow.tasks.length > 0 && (
+                        <div className="space-y-3">
+                          {/* Progress bar */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
+                                <i className="fas fa-clipboard-list text-amber-500 text-[10px]" />
+                                Task Progress
+                              </h4>
+                              <span className="text-xs font-bold text-neutral-700">
+                                {previewRow.tasks.filter(t => t.done).length}/{previewRow.tasks.length} ({previewRow.taskProgress || 0}%)
+                              </span>
+                            </div>
+                            <div className="w-full bg-neutral-100 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  (previewRow.taskProgress || 0) === 100
+                                    ? "bg-gradient-to-r from-emerald-500 to-green-500"
+                                    : (previewRow.taskProgress || 0) > 50
+                                    ? "bg-gradient-to-r from-amber-500 to-yellow-500"
+                                    : "bg-gradient-to-r from-blue-500 to-indigo-500"
+                                }`}
+                                style={{ width: `${previewRow.taskProgress || 0}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Task list */}
+                          <div className="space-y-3">
+                            {previewRow.tasks.map((task, idx) => (
+                              <div key={task.id || idx} className={`rounded-xl border p-4 transition-all ${
+                                task.done
+                                  ? "bg-emerald-50/50 border-emerald-200"
+                                  : "bg-white border-neutral-200"
+                              }`}>
+                                <div className="flex items-start gap-3">
+                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                    task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                  }`}>
+                                    {task.done ? (
+                                      <i className="fas fa-check text-[10px]" />
+                                    ) : (
+                                      <span className="text-[10px] font-bold">{idx + 1}</span>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                      <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
+                                        {task.name}
+                                      </p>
+                                      {task.done && (
+                                        <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
+                                      )}
+                                    </div>
+                                    {task.description && (
+                                      <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
+                                    )}
+                                    {task.serviceName && (
+                                      <p className="text-[11px] text-neutral-400 mt-1">
+                                        <i className="fas fa-magic mr-1 text-[9px]" />{task.serviceName}
+                                      </p>
+                                    )}
+                                    {/* Staff note */}
+                                    {task.staffNote && (
+                                      <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
+                                        <p className="text-xs text-blue-700">
+                                          <i className="fas fa-comment-alt mr-1" />
+                                          {task.staffNote}
+                                        </p>
+                                        {task.completedByStaffName && (
+                                          <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                        )}
+                                      </div>
+                                    )}
+                                    {/* Task image */}
+                                    {task.imageUrl && (
+                                      <div className="mt-2">
+                                        <img
+                                          src={task.imageUrl}
+                                          alt={task.name}
+                                          className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
+                                          onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                        />
+                                        <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
+                                          onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                        >
+                                          <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Final Submission */}
+                          {previewRow.finalSubmission && (
+                            <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="w-7 h-7 rounded-full bg-indigo-500 text-white flex items-center justify-center">
+                                  <i className="fas fa-flag-checkered text-[11px]" />
+                                </div>
+                                <h5 className="text-sm font-bold text-indigo-700">Final Submission</h5>
+                                {previewRow.finalSubmission.submittedByStaffName && (
+                                  <span className="text-[11px] text-indigo-500 ml-auto">
+                                    by {previewRow.finalSubmission.submittedByStaffName}
+                                  </span>
+                                )}
+                              </div>
+                              {previewRow.finalSubmission.description && (
+                                <p className="text-sm text-indigo-800 mb-3">{previewRow.finalSubmission.description}</p>
+                              )}
+                              {previewRow.finalSubmission.imageUrl && (
+                                <div>
+                                  <img
+                                    src={previewRow.finalSubmission.imageUrl}
+                                    alt="Final submission"
+                                    className="w-full h-auto max-h-[300px] rounded-xl border border-indigo-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
+                                    onClick={() => setLightboxImage({ url: previewRow.finalSubmission!.imageUrl, title: "Final Submission" })}
+                                  />
+                                  <p className="text-[10px] text-indigo-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition"
+                                    onClick={() => setLightboxImage({ url: previewRow.finalSubmission!.imageUrl, title: "Final Submission" })}
+                                  >
+                                    <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -1439,6 +1613,22 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 </div>
                               )}
                             </div>
+                            {/* Task progress mini bar */}
+                            {r.tasks && r.tasks.length > 0 && (
+                              <div className="mt-1.5 flex items-center gap-2 px-2">
+                                <div className="flex-1 bg-neutral-100 rounded-full h-1.5 overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      (r.taskProgress || 0) === 100 ? "bg-emerald-500" : "bg-amber-500"
+                                    }`}
+                                    style={{ width: `${r.taskProgress || 0}%` }}
+                                  />
+                                </div>
+                                <span className="text-[9px] font-bold text-neutral-500 shrink-0">
+                                  {r.tasks.filter(t => t.done).length}/{r.tasks.length}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="p-4">
@@ -2144,6 +2334,57 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Image Lightbox Modal ──────────────────────────────────── */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div
+            className="relative max-w-[90vw] max-h-[90vh] animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute -top-3 -right-3 z-10 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-50 transition group"
+            >
+              <i className="fas fa-times text-neutral-500 group-hover:text-red-500 text-sm" />
+            </button>
+
+            {/* Title */}
+            <div className="bg-white rounded-t-2xl px-5 py-3 border-b border-neutral-100">
+              <h3 className="text-sm font-bold text-neutral-800 flex items-center gap-2">
+                <i className="fas fa-image text-blue-500 text-xs" />
+                {lightboxImage.title}
+              </h3>
+            </div>
+
+            {/* Image */}
+            <div className="bg-white p-3 rounded-b-2xl shadow-2xl">
+              <img
+                src={lightboxImage.url}
+                alt={lightboxImage.title}
+                className="max-w-full max-h-[75vh] rounded-xl object-contain mx-auto"
+              />
+            </div>
+
+            {/* Open in new tab link */}
+            <div className="flex justify-center mt-3">
+              <a
+                href={lightboxImage.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-white/80 hover:text-white flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition"
+              >
+                <i className="fas fa-external-link-alt text-[10px]" />
+                Open in new tab
+              </a>
             </div>
           </div>
         </div>

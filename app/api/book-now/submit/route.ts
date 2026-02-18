@@ -147,6 +147,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Build tasks array from service checklists
+    let bookingTasks: any[] = [];
+    try {
+      let taskIndex = 0;
+      for (const svc of serviceDetails) {
+        const svcId = svc.id ? String(svc.id) : null;
+        if (!svcId) continue;
+        const svcDoc = await db.collection("services").doc(svcId).get();
+        if (!svcDoc.exists) continue;
+        const svcData = svcDoc.data();
+        const checklist = svcData?.checklist;
+        if (!Array.isArray(checklist) || checklist.length === 0) continue;
+        const svcName = svcData?.name || svc.name || "";
+        for (const item of checklist) {
+          bookingTasks.push({
+            id: `task_${taskIndex++}`,
+            serviceId: svcId,
+            serviceName: svcName,
+            name: typeof item === "string" ? item : (item.name || ""),
+            description: typeof item === "string" ? "" : (item.description || ""),
+            done: false,
+            imageUrl: "",
+            staffNote: "",
+            completedAt: null,
+            completedByStaffUid: null,
+            completedByStaffName: null,
+          });
+        }
+      }
+    } catch (taskErr) {
+      console.error("Failed to build tasks from checklists:", taskErr);
+    }
+
     // Create the booking
     const bookingPayload: any = {
       ownerUid,
@@ -170,7 +203,10 @@ export async function POST(req: NextRequest) {
       services: serviceDetails,
       bookingSource: "Online Booking Engine",
       bookingCode,
-      customerId: body.customerId || null, // customers doc ID (scoped to this workshop)
+      customerId: body.customerId || null,
+      tasks: bookingTasks.length > 0 ? bookingTasks : [],
+      taskProgress: 0,
+      finalSubmission: null,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };

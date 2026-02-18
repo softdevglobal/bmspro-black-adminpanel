@@ -272,4 +272,82 @@ export function shouldBlockSlots(status: string | null | undefined): boolean {
   return !inactiveStatuses.includes(normalized);
 }
 
+// ─── Staff Task Management ───────────────────────────────────────────────────
 
+/** A single task within a booking (copied from service checklist at booking creation) */
+export interface BookingTask {
+  id: string;                    // Unique task ID e.g. "task_0"
+  serviceId?: string;            // Which service this task belongs to
+  serviceName?: string;          // Service name for display
+  name: string;                  // Task name (from checklist)
+  description: string;           // Task description (from checklist)
+  done: boolean;                 // Completion status
+  imageUrl: string;              // Photo uploaded by staff after task completion
+  staffNote: string;             // Description of work done by staff
+  completedAt?: string | null;   // ISO timestamp when completed
+  completedByStaffUid?: string | null;
+  completedByStaffName?: string | null;
+}
+
+/** Final submission after all tasks are completed */
+export interface BookingFinalSubmission {
+  description: string;           // Overall description
+  imageUrl: string;              // Final image
+  submittedAt?: string | null;   // ISO timestamp
+  submittedByStaffUid?: string | null;
+  submittedByStaffName?: string | null;
+}
+
+/**
+ * Get task completion progress for a booking
+ * Returns { completed: number, total: number, percentage: number }
+ */
+export function getTaskProgress(tasks: BookingTask[]): { completed: number; total: number; percentage: number } {
+  if (!tasks || tasks.length === 0) return { completed: 0, total: 0, percentage: 0 };
+  const total = tasks.length;
+  const completed = tasks.filter(t => t.done).length;
+  const percentage = Math.round((completed / total) * 100);
+  return { completed, total, percentage };
+}
+
+/**
+ * Check if all tasks in a booking are completed
+ */
+export function areAllTasksCompleted(tasks: BookingTask[]): boolean {
+  if (!tasks || tasks.length === 0) return false;
+  return tasks.every(t => t.done);
+}
+
+/**
+ * Normalize raw task data from Firestore into BookingTask[]
+ */
+export function normalizeTasks(raw: any[]): BookingTask[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw.map((t, idx) => ({
+    id: t.id || `task_${idx}`,
+    serviceId: t.serviceId || "",
+    serviceName: t.serviceName || "",
+    name: t.name || "",
+    description: t.description || "",
+    done: !!t.done,
+    imageUrl: t.imageUrl || "",
+    staffNote: t.staffNote || "",
+    completedAt: t.completedAt || null,
+    completedByStaffUid: t.completedByStaffUid || null,
+    completedByStaffName: t.completedByStaffName || null,
+  }));
+}
+
+/**
+ * Normalize final submission data from Firestore
+ */
+export function normalizeFinalSubmission(raw: any): BookingFinalSubmission | null {
+  if (!raw) return null;
+  return {
+    description: raw.description || "",
+    imageUrl: raw.imageUrl || "",
+    submittedAt: raw.submittedAt || null,
+    submittedByStaffUid: raw.submittedByStaffUid || null,
+    submittedByStaffName: raw.submittedByStaffName || null,
+  };
+}

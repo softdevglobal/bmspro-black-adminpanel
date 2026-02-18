@@ -238,8 +238,8 @@ export default function SuperAdminAuditLogsPage() {
       const role = roleMatch[1];
       switch (role) {
         case "workshop_owner": return "Workshop Owner";
-        case "salon_branch_admin": return "Branch Admin";
-        case "salon_staff": return "Staff Member";
+        case "branch_admin": return "Branch Admin";
+        case "staff": return "Staff Member";
         case "super_admin": return "Super Admin";
         default: return role.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
       }
@@ -254,8 +254,8 @@ export default function SuperAdminAuditLogsPage() {
     return details.replace(/Role:\s*(\w+)/gi, (match, role) => {
       switch (role) {
         case "workshop_owner": return "Role: Workshop Owner";
-        case "salon_branch_admin": return "Role: Branch Admin";
-        case "salon_staff": return "Role: Staff Member";
+        case "branch_admin": return "Role: Branch Admin";
+        case "staff": return "Role: Staff Member";
         case "super_admin": return "Role: Super Admin";
         default: return `Role: ${role.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}`;
       }

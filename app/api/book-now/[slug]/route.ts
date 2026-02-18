@@ -20,23 +20,13 @@ export async function GET(
 
     const db = adminDb();
 
-    // Find the workshop owner by slug (support both old "salon_owner" and new "workshop_owner" roles)
-    let usersQuery = await db
+    // Find the workshop owner by slug
+    const usersQuery = await db
       .collection("users")
       .where("slug", "==", slug)
       .where("role", "==", "workshop_owner")
       .limit(1)
       .get();
-
-    // Fallback: check for legacy "salon_owner" role
-    if (usersQuery.empty) {
-      usersQuery = await db
-        .collection("users")
-        .where("slug", "==", slug)
-        .where("role", "==", "salon_owner")
-        .limit(1)
-        .get();
-    }
 
     if (usersQuery.empty) {
       return NextResponse.json({ error: "Workshop not found" }, { status: 404 });

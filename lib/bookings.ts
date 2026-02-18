@@ -20,7 +20,7 @@ async function getOwnerUidForBooking(): Promise<string | null> {
     if (userData) {
       const userRole = userData.role || userData.systemRole;
       // For branch admins and staff, use their ownerUid field
-      if ((userRole === "salon_branch_admin" || userRole === "salon_staff") && userData.ownerUid) {
+      if ((userRole === "branch_admin" || userRole === "staff") && userData.ownerUid) {
         return userData.ownerUid;
       }
     }

@@ -73,7 +73,7 @@ export default function ServicesPage() {
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const role = (snap.data()?.role || "").toString();
-        if (role === "salon_branch_admin") {
+        if (role === "branch_admin") {
           router.replace("/branches");
           return;
         }

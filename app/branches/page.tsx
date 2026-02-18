@@ -130,7 +130,7 @@ export default function BranchesPage() {
         const r = (userData?.role || "").toString();
         setRole(r);
         setCurrentUserUid(user.uid); // Store current user UID
-        if (r !== "workshop_owner" && r !== "salon_branch_admin") {
+        if (r !== "workshop_owner" && r !== "branch_admin") {
           router.replace("/dashboard");
           return;
         }
@@ -248,7 +248,7 @@ export default function BranchesPage() {
     if (!ownerUid) return;
     
     // For branch admins, we need currentUserUid to query by adminStaffId
-    if (role === "salon_branch_admin" && !currentUserUid) {
+    if (role === "branch_admin" && !currentUserUid) {
       return;
     }
     
@@ -285,7 +285,7 @@ export default function BranchesPage() {
             setBranches(myBranches);
             
             // Auto-redirect branch admin to their specific branch page
-            if (role === "salon_branch_admin" && myBranches.length === 1) {
+            if (role === "branch_admin" && myBranches.length === 1) {
               router.push(`/branches/${myBranches[0].id}`);
             }
             return;

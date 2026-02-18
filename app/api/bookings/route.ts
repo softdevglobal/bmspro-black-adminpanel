@@ -82,15 +82,14 @@ function hasAnyStaffBooking(
 
 /**
  * Get all branch admin UIDs for a branch
- * Branch admins are stored in the users collection with role='salon_branch_admin' and matching branchId
+ * Branch admins are stored in the users collection with role='branch_admin' and matching branchId
  */
 async function getBranchAdminUids(db: Firestore, branchId: string, ownerUid: string): Promise<string[]> {
   try {
-    // Query users collection for branch admins
-    // Branch admins have: role='salon_branch_admin', ownerUid matches, and branchId matches
+    // Query users collection for branch admins (support both old and new role names)
     const branchAdminQuery = await db.collection("users")
       .where("ownerUid", "==", ownerUid)
-      .where("role", "==", "salon_branch_admin")
+      .where("role", "in", ["branch_admin"])
       .where("branchId", "==", branchId)
       .get();
     
@@ -271,7 +270,7 @@ export async function POST(req: NextRequest) {
       if (userData) {
         const userRole = userData.role || userData.systemRole;
         // For branch admins and staff, use their ownerUid field (the salon owner's UID)
-        if ((userRole === "salon_branch_admin" || userRole === "salon_staff") && userData.ownerUid) {
+        if ((userRole === "branch_admin" || userRole === "staff") && userData.ownerUid) {
           ownerUid = userData.ownerUid;
         } else {
           // For salon owners, use their own UID
@@ -350,11 +349,11 @@ export async function POST(req: NextRequest) {
         const userBranchName = currentUserData.branchName || branchName;
         const userName = currentUserData.displayName || currentUserData.name || "Staff";
         
-        if (userRole === "salon_branch_admin") {
+        if (userRole === "branch_admin") {
           bookingSource = `Branch Admin Booking - ${userBranchName || "Unknown Branch"}`;
         } else if (userRole === "workshop_owner") {
           bookingSource = "Workshop Owner Booking";
-        } else if (userRole === "salon_staff") {
+        } else if (userRole === "staff") {
           // For staff bookings, show the staff member's name instead of branch
           bookingSource = `Staff Booking - ${userName}`;
         }
@@ -450,7 +449,7 @@ export async function POST(req: NextRequest) {
 
           const eligible = allStaff.filter((st: any) => {
             const role = (st.role || "").toString().toLowerCase();
-            if (role !== "salon_staff" && role !== "salon_branch_admin") return false;
+            if (role !== "staff" && role !== "branch_admin") return false;
             if (st.status && st.status !== "Active") return false;
 
             // Check service capability
@@ -623,14 +622,14 @@ export async function POST(req: NextRequest) {
     let finalStatus = normalizeBookingStatus(body.status || "Pending");
     let processedServices = body.services || null;
     
-    // Check if user is staff, workshop_owner, or salon_branch_admin for auto-confirmation logic
+    // Check if user is staff, workshop_owner, or branch_admin for auto-confirmation logic
     try {
       const currentUserDoc = await adminDb().doc(`users/${currentUserId}`).get();
       const currentUserData = currentUserDoc.data();
       if (currentUserData) {
         const userRole = currentUserData.role || currentUserData.systemRole;
         
-        if (userRole === "salon_staff") {
+        if (userRole === "staff") {
           // Auto-confirm staff bookings (all services accepted immediately)
           finalStatus = "Confirmed";
           
@@ -641,8 +640,8 @@ export async function POST(req: NextRequest) {
               approvalStatus: "accepted",
             }));
           }
-        } else if (userRole === "workshop_owner" || userRole === "salon_branch_admin") {
-          // For workshop_owner and salon_branch_admin: skip Pending status
+        } else if (userRole === "workshop_owner" || userRole === "branch_admin") {
+          // For workshop_owner and branch_admin: skip Pending status
           // If services have staff assigned, go directly to AwaitingStaffApproval
           // If all services need assignment, still go to AwaitingStaffApproval (not Pending)
           

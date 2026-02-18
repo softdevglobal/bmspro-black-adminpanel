@@ -269,9 +269,8 @@ export default function AuditLogsPage() {
     if (!role) return "User";
     switch (role) {
       case "workshop_owner": return "Owner";
-      case "salon_owner": return "Owner";
-      case "salon_branch_admin": return "Branch Admin";
-      case "salon_staff": return "Staff";
+      case "branch_admin": return "Branch Admin";
+      case "staff": return "Staff";
       case "super_admin": return "Super Admin";
       default: return role;
     }

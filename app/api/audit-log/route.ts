@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Security: Verify authentication - allow staff, branch admins, and owners to create audit logs
-    // Allow salon_staff for logging check-ins from the mobile app
-    const allowedRoles = [...ADMIN_ROLES, "salon_staff"];
+    // Allow staff for logging check-ins from the mobile app
+    const allowedRoles = [...ADMIN_ROLES, "staff"];
     const authResult = await verifyAdminAuth(req, allowedRoles);
     if (!authResult.success) {
       return NextResponse.json(

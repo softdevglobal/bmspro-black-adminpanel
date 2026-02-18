@@ -563,7 +563,7 @@ export default function TenantsPage() {
         role = (snap.data()?.role || "").toString();
       }
       
-      if (role === "salon_branch_admin") {
+      if (role === "branch_admin") {
         router.replace("/branches");
         return;
       }
@@ -616,7 +616,7 @@ export default function TenantsPage() {
     // Fetch staff counts
     const staffPromises = tenantIds.map(async (tenantId) => {
       try {
-        const staffQuery = query(collection(db, "users"), where("ownerUid", "==", tenantId), where("role", "==", "salon_staff"));
+        const staffQuery = query(collection(db, "users"), where("ownerUid", "==", tenantId), where("role", "in", ["staff"]));
         const staffSnap = await getDocs(staffQuery);
         stats[tenantId].staffCount = staffSnap.docs.length;
       } catch (error) {

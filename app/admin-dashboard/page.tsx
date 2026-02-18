@@ -398,7 +398,7 @@ export default function AdminDashboardPage() {
       const { db } = await import("@/lib/firebase");
 
       // Fetch all staff members
-      const staffQuery = query(collection(db, "users"), where("role", "==", "salon_staff"));
+      const staffQuery = query(collection(db, "users"), where("role", "in", ["staff"]));
       unsubStaff = onSnapshot(
         staffQuery,
         (snapshot) => {

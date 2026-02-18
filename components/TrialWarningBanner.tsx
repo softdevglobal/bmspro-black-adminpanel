@@ -58,7 +58,7 @@ export default function TrialWarningBanner() {
             // Only workshop_owner has trial status
             if (role !== "workshop_owner") {
               // For branch admins, check owner's trial status
-              if (role === "salon_branch_admin" && userData?.ownerUid) {
+              if (role === "branch_admin" && userData?.ownerUid) {
                 checkOwnerTrialStatus(userData.ownerUid);
               } else {
                 setLoading(false);

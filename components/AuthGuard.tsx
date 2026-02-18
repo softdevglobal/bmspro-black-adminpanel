@@ -82,7 +82,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
           }
           
           // Check if user has admin role
-          const allowedRoles = ["workshop_owner", "salon_branch_admin", "super_admin"];
+          const allowedRoles = ["workshop_owner", "branch_admin", "super_admin"];
           
           if (!allowedRoles.includes(userRole)) {
             await auth.signOut();
@@ -148,7 +148,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
               setPaymentInfo({ required: false });
             }
             setOwnerBlocked({ blocked: false, reason: "" });
-          } else if (userRole === "salon_branch_admin" && meData.ownerUid) {
+          } else if (userRole === "branch_admin" && meData.ownerUid) {
             // For branch admins, we check the owner status via a simple approach
             // The /api/auth/me already returns ownerUid; we trust the server data
             setPaymentInfo({ required: false });

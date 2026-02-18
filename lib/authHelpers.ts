@@ -3,9 +3,9 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 
 // ==================== SERVER-SIDE AUTH HELPERS (for API routes only) ====================
 
-export const ADMIN_ROLES = ["workshop_owner", "salon_branch_admin", "super_admin"];
+export const ADMIN_ROLES = ["workshop_owner", "branch_admin", "super_admin"];
 
-export const STAFF_MANAGEMENT_ROLES = ["workshop_owner", "salon_branch_admin"];
+export const STAFF_MANAGEMENT_ROLES = ["workshop_owner", "branch_admin"];
 
 interface AuthResult {
   success: boolean;
@@ -129,7 +129,7 @@ export async function verifyTenantAccess(
     return { allowed: false, error: "Access denied to this tenant's data" };
   }
 
-  if (requestingUserRole === "salon_branch_admin") {
+  if (requestingUserRole === "branch_admin") {
     if (requestingUserOwnerUid === targetOwnerUid) {
       return { allowed: true };
     }

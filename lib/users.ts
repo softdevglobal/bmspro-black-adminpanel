@@ -16,7 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 
-export type AppUserRole = "super_admin" | "workshop_owner" | "salon_staff" | "salon_branch_admin" | "pending";
+export type AppUserRole = "super_admin" | "workshop_owner" | "staff" | "branch_admin" | "pending";
 
 /**
  * Ensure a Firestore user doc exists for the logged-in user.
@@ -128,7 +128,7 @@ export async function createSalonStaffForOwner(ownerUid: string, input: SalonSta
     lastName: input.lastName.trim(),
     username: input.username || null,
     // role/ownership
-    role: (input.systemRole || "salon_staff") as AppUserRole,
+    role: (input.systemRole || "staff") as AppUserRole,
     ownerUid,
     // employment fields
     staffRole: input.staffRole,
@@ -150,7 +150,7 @@ export async function createSalonStaffForOwner(ownerUid: string, input: SalonSta
 export async function listSalonStaffForOwner(ownerUid: string) {
   const q = query(
     collection(db, "users"),
-    where("role", "==", "salon_staff"),
+    where("role", "in", ["staff"]),
     where("ownerUid", "==", ownerUid)
   );
   const qs = await getDocs(q);
@@ -167,7 +167,7 @@ export function subscribeSalonStaffForOwner(
 ) {
   const q = query(
     collection(db, "users"),
-    where("role", "==", "salon_staff"),
+    where("role", "in", ["staff"]),
     where("ownerUid", "==", ownerUid)
   );
   return onSnapshot(

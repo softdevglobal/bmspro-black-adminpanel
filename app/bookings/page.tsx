@@ -82,7 +82,7 @@ function BookingsPageContent() {
           if (role === "workshop_owner") {
             setOwnerUid(user.uid);
             setUserRole(role);
-          } else if (role === "salon_branch_admin") {
+          } else if (role === "branch_admin") {
             // Allow branch admin to access bookings - but only for their branch
             setOwnerUid(userData?.ownerUid || user.uid);
             setUserBranchId(userData?.branchId || null);
@@ -806,7 +806,7 @@ function BookingsPageContent() {
       where("date", "==", todayStr)
     ];
     
-    if (userRole === "salon_branch_admin" && userBranchId) {
+    if (userRole === "branch_admin" && userBranchId) {
       constraints.push(where("branchId", "==", userBranchId));
     }
     
@@ -876,7 +876,7 @@ function BookingsPageContent() {
       where("date", "==", dateStr)
     ];
     
-    if (userRole === "salon_branch_admin" && userBranchId) {
+    if (userRole === "branch_admin" && userBranchId) {
       constraints.push(where("branchId", "==", userBranchId));
     }
     
@@ -986,7 +986,7 @@ function BookingsPageContent() {
     const unsubBranches = subscribeBranchesForOwner(ownerUid, (rows) => {
       // Branch admin should only see their own branch
       let filteredBranches = rows;
-      if (userRole === "salon_branch_admin" && userBranchId) {
+      if (userRole === "branch_admin" && userBranchId) {
         filteredBranches = rows.filter((r) => String(r.id) === String(userBranchId));
       }
       setBranches(filteredBranches.map((r) => ({ 
@@ -1016,7 +1016,7 @@ function BookingsPageContent() {
     const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
       // Branch admin should only see staff from their branch
       let filteredStaff = rows;
-      if (userRole === "salon_branch_admin" && userBranchId) {
+      if (userRole === "branch_admin" && userBranchId) {
         filteredStaff = rows.filter((r: any) => String(r.branchId) === String(userBranchId));
       }
       
@@ -1374,7 +1374,7 @@ function BookingsPageContent() {
   const openBookingWizard = () => {
     resetWizard();
     // Auto-select branch for branch admins
-    if (userRole === "salon_branch_admin" && userBranchId) {
+    if (userRole === "branch_admin" && userBranchId) {
       setBkBranchId(userBranchId);
     }
     appRef()?.openModal("booking");
@@ -2278,7 +2278,7 @@ function BookingsPageContent() {
                     <div>
                       <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Choose a location</h3>
                       <p className="text-neutral-500 text-xs mt-0.5">
-                        {userRole === "salon_branch_admin" ? "Your assigned branch is pre-selected" : "Select the workshop branch"}
+                        {userRole === "branch_admin" ? "Your assigned branch is pre-selected" : "Select the workshop branch"}
                       </p>
                     </div>
                     <span className="text-[10px] text-neutral-400 font-semibold bg-neutral-100 px-2.5 py-1 rounded-full hidden sm:block">
@@ -2297,7 +2297,7 @@ function BookingsPageContent() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {branches.map((br: any, idx: number) => {
                         const selected = bkBranchId === br.id;
-                        const isBranchAdmin = userRole === "salon_branch_admin";
+                        const isBranchAdmin = userRole === "branch_admin";
                         return (
                           <button
                             key={br.id}

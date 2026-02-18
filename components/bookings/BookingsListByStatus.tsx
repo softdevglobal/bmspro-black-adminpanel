@@ -115,7 +115,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
       const constraints = [where("ownerUid", "==", ownerUid)];
       
       // Branch admin should only see bookings for their branch
-      if (userRole === "salon_branch_admin" && userBranchId) {
+      if (userRole === "branch_admin" && userBranchId) {
         constraints.push(where("branchId", "==", userBranchId));
       }
       

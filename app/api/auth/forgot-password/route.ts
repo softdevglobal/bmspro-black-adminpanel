@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
       const userData = userDoc.data();
       const userRole = (userData?.role || "").toString().toLowerCase();
       
-      // Only allow workshop_owner, salon_branch_admin, and super_admin to reset password
-      const allowedRoles = ["workshop_owner", "salon_branch_admin", "super_admin"];
+      // Only allow workshop_owner, branch_admin, and super_admin to reset password
+      const allowedRoles = ["workshop_owner", "branch_admin", "super_admin"];
       if (!allowedRoles.includes(userRole)) {
         // Don't reveal the account exists but isn't allowed - return success anyway
         return NextResponse.json({

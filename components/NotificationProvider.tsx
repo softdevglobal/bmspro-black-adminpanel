@@ -255,7 +255,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           setIsSuperAdmin(role === "super_admin");
 
           // For branch admin, use their owner UID for notifications
-          if (role === "salon_branch_admin" && userData?.ownerUid) {
+          if (role === "branch_admin" && userData?.ownerUid) {
             setOwnerUid(userData.ownerUid);
           }
         } catch (error) {

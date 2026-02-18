@@ -939,11 +939,11 @@ function generateStaffWelcomeEmailHTML(
   staffEmail: string,
   password: string,
   staffName: string,
-  role: string, // 'salon_staff' or 'salon_branch_admin'
+  role: string, // 'staff' or 'branch_admin'
   salonName?: string,
   branchName?: string
 ): string {
-  const isBranchAdmin = role === 'salon_branch_admin';
+  const isBranchAdmin = role === 'branch_admin';
   const roleDisplayName = isBranchAdmin ? 'Branch Administrator' : 'Staff Member';
   const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
   
@@ -1095,7 +1095,7 @@ export async function sendStaffWelcomeEmail(
   staffEmail: string,
   password: string,
   staffName: string,
-  role: string, // 'salon_staff' or 'salon_branch_admin'
+  role: string, // 'staff' or 'branch_admin'
   salonName?: string,
   branchName?: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -1122,7 +1122,7 @@ export async function sendStaffWelcomeEmail(
   
   try {
     const html = generateStaffWelcomeEmailHTML(email, password, staffName, role, salonName, branchName);
-    const roleDisplayName = role === 'salon_branch_admin' ? 'Branch Administrator' : 'Staff Member';
+    const roleDisplayName = role === 'branch_admin' ? 'Branch Administrator' : 'Staff Member';
     const subject = `Welcome to BMS PRO BLACK - Your ${roleDisplayName} Account is Ready`;
     
     const msg = {

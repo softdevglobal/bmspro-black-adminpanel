@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       usersQuery = await db
         .collection("users")
         .where("slug", "==", slug)
-        .where("role", "==", "salon_owner")
+        .where("role", "in", ["workshop_owner"])
         .limit(1)
         .get();
     }

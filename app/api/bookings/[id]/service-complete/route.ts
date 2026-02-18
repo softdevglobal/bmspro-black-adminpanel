@@ -218,7 +218,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         const performer = {
           uid: staffUid,
           name: staffName,
-          role: staffData?.role || "salon_staff",
+          role: staffData?.role || "staff",
         };
         await logBookingServiceCompletedServer(
           ownerUid,
@@ -397,7 +397,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         const performer = {
           uid: staffUid,
           name: staffName,
-          role: staffData?.role || "salon_staff",
+          role: staffData?.role || "staff",
         };
         await logBookingServiceCompletedServer(
           ownerUid,

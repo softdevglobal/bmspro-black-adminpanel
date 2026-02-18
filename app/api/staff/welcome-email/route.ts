@@ -16,9 +16,9 @@ export async function POST(req: NextRequest) {
     }
     
     // Validate role
-    if (role !== "salon_staff" && role !== "salon_branch_admin") {
+    if (role !== "staff" && role !== "branch_admin") {
       return NextResponse.json(
-        { error: "Invalid role. Must be 'salon_staff' or 'salon_branch_admin'" },
+        { error: "Invalid role. Must be 'staff' or 'branch_admin'" },
         { status: 400 }
       );
     }

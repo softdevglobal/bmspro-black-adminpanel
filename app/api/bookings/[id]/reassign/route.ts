@@ -98,8 +98,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const userData = userDoc.data();
     const userRole = (userData?.role || "").toString();
     
-    // Only workshop_owner, salon_admin, or salon_branch_admin can reassign
-    if (!["workshop_owner", "salon_admin", "salon_branch_admin"].includes(userRole)) {
+    // Only workshop_owner, branch_admin can reassign
+    if (!["workshop_owner", "branch_admin"].includes(userRole)) {
       return NextResponse.json({ error: "Only admins can reassign bookings" }, { status: 403 });
     }
 

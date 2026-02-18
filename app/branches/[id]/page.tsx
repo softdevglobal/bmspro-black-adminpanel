@@ -811,7 +811,7 @@ export default function BranchDetailsPage() {
         
         if (role === "workshop_owner") {
           setOwnerUid(user.uid);
-        } else if (role === "salon_branch_admin") {
+        } else if (role === "branch_admin") {
           setOwnerUid(snap.data()?.ownerUid || null);
         } else {
           router.replace("/dashboard");
@@ -839,7 +839,7 @@ export default function BranchDetailsPage() {
         const data = d.data() as any;
         
         // Check if branch admin is trying to access a branch they don't manage
-        if (userRole === "salon_branch_admin" && currentUserUid) {
+        if (userRole === "branch_admin" && currentUserUid) {
           const branchAdminId = data.adminStaffId;
           if (branchAdminId !== currentUserUid) {
             // Redirect to branches page if they try to access unauthorized branch

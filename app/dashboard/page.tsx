@@ -82,7 +82,7 @@ export default function DashboardPage() {
             role = userData?.role || "";
           
           // For branch admin, store their branch info
-          if (role === "salon_branch_admin") {
+          if (role === "branch_admin") {
             setIsBranchAdmin(true);
             setBranchAdminBranchId(userData?.branchId || "");
             setBranchAdminBranchName(userData?.branchName || "");
@@ -249,9 +249,9 @@ export default function DashboardPage() {
           let staff = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter((s: any) => {
-              // Only count salon_staff and salon_branch_admin roles
+              // Only count staff and branch_admin roles
               const role = (s.role || "").toLowerCase();
-              return role === "salon_staff" || role === "salon_branch_admin";
+              return role === "staff" || role === "branch_admin";
             });
           
           // For branch admins, get staff from the branch document's staffIds array

@@ -68,7 +68,7 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     email: data.email || null,
     displayName: data.name,
     name: data.name, // Keep 'name' for compatibility with staff views
-    role: data.systemRole || "salon_staff", // 'role' in users table is the system role
+    role: data.systemRole || "staff", // 'role' in users table is the system role
     staffRole: data.role, // 'staffRole' stores the job title (e.g. "Therapist")
     
     ownerUid,
@@ -79,7 +79,7 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     avatar: data.avatar || data.name,
     training: data.training || { ohs: false, prod: false, tool: false },
     authUid: data.authUid, // Redundant but keeps schema consistent if UI expects it
-    systemRole: data.systemRole || "salon_staff",
+    systemRole: data.systemRole || "staff",
     weeklySchedule: data.weeklySchedule || null,
     mobile: data.mobile || null,
     
@@ -135,9 +135,9 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
 
   await updateDoc(staffRef, updatePayload);
 
-  // Check if role is being changed TO branch admin
-  const wasBranchAdmin = currentData?.role === "salon_branch_admin" || currentData?.systemRole === "salon_branch_admin";
-  const isNowBranchAdmin = data.systemRole === "salon_branch_admin" || updatePayload.role === "salon_branch_admin";
+  // Check if role is being changed TO branch admin (support both old and new role names)
+  const wasBranchAdmin = currentData?.role === "branch_admin" || currentData?.systemRole === "branch_admin";
+  const isNowBranchAdmin = data.systemRole === "branch_admin" || updatePayload.role === "branch_admin";
   const roleChangedToBranchAdmin = !wasBranchAdmin && isNowBranchAdmin;
 
   // Audit log for staff update
@@ -293,7 +293,7 @@ export function subscribeSalonStaffForOwner(
         // Filter out non-staff if necessary (e.g. customers if they have ownerUid?)
         // Assuming customers don't have ownerUid or are in a different collection/structure.
         // We only want staff-like roles.
-        .filter(u => ["salon_staff", "salon_branch_admin"].includes(u.systemRole as string));
+        .filter(u => ["staff", "branch_admin"].includes(u.systemRole as string));
       
       onChange(staffList);
     },
@@ -370,8 +370,8 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
   }
   
   const updatePayload: any = {
-    role: "salon_branch_admin",
-    systemRole: "salon_branch_admin",
+    role: "branch_admin",
+    systemRole: "branch_admin",
     updatedAt: serverTimestamp(),
   };
   
@@ -473,8 +473,8 @@ export async function demoteStaffFromBranchAdmin(staffId: string) {
   const staffOwnerUid = staffData?.ownerUid || "";
   
   await updateDoc(userRef, {
-    role: "salon_staff",
-    systemRole: "salon_staff",
+    role: "staff",
+    systemRole: "staff",
     updatedAt: serverTimestamp(),
   });
 

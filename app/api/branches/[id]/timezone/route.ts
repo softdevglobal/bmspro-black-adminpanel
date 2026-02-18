@@ -60,7 +60,7 @@ export async function PATCH(
     
     // Check permissions: salon owner or branch admin of this branch
     const isOwner = callerRole === "workshop_owner" && ownerUid === callerUid;
-    const isBranchAdmin = callerRole === "salon_branch_admin" && adminStaffId === callerUid;
+    const isBranchAdmin = callerRole === "branch_admin" && adminStaffId === callerUid;
     
     if (!isOwner && !isBranchAdmin) {
       return NextResponse.json(

@@ -782,7 +782,7 @@ export async function createOwnerNotification(data: {
 
   switch (data.type) {
     case "staff_booking_created":
-      const roleLabel = data.creatorRole === "salon_branch_admin" ? "Branch Admin" : "Staff";
+      const roleLabel = data.creatorRole === "branch_admin" ? "Branch Admin" : "Staff";
       title = `New Booking Created by ${roleLabel}`;
       message = `${data.creatorName || "Staff"} created a booking for ${data.clientName} - ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
       break;

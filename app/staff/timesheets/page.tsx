@@ -854,7 +854,7 @@ export default function TimesheetsPage() {
     const roles = new Set<string>();
     workSummaries.forEach(s => {
       if (s.staffRole) roles.add(s.staffRole);
-      if (s.systemRole === "salon_branch_admin") roles.add("Branch Admin");
+      if (s.systemRole === "branch_admin") roles.add("Branch Admin");
     });
     return Array.from(roles).sort();
   }, [workSummaries]);
@@ -883,7 +883,7 @@ export default function TimesheetsPage() {
     if (selectedRole !== "all") {
       filtered = filtered.filter(s => {
         if (selectedRole === "Branch Admin") {
-          return s.systemRole === "salon_branch_admin";
+          return s.systemRole === "branch_admin";
         }
         return s.staffRole === selectedRole;
       });
@@ -1189,14 +1189,14 @@ export default function TimesheetsPage() {
                                 <div className="flex flex-col">
                                   <div className="font-semibold text-neutral-800 flex items-center gap-2 flex-wrap">
                                     <span className="break-words">{summary.staffName}</span>
-                                    {summary.systemRole === "salon_branch_admin" && (
+                                    {summary.systemRole === "branch_admin" && (
                                       <span className="px-1.5 sm:px-2 py-0.5 bg-purple-100 text-purple-700 text-[9px] sm:text-[10px] font-bold rounded-full whitespace-nowrap shrink-0">
                                         Branch Admin
                                       </span>
                                     )}
                                   </div>
                                   <div className="text-[10px] sm:text-xs text-neutral-500 break-words mt-2">
-                                    {summary.systemRole === "salon_branch_admin" 
+                                    {summary.systemRole === "branch_admin" 
                                       ? "Branch Admin" 
                                       : summary.staffRole || "Staff"}
                                     {summary.branchName && ` • ${summary.branchName}`}

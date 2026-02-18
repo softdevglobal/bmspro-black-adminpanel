@@ -296,7 +296,7 @@ export function subscribeBranchesForOwner(
   // For branch admins, query by adminStaffId instead of ownerUid
   // This allows branch admins to read their assigned branch
   let q;
-  if (userRole === "salon_branch_admin" && currentUserUid) {
+  if (userRole === "branch_admin" && currentUserUid) {
     q = query(collection(db, "branches"), where("adminStaffId", "==", currentUserUid));
   } else {
     q = query(collection(db, "branches"), where("ownerUid", "==", ownerUid));

@@ -93,7 +93,7 @@ export default function OwnerSettingsPage() {
         const data = snap.data();
         const role = (data?.role || "").toString();
         
-        if (role === "salon_branch_admin") {
+        if (role === "branch_admin") {
           router.replace("/branches");
           return;
         }

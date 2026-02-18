@@ -16,15 +16,15 @@ export const runtime = "nodejs";
 
 /**
  * Get all branch admin UIDs for a branch
- * Branch admins are stored in the users collection with role='salon_branch_admin' and matching branchId
+ * Branch admins are stored in the users collection with role='branch_admin' and matching branchId
  */
 async function getBranchAdminUids(db: Firestore, branchId: string, ownerUid: string): Promise<string[]> {
   try {
     // Query users collection for branch admins
-    // Branch admins have: role='salon_branch_admin', ownerUid matches, and branchId matches
+    // Branch admins have: role='branch_admin', ownerUid matches, and branchId matches
     const branchAdminQuery = await db.collection("users")
       .where("ownerUid", "==", ownerUid)
-      .where("role", "==", "salon_branch_admin")
+      .where("role", "in", ["branch_admin"])
       .where("branchId", "==", branchId)
       .get();
     
@@ -430,7 +430,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         const performer = {
           uid: staffUid,
           name: staffName,
-          role: staffData?.role || "salon_staff",
+          role: staffData?.role || "staff",
         };
         await logBookingStaffResponseServer(
           ownerUid,
@@ -851,7 +851,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         const performer = {
           uid: staffUid,
           name: staffName,
-          role: staffData?.role || "salon_staff",
+          role: staffData?.role || "staff",
         };
         await logBookingStaffResponseServer(
           ownerUid,
@@ -1083,7 +1083,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         const performer = {
           uid: staffUid,
           name: staffName,
-          role: staffData?.role || "salon_staff",
+          role: staffData?.role || "staff",
         };
         await logBookingStaffResponseServer(
           ownerUid,

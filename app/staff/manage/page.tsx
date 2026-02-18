@@ -36,7 +36,7 @@ export default function SettingsPage() {
   const [suspendTarget, setSuspendTarget] = useState<Staff | null>(null);
   const [suspending, setSuspending] = useState(false);
   const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({});
-  const [selectedSystemRole, setSelectedSystemRole] = useState<string>("salon_staff");
+  const [selectedSystemRole, setSelectedSystemRole] = useState<string>("staff");
   const [selectedTimezone, setSelectedTimezone] = useState<string>("Australia/Sydney");
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
   const [ownerPlan, setOwnerPlan] = useState<{ name: string; priceLabel: string; staffLimit: number } | null>(null);
@@ -91,7 +91,7 @@ export default function SettingsPage() {
         const snap = await getDoc(doc(db, "users", user.uid));
         const role = (snap.data()?.role || "").toString();
         
-        if (role === "salon_branch_admin") {
+        if (role === "branch_admin") {
           router.replace("/branches");
           return;
         }
@@ -131,7 +131,7 @@ export default function SettingsPage() {
         mobile: (r as any).mobile || null,
         timezone: (r as any).timezone || null,
         authUid: (r as any).authUid || null,
-        systemRole: (r as any).systemRole || "salon_staff",
+        systemRole: (r as any).systemRole || (r as any).role || "staff",
         status: (r.status as any) === "Suspended" ? "Suspended" : "Active",
         avatar: String(r.avatar || r.name || ""),
         training: {
@@ -205,7 +205,7 @@ export default function SettingsPage() {
 
   // Auto-update timezone when branch is selected for Branch Admin
   useEffect(() => {
-    if (selectedSystemRole === "salon_branch_admin" && selectedBranchId) {
+    if (selectedSystemRole === "branch_admin" && selectedBranchId) {
       const selectedBranch = data.branches.find((b) => b.id === selectedBranchId);
       if (selectedBranch?.timezone) {
         setSelectedTimezone(selectedBranch.timezone);
@@ -237,7 +237,7 @@ export default function SettingsPage() {
       return;
     }
     setIsStaffModalOpen(true);
-    setSelectedSystemRole("salon_staff");
+    setSelectedSystemRole("staff");
     setWeeklySchedule({});
   };
 
@@ -317,10 +317,10 @@ export default function SettingsPage() {
     const mobile = String(formData.get("mobile") || "").trim();
     const password = String(formData.get("password") || "").replace(/\D/g, ''); // Only digits
     const branchId = String(formData.get("branch") || selectedBranchId || "").trim();
-    const systemRole = String(formData.get("system_role") || "salon_staff");
+    const systemRole = String(formData.get("system_role") || "staff");
     // For Branch Admin, get timezone from the selected branch; otherwise use default
     const branchRow = data.branches.find((b) => b.id === branchId);
-    const timezone = systemRole === "salon_branch_admin" && branchRow?.timezone 
+    const timezone = systemRole === "branch_admin" && branchRow?.timezone 
       ? branchRow.timezone 
       : (String(formData.get("timezone") || selectedTimezone || "Australia/Sydney"));
 
@@ -364,14 +364,14 @@ export default function SettingsPage() {
     setPasswordError(null);
     
     // Branch Admin must have a branch assigned
-    if (systemRole === "salon_branch_admin" && !branchId) {
+    if (systemRole === "branch_admin" && !branchId) {
       showToast("Branch Admins must be assigned to a branch");
       return;
     }
     
     // For Branch Admins, create a schedule ONLY for days when the branch is open
     let finalSchedule: WeeklySchedule = {};
-    if (systemRole === "salon_branch_admin" && branchRow) {
+    if (systemRole === "branch_admin" && branchRow) {
       const branchAssignment = { branchId: branchRow.id, branchName: branchRow.name };
       const branchHrs = branchRow.hours || {};
       const daysOfWeek: Array<keyof HoursMap> = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -396,7 +396,7 @@ export default function SettingsPage() {
       if (editingStaffId) {
         // Check if we need to generate auth credentials for an existing staff member who has none
         let newAuthUid = editingStaff?.authUid;
-        if (!newAuthUid && (systemRole === "salon_branch_admin" || password)) {
+        if (!newAuthUid && (systemRole === "branch_admin" || password)) {
            try {
               const currentUser = auth.currentUser;
               if (!currentUser) {
@@ -446,7 +446,7 @@ export default function SettingsPage() {
             role,
             branchId,
             branchName: branchRow?.name || "",
-            timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
+            timezone: systemRole === "branch_admin" ? timezone : undefined,
             status: "Active",
             authUid: newAuthUid,
             systemRole,
@@ -518,7 +518,7 @@ export default function SettingsPage() {
               branchId,
               branchName: branchRow?.name || "",
               systemRole,
-              timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
+              timezone: systemRole === "branch_admin" ? timezone : undefined,
               authUid: newAuthUid || undefined,
               mobile,
               training: {
@@ -543,7 +543,7 @@ export default function SettingsPage() {
                     role,
                     branchId,
                     branchName: branchRow?.name || "",
-                    timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
+                    timezone: systemRole === "branch_admin" ? timezone : undefined,
                     status: "Active",
                     authUid: newAuthUid,
                     systemRole,
@@ -575,11 +575,11 @@ export default function SettingsPage() {
         // NOTE: No need to separately update 'users' doc role, as updateSalonStaff now targets 'users' directly.
 
         // SYNC: If role is branch admin, update the branch record
-        if (systemRole === "salon_branch_admin" && branchId) {
+        if (systemRole === "branch_admin" && branchId) {
           await updateBranch(branchId, { adminStaffId: editingStaffId });
         }
         // SYNC: If role was branch admin but changed to staff, remove from branch if they were the admin
-        if (editingStaff?.systemRole === "salon_branch_admin" && systemRole === "salon_staff" && editingStaff.branchId) {
+        if (editingStaff?.systemRole === "branch_admin" && systemRole === "staff" && editingStaff.branchId) {
           // We need to check if they were the admin of their old branch.
           // Since we don't have that specific check handy without fetching, we can just try to update 
           // the old branch. But `updateBranch` logic handles clearing if we pass null/undefined? 
@@ -622,7 +622,7 @@ export default function SettingsPage() {
               uid: authUid,
               email,
               displayName: name,
-              role: systemRole, // salon_staff or salon_branch_admin
+              role: systemRole, // staff or branch_admin
               ownerUid,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -643,7 +643,7 @@ export default function SettingsPage() {
             role,
             branchId,
             branchName: branchRow?.name || "",
-            timezone: systemRole === "salon_branch_admin" ? timezone : undefined,
+            timezone: systemRole === "branch_admin" ? timezone : undefined,
             status: "Active",
             authUid: authUid,
             systemRole,
@@ -661,7 +661,7 @@ export default function SettingsPage() {
           await syncBranchStaffFromSchedule(authUid, finalSchedule, null, ownerUid);
 
           // SYNC: If new staff is branch admin, update branch
-          if (systemRole === "salon_branch_admin" && branchId) {
+          if (systemRole === "branch_admin" && branchId) {
              await updateBranch(branchId, { adminStaffId: newRef });
           }
           
@@ -709,7 +709,7 @@ export default function SettingsPage() {
       setEditingStaffId(null);
       setEditingStaff(null);
       setWeeklySchedule({});
-      setSelectedSystemRole("salon_staff");
+      setSelectedSystemRole("staff");
       setSelectedBranchId("");
       setSelectedTimezone("Australia/Sydney");
       showToast(editingStaffId ? "Staff updated successfully!" : "Staff onboarded successfully!");
@@ -724,11 +724,11 @@ export default function SettingsPage() {
     setEditingStaffId(s.id);
     setEditingStaff(s);
     setWeeklySchedule(s.weeklySchedule || {});
-    setSelectedSystemRole(s.systemRole || "salon_staff");
+    setSelectedSystemRole(s.systemRole || "staff");
     setSelectedBranchId(s.branchId || "");
     // For Branch Admin, timezone will be auto-set from branch via useEffect
     // For regular staff, use their saved timezone or default
-    if (s.systemRole !== "salon_branch_admin") {
+    if (s.systemRole !== "branch_admin") {
       setSelectedTimezone(s.timezone || "Australia/Sydney");
     }
     setIsStaffModalOpen(true);
@@ -935,7 +935,7 @@ export default function SettingsPage() {
                               alt="Avatar"
                               className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-100 ring-2 ring-neutral-100 group-hover:ring-neutral-200 transition"
                             />
-                            {s.systemRole === "salon_branch_admin" && (
+                            {s.systemRole === "branch_admin" && (
                               <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center border-2 border-white">
                                 <i className="fas fa-crown text-[8px] text-white" />
                               </div>
@@ -1256,7 +1256,7 @@ export default function SettingsPage() {
                                       <div className="min-w-0">
                                         <div className="flex items-center gap-1 sm:gap-1.5">
                                           <span className="font-semibold text-xs sm:text-sm truncate">{s.name}</span>
-                                          {s.systemRole === "salon_branch_admin" && (
+                                          {s.systemRole === "branch_admin" && (
                                             <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold bg-indigo-500 text-white shrink-0">
                                               <i className="fas fa-crown" />
                                             </span>
@@ -1268,7 +1268,7 @@ export default function SettingsPage() {
                                   </td>
                                   {days.map((day) => {
                                     const assignment = schedule[day];
-                                    const isBranchAdmin = s.systemRole === "salon_branch_admin";
+                                    const isBranchAdmin = s.systemRole === "branch_admin";
                                     
                                     // For branch admins, check if the branch is actually open on this day
                                     let isWorking: boolean = Boolean(assignment && assignment.branchId);
@@ -1334,7 +1334,7 @@ export default function SettingsPage() {
                         <div className="text-xl sm:text-2xl font-bold text-emerald-900">
                           {data.staff.reduce((acc, s) => {
                             const schedule = s.weeklySchedule || {};
-                            const isBranchAdmin = s.systemRole === "salon_branch_admin";
+                            const isBranchAdmin = s.systemRole === "branch_admin";
                             const days: Array<keyof WeeklySchedule> = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
                             
                             return acc + days.filter(day => {
@@ -1420,7 +1420,7 @@ export default function SettingsPage() {
                   setEditingStaffId(null);
                   setEditingStaff(null);
                   setWeeklySchedule({});
-                  setSelectedSystemRole("salon_staff");
+                  setSelectedSystemRole("staff");
                   setSelectedBranchId("");
                   setSelectedTimezone("Australia/Sydney");
                   setEmailError(null);
@@ -1637,7 +1637,7 @@ export default function SettingsPage() {
                       // When editing: Show read-only display
                       <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
                         <span className="text-neutral-700">
-                          {selectedSystemRole === "salon_branch_admin" ? "Branch Admin" : "Standard Staff"}
+                          {selectedSystemRole === "branch_admin" ? "Branch Admin" : "Standard Staff"}
                         </span>
                         <input type="hidden" name="system_role" value={selectedSystemRole} />
                       </div>
@@ -1646,7 +1646,7 @@ export default function SettingsPage() {
                       <>
                         <div className="w-full border border-indigo-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm bg-gray-100">
                           <span className="text-neutral-700">Standard Staff</span>
-                          <input type="hidden" name="system_role" value="salon_staff" />
+                          <input type="hidden" name="system_role" value="staff" />
                         </div>
                         <p className="text-[10px] text-neutral-500 mt-1">
                           Can be scheduled at different branches using the weekly roster below.
@@ -1656,7 +1656,7 @@ export default function SettingsPage() {
                   </div>
                   
                   {/* Branch Selection - Only shown for Branch Admin */}
-                  {selectedSystemRole === "salon_branch_admin" && (
+                  {selectedSystemRole === "branch_admin" && (
                     <div>
                       <label className="block text-xs font-bold text-neutral-600 mb-1">
                         Assigned Branch <span className="text-rose-500">*</span>
@@ -1706,7 +1706,7 @@ export default function SettingsPage() {
                   )}
                   
                   {/* Hidden field for Standard Staff - no branch required */}
-                  {selectedSystemRole === "salon_staff" && (
+                  {selectedSystemRole === "staff" && (
                     <input type="hidden" name="branch" value="" />
                   )}
                 </div>
@@ -1740,7 +1740,7 @@ export default function SettingsPage() {
               </div>
               
               {/* Weekly Schedule Selector - Only for Standard Staff */}
-              {selectedSystemRole === "salon_staff" && (
+              {selectedSystemRole === "staff" && (
                 <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200">
                   <WeeklyScheduleSelector
                     branches={data.branches}
@@ -1751,7 +1751,7 @@ export default function SettingsPage() {
               )}
               
               {/* Branch Admin Notice */}
-              {selectedSystemRole === "salon_branch_admin" && (
+              {selectedSystemRole === "branch_admin" && (
                 <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border-2 border-indigo-200">
                   <div className="flex items-start gap-2 sm:gap-3">
                     <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-indigo-500 text-white flex items-center justify-center shrink-0">

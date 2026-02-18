@@ -115,7 +115,7 @@ export default function LoginPage() {
       }
 
       // Step 5: Check role is allowed
-      const allowedRoles = ["workshop_owner", "salon_branch_admin", "super_admin"];
+      const allowedRoles = ["workshop_owner", "branch_admin", "super_admin"];
       if (!allowedRoles.includes(userRole)) {
         await (await import("firebase/auth")).signOut(auth);
         setError("Access denied. This portal is for admin users only.");
@@ -146,7 +146,7 @@ export default function LoginPage() {
       // Step 7: Redirect based on role
       if (userRole === "super_admin") {
         router.replace("/admin-dashboard");
-      } else if (userRole === "salon_branch_admin") {
+      } else if (userRole === "branch_admin") {
         router.replace("/branches");
       } else {
         router.replace("/dashboard");

@@ -1826,7 +1826,7 @@ function BookingsPageContent() {
 
   // ─── Pick-up time logic (same as booking engine) ───
   // Total duration of all selected services
-  const bkTotalServiceDuration = bkSelectedServices.reduce((sum, id) => {
+  const bkTotalServiceDuration = bkSelectedServices.reduce((sum: number, id) => {
     const s = servicesList.find((srv) => String(srv.id) === String(id));
     return sum + (Number(s?.duration) || 0);
   }, 0);

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { sendBranchAdminAssignmentEmail } from "@/lib/emailService";
-import { promoteStaffToBranchAdmin } from "@/lib/salonStaff";
+import { FieldValue } from "firebase-admin/firestore";
+
+const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -92,19 +94,59 @@ export async function POST(req: NextRequest) {
     const finalBranchName = branchName || branchData?.name || "Branch";
     const finalBranchHours = branchHours || branchData?.hours;
 
-    // Promote staff to branch admin (this will update their role and schedule)
-    await promoteStaffToBranchAdmin(adminStaffId, {
+    // Demote old branch admin if different from new one
+    const oldAdminId = branchData?.adminStaffId;
+    if (oldAdminId && oldAdminId !== adminStaffId) {
+      try {
+        await db.collection("users").doc(oldAdminId).update({
+          role: "staff",
+          systemRole: "staff",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        console.log(`Demoted old branch admin ${oldAdminId} to staff`);
+      } catch (e) {
+        console.error("Failed to demote old branch admin:", e);
+      }
+    }
+
+    // Build weekly schedule based on branch hours
+    const weeklySchedule: Record<string, any> = {};
+    if (finalBranchHours && typeof finalBranchHours === "object") {
+      for (const day of DAYS_OF_WEEK) {
+        const dayHours = (finalBranchHours as any)[day];
+        if (dayHours && !dayHours.closed) {
+          weeklySchedule[day] = { branchId, branchName: finalBranchName };
+        } else {
+          weeklySchedule[day] = null;
+        }
+      }
+    } else {
+      for (const day of DAYS_OF_WEEK) {
+        if (day === "Sunday") {
+          weeklySchedule[day] = null;
+        } else {
+          weeklySchedule[day] = { branchId, branchName: finalBranchName };
+        }
+      }
+    }
+
+    // Promote staff to branch admin using Admin SDK (bypasses Firestore rules)
+    await db.collection("users").doc(adminStaffId).update({
+      role: "branch_admin",
+      systemRole: "branch_admin",
       branchId,
       branchName: finalBranchName,
-      branchHours: finalBranchHours,
+      weeklySchedule,
+      updatedAt: FieldValue.serverTimestamp(),
     });
+    console.log(`Promoted staff ${adminStaffId} to branch_admin for branch ${branchId}`);
 
     // Update branch with adminStaffId
     await db.collection("branches").doc(branchId).update({
       adminStaffId,
       manager: staffName,
       email: staffEmail,
-      updatedAt: new Date(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     // Get salon name for email

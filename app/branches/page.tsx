@@ -492,6 +492,37 @@ export default function BranchesPage() {
       setSaving(true);
       try {
         await (await import("@/lib/branches")).updateBranch(editingId, payload, managerName);
+        
+        // Call server-side API to promote/demote branch admin (uses Admin SDK, bypasses Firestore rules)
+        if (adminStaffId) {
+          try {
+            const token = await auth.currentUser?.getIdToken();
+            if (token) {
+              const res = await fetch("/api/branches/assign-admin", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  branchId: editingId,
+                  adminStaffId,
+                  branchName: name.trim(),
+                  branchHours: hoursObj,
+                }),
+              });
+              if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                console.error("Failed to assign branch admin via API:", errData);
+              } else {
+                console.log("Branch admin assigned successfully via API");
+              }
+            }
+          } catch (apiErr) {
+            console.error("Error calling branch admin assignment API:", apiErr);
+          }
+        }
+        
         setIsModalOpen(false);
       } catch (err) {
         console.error("Failed to update branch", err);

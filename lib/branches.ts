@@ -184,24 +184,33 @@ export async function updateBranch(branchId: string, data: Partial<BranchInput>,
 
   // 1. If there was an old admin, and (we are setting a new one OR explicitly clearing it), and it's different
   if (oldAdminId && newAdminId !== undefined && oldAdminId !== newAdminId) {
-    await demoteStaffFromBranchAdmin(oldAdminId);
+    try {
+      await demoteStaffFromBranchAdmin(oldAdminId);
+    } catch (e) {
+      console.error("Client-side demote failed (will be handled by API):", e);
+    }
     changes.push(`Admin changed`);
   }
 
   // 2. If there is a new admin, promote them and update their schedule to match branch hours
+  // NOTE: This client-side promotion may fail due to Firestore rules.
+  // The actual promotion is handled server-side via /api/branches/assign-admin
   if (newAdminId && newAdminId !== oldAdminId) {
-    // Get the branch name and hours (either from new data or existing)
-    const branchHours = data.hours || currentData?.hours;
-    
-    const { weeklySchedule } = await promoteStaffToBranchAdmin(newAdminId, {
-      branchId,
-      branchName,
-      branchHours,
-    });
-    
-    // Sync the branch's staffByDay with the admin's new schedule
-    if (weeklySchedule && ownerUid) {
-      await syncBranchStaffFromSchedule(newAdminId, weeklySchedule, null, ownerUid);
+    try {
+      const branchHours = data.hours || currentData?.hours;
+      
+      const { weeklySchedule } = await promoteStaffToBranchAdmin(newAdminId, {
+        branchId,
+        branchName,
+        branchHours,
+      });
+      
+      // Sync the branch's staffByDay with the admin's new schedule
+      if (weeklySchedule && ownerUid) {
+        await syncBranchStaffFromSchedule(newAdminId, weeklySchedule, null, ownerUid);
+      }
+    } catch (e) {
+      console.error("Client-side promote failed (will be handled by API):", e);
     }
   }
 

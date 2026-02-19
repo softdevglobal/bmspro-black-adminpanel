@@ -33,6 +33,30 @@ export async function GET(req: NextRequest) {
         price: d.price || 0,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
         updatedAt: d.updatedAt?.toDate?.()?.toISOString() || null,
+        // Task progress data
+        tasks: Array.isArray(d.tasks)
+          ? d.tasks.map((t: any) => ({
+              id: t.id || "",
+              serviceId: t.serviceId || "",
+              serviceName: t.serviceName || "",
+              name: t.name || "",
+              description: t.description || "",
+              done: !!t.done,
+              imageUrl: t.imageUrl || "",
+              staffNote: t.staffNote || "",
+              completedAt: t.completedAt || null,
+              completedByStaffName: t.completedByStaffName || null,
+            }))
+          : null,
+        taskProgress: typeof d.taskProgress === "number" ? d.taskProgress : 0,
+        finalSubmission: d.finalSubmission
+          ? {
+              description: d.finalSubmission.description || "",
+              imageUrl: d.finalSubmission.imageUrl || "",
+              submittedAt: d.finalSubmission.submittedAt || null,
+              submittedByStaffName: d.finalSubmission.submittedByStaffName || null,
+            }
+          : null,
       };
     });
 

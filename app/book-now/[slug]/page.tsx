@@ -13,6 +13,18 @@ type Branch = { id: string; name: string; address: string; phone: string; timezo
 type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
+type CustomerBookingTask = {
+  id: string;
+  serviceId?: string;
+  serviceName?: string;
+  name: string;
+  description: string;
+  done: boolean;
+  imageUrl: string;
+  staffNote: string;
+  completedAt?: string | null;
+  completedByStaffName?: string | null;
+};
 type CustomerBooking = {
   id: string;
   bookingCode: string;
@@ -25,6 +37,14 @@ type CustomerBooking = {
   price: number;
   createdAt: string | null;
   updatedAt: string | null;
+  tasks?: CustomerBookingTask[] | null;
+  taskProgress?: number;
+  finalSubmission?: {
+    description: string;
+    imageUrl: string;
+    submittedAt?: string | null;
+    submittedByStaffName?: string | null;
+  } | null;
 };
 
 export default function BookingEnginePage() {
@@ -76,6 +96,7 @@ export default function BookingEnginePage() {
   const [notifLoading, setNotifLoading] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
 
   // Navigate between steps with animation direction
   const goToStep = useCallback((target: number) => {
@@ -1977,6 +1998,192 @@ export default function BookingEnginePage() {
                               <span className="font-medium">{bk.branchName}</span>
                             </div>
                           )}
+
+                          {/* ─── Task Progress Bar ─────────────────────────── */}
+                          {bk.tasks && bk.tasks.length > 0 && (() => {
+                            const doneCount = bk.tasks.filter(t => t.done).length;
+                            const totalCount = bk.tasks.length;
+                            const pct = bk.taskProgress || 0;
+                            const isComplete = pct === 100;
+                            return (
+                            <div className="mt-4">
+                              <button
+                                onClick={() => setExpandedBookingId(expandedBookingId === bk.id ? null : bk.id)}
+                                className="w-full text-left group"
+                              >
+                                {/* Creative progress card */}
+                                <div className={`relative rounded-2xl border p-4 transition-all duration-500 overflow-hidden ${
+                                  isComplete
+                                    ? "bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 border-emerald-200/80"
+                                    : "bg-gradient-to-br from-neutral-50 via-white to-neutral-50/80 border-neutral-200/80"
+                                }`}>
+                                  {/* Decorative background glow */}
+                                  {isComplete && (
+                                    <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-400/10 rounded-full blur-2xl -translate-y-6 translate-x-6" />
+                                  )}
+
+                                  {/* Header row */}
+                                  <div className="flex items-center justify-between mb-3 relative z-10">
+                                    <div className="flex items-center gap-2">
+                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                                        isComplete
+                                          ? "bg-emerald-500 shadow-md shadow-emerald-500/25"
+                                          : "bg-neutral-900 shadow-md shadow-neutral-900/15"
+                                      }`}>
+                                        <i className={`fas ${isComplete ? "fa-check-double" : "fa-tasks"} text-white text-[10px]`} />
+                                      </div>
+                                      <div>
+                                        <span className="text-[11px] font-extrabold text-neutral-800 tracking-tight">Service Progress</span>
+                                        <p className="text-[9px] text-neutral-400 font-medium -mt-0.5">
+                                          {isComplete ? "All tasks completed" : `${totalCount - doneCount} task${totalCount - doneCount !== 1 ? "s" : ""} remaining`}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {/* Circular percentage */}
+                                      <div className="relative w-10 h-10">
+                                        <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                                          <circle cx="18" cy="18" r="14" fill="none" stroke={isComplete ? "#d1fae5" : "#f5f5f5"} strokeWidth="3" />
+                                          <circle
+                                            cx="18" cy="18" r="14" fill="none"
+                                            stroke={isComplete ? "#10b981" : pct > 50 ? "#f59e0b" : "#3b82f6"}
+                                            strokeWidth="3"
+                                            strokeLinecap="round"
+                                            strokeDasharray={`${pct * 0.88} 88`}
+                                            className="transition-all duration-1000 ease-out"
+                                          />
+                                        </svg>
+                                        <span className={`absolute inset-0 flex items-center justify-center text-[9px] font-black ${
+                                          isComplete ? "text-emerald-600" : "text-neutral-700"
+                                        }`}>
+                                          {pct}%
+                                        </span>
+                                      </div>
+                                      <i className={`fas fa-chevron-down text-[9px] text-neutral-400 transition-transform duration-300 ${expandedBookingId === bk.id ? "rotate-180" : ""}`} />
+                                    </div>
+                                  </div>
+
+                                  {/* Segmented step dots */}
+                                  <div className="flex items-center gap-1 relative z-10">
+                                    {bk.tasks.map((task, i) => (
+                                      <div key={task.id || i} className="flex-1 flex items-center">
+                                        <div
+                                          className={`w-full h-2 rounded-full transition-all duration-500 ${
+                                            task.done
+                                              ? isComplete
+                                                ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                              : "bg-neutral-200/80"
+                                          }`}
+                                          style={{ animationDelay: `${i * 100}ms` }}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  {/* Step labels */}
+                                  <div className="flex items-center justify-between mt-2.5 relative z-10">
+                                    <span className="text-[10px] font-bold text-neutral-500">
+                                      <span className={`${isComplete ? "text-emerald-600" : "text-neutral-800"} text-xs`}>{doneCount}</span>
+                                      <span className="text-neutral-400">/{totalCount} tasks</span>
+                                    </span>
+                                    {isComplete ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                        <i className="fas fa-sparkles text-[8px]" />
+                                        Complete
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-medium text-neutral-400 group-hover:text-neutral-600 transition-colors">
+                                        Tap to view details <i className="fas fa-chevron-right text-[7px] ml-0.5" />
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+
+                              {/* Expanded task list */}
+                              {expandedBookingId === bk.id && (
+                                <div className="mt-3 space-y-2 animate-[fadeSlideUp_0.3s_ease-out]">
+                                  {bk.tasks.map((task, tIdx) => (
+                                    <div
+                                      key={task.id || tIdx}
+                                      className={`rounded-xl border p-3 transition-all ${
+                                        task.done
+                                          ? "bg-emerald-50/60 border-emerald-200/80"
+                                          : "bg-neutral-50 border-neutral-200/80"
+                                      }`}
+                                    >
+                                      <div className="flex items-start gap-2.5">
+                                        {/* Checkbox indicator */}
+                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                          task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                        }`}>
+                                          {task.done ? (
+                                            <i className="fas fa-check text-[8px]" />
+                                          ) : (
+                                            <span className="text-[9px] font-bold">{tIdx + 1}</span>
+                                          )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <p className={`text-xs font-semibold ${task.done ? "text-emerald-700" : "text-neutral-800"}`}>
+                                              {task.name}
+                                            </p>
+                                            {task.done && (
+                                              <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full shrink-0">
+                                                Done
+                                              </span>
+                                            )}
+                                          </div>
+                                          {task.description && (
+                                            <p className="text-[11px] text-neutral-500 mt-0.5 leading-relaxed">{task.description}</p>
+                                          )}
+                                          {task.serviceName && (
+                                            <p className="text-[10px] text-neutral-400 mt-1">
+                                              <i className="fas fa-wrench mr-1 text-[8px]" />{task.serviceName}
+                                            </p>
+                                          )}
+                                          {/* Staff note */}
+                                          {task.staffNote && (
+                                            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                                              <p className="text-[11px] text-blue-700">
+                                                <i className="fas fa-comment-alt mr-1 text-[9px]" />
+                                                {task.staffNote}
+                                              </p>
+                                              {task.completedByStaffName && (
+                                                <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+
+                                  {/* Final Submission */}
+                                  {bk.finalSubmission && (
+                                    <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 mt-2">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <div className="w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center">
+                                          <i className="fas fa-flag-checkered text-[8px]" />
+                                        </div>
+                                        <span className="text-xs font-bold text-indigo-700">Final Submission</span>
+                                        {bk.finalSubmission.submittedByStaffName && (
+                                          <span className="text-[10px] text-indigo-500 ml-auto">
+                                            by {bk.finalSubmission.submittedByStaffName}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {bk.finalSubmission.description && (
+                                        <p className="text-[11px] text-indigo-800 leading-relaxed">{bk.finalSubmission.description}</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );

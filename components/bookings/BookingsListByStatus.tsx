@@ -1250,30 +1250,92 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       </div>
 
                       {/* ─── Task Progress & List ─────────────────────────── */}
-                      {previewRow.tasks && previewRow.tasks.length > 0 && (
+                      {previewRow.tasks && previewRow.tasks.length > 0 && (() => {
+                        const doneCount = previewRow.tasks.filter(t => t.done).length;
+                        const totalCount = previewRow.tasks.length;
+                        const pct = previewRow.taskProgress || 0;
+                        const isComplete = pct === 100;
+                        return (
                         <div className="space-y-3">
-                          {/* Progress bar */}
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-                                <i className="fas fa-clipboard-list text-amber-500 text-[10px]" />
-                                Task Progress
-                              </h4>
-                              <span className="text-xs font-bold text-neutral-700">
-                                {previewRow.tasks.filter(t => t.done).length}/{previewRow.tasks.length} ({previewRow.taskProgress || 0}%)
-                              </span>
+                          {/* Creative progress widget */}
+                          <div className={`relative rounded-2xl border p-4 transition-all duration-500 overflow-hidden ${
+                            isComplete
+                              ? "bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 border-emerald-200/80"
+                              : "bg-gradient-to-br from-slate-50 via-white to-neutral-50 border-neutral-200/80"
+                          }`}>
+                            {/* Background glow */}
+                            {isComplete && <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-400/10 rounded-full blur-2xl -translate-y-8 translate-x-8" />}
+
+                            {/* Top row: icon + title + circular gauge */}
+                            <div className="flex items-center justify-between mb-3.5 relative z-10">
+                              <div className="flex items-center gap-2.5">
+                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-md ${
+                                  isComplete
+                                    ? "bg-emerald-500 shadow-emerald-500/25"
+                                    : pct > 50
+                                    ? "bg-amber-500 shadow-amber-500/20"
+                                    : "bg-neutral-900 shadow-neutral-900/15"
+                                }`}>
+                                  <i className={`fas ${isComplete ? "fa-check-double" : "fa-clipboard-list"} text-white text-xs`} />
+                                </div>
+                                <div>
+                                  <h4 className="text-sm font-extrabold text-neutral-800 tracking-tight">Task Progress</h4>
+                                  <p className="text-[10px] text-neutral-400 font-medium">
+                                    {isComplete ? "All tasks completed" : `${totalCount - doneCount} task${totalCount - doneCount !== 1 ? "s" : ""} remaining`}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Circular percentage gauge */}
+                              <div className="relative w-12 h-12">
+                                <svg className="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
+                                  <circle cx="18" cy="18" r="14" fill="none" stroke={isComplete ? "#d1fae5" : "#f5f5f5"} strokeWidth="2.5" />
+                                  <circle
+                                    cx="18" cy="18" r="14" fill="none"
+                                    stroke={isComplete ? "#10b981" : pct > 50 ? "#f59e0b" : "#3b82f6"}
+                                    strokeWidth="2.5"
+                                    strokeLinecap="round"
+                                    strokeDasharray={`${pct * 0.88} 88`}
+                                    className="transition-all duration-1000 ease-out"
+                                  />
+                                </svg>
+                                <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black ${
+                                  isComplete ? "text-emerald-600" : "text-neutral-700"
+                                }`}>
+                                  {pct}%
+                                </span>
+                              </div>
                             </div>
-                            <div className="w-full bg-neutral-100 rounded-full h-2.5 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-500 ${
-                                  (previewRow.taskProgress || 0) === 100
-                                    ? "bg-gradient-to-r from-emerald-500 to-green-500"
-                                    : (previewRow.taskProgress || 0) > 50
-                                    ? "bg-gradient-to-r from-amber-500 to-yellow-500"
-                                    : "bg-gradient-to-r from-blue-500 to-indigo-500"
-                                }`}
-                                style={{ width: `${previewRow.taskProgress || 0}%` }}
-                              />
+
+                            {/* Segmented progress steps */}
+                            <div className="flex items-center gap-1 relative z-10">
+                              {previewRow.tasks.map((task, i) => (
+                                <div key={task.id || i} className="flex-1">
+                                  <div
+                                    className={`h-2.5 rounded-full transition-all duration-500 ${
+                                      task.done
+                                        ? isComplete
+                                          ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                          : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                        : "bg-neutral-200/80"
+                                    }`}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Bottom label */}
+                            <div className="flex items-center justify-between mt-2.5 relative z-10">
+                              <span className="text-[10px] font-bold text-neutral-500">
+                                <span className={`text-xs ${isComplete ? "text-emerald-600" : "text-neutral-800"}`}>{doneCount}</span>
+                                <span className="text-neutral-400">/{totalCount} tasks done</span>
+                              </span>
+                              {isComplete && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <i className="fas fa-sparkles text-[8px]" />
+                                  Complete
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1381,7 +1443,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             </div>
                           )}
                         </div>
-                      )}
+                        );
+                      })()}
                       
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -1614,21 +1677,54 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               )}
                             </div>
                             {/* Task progress mini bar */}
-                            {r.tasks && r.tasks.length > 0 && (
-                              <div className="mt-1.5 flex items-center gap-2 px-2">
-                                <div className="flex-1 bg-neutral-100 rounded-full h-1.5 overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full ${
-                                      (r.taskProgress || 0) === 100 ? "bg-emerald-500" : "bg-amber-500"
-                                    }`}
-                                    style={{ width: `${r.taskProgress || 0}%` }}
-                                  />
+                            {r.tasks && r.tasks.length > 0 && (() => {
+                              const done = r.tasks.filter(t => t.done).length;
+                              const total = r.tasks.length;
+                              const pct = r.taskProgress || 0;
+                              const isComplete = pct === 100;
+                              return (
+                              <div className="mt-1.5 px-2">
+                                <div className="flex items-center gap-1.5">
+                                  {/* Segmented mini dots */}
+                                  <div className="flex-1 flex items-center gap-0.5">
+                                    {r.tasks.map((task, ti) => (
+                                      <div key={task.id || ti} className="flex-1">
+                                        <div className={`h-1.5 rounded-full transition-all duration-500 ${
+                                          task.done
+                                            ? isComplete
+                                              ? "bg-emerald-500"
+                                              : "bg-amber-500"
+                                            : "bg-neutral-200"
+                                        }`} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {/* Mini circular gauge */}
+                                  <div className="relative w-5 h-5 shrink-0">
+                                    <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
+                                      <circle cx="10" cy="10" r="7" fill="none" stroke="#f5f5f5" strokeWidth="2" />
+                                      <circle
+                                        cx="10" cy="10" r="7" fill="none"
+                                        stroke={isComplete ? "#10b981" : pct > 50 ? "#f59e0b" : "#3b82f6"}
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeDasharray={`${pct * 0.44} 44`}
+                                        className="transition-all duration-700 ease-out"
+                                      />
+                                    </svg>
+                                    {isComplete && (
+                                      <span className="absolute inset-0 flex items-center justify-center">
+                                        <i className="fas fa-check text-emerald-500 text-[5px]" />
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className={`text-[9px] font-bold shrink-0 ${isComplete ? "text-emerald-600" : "text-neutral-500"}`}>
+                                    {done}/{total}
+                                  </span>
                                 </div>
-                                <span className="text-[9px] font-bold text-neutral-500 shrink-0">
-                                  {r.tasks.filter(t => t.done).length}/{r.tasks.length}
-                                </span>
                               </div>
-                            )}
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="p-4">

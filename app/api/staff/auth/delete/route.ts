@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Security: Verify authentication - only salon owners/branch admins can delete staff
+    // Security: Verify authentication - owners, branch admins, and super admins can delete
     const authResult = await verifyAdminAuth(req, STAFF_MANAGEMENT_ROLES);
     if (!authResult.success) {
       return NextResponse.json(
@@ -43,23 +43,15 @@ export async function POST(req: NextRequest) {
     const auth = adminAuth();
     let targetUid = uid as string | undefined;
     
-    // Try to find user by email if UID not provided
-    if (!targetUid && email) {
+    // Try to find user by email if UID not provided or empty
+    if ((!targetUid || targetUid === "null" || targetUid === "undefined") && email) {
       const user = await auth.getUserByEmail(String(email).trim().toLowerCase()).catch(() => null);
       targetUid = user?.uid;
     }
     
-    if (!targetUid) {
-      return NextResponse.json({ ok: false, message: "No user found" }, { status: 404 });
-    }
-
-    // Security: Verify the staff member belongs to the same salon as the requester
-    const canManage = await canManageStaff(userData.ownerUid, targetUid);
-    if (!canManage.allowed) {
-      return NextResponse.json(
-        { error: canManage.error || "You can only delete staff from your own salon" },
-        { status: 403 }
-      );
+    if (!targetUid || targetUid === "null" || targetUid === "undefined") {
+      // If no auth user found, that's OK – they may never have had an auth account
+      return NextResponse.json({ ok: true, message: "No auth user found – nothing to delete" }, { status: 200 });
     }
 
     // Security: Prevent users from deleting themselves
@@ -68,6 +60,17 @@ export async function POST(req: NextRequest) {
         { error: "You cannot delete your own account" },
         { status: 400 }
       );
+    }
+
+    // Security: Super admins can delete any user; others must own the staff
+    if (!userData.isSuperAdmin) {
+      const canManage = await canManageStaff(userData.ownerUid, targetUid);
+      if (!canManage.allowed) {
+        return NextResponse.json(
+          { error: canManage.error || "You can only delete staff from your own salon" },
+          { status: 403 }
+        );
+      }
     }
 
     // Get staff data before deletion for audit log
@@ -85,7 +88,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Delete the user from Firebase Auth
-    await auth.deleteUser(targetUid);
+    try {
+      await auth.deleteUser(targetUid);
+    } catch (authErr: any) {
+      // If user doesn't exist in Auth, that's fine – continue with success
+      if (authErr?.code === "auth/user-not-found") {
+        console.log(`Auth user ${targetUid} not found – already deleted or never existed`);
+      } else {
+        throw authErr; // Re-throw real errors
+      }
+    }
 
     // Create audit log with verified performer data
     try {

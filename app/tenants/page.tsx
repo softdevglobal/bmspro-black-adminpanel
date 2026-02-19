@@ -1678,6 +1678,33 @@ onClick={async () => {
 onClick={async () => {
                                     try {
                                       const tenantToDelete = tenants.find(t => t.id === deleteId);
+
+                                      // Delete Firebase Auth account first (prevents orphan auth records)
+                                      const currentUser = auth.currentUser;
+                                      if (currentUser) {
+                                        const token = await currentUser.getIdToken();
+                                        const authDeleteRes = await fetch("/api/staff/auth/delete", {
+                                          method: "POST",
+                                          headers: {
+                                            "Content-Type": "application/json",
+                                            "Authorization": `Bearer ${token}`,
+                                          },
+                                          body: JSON.stringify({
+                                            uid: deleteId,
+                                            email: tenantToDelete?.data?.email || null,
+                                            staffName: tenantToDelete?.data?.name || "Tenant",
+                                          }),
+                                        });
+
+                                        if (!authDeleteRes.ok) {
+                                          const errData = await authDeleteRes.json().catch(() => ({}));
+                                          console.error("Auth deletion failed:", errData);
+                                          alert(errData?.error || "Failed to delete authentication record. Cannot proceed.");
+                                          return;
+                                        }
+                                      }
+
+                                      // Delete Firestore user document
                                       await deleteDoc(doc(db, "users", deleteId));
                                       
                                       // Log tenant deletion

@@ -743,21 +743,31 @@ export default function SettingsPage() {
     if (!deleteTarget || !ownerUid) return;
     setDeleting(true);
     try {
-      // Attempt auth deletion first (best-effort)
-      try {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
-          const token = await currentUser.getIdToken();
-          await fetch("/api/staff/auth/delete", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${token}`
-            },
-            body: JSON.stringify({ uid: deleteTarget.authUid, email: deleteTarget.email }),
-          });
+      // Delete Firebase Auth account first (mandatory – prevents orphan auth records)
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        const token = await currentUser.getIdToken();
+        const authDeleteRes = await fetch("/api/staff/auth/delete", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            uid: deleteTarget.authUid || deleteTarget.id, // fallback to doc ID (which is the auth UID for properly created staff)
+            email: deleteTarget.email,
+            staffName: deleteTarget.name,
+          }),
+        });
+
+        if (!authDeleteRes.ok) {
+          const errData = await authDeleteRes.json().catch(() => ({}));
+          console.error("Auth deletion failed:", errData);
+          showToast(errData?.error || "Failed to delete staff authentication record");
+          setDeleting(false);
+          return; // Don't proceed – auth record would be orphaned
         }
-      } catch {}
+      }
       
       // Remove staff from all branches first
       await removeStaffFromAllBranches(deleteTarget.id, ownerUid);
@@ -765,7 +775,7 @@ export default function SettingsPage() {
       // Then remove Firestore record
       await deleteSalonStaff(deleteTarget.id);
       setDeleteTarget(null);
-      showToast("Staff deleted");
+      showToast("Staff deleted successfully");
     } catch {
       showToast("Failed to delete staff");
     } finally {

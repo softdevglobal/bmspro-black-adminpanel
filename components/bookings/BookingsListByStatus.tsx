@@ -979,6 +979,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
   const onAction = async (rowId: string, action: "Confirm" | "Cancel" | "Complete") => {
     try {
+      // Prevent actions on cancelled bookings
+      const row = rows.find((r) => r.id === rowId);
+      if (row && normalizeBookingStatus(row.status ?? null) === "Canceled" && action !== "Cancel") {
+        alert("This booking has been cancelled and cannot be updated.");
+        return;
+      }
       setUpdatingState((prev) => ({ ...prev, [rowId]: action }));
       const next: BookingStatus =
         action === "Confirm" ? "Confirmed" :

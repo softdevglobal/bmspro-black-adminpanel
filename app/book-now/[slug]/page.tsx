@@ -97,6 +97,7 @@ export default function BookingEnginePage() {
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // Navigate between steps with animation direction
   const goToStep = useCallback((target: number) => {
@@ -2155,6 +2156,27 @@ export default function BookingEnginePage() {
                                               )}
                                             </div>
                                           )}
+                                          {/* Task completion image */}
+                                          {task.done && task.imageUrl && (
+                                            <div className="mt-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => setLightboxUrl(task.imageUrl)}
+                                                className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md"
+                                              >
+                                                <img
+                                                  src={task.imageUrl}
+                                                  alt={`${task.name} — completed`}
+                                                  className="w-full max-h-40 object-cover"
+                                                />
+                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                  <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm text-neutral-700 text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                                                    <i className="fas fa-expand mr-1 text-[8px]" />View
+                                                  </span>
+                                                </div>
+                                              </button>
+                                            </div>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -2177,6 +2199,26 @@ export default function BookingEnginePage() {
                                       {bk.finalSubmission.description && (
                                         <p className="text-[11px] text-indigo-800 leading-relaxed">{bk.finalSubmission.description}</p>
                                       )}
+                                      {bk.finalSubmission.imageUrl && (
+                                        <div className="mt-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => setLightboxUrl(bk.finalSubmission!.imageUrl)}
+                                            className="group relative rounded-xl overflow-hidden border border-indigo-200 hover:border-indigo-300 transition-all hover:shadow-md"
+                                          >
+                                            <img
+                                              src={bk.finalSubmission.imageUrl}
+                                              alt="Final submission"
+                                              className="w-full max-h-48 object-cover"
+                                            />
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                              <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm text-indigo-700 text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                                                <i className="fas fa-expand mr-1 text-[8px]" />View
+                                              </span>
+                                            </div>
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -2193,6 +2235,28 @@ export default function BookingEnginePage() {
             })()}
           </div>
         </main>
+      )}
+
+      {/* ═══════════════════ IMAGE LIGHTBOX ═══════════════════ */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <div className="relative max-w-2xl w-full max-h-[85vh] animate-[modalPop_0.3s_ease-out]" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setLightboxUrl(null)}
+              className="absolute -top-3 -right-3 z-10 w-8 h-8 rounded-full bg-white shadow-lg flex items-center justify-center text-neutral-600 hover:text-neutral-900 hover:scale-110 transition-all"
+            >
+              <i className="fas fa-times text-sm" />
+            </button>
+            <img
+              src={lightboxUrl}
+              alt="Task completion"
+              className="w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+            />
+          </div>
+        </div>
       )}
 
       {/* ═══════════════════ SIGN OUT CONFIRM ═══════════════════ */}

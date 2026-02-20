@@ -292,6 +292,12 @@ function BookingsPageContent() {
       updateBookingStatus: async function (id: string, newStatus: string) {
         const booking = this.data.bookings.find((b: any) => b.id === id);
         
+        // Prevent actions on cancelled bookings
+        if (booking && (booking.status === "Canceled" || booking.status === "Cancelled" || booking.status === "cancelled" || booking.status === "canceled") && newStatus !== "Canceled") {
+          alert("This booking has been cancelled and cannot be updated.");
+          return;
+        }
+        
         // If confirming, check if staff assignment is needed
         if (newStatus === "Confirmed" && booking) {
           const hasMultipleServices = Array.isArray(booking.services) && booking.services.length > 0;

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
+import { normalizeBookingStatus, areAllServicesCompleted, type BookingService, type ServiceCompletionStatus } from "@/lib/bookingTypes";
+import { createNotification, getNotificationContent } from "@/lib/notifications";
+import { sendBookingStatusChangeEmail } from "@/lib/emailService";
 
 /**
  * PUT /api/bookings/[id]/tasks
@@ -188,13 +191,111 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       submittedByStaffName: staffName,
     };
 
-    await bookingRef.update({
+    const updateData: Record<string, any> = {
       finalSubmission,
       taskProgress: 100,
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
 
-    return NextResponse.json({ success: true, finalSubmission });
+    // Auto-complete the booking/service when final submission is done
+    const currentStatus = normalizeBookingStatus(bookingData.status);
+    let bookingCompleted = false;
+
+    if (currentStatus === "Confirmed") {
+      const hasMultipleServices = Array.isArray(bookingData.services) && bookingData.services.length > 0;
+
+      if (hasMultipleServices) {
+        const services: BookingService[] = bookingData.services;
+        const updatedServices = services.map(service => {
+          const isStaffService = service.staffId === currentUserId || (service as any).staffAuthUid === currentUserId;
+          if (isStaffService && service.completionStatus !== "completed") {
+            return {
+              ...service,
+              completionStatus: "completed" as ServiceCompletionStatus,
+              completedAt: new Date().toISOString(),
+              completedByStaffUid: currentUserId,
+              completedByStaffName: staffName,
+            };
+          }
+          return service;
+        });
+        updateData.services = updatedServices;
+        bookingCompleted = areAllServicesCompleted(updatedServices);
+      } else {
+        bookingCompleted = true;
+        updateData.completedByStaffUid = currentUserId;
+        updateData.completedByStaffName = staffName;
+      }
+
+      if (bookingCompleted) {
+        updateData.status = "Completed";
+        updateData.completedAt = FieldValue.serverTimestamp();
+      }
+    }
+
+    await bookingRef.update(updateData);
+
+    // Send notifications and email when booking is fully completed
+    if (bookingCompleted) {
+      const ownerUid = bookingData.ownerUid || currentUserId;
+      const clientName = bookingData.client || bookingData.clientName || "Customer";
+      try {
+        const notificationContent = getNotificationContent(
+          "Completed",
+          bookingData.bookingCode,
+          staffName,
+          bookingData.serviceName,
+          bookingData.date,
+          bookingData.time,
+          (bookingData.services || []).map((s: any) => ({
+            name: s.name || "Service",
+            staffName: s.staffName || "Staff",
+          }))
+        );
+        const notificationData: any = {
+          bookingId,
+          type: notificationContent.type,
+          title: notificationContent.title,
+          message: notificationContent.message,
+          status: "Completed",
+          ownerUid,
+        };
+        if (bookingData.customerUid) notificationData.customerUid = bookingData.customerUid;
+        if (bookingData.clientEmail) notificationData.customerEmail = bookingData.clientEmail;
+        if (bookingData.bookingCode) notificationData.bookingCode = bookingData.bookingCode;
+        if (bookingData.branchName) notificationData.branchName = bookingData.branchName;
+        if (bookingData.branchId) notificationData.branchId = bookingData.branchId;
+        notificationData.staffName = staffName;
+        notificationData.serviceName = bookingData.serviceName;
+        await createNotification(notificationData);
+      } catch (e) {
+        console.error("Failed to send completion notification:", e);
+      }
+
+      try {
+        await sendBookingStatusChangeEmail(
+          bookingId,
+          "Completed",
+          bookingData.clientEmail,
+          clientName,
+          ownerUid,
+          {
+            bookingCode: bookingData.bookingCode,
+            branchName: bookingData.branchName,
+            bookingDate: bookingData.date,
+            bookingTime: bookingData.time,
+            duration: bookingData.duration,
+            price: bookingData.price,
+            serviceName: bookingData.serviceName,
+            staffName,
+          }
+        );
+      } catch (e) {
+        console.error("Failed to send completion email:", e);
+      }
+    }
+
+    return NextResponse.json({ success: true, finalSubmission, bookingCompleted });
   } catch (error: any) {
     console.error("Error submitting final report:", error);
     return NextResponse.json(

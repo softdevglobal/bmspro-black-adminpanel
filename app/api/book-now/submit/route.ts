@@ -26,7 +26,15 @@ export async function POST(req: NextRequest) {
       date,
       time,
       pickupTime,
+      customerId,
     } = body;
+
+    if (!customerId) {
+      return NextResponse.json(
+        { error: "Login required. Please sign in or create an account to book." },
+        { status: 401 }
+      );
+    }
 
     // Validate required fields
     if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !date || !time || !pickupTime) {

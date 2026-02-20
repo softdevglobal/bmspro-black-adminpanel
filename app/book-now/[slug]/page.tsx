@@ -418,6 +418,10 @@ export default function BookingEnginePage() {
 
 
   const handleSubmit = async () => {
+    if (!customer?.customerId) {
+      setShowAuth(true);
+      return;
+    }
     if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !date || !time || !pickupTime) return;
     setSubmitting(true);
     try {
@@ -1279,16 +1283,16 @@ export default function BookingEnginePage() {
 
                 {/* Login prompt */}
                 {!customer && (
-                  <div className="relative bg-white rounded-2xl border border-neutral-200/80 p-5 overflow-hidden group hover:shadow-lg transition-shadow">
+                  <div className="relative bg-amber-50 rounded-2xl border-2 border-amber-300/80 p-5 overflow-hidden group hover:shadow-lg transition-shadow">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-amber-100/30 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
                     <div className="relative z-10 flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/15">
-                          <i className="fas fa-user-circle text-white text-base" />
+                          <i className="fas fa-lock text-white text-base" />
                         </div>
                         <div>
-                          <p className="font-bold text-neutral-900 text-sm">Already a customer?</p>
-                          <p className="text-xs text-neutral-400 mt-0.5">Sign in to auto-fill your info</p>
+                          <p className="font-bold text-neutral-900 text-sm">Sign in required to book</p>
+                          <p className="text-xs text-neutral-500 mt-0.5">Please sign in or create an account to continue</p>
                         </div>
                       </div>
                       <button onClick={() => setShowAuth(true)} className="bg-neutral-900 text-white text-xs font-semibold px-5 py-2.5 rounded-xl hover:bg-neutral-800 transition active:scale-[0.97] shadow-md flex-shrink-0">
@@ -1657,19 +1661,26 @@ export default function BookingEnginePage() {
 
                     {/* Confirm button */}
                     <button
-                      onClick={handleSubmit}
-                      disabled={submitting || !customerName || !customerPhone || !date || !time || !pickupTime}
+                      onClick={!customer ? () => setShowAuth(true) : handleSubmit}
+                      disabled={submitting || (!!customer && (!customerName || !customerPhone || !date || !time || !pickupTime))}
                       className={`w-full mt-5 font-bold py-3.5 rounded-xl transition-all text-sm relative overflow-hidden group ${
-                        submitting || !customerName || !customerPhone || !date || !time || !pickupTime
-                          ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
-                          : "bg-neutral-900 text-white hover:bg-neutral-800 active:scale-[0.98] shadow-xl shadow-neutral-900/15"
+                        !customer
+                          ? "bg-amber-500 text-neutral-900 hover:bg-amber-400 active:scale-[0.98] shadow-xl shadow-amber-500/20"
+                          : submitting || !customerName || !customerPhone || !date || !time || !pickupTime
+                            ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
+                            : "bg-neutral-900 text-white hover:bg-neutral-800 active:scale-[0.98] shadow-xl shadow-neutral-900/15"
                       }`}
                     >
-                      {!(submitting || !customerName || !customerPhone || !date || !time || !pickupTime) && (
+                      {customer && !(submitting || !customerName || !customerPhone || !date || !time || !pickupTime) && (
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent group-hover:animate-[shimmerBg_1.5s_linear_infinite]" style={{ backgroundSize: "200% 100%" }} />
                       )}
                       <span className="relative z-10 flex items-center justify-center gap-2">
-                        {submitting ? (
+                        {!customer ? (
+                          <>
+                            <i className="fas fa-arrow-right-to-bracket text-xs" />
+                            Sign in to Book
+                          </>
+                        ) : submitting ? (
                           <>
                             <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

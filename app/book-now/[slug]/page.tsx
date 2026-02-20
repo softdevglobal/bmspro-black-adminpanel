@@ -90,6 +90,11 @@ export default function BookingEnginePage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedService, setExpandedService] = useState<string | null>(null);
 
+  // Slot availability (capacity limiting)
+  const [blockedSlots, setBlockedSlots] = useState<Set<string>>(new Set());
+  const [slotCapacity, setSlotCapacity] = useState<Record<string, { available: number; total: number }>>({});
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+
   // Notification panel state
   const [showNotifications, setShowNotifications] = useState(false);
   const [customerBookings, setCustomerBookings] = useState<CustomerBooking[]>([]);
@@ -353,6 +358,46 @@ export default function BookingEnginePage() {
       }
     }
   }, [time, date, branchToday, branchCurrentTime, branchDayHours, selectedBranch]);
+
+  // Fetch slot availability when branch, services, or date change
+  useEffect(() => {
+    if (!slug || !selectedBranch || selectedServices.length === 0 || !date) {
+      setBlockedSlots(new Set());
+      setSlotCapacity({});
+      return;
+    }
+    let cancelled = false;
+    const fetchAvailability = async () => {
+      setAvailabilityLoading(true);
+      try {
+        const params = new URLSearchParams({
+          slug: slug as string,
+          branchId: selectedBranch.id,
+          date,
+          serviceIds: selectedServices.join(","),
+        });
+        const res = await fetch(`/api/book-now/availability?${params}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setBlockedSlots(new Set(data.blockedSlots || []));
+        setSlotCapacity(data.capacity || {});
+        // Clear selected time if it's now blocked
+        if (data.blockedSlots?.includes(time)) {
+          setTime("");
+        }
+      } catch {
+        if (!cancelled) {
+          setBlockedSlots(new Set());
+          setSlotCapacity({});
+        }
+      } finally {
+        if (!cancelled) setAvailabilityLoading(false);
+      }
+    };
+    fetchAvailability();
+    return () => { cancelled = true; };
+  }, [slug, selectedBranch, selectedServices, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBranchSelect = (branch: Branch) => { setSelectedBranch(branch); setSelectedServices([]); goToStep(2); };
   const toggleService = (serviceId: string) => {
@@ -1456,26 +1501,54 @@ export default function BookingEnginePage() {
                           )}
                         </div>
                         <div className="grid grid-cols-3 gap-1.5 p-2.5 flex-1 overflow-y-auto" style={{ alignContent: "start" }}>
-                          {timeSlots.length === 0 ? (
+                          {availabilityLoading && date && (
+                            <div className="col-span-3 flex items-center justify-center gap-2 py-4">
+                              <svg className="animate-spin h-3.5 w-3.5 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                              <span className="text-[11px] text-neutral-400">Checking availability...</span>
+                            </div>
+                          )}
+                          {!availabilityLoading && timeSlots.length === 0 ? (
                             <p className="col-span-3 text-center text-[11px] text-neutral-400 py-6">
                               {!date ? "Select a date first to see available times."
                                 : branchDayHours === null && date ? "Branch is closed on this day. Please select another date."
                                 : date === branchToday ? "No more drop-off times available today. Please pick a future date."
                                 : "No available times for this date."}
                             </p>
-                          ) : (
-                            timeSlots.map((t) => (
-                              <button
-                                key={t}
-                                type="button"
-                                onClick={() => setTime(t)}
-                                className={`h-9 rounded-lg text-xs font-semibold transition-all text-center
-                                  ${time === t ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800"}
-                                `}
-                              >
-                                {t}
-                              </button>
-                            ))
+                          ) : !availabilityLoading && (
+                            timeSlots.map((t) => {
+                              const isFull = blockedSlots.has(t);
+                              const cap = slotCapacity[t];
+                              const spotsLeft = cap ? cap.available : null;
+                              const isLow = spotsLeft !== null && spotsLeft > 0 && spotsLeft <= 2 && cap!.total > 1;
+
+                              return (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  onClick={() => !isFull && setTime(t)}
+                                  disabled={isFull}
+                                  title={isFull ? "Fully booked" : isLow ? `${spotsLeft} spot${spotsLeft === 1 ? "" : "s"} left` : undefined}
+                                  className={`relative rounded-lg text-xs font-semibold transition-all text-center flex flex-col items-center justify-center py-1.5 min-h-[36px]
+                                    ${isFull
+                                      ? "bg-neutral-100 text-neutral-300 cursor-not-allowed line-through"
+                                      : time === t
+                                        ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20"
+                                        : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800"}
+                                  `}
+                                >
+                                  <span>{t}</span>
+                                  {isFull && (
+                                    <span className="text-[8px] font-bold text-red-400 no-underline leading-none" style={{ textDecoration: "none" }}>FULL</span>
+                                  )}
+                                  {isLow && !isFull && time !== t && (
+                                    <span className="text-[8px] font-bold text-amber-500 leading-none">{spotsLeft} left</span>
+                                  )}
+                                </button>
+                              );
+                            })
                           )}
                         </div>
                       </div>

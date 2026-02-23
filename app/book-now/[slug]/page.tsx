@@ -119,7 +119,6 @@ export default function BookingEnginePage() {
   const [blockedSlots, setBlockedSlots] = useState<Set<string>>(new Set());
   const [slotCapacity, setSlotCapacity] = useState<Record<string, { available: number; total: number }>>({});
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [isDayFull, setIsDayFull] = useState(false);
 
   // Notification panel state
   const [showNotifications, setShowNotifications] = useState(false);
@@ -458,7 +457,6 @@ export default function BookingEnginePage() {
         if (cancelled) return;
         setBlockedSlots(new Set(data.blockedSlots || []));
         setSlotCapacity(data.capacity || {});
-        setIsDayFull(!!data.isDayFull);
         // Clear selected time if it's now blocked
         if (data.blockedSlots?.includes(time)) {
           setTime("");
@@ -467,7 +465,6 @@ export default function BookingEnginePage() {
         if (!cancelled) {
           setBlockedSlots(new Set());
           setSlotCapacity({});
-          setIsDayFull(false);
         }
       } finally {
         if (!cancelled) setAvailabilityLoading(false);
@@ -1683,13 +1680,7 @@ export default function BookingEnginePage() {
                               <span className="text-[11px] text-neutral-400">Checking availability...</span>
                             </div>
                           )}
-                          {!availabilityLoading && isDayFull && date ? (
-                            <div className="col-span-4 flex flex-col items-center justify-center py-6 gap-1">
-                              <i className="fas fa-calendar-xmark text-red-300 text-lg" />
-                              <p className="text-center text-[12px] text-red-500 font-semibold">Fully booked for this day</p>
-                              <p className="text-center text-[11px] text-neutral-400">The daily booking limit has been reached. Please select another date.</p>
-                            </div>
-                          ) : !availabilityLoading && allTimeSlots.length === 0 ? (
+                          {!availabilityLoading && allTimeSlots.length === 0 ? (
                             <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
                               {!date ? "Select a date first to see available times."
                                 : branchDayHours === null && date ? "Branch is closed on this day. Please select another date."

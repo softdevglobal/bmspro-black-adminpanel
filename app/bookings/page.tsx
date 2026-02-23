@@ -57,7 +57,7 @@ function BookingsPageContent() {
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any; timezone?: string; bookingLimitPerDay?: number }>>([]);
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any; timezone?: string }>>([]);
   const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string; weeklySchedule?: Record<string, { branchId: string; branchName: string } | null> | null }>>([]);
 
@@ -465,21 +465,12 @@ function BookingsPageContent() {
         const currentMinutes = isToday ? (today.getHours() * 60 + today.getMinutes()) : -1;
         
         // Get all bookings for this date (excluding cancelled, completed, rejected)
+        // Use centralized helper to ensure consistency
+        // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
+        // so it's automatically excluded from relevantBookings, making the slot available again in real-time
         const allDateBookings = this.data.bookings.filter((b: any) => {
           return b.date === date && shouldBlockSlots(b.status);
         });
-
-        // Check daily booking limit
-        const branchBookingLimit = selectedBranch?.bookingLimitPerDay ? Number(selectedBranch.bookingLimitPerDay) : null;
-        if (branchBookingLimit && branchBookingLimit > 0) {
-          const branchDateBookings = allDateBookings.filter((b: any) => b.branchId === branchId);
-          if (branchDateBookings.length >= branchBookingLimit) {
-            slotsContainer.innerHTML = '<div class="col-span-4 flex flex-col items-center gap-1 py-4"><i class="fas fa-calendar-xmark text-red-300 text-lg"></i><p class="text-red-500 text-xs font-semibold">Fully booked for this day</p><p class="text-neutral-400 text-[10px]">Daily booking limit reached. Select another date.</p></div>';
-            const eet = document.getElementById("estimated-end-time");
-            if (eet) eet.textContent = "--";
-            return;
-          }
-        }
         
         // Helper to check if a staff ID represents "any staff"
         const isAnyStaff = (sid: any): boolean => {
@@ -1011,8 +1002,7 @@ function BookingsPageContent() {
         name: String(r.name || ""), 
         address: (r as any).address, 
         hours: (r as any).hours,
-        timezone: (r as any).timezone,
-        bookingLimitPerDay: (r as any).bookingLimitPerDay ? Number((r as any).bookingLimitPerDay) : undefined,
+        timezone: (r as any).timezone // Include timezone for proper time slot calculation
       })));
     });
     const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
@@ -1505,19 +1495,12 @@ function BookingsPageContent() {
     })();
     
     // Get all bookings for this date (excluding cancelled, completed, rejected)
+    // Use centralized helper to ensure consistency
+    // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
+    // so it's automatically excluded from relevantBookings, making the slot available again in real-time
     const allDateBookings = app ? app.data.bookings.filter((b: any) => {
       return b.date === dateStr && shouldBlockSlots(b.status);
     }) : [];
-
-    // Check daily booking limit for this branch
-    const selBranchForLimit = branches.find((b: any) => b.id === bkBranchId);
-    const branchBookingLimit = selBranchForLimit?.bookingLimitPerDay;
-    if (branchBookingLimit && branchBookingLimit > 0) {
-      const branchDateBookings = allDateBookings.filter((b: any) => b.branchId === bkBranchId);
-      if (branchDateBookings.length >= branchBookingLimit) {
-        return [{ time: "00:00", available: false, reason: "day_full" }];
-      }
-    }
     
     // Helper function to check if a booking involves a specific staff member
     const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
@@ -2744,13 +2727,7 @@ function BookingsPageContent() {
                                     Drop-off Time
                                   </label>
                                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5" style={{ alignContent: "start" }}>
-                                    {slots.length === 1 && slots[0].reason === "day_full" ? (
-                                      <div className="col-span-full flex flex-col items-center gap-1 py-4">
-                                        <i className="fas fa-calendar-xmark text-red-300" />
-                                        <span className="text-red-500 text-[11px] font-semibold">Fully booked for this day</span>
-                                        <span className="text-neutral-400 text-[10px]">Daily booking limit reached. Select another date.</span>
-                                      </div>
-                                    ) : slots.length === 0 ? (
+                                    {slots.length === 0 ? (
                                       <div className="col-span-full text-center text-neutral-400 text-[10px] py-4 italic">
                                         No time slots available for this date
                                       </div>

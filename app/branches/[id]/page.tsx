@@ -50,7 +50,7 @@ type Branch = {
   staffByDay?: StaffByDay;
   serviceIds?: string[];
   hours?: string | HoursMap;
-  bookingLimitPerDay?: number;
+  capacity?: number;
   manager?: string;
   status?: "Active" | "Pending" | "Closed";
   adminStaffId?: string;
@@ -856,7 +856,7 @@ export default function BranchDetailsPage() {
           phone: data.phone,
           email: data.email,
           hours: data.hours as any,
-          bookingLimitPerDay: data.bookingLimitPerDay,
+          capacity: data.capacity,
           manager: data.manager,
           status: (data.status as any) || "Active",
           staffIds: Array.isArray(data.staffIds) ? data.staffIds.map(String) : [],
@@ -1109,12 +1109,12 @@ export default function BranchDetailsPage() {
               </div>
               <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-neutral-500">Booking Limit / Day</div>
+                  <div className="text-xs text-neutral-500">Capacity</div>
                   <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                    <i className="fas fa-calendar-check" />
+                    <i className="fas fa-chair" />
                   </div>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-neutral-800">{branch.bookingLimitPerDay ?? "—"}</div>
+                <div className="mt-2 text-2xl font-bold text-neutral-800">{branch.capacity ?? "—"}</div>
               </div>
               <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
                 <div className="flex items-center justify-between">
@@ -1184,9 +1184,9 @@ export default function BranchDetailsPage() {
                               <i className="fas fa-user-tie text-neutral-600" /> {branch.manager}
                             </div>
                           )}
-                          {typeof branch.bookingLimitPerDay !== "undefined" && branch.bookingLimitPerDay !== null && (
+                          {typeof branch.capacity !== "undefined" && branch.capacity !== null && (
                             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
-                              <i className="fas fa-calendar-check text-neutral-600" /> Booking Limit: {String(branch.bookingLimitPerDay)} / day
+                              <i className="fas fa-chair text-neutral-600" /> Capacity: {String(branch.capacity)}
                             </div>
                           )}
                         </div>

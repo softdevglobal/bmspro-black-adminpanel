@@ -193,32 +193,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check daily booking limit for the branch
-    const branchDoc = await db.collection("branches").doc(branchId).get();
-    const branchData = branchDoc.exists ? branchDoc.data() : null;
-    const bookingLimitPerDay = branchData?.bookingLimitPerDay ? Number(branchData.bookingLimitPerDay) : null;
-
-    if (bookingLimitPerDay && bookingLimitPerDay > 0) {
-      const existingBookingsSnap = await db
-        .collection("bookings")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", "==", date)
-        .where("branchId", "==", branchId)
-        .get();
-
-      const activeBookingCount = existingBookingsSnap.docs.filter((d) => {
-        const status = d.data().status;
-        return shouldBlockSlots(status);
-      }).length;
-
-      if (activeBookingCount >= bookingLimitPerDay) {
-        return NextResponse.json(
-          { error: "This branch has reached its daily booking limit. Please select another date." },
-          { status: 400 }
-        );
-      }
-    }
-
     const bookingCode = generateBookingCode();
 
     // Validate pick-up time is >= drop-off time + total service duration

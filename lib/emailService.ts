@@ -1773,3 +1773,189 @@ export async function sendPasswordResetEmail(
     return { success: false, error: errorMessage };
   }
 }
+
+/**
+ * Send estimate request notification email to salon/workshop owner
+ */
+export async function sendEstimateRequestEmail(
+  ownerUid: string,
+  estimateData: {
+    customerName: string;
+    customerPhone: string;
+    customerEmail: string;
+    vehicleMake?: string;
+    vehicleModel?: string;
+    vehicleYear?: string;
+    rego?: string;
+    description: string;
+    branchName?: string | null;
+    imageUrls?: string[];
+  }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = adminDb();
+    const ownerDoc = await db.collection("users").doc(ownerUid).get();
+    if (!ownerDoc.exists) {
+      return { success: false, error: "Owner not found" };
+    }
+    const ownerData = ownerDoc.data();
+    const ownerEmail = ownerData?.email;
+    const salonName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
+
+    if (!ownerEmail) {
+      return { success: false, error: "Owner email not found" };
+    }
+
+    if (!SENDGRID_API_KEY) {
+      return { success: false, error: "SendGrid API key not configured" };
+    }
+
+    const vehicleInfo = [estimateData.vehicleYear, estimateData.vehicleMake, estimateData.vehicleModel]
+      .filter(Boolean).join(" ");
+
+    const customerImagesHtml = estimateData.imageUrls && estimateData.imageUrls.length > 0
+      ? `<tr><td colspan="2" style="padding:16px 0;border-top:1px solid #f4f4f5;">
+          <p style="margin:0 0 12px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Customer Photos (${estimateData.imageUrls.length})</p>
+          ${estimateData.imageUrls.map(url => `<a href="${url}" target="_blank" style="display:inline-block;margin:0 8px 8px 0;text-decoration:none;"><img src="${url}" alt="Customer photo" width="180" style="width:180px;height:auto;border-radius:8px;border:1px solid #e5e5e5;display:block;" /></a>`).join("")}
+        </td></tr>`
+      : "";
+
+    const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <tr><td style="background:#171717;padding:28px 32px;">
+    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">New Estimate Request</h1>
+    <p style="margin:6px 0 0;color:#a3a3a3;font-size:13px;">A customer has requested an estimate${estimateData.branchName ? ` at ${estimateData.branchName}` : ""}.</p>
+  </td></tr>
+  <tr><td style="padding:28px 32px;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td colspan="2" style="padding-bottom:16px;border-bottom:1px solid #f4f4f5;">
+        <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Customer</p>
+        <p style="margin:0;font-size:16px;color:#171717;font-weight:700;">${estimateData.customerName}</p>
+        <p style="margin:4px 0 0;font-size:13px;color:#525252;">${estimateData.customerPhone} &nbsp;|&nbsp; ${estimateData.customerEmail}</p>
+      </td></tr>
+      ${vehicleInfo || estimateData.rego ? `
+      <tr><td colspan="2" style="padding:16px 0;border-bottom:1px solid #f4f4f5;">
+        <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Vehicle</p>
+        <p style="margin:0;font-size:14px;color:#171717;font-weight:600;">${vehicleInfo || "-"}</p>
+        ${estimateData.rego ? `<p style="margin:4px 0 0;font-size:13px;color:#525252;">Registration Number: ${estimateData.rego}</p>` : ""}
+      </td></tr>` : ""}
+      <tr><td colspan="2" style="padding:16px 0;">
+        <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Description</p>
+        <p style="margin:0;font-size:14px;color:#171717;line-height:1.6;white-space:pre-wrap;">${estimateData.description}</p>
+      </td></tr>
+      ${customerImagesHtml}
+    </table>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:20px;">
+      <tr>
+        <td align="center" style="padding:14px 24px;background:#171717;border-radius:12px;">
+          <a href="mailto:${estimateData.customerEmail}" style="color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;">Reply to Customer</a>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+  <tr><td style="padding:20px 32px;background:#fafafa;border-top:1px solid #f4f4f5;">
+    <p style="margin:0;font-size:11px;color:#a3a3a3;text-align:center;">This estimate request was submitted via your ${salonName} online booking page.<br/>Powered by <strong>BMS PRO</strong></p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+
+    const msg = {
+      to: ownerEmail,
+      from: FROM_EMAIL,
+      subject: `New Estimate Request from ${estimateData.customerName} — ${salonName}`,
+      html,
+    };
+
+    console.log(`[EMAIL] Sending estimate request email to owner: ${ownerEmail}`);
+    await sgMail.send(msg);
+    console.log(`[EMAIL] ✅ Estimate request email sent to ${ownerEmail}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending estimate request email:`, error);
+    return { success: false, error: error?.message || "Unknown error" };
+  }
+}
+
+/**
+ * Send estimate reply notification email to customer
+ */
+export async function sendEstimateReplyEmail(data: {
+  customerEmail: string;
+  customerName: string;
+  salonName: string;
+  message: string;
+  imageUrls?: string[];
+  vehicleInfo?: string;
+  rego?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!data.customerEmail?.trim()) {
+      return { success: false, error: "No customer email" };
+    }
+
+    if (!SENDGRID_API_KEY) {
+      return { success: false, error: "SendGrid API key not configured" };
+    }
+
+    const imagesHtml = data.imageUrls && data.imageUrls.length > 0
+      ? `<tr><td colspan="2" style="padding:16px 0;border-top:1px solid #f4f4f5;">
+          <p style="margin:0 0 12px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Attached Images</p>
+          ${data.imageUrls.map(url => `<a href="${url}" target="_blank" style="display:inline-block;margin:0 8px 8px 0;text-decoration:none;"><img src="${url}" alt="Attachment" width="180" style="width:180px;height:auto;border-radius:8px;border:1px solid #e5e5e5;display:block;" /></a>`).join("")}
+        </td></tr>`
+      : "";
+
+    const html = `
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <tr><td style="background:#171717;padding:28px 32px;">
+    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">Reply to Your Estimate</h1>
+    <p style="margin:6px 0 0;color:#a3a3a3;font-size:13px;">${data.salonName} has responded to your estimate request.</p>
+  </td></tr>
+  <tr><td style="padding:28px 32px;">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <tr><td colspan="2" style="padding-bottom:16px;">
+        <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Message from ${data.salonName}</p>
+        <div style="margin-top:10px;padding:16px;background:#f9fafb;border:1px solid #f4f4f5;border-radius:12px;">
+          <p style="margin:0;font-size:14px;color:#171717;line-height:1.7;white-space:pre-wrap;">${data.message}</p>
+        </div>
+      </td></tr>
+      ${imagesHtml}
+      ${data.vehicleInfo ? `
+      <tr><td colspan="2" style="padding:12px 0 0;border-top:1px solid #f4f4f5;">
+        <p style="margin:0;font-size:11px;color:#a3a3a3;"><strong>Vehicle:</strong> ${data.vehicleInfo}${data.rego ? ` (Reg: ${data.rego})` : ""}</p>
+      </td></tr>` : ""}
+    </table>
+  </td></tr>
+  <tr><td style="padding:20px 32px;background:#fafafa;border-top:1px solid #f4f4f5;">
+    <p style="margin:0;font-size:11px;color:#a3a3a3;text-align:center;">This reply was sent from ${data.salonName}.<br/>Powered by <strong>BMS PRO</strong></p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+
+    const msg = {
+      to: data.customerEmail.trim().toLowerCase(),
+      from: FROM_EMAIL,
+      subject: `${data.salonName} replied to your estimate request`,
+      html,
+    };
+
+    console.log(`[EMAIL] Sending estimate reply email to customer: ${data.customerEmail}`);
+    await sgMail.send(msg);
+    console.log(`[EMAIL] ✅ Estimate reply email sent to ${data.customerEmail}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending estimate reply email:`, error);
+    return { success: false, error: error?.message || "Unknown error" };
+  }
+}

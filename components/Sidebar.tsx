@@ -28,6 +28,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isServices = pathname?.startsWith("/services");
   const isBranches = pathname?.startsWith("/branches");
   const isCustomers = pathname?.startsWith("/customers");
+  const isEstimates = pathname?.startsWith("/estimates");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
   const isBilling = pathname?.startsWith("/billing");
@@ -366,6 +367,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
               </>
             )}
           </>
+        )}
+        {mounted && role === "workshop_owner" && (
+          <Link
+            href="/estimates"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isEstimates ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-file-invoice w-5" />
+            <span>Estimates</span>
+          </Link>
         )}
         {mounted && role === "workshop_owner" && (
           <Link

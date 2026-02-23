@@ -57,8 +57,30 @@ export default function BookingEnginePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeView, setActiveView] = useState<"booking" | "myBookings">("booking");
+  const [activeView, setActiveView] = useState<"booking" | "myBookings" | "estimate" | "myEstimates">("booking");
   const [bookingsFilter, setBookingsFilter] = useState("All");
+  const [customerEstimates, setCustomerEstimates] = useState<any[]>([]);
+  const [customerEstimatesLoading, setCustomerEstimatesLoading] = useState(false);
+  const [expandedEstimateId, setExpandedEstimateId] = useState<string | null>(null);
+  const [estimateReplies, setEstimateReplies] = useState<Record<string, any[]>>({});
+  const [estimateRepliesLoading, setEstimateRepliesLoading] = useState<string | null>(null);
+  const [estimateLightboxUrl, setEstimateLightboxUrl] = useState<string | null>(null);
+
+  // Estimate form state
+  const [estimateName, setEstimateName] = useState("");
+  const [estimatePhone, setEstimatePhone] = useState("");
+  const [estimateEmail, setEstimateEmail] = useState("");
+  const [estimateVehicleMake, setEstimateVehicleMake] = useState("");
+  const [estimateVehicleModel, setEstimateVehicleModel] = useState("");
+  const [estimateVehicleYear, setEstimateVehicleYear] = useState("");
+  const [estimateRego, setEstimateRego] = useState("");
+  const [estimateDescription, setEstimateDescription] = useState("");
+  const [estimateBranch, setEstimateBranch] = useState<Branch | null>(null);
+  const [estimateSubmitting, setEstimateSubmitting] = useState(false);
+  const [estimateSuccess, setEstimateSuccess] = useState(false);
+  const [estimateError, setEstimateError] = useState("");
+  const [estimateImages, setEstimateImages] = useState<File[]>([]);
+  const [estimateImagePreviews, setEstimateImagePreviews] = useState<string[]>([]);
 
   const [step, setStep] = useState(1);
   const [prevStep, setPrevStep] = useState(1);
@@ -208,6 +230,52 @@ export default function BookingEnginePage() {
     const interval = setInterval(fetchCustomerBookings, 30000);
     return () => clearInterval(interval);
   }, [customer?.customerId, fetchCustomerBookings]);
+
+  const fetchCustomerEstimates = useCallback(async () => {
+    if (!customer?.customerId) return;
+    setCustomerEstimatesLoading(true);
+    try {
+      const res = await fetch(`/api/book-now/customer-estimates?customerId=${customer.customerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerEstimates(data.estimates || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch customer estimates:", err);
+    } finally {
+      setCustomerEstimatesLoading(false);
+    }
+  }, [customer?.customerId]);
+
+  useEffect(() => {
+    if (!customer?.customerId) {
+      setCustomerEstimates([]);
+      return;
+    }
+    fetchCustomerEstimates();
+  }, [customer?.customerId, fetchCustomerEstimates]);
+
+  const toggleEstimateExpand = useCallback(async (estimateId: string) => {
+    if (expandedEstimateId === estimateId) {
+      setExpandedEstimateId(null);
+      return;
+    }
+    setExpandedEstimateId(estimateId);
+    if (!estimateReplies[estimateId]) {
+      setEstimateRepliesLoading(estimateId);
+      try {
+        const res = await fetch(`/api/book-now/estimate-reply?estimateId=${estimateId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setEstimateReplies((prev) => ({ ...prev, [estimateId]: data.replies || [] }));
+        }
+      } catch (err) {
+        console.error("Failed to fetch estimate replies:", err);
+      } finally {
+        setEstimateRepliesLoading(null);
+      }
+    }
+  }, [expandedEstimateId, estimateReplies]);
 
   const branchServices = useMemo(() => {
     if (!selectedBranch) return [];
@@ -423,6 +491,9 @@ export default function BookingEnginePage() {
       if (!res.ok) { setAuthError(data.error || "Authentication failed"); return; }
       const session: CustomerSession = { customerId: data.customerId, name: data.name, email: data.email, phone: data.phone };
       setCustomer(session); setCustomerName(data.name); setCustomerEmail(data.email); setCustomerPhone(data.phone);
+      if (!estimateName) setEstimateName(data.name || "");
+      if (!estimateEmail) setEstimateEmail(data.email || "");
+      if (!estimatePhone) setEstimatePhone(data.phone || "");
       sessionStorage.setItem(`bms_customer_${slug}`, JSON.stringify(session));
       setShowAuth(false); setAuthEmail(""); setAuthPassword(""); setAuthConfirmPassword(""); setAuthName(""); setAuthPhone("");
     } catch (err: any) { setAuthError(err.message || "Something went wrong"); }
@@ -488,6 +559,60 @@ export default function BookingEnginePage() {
       setTimeout(() => setShowConfetti(true), 400);
     } catch (err: any) { alert(err.message || "Something went wrong"); }
     finally { setSubmitting(false); }
+  };
+
+  const handleEstimateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customer?.customerId) { setShowAuth(true); return; }
+    if (!workshop || !estimateName || !estimatePhone || !estimateEmail || !estimateDescription) return;
+    setEstimateSubmitting(true);
+    setEstimateError("");
+    try {
+      // Upload images first via server API
+      let imageUrls: string[] = [];
+      if (estimateImages.length > 0) {
+        for (const file of estimateImages) {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("folder", "estimates/customer-uploads");
+          const uploadRes = await fetch("/api/book-now/upload-image", { method: "POST", body: formData });
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            if (uploadData.url) imageUrls.push(uploadData.url);
+          }
+        }
+      }
+
+      const res = await fetch("/api/book-now/estimate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          customerId: customer?.customerId || null,
+          branchId: estimateBranch?.id || null,
+          branchName: estimateBranch?.name || null,
+          customerName: estimateName,
+          customerPhone: estimatePhone,
+          customerEmail: estimateEmail,
+          vehicleMake: estimateVehicleMake,
+          vehicleModel: estimateVehicleModel,
+          vehicleYear: estimateVehicleYear,
+          rego: estimateRego,
+          description: estimateDescription,
+          imageUrls,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to submit estimate request");
+      setEstimateSuccess(true);
+      setEstimateImages([]);
+      setEstimateImagePreviews([]);
+      fetchCustomerEstimates();
+    } catch (err: any) {
+      setEstimateError(err.message || "Something went wrong");
+    } finally {
+      setEstimateSubmitting(false);
+    }
   };
 
   /* ═══════════════════ LOADING STATE ═══════════════════ */
@@ -594,20 +719,20 @@ export default function BookingEnginePage() {
             </button>
           )}
         </div>
-        {/* ── View Tabs (logged in only) ── */}
-        {customer && (
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center gap-1 pt-2 pb-1">
-            <button
-              onClick={() => setActiveView("booking")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                activeView === "booking"
-                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
-                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
-              }`}
-            >
-              <i className="fas fa-calendar-plus text-[9px]" />
-              Book Now
-            </button>
+        {/* ── View Tabs ── */}
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center gap-1 pt-2 pb-1">
+          <button
+            onClick={() => { setActiveView("booking"); setEstimateSuccess(false); }}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+              activeView === "booking"
+                ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
+                : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+            }`}
+          >
+            <i className="fas fa-calendar-plus text-[9px]" />
+            Book Now
+          </button>
+          {customer && (
             <button
               onClick={() => setActiveView("myBookings")}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
@@ -626,8 +751,28 @@ export default function BookingEnginePage() {
                 </span>
               )}
             </button>
-          </div>
-        )}
+          )}
+          {customer && (
+            <button
+              onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); }}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                activeView === "myEstimates"
+                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
+                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+              }`}
+            >
+              <i className="fas fa-file-invoice text-[9px]" />
+              My Estimates
+              {customerEstimates.length > 0 && (
+                <span className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 ${
+                  activeView === "myEstimates" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-600"
+                }`}>
+                  {customerEstimates.length}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
       </nav>
 
       {/* ═══════════════════ NOTIFICATIONS DROPDOWN ═══════════════════ */}
@@ -1070,6 +1215,21 @@ export default function BookingEnginePage() {
         {/* ── STEP 1: Branch Selection ── */}
         {step === 1 && (
           <div className="animate-[fadeSlideUp_0.5s_ease-out]">
+            {/* Get Estimate Card */}
+            <button
+              onClick={() => { setActiveView("estimate"); setEstimateSuccess(false); if (branches.length === 1 && !estimateBranch) setEstimateBranch(branches[0]); }}
+              className="w-full mb-6 group relative overflow-hidden bg-gradient-to-r from-amber-50 via-amber-50/80 to-orange-50 hover:from-amber-100 hover:via-amber-100/80 hover:to-orange-100 border border-amber-200/60 rounded-2xl p-4 sm:p-5 flex items-center gap-4 transition-all duration-200 text-left"
+            >
+              <div className="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                <i className="fas fa-file-invoice text-amber-600 text-lg" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-neutral-900 text-sm sm:text-base">Get an Estimate</div>
+                <p className="text-xs text-neutral-500 mt-0.5">Need a quote? Submit your vehicle details and we'll get back to you.</p>
+              </div>
+              <i className="fas fa-chevron-right text-amber-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all text-sm" />
+            </button>
+
             <div className="flex items-end justify-between mb-6">
               <div>
                 <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">Choose a location</h3>
@@ -2377,6 +2537,401 @@ export default function BookingEnginePage() {
                 Sign Out
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════ ESTIMATE VIEW ═══════════════════ */}
+      {activeView === "estimate" && (
+        <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full relative z-10">
+          <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+            <button
+              onClick={() => setActiveView("booking")}
+              className="flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-800 font-medium mb-6 transition-colors"
+            >
+              <i className="fas fa-arrow-left text-xs" />
+              Back to Booking
+            </button>
+            {estimateSuccess ? (
+              <div className="max-w-lg mx-auto text-center py-16">
+                <div className="w-20 h-20 mx-auto mb-6 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <i className="fas fa-check text-3xl text-emerald-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-neutral-900 mb-2">Estimate Request Sent!</h3>
+                <p className="text-neutral-500 text-sm mb-8">
+                  Thank you for your request. We&apos;ll review your details and get back to you with an estimate as soon as possible.
+                </p>
+                <button
+                  onClick={() => { setEstimateSuccess(false); setEstimateName(""); setEstimatePhone(""); setEstimateEmail(""); setEstimateVehicleMake(""); setEstimateVehicleModel(""); setEstimateVehicleYear(""); setEstimateRego(""); setEstimateDescription(""); setEstimateBranch(null); setActiveView("booking"); }}
+                  className="bg-neutral-900 text-white font-bold text-sm px-6 py-3 rounded-xl hover:bg-neutral-800 transition-all shadow-lg shadow-neutral-900/15"
+                >
+                  Back to Booking
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-8">
+                  <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">Request an Estimate</h3>
+                  <p className="text-neutral-500 text-sm mt-1">Tell us about your vehicle and what you need — we&apos;ll get back to you with a quote.</p>
+                </div>
+
+                {!customer && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex items-center gap-4 mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-lock text-amber-600 text-sm" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-amber-900">Sign in required to book</p>
+                      <p className="text-xs text-amber-700 mt-0.5">Please sign in or create an account to submit an estimate request</p>
+                    </div>
+                    <button type="button" onClick={() => setShowAuth(true)} className="bg-neutral-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-neutral-800 transition-all flex-shrink-0 shadow-sm">
+                      Sign in
+                    </button>
+                  </div>
+                )}
+
+                <form onSubmit={handleEstimateSubmit} className="space-y-6">
+                  {/* Contact Information */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-5 sm:p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
+                        <i className="fas fa-user text-white text-xs" />
+                      </div>
+                      <h4 className="font-bold text-neutral-900 text-sm">Contact Information</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Full Name <span className="text-red-400">*</span></label>
+                        <input type="text" required value={estimateName} onChange={(e) => setEstimateName(e.target.value)} placeholder="John Smith"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Phone <span className="text-red-400">*</span></label>
+                        <input type="tel" required value={estimatePhone} onChange={(e) => setEstimatePhone(e.target.value)} placeholder="0412 345 678"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Email <span className="text-red-400">*</span></label>
+                        <input type="email" required value={estimateEmail} onChange={(e) => setEstimateEmail(e.target.value)} placeholder="john@email.com"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vehicle Details */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-5 sm:p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
+                        <i className="fas fa-car text-white text-xs" />
+                      </div>
+                      <h4 className="font-bold text-neutral-900 text-sm">Vehicle Details</h4>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Make</label>
+                        <input type="text" value={estimateVehicleMake} onChange={(e) => setEstimateVehicleMake(e.target.value)} placeholder="Toyota"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Model</label>
+                        <input type="text" value={estimateVehicleModel} onChange={(e) => setEstimateVehicleModel(e.target.value)} placeholder="Camry"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Year</label>
+                        <input type="text" value={estimateVehicleYear} onChange={(e) => setEstimateVehicleYear(e.target.value)} placeholder="2024"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Registration Number</label>
+                        <input type="text" value={estimateRego} onChange={(e) => setEstimateRego(e.target.value)} placeholder="ABC 123"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Branch Selection */}
+                  {branches.length > 1 && (
+                    <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-5 sm:p-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
+                          <i className="fas fa-location-dot text-white text-xs" />
+                        </div>
+                        <h4 className="font-bold text-neutral-900 text-sm">Preferred Location</h4>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {branches.map((b) => (
+                          <button key={b.id} type="button" onClick={() => setEstimateBranch(estimateBranch?.id === b.id ? null : b)}
+                            className={`text-left p-4 rounded-xl border-2 transition-all ${
+                              estimateBranch?.id === b.id
+                                ? "border-neutral-900 bg-neutral-50 shadow-md"
+                                : "border-neutral-200 hover:border-neutral-300 bg-white"
+                            }`}>
+                            <div className="font-semibold text-neutral-800 text-sm">{b.name}</div>
+                            {b.address && <div className="text-xs text-neutral-500 mt-0.5">{b.address}</div>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Description */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-5 sm:p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
+                        <i className="fas fa-message text-white text-xs" />
+                      </div>
+                      <h4 className="font-bold text-neutral-900 text-sm">What do you need?</h4>
+                    </div>
+                    <textarea required rows={5} value={estimateDescription} onChange={(e) => setEstimateDescription(e.target.value)}
+                      placeholder="Describe the issue or service you need — e.g. 'My car makes a grinding noise when braking, need brake pads checked and replaced if needed...'"
+                      className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium resize-none" />
+                  </div>
+
+                  {/* Attach Images */}
+                  <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-5 sm:p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
+                        <i className="fas fa-camera text-white text-xs" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-neutral-900 text-sm">Attach Photos</h4>
+                        <p className="text-[11px] text-neutral-400">Optional — add up to 5 photos of the issue</p>
+                      </div>
+                    </div>
+
+                    {estimateImagePreviews.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {estimateImagePreviews.map((url, i) => (
+                          <div key={i} className="relative group">
+                            <img src={url} alt="Preview" className="w-20 h-20 object-cover rounded-xl border border-neutral-200" />
+                            <button type="button" onClick={() => {
+                              const newFiles = estimateImages.filter((_, fi) => fi !== i);
+                              setEstimateImages(newFiles);
+                              setEstimateImagePreviews(newFiles.map((f) => URL.createObjectURL(f)));
+                            }}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center text-[8px] opacity-0 group-hover:opacity-100 transition-opacity shadow-md">
+                              <i className="fas fa-times" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {estimateImages.length < 5 && (
+                      <label className="flex items-center justify-center gap-2 border-2 border-dashed border-neutral-200 hover:border-neutral-400 rounded-xl py-4 cursor-pointer transition-all text-neutral-400 hover:text-neutral-600">
+                        <i className="fas fa-plus text-xs" />
+                        <span className="text-xs font-semibold">Add Photo</span>
+                        <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length === 0) return;
+                          const newFiles = [...estimateImages, ...files].slice(0, 5);
+                          setEstimateImages(newFiles);
+                          setEstimateImagePreviews(newFiles.map((f) => URL.createObjectURL(f)));
+                          e.target.value = "";
+                        }} />
+                      </label>
+                    )}
+
+                    {estimateImages.length > 0 && (
+                      <p className="text-[10px] text-neutral-400 mt-2">{estimateImages.length}/5 photos attached</p>
+                    )}
+                  </div>
+
+                  {estimateError && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2.5">
+                      <i className="fas fa-exclamation-triangle text-red-500 text-xs" />
+                      <p className="text-xs text-red-700 font-medium">{estimateError}</p>
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={estimateSubmitting}
+                    className="w-full bg-neutral-900 text-white font-bold py-3.5 rounded-xl hover:bg-neutral-800 transition-all text-sm disabled:opacity-50 active:scale-[0.98] shadow-lg shadow-neutral-900/15 relative overflow-hidden group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent group-hover:animate-[shimmerBg_1.5s_linear_infinite]" style={{ backgroundSize: "200% 100%" }} />
+                    <span className="relative z-10 flex items-center justify-center gap-2">
+                      {estimateSubmitting ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          Sending request...
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-paper-plane text-xs" />
+                          Request Estimate
+                        </>
+                      )}
+                    </span>
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* ═══════════════════ MY ESTIMATES VIEW ═══════════════════ */}
+      {activeView === "myEstimates" && (
+        <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full relative z-10">
+          <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+            <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight mb-1">My Estimates</h3>
+            <p className="text-neutral-500 text-sm mb-6">Track the status of your estimate requests</p>
+
+            {customerEstimatesLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <svg className="animate-spin h-6 w-6 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </div>
+            ) : customerEstimates.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
+                <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-2xl flex items-center justify-center">
+                  <i className="fas fa-file-invoice text-2xl text-neutral-300" />
+                </div>
+                <p className="text-neutral-500 font-medium mb-1">No estimate requests yet</p>
+                <p className="text-neutral-400 text-xs mb-5">Submit a request to get a quote from us.</p>
+                <button
+                  onClick={() => { setActiveView("estimate"); setEstimateSuccess(false); if (branches.length === 1 && !estimateBranch) setEstimateBranch(branches[0]); }}
+                  className="bg-neutral-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl hover:bg-neutral-800 transition-all shadow-md"
+                >
+                  <i className="fas fa-plus mr-1.5" />Get an Estimate
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {customerEstimates.map((est) => {
+                  const statusStyles: Record<string, { bg: string; text: string; icon: string }> = {
+                    New: { bg: "bg-amber-100", text: "text-amber-700", icon: "fa-sparkles" },
+                    Reviewed: { bg: "bg-blue-100", text: "text-blue-700", icon: "fa-eye" },
+                    Quoted: { bg: "bg-emerald-100", text: "text-emerald-700", icon: "fa-check" },
+                    Closed: { bg: "bg-neutral-200", text: "text-neutral-600", icon: "fa-xmark" },
+                  };
+                  const sc = statusStyles[est.status] || statusStyles.New;
+                  const vehicleInfo = [est.vehicleYear, est.vehicleMake, est.vehicleModel].filter(Boolean).join(" ");
+                  const dateStr = est.createdAt
+                    ? new Date(est.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })
+                    : "-";
+
+                  const isExpanded = expandedEstimateId === est.id;
+                  const estReplies = estimateReplies[est.id] || [];
+                  const isLoadingReplies = estimateRepliesLoading === est.id;
+
+                  return (
+                    <div key={est.id} className="bg-white rounded-2xl border border-neutral-200/80 shadow-sm overflow-hidden">
+                      <div className="p-4 sm:p-5">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${sc.bg} ${sc.text}`}>
+                            <i className={`fas ${sc.icon} text-[8px]`} />
+                            {est.status}
+                          </span>
+                          <span className="text-[11px] text-neutral-400">{dateStr}</span>
+                        </div>
+
+                        {vehicleInfo && (
+                          <div className="flex items-center gap-2 mb-2">
+                            <i className="fas fa-car text-neutral-400 text-xs" />
+                            <span className="text-sm font-semibold text-neutral-800">{vehicleInfo}</span>
+                            {est.rego && <span className="text-xs text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">{est.rego}</span>}
+                          </div>
+                        )}
+
+                        <p className="text-sm text-neutral-600 leading-relaxed line-clamp-3">{est.description}</p>
+
+                        {est.imageUrls && est.imageUrls.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2.5">
+                            {est.imageUrls.map((url: string, i: number) => (
+                              <button key={i} onClick={() => setEstimateLightboxUrl(url)} className="group relative rounded-lg overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all">
+                                <img src={url} alt="Photo" className="w-16 h-16 object-cover" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                                  <i className="fas fa-expand text-white text-[9px] opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {est.branchName && (
+                          <div className="flex items-center gap-1.5 mt-3 text-xs text-neutral-400">
+                            <i className="fas fa-location-dot text-[9px]" />
+                            {est.branchName}
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => toggleEstimateExpand(est.id)}
+                          className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-800 transition-colors"
+                        >
+                          <i className={`fas fa-chevron-${isExpanded ? "up" : "down"} text-[9px] transition-transform`} />
+                          {isExpanded ? "Hide replies" : "View replies"}
+                        </button>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="border-t border-neutral-100 bg-neutral-50/50 p-4 sm:p-5">
+                          {isLoadingReplies ? (
+                            <div className="flex items-center justify-center py-6">
+                              <svg className="animate-spin h-5 w-5 text-neutral-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                            </div>
+                          ) : estReplies.length === 0 ? (
+                            <div className="text-center py-6">
+                              <i className="fas fa-comments text-neutral-200 text-2xl mb-2" />
+                              <p className="text-xs text-neutral-400">No replies yet. We&apos;ll get back to you soon.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {estReplies.map((reply: any) => (
+                                <div key={reply.id} className="bg-white rounded-xl p-3.5 border border-neutral-200 shadow-sm">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div className="w-6 h-6 rounded-full bg-neutral-900 flex items-center justify-center">
+                                      <i className="fas fa-store text-[8px] text-white" />
+                                    </div>
+                                    <span className="text-xs font-bold text-neutral-700">Workshop Reply</span>
+                                    <span className="text-[10px] text-neutral-400 ml-auto">
+                                      {reply.createdAt ? new Date(reply.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-neutral-700 leading-relaxed whitespace-pre-wrap">{reply.message}</p>
+                                  {reply.imageUrls && reply.imageUrls.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-2.5">
+                                      {reply.imageUrls.map((url: string, i: number) => (
+                                        <button key={i} onClick={() => setEstimateLightboxUrl(url)} className="group relative rounded-lg overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md">
+                                          <img src={url} alt="Attachment" className="w-20 h-20 object-cover" />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                                            <i className="fas fa-expand text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity" />
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* Estimate Image Lightbox */}
+      {estimateLightboxUrl && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]" onClick={() => setEstimateLightboxUrl(null)}>
+          <div className="relative max-w-2xl w-full max-h-[85vh] animate-[modalPop_0.3s_ease-out]" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setEstimateLightboxUrl(null)} className="absolute -top-3 -right-3 z-10 w-8 h-8 rounded-full bg-white shadow-lg flex items-center justify-center text-neutral-600 hover:text-neutral-900 hover:scale-110 transition-all">
+              <i className="fas fa-times text-sm" />
+            </button>
+            <img src={estimateLightboxUrl} alt="Attachment" className="w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" />
           </div>
         </div>
       )}

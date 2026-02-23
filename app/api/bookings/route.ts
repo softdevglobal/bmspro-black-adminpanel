@@ -306,6 +306,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Australian booking rule: drop-off by 11 AM, pick-up 2 PM – 5 PM
+    const bookingTime = String(body.time);
+    const bookingPickupTime = body.pickupTime ? String(body.pickupTime) : null;
+
+    if (bookingTime > "11:00") {
+      return NextResponse.json(
+        { error: "Drop-off time must be by 11:00 AM." },
+        { status: 400 }
+      );
+    }
+    if (bookingPickupTime && (bookingPickupTime < "14:00" || bookingPickupTime > "17:00")) {
+      return NextResponse.json(
+        { error: "Pick-up time must be between 2:00 PM and 5:00 PM." },
+        { status: 400 }
+      );
+    }
+
     // Enrich names and timezone if not provided
     let serviceName = body.serviceName || null;
     let staffName = body.staffName || null;

@@ -453,9 +453,11 @@ function BookingsPageContent() {
           return;
         }
 
-        const interval = 15;
+        const interval = 30;
         let currentTime = Math.floor(startHour) * 60 + ((startHour % 1) * 60);
-        const maxTime = Math.floor(endHour) * 60 + ((endHour % 1) * 60);
+        const branchMaxTime = Math.floor(endHour) * 60 + ((endHour % 1) * 60);
+        const DROPOFF_CUTOFF_LEGACY = 11 * 60 + 1; // cap drop-off at 11:00 AM (inclusive)
+        const maxTime = Math.min(branchMaxTime, DROPOFF_CUTOFF_LEGACY);
         
         // Check if date is today to filter past times
         const today = new Date();
@@ -628,10 +630,10 @@ function BookingsPageContent() {
         };
         
         while (currentTime < maxTime) {
-          // Check if slot + duration fits before closing time
+          // Check if slot + duration fits before branch closing time
           const slotEndTime = currentTime + duration;
-          if (slotEndTime > maxTime) {
-            break; // Stop if slot doesn't fit
+          if (slotEndTime > branchMaxTime) {
+            break;
           }
 
           // Skip past times if date is today
@@ -1762,10 +1764,11 @@ function BookingsPageContent() {
       serviceDuration = Number((service as any)?.duration) || 60;
     }
 
-    // Calculate the latest possible slot start time
-    // The service must finish by closing time, so: slotStart + duration <= endTime
+    // Australian booking rule: drop-off by 11 AM
+    const DROPOFF_CUTOFF_MINS = 11 * 60; // 660 = 11:00 AM
     const startMinutes = Math.floor(startHour) * 60 + Math.round((startHour % 1) * 60);
     const endMinutes = Math.floor(endHour) * 60 + Math.round((endHour % 1) * 60);
+    const dropoffEndMinutes = Math.min(endMinutes, DROPOFF_CUTOFF_MINS + 1); // cap drop-off loop at 11:00
     const latestSlotStart = endMinutes - serviceDuration;
     
     // Get the branch's timezone (default to Australia/Sydney if not set)
@@ -1787,7 +1790,7 @@ function BookingsPageContent() {
       ? parseInt(branchNowTime.split(':')[0]) * 60 + parseInt(branchNowTime.split(':')[1])
       : -1;
     
-    const interval = 15;
+    const interval = 30;
     const slots: Array<{ time: string; available: boolean; reason?: string }> = [];
     const format = (minutes: number) => {
       const h = Math.floor(minutes / 60) % 24;
@@ -1795,8 +1798,8 @@ function BookingsPageContent() {
       return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
     };
     
-    // Generate all slots within branch hours
-    for (let current = startMinutes; current < endMinutes; current += interval) {
+    // Generate drop-off slots (capped at 11:00 AM)
+    for (let current = startMinutes; current < dropoffEndMinutes; current += interval) {
       // Skip past times if date is today
       if (isToday && current <= currentMinutes) {
         continue;
@@ -1870,23 +1873,18 @@ function BookingsPageContent() {
     return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
   })();
 
-  // Pick-up time slots: times >= earliest pick-up time, within branch hours, not past for today
+  // Pick-up time slots: 2 PM – 5 PM, >= earliest pick-up time, not past for today
   const bkPickupTimeSlots = (() => {
     if (!bkEarliestPickupTime) return [];
-    const closeTime = bkBranchDayHours?.close || "17:00";
-    const openTime = bkBranchDayHours?.open || "09:00";
-    const [openH, openM] = openTime.split(":").map(Number);
-    const [closeH, closeM] = closeTime.split(":").map(Number);
-    const openMins = openH * 60 + openM;
-    const closeMins = closeH * 60 + closeM;
+    const PICKUP_START_MINS = 14 * 60; // 14:00
+    const PICKUP_END_MINS = 17 * 60;   // 17:00
     const slots: string[] = [];
-    for (let mins = openMins; mins <= closeMins; mins += 30) {
+    for (let mins = PICKUP_START_MINS; mins <= PICKUP_END_MINS; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
     let filtered = slots.filter((t) => t >= bkEarliestPickupTime);
-    // Filter past times if date is today in branch timezone
     if (bkDate && bkBranchId) {
       const selectedBranch = branches.find((b) => b.id === bkBranchId);
       const branchTimezone = selectedBranch?.timezone || "Australia/Sydney";

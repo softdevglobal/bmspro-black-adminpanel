@@ -333,7 +333,12 @@ export default function BookingEnginePage() {
     };
   }, [selectedBranch, date, branchTimezone]);
 
-  // All possible time slots — restricted to branch opening hours
+  // Australian booking rule: drop-off till 11 AM, pick-up 2 PM – 5 PM
+  const DROPOFF_CUTOFF = "11:00";
+  const PICKUP_START = "14:00";
+  const PICKUP_END = "17:00";
+
+  // All possible drop-off time slots — branch hours capped at 11:00 AM
   const allTimeSlots = useMemo(() => {
     const openTime = branchDayHours?.open || "07:00";
     const closeTime = branchDayHours?.close || "19:30";
@@ -341,8 +346,11 @@ export default function BookingEnginePage() {
     const [closeH, closeM] = closeTime.split(":").map(Number);
     const openMins = openH * 60 + openM;
     const closeMins = closeH * 60 + closeM;
+    const [cutH, cutM] = DROPOFF_CUTOFF.split(":").map(Number);
+    const cutoffMins = cutH * 60 + cutM;
+    const endMins = Math.min(closeMins, cutoffMins);
     const slots: string[] = [];
-    for (let mins = openMins; mins < closeMins; mins += 30) {
+    for (let mins = openMins; mins <= endMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
@@ -380,29 +388,25 @@ export default function BookingEnginePage() {
     return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
   }, [time, totalDuration]);
 
-  // Filtered pick-up time slots: only times >= earliest pick-up time, within branch hours, and not past for today
+  // Filtered pick-up time slots: 2 PM – 5 PM, >= earliest pick-up time, and not past for today
   const pickupTimeSlots = useMemo(() => {
     if (!earliestPickupTime) return [];
-    // Pick-up can go up to branch close time (inclusive)
-    const closeTime = branchDayHours?.close || "19:30";
-    const openTime = branchDayHours?.open || "07:00";
-    const [openH, openM] = openTime.split(":").map(Number);
-    const [closeH, closeM] = closeTime.split(":").map(Number);
-    const openMins = openH * 60 + openM;
-    const closeMins = closeH * 60 + closeM;
+    const [psH, psM] = PICKUP_START.split(":").map(Number);
+    const [peH, peM] = PICKUP_END.split(":").map(Number);
+    const startMins = psH * 60 + psM;
+    const endMins = peH * 60 + peM;
     const slots: string[] = [];
-    for (let mins = openMins; mins <= closeMins; mins += 30) {
+    for (let mins = startMins; mins <= endMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
     let filtered = slots.filter(t => t >= earliestPickupTime);
-    // Also filter out past times if date is today
     if (date === branchToday) {
       filtered = filtered.filter(t => t > branchCurrentTime);
     }
     return filtered;
-  }, [branchDayHours, earliestPickupTime, date, branchToday, branchCurrentTime]);
+  }, [earliestPickupTime, date, branchToday, branchCurrentTime]);
 
   // Clear pick-up time if it becomes invalid after drop-off or duration changes
   useEffect(() => {

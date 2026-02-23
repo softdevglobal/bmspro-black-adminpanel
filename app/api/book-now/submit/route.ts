@@ -175,6 +175,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Australian booking rule: drop-off by 11 AM, pick-up 2 PM – 5 PM
+    const DROPOFF_CUTOFF = "11:00";
+    const PICKUP_START = "14:00";
+    const PICKUP_END = "17:00";
+
+    if (time > DROPOFF_CUTOFF) {
+      return NextResponse.json(
+        { error: "Drop-off time must be by 11:00 AM." },
+        { status: 400 }
+      );
+    }
+    if (pickupTime < PICKUP_START || pickupTime > PICKUP_END) {
+      return NextResponse.json(
+        { error: "Pick-up time must be between 2:00 PM and 5:00 PM." },
+        { status: 400 }
+      );
+    }
+
     const bookingCode = generateBookingCode();
 
     // Validate pick-up time is >= drop-off time + total service duration

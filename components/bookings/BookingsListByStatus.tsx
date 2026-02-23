@@ -1576,7 +1576,130 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
 
             {/* Footer now lives inside the aside for correct order */}
 
-            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+            {/* ═══ MOBILE CARD VIEW ═══ */}
+            <div className="md:hidden space-y-3">
+              {loading && (
+                <div className="bg-white rounded-xl border border-neutral-200 p-6 text-center text-neutral-400 text-sm">Loading...</div>
+              )}
+              {!loading && rows.length === 0 && (
+                <div className="bg-white rounded-xl border border-neutral-200 p-6 text-center text-neutral-500 text-sm">No bookings.</div>
+              )}
+              {!loading && rows.map((r) => {
+                const initials = r.client.split(" ").filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase() || "").join("");
+                const rowActions = getAllowedActions(r.status, r);
+                const statusColor = getStatusColor(normalizeBookingStatus(r.status));
+                const statusLabel = getStatusLabel(normalizeBookingStatus(r.status));
+                return (
+                  <div key={r.id} className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
+                    <div className="p-4">
+                      {/* Top row: Avatar + Name + Status */}
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 flex-shrink-0 bg-neutral-900 text-white flex items-center justify-center text-sm font-bold shadow-sm" style={{ borderRadius: "50%" }}>
+                          {initials || <i className="fas fa-user" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-neutral-800 truncate">{r.client}</div>
+                          {r.bookingCode && <div className="text-[11px] text-neutral-400 font-mono">{r.bookingCode}</div>}
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex-shrink-0 ${statusColor}`}>{statusLabel}</span>
+                      </div>
+
+                      {/* Services */}
+                      {r.services && r.services.length > 0 ? (
+                        <div className="mt-3 space-y-1.5">
+                          {r.services.map((svc, idx) => (
+                            <div key={idx} className="flex items-center gap-2 py-1 px-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
+                              <i className="fas fa-spa text-[10px] text-neutral-500" />
+                              <span className="text-xs font-semibold text-neutral-700 truncate">{svc.name || "Service"}</span>
+                              {svc.staffName && <span className="ml-auto text-[10px] text-purple-600 font-medium truncate"><i className="far fa-user text-[8px] mr-0.5" />{svc.staffName}</span>}
+                              {!svc.staffName && <span className="ml-auto text-[10px] text-amber-600 font-medium"><i className="fas fa-user-plus text-[8px] mr-0.5" />Unassigned</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : r.serviceName && (
+                        <div className="mt-3 flex items-center gap-2 py-1 px-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
+                          <i className="fas fa-spa text-[10px] text-neutral-500" />
+                          <span className="text-xs font-semibold text-neutral-700">{r.serviceName}</span>
+                        </div>
+                      )}
+
+                      {/* Info grid: Date, Branch, Price */}
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-neutral-50 rounded-lg py-2 px-1">
+                          <div className="text-[9px] text-neutral-400 font-semibold uppercase">Date</div>
+                          <div className="text-xs font-bold text-neutral-700 mt-0.5">
+                            {(() => { try { return new Date(r.date + "T12:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }); } catch { return r.date; } })()}
+                          </div>
+                        </div>
+                        <div className="bg-neutral-50 rounded-lg py-2 px-1">
+                          <div className="text-[9px] text-neutral-400 font-semibold uppercase">Time</div>
+                          <div className="text-xs font-bold text-neutral-700 mt-0.5">{r.time}</div>
+                          {r.pickupTime && <div className="text-[9px] text-emerald-600 font-medium mt-0.5"><i className="fas fa-arrow-right-from-bracket text-[7px] mr-0.5" />{r.pickupTime}</div>}
+                        </div>
+                        <div className="bg-neutral-50 rounded-lg py-2 px-1">
+                          <div className="text-[9px] text-neutral-400 font-semibold uppercase">Price</div>
+                          <div className="text-xs font-bold text-neutral-700 mt-0.5">${r.price}</div>
+                        </div>
+                      </div>
+                      {r.branchName && (
+                        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
+                          <i className="fas fa-location-dot text-[9px] text-amber-500" />
+                          <span className="font-medium">{r.branchName}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action buttons */}
+                    {rowActions.length > 0 && (
+                      <div className="border-t border-neutral-100 px-4 py-2.5 flex items-center gap-2 bg-neutral-50/50">
+                        <button onClick={() => openPreview(r)} className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center">
+                          <i className="fas fa-eye text-sm" />
+                        </button>
+                        <div className="flex-1" />
+                        {rowActions.includes("Confirm" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => handleConfirmClick(r)}
+                            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "Confirm" ? "bg-emerald-300 text-white" : "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-sm"}`}>
+                            <i className={`fas ${updatingState[r.id] === "Confirm" ? "fa-spinner fa-spin" : "fa-check-circle"}`} />
+                            {updatingState[r.id] === "Confirm" ? "..." : "Confirm"}
+                          </button>
+                        )}
+                        {rowActions.includes("Complete" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => onAction(r.id, "Complete")}
+                            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "Complete" ? "bg-indigo-300 text-white" : "bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-sm"}`}>
+                            <i className={`fas ${updatingState[r.id] === "Complete" ? "fa-spinner fa-spin" : "fa-flag-checkered"}`} />
+                            {updatingState[r.id] === "Complete" ? "..." : "Complete"}
+                          </button>
+                        )}
+                        {rowActions.includes("Reassign" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => handleReassignClick(r)}
+                            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "Reassign" ? "bg-amber-300 text-white" : "bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-sm"}`}>
+                            <i className={`fas ${updatingState[r.id] === "Reassign" ? "fa-spinner fa-spin" : "fa-user-plus"}`} />
+                            {updatingState[r.id] === "Reassign" ? "..." : "Reassign"}
+                          </button>
+                        )}
+                        {rowActions.includes("AssignStaff" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => handleReassignClick(r)}
+                            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "AssignStaff" ? "bg-purple-300 text-white" : "bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-sm"}`}>
+                            <i className={`fas ${updatingState[r.id] === "AssignStaff" ? "fa-spinner fa-spin" : "fa-user-plus"}`} />
+                            {updatingState[r.id] === "AssignStaff" ? "..." : "Assign"}
+                          </button>
+                        )}
+                        {rowActions.includes("Cancel" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => onAction(r.id, "Cancel")}
+                            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "Cancel" ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-sm"}`}>
+                            <i className={`fas ${updatingState[r.id] === "Cancel" ? "fa-spinner fa-spin" : "fa-ban"}`} />
+                            {updatingState[r.id] === "Cancel" ? "..." : "Cancel"}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ═══ DESKTOP TABLE VIEW ═══ */}
+            <div className="hidden md:block bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
               <div className="relative overflow-x-auto">
                 <table className="min-w-[800px] w-full text-left text-sm text-neutral-600">
                   <thead className="bg-neutral-50/90 backdrop-blur text-neutral-800 font-semibold border-b border-neutral-100 sticky top-0 z-10">
@@ -1618,29 +1741,29 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       return (
                       <tr key={r.id} className="hover:bg-neutral-50 transition">
                         <td className="p-4 pl-6">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 flex-shrink-0 bg-neutral-900 text-white flex items-center justify-center text-sm font-bold shadow-sm mt-0.5" style={{ borderRadius: "50%" }}>
                               {initials || <i className="fas fa-user" />}
                             </div>
-                            <div className="flex items-center gap-2">
-                              <div>
-                                <div className="font-semibold text-neutral-800">{r.client}</div>
-                                {r.bookingCode && (
-                                  <div className="text-xs text-neutral-500 font-mono mt-0.5">{r.bookingCode}</div>
-                                )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <div>
+                                  <div className="font-semibold text-neutral-800">{r.client}</div>
+                                  {r.bookingCode && (
+                                    <div className="text-xs text-neutral-500 font-mono mt-0.5">{r.bookingCode}</div>
+                                  )}
+                                </div>
+                                <button
+                                  aria-label="Preview"
+                                  title="Preview"
+                                  onClick={() => openPreview(r)}
+                                  className="sm:hidden text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-7 w-7 inline-flex items-center justify-center"
+                                >
+                                  <i className="fas fa-eye text-[13px]" />
+                                </button>
                               </div>
-                              {/* Mobile-first preview trigger (visible before horizontal scroll) */}
-                              <button
-                                aria-label="Preview"
-                                title="Preview"
-                                onClick={() => openPreview(r)}
-                                className="sm:hidden text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-7 w-7 inline-flex items-center justify-center"
-                              >
-                                <i className="fas fa-eye text-[13px]" />
-                              </button>
-                            </div>
-                            {/* Service List Display - Each service on its own line */}
-                            <div className="mt-1.5 space-y-1.5">
+                              {/* Service List Display */}
+                              <div className="mt-1.5 space-y-1.5">
                               {r.services && r.services.length > 0 ? (
                                 <>
                                   {r.services.map((svc, idx) => {
@@ -1682,8 +1805,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 </div>
                               )}
                             </div>
-                            {/* Task progress mini bar */}
-                            {r.tasks && r.tasks.length > 0 && (() => {
+                            {/* Task progress mini bar - only show after confirmation */}
+                            {r.status !== "Pending" && r.status !== "AwaitingStaffApproval" && r.status !== "PartiallyApproved" && r.status !== "StaffRejected" && r.tasks && r.tasks.length > 0 && (() => {
                               const done = r.tasks.filter(t => t.done).length;
                               const total = r.tasks.length;
                               const pct = r.taskProgress || 0;
@@ -1731,16 +1854,26 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                               </div>
                               );
                             })()}
+                            </div>
                           </div>
                         </td>
                         <td className="p-4">
-                          <div className="font-medium text-neutral-700">{r.date}</div>
-                          <div className="text-xs text-neutral-500">{r.time}</div>
-                          {r.pickupTime && (
-                            <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
-                              <i className="fas fa-arrow-right-from-bracket mr-1" style={{fontSize: "8px"}} />Pick-up: {r.pickupTime}
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1.5 font-medium text-neutral-700 text-sm whitespace-nowrap">
+                            <i className="far fa-calendar text-neutral-400 text-[11px]" />
+                            {(() => { try { return new Date(r.date + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); } catch { return r.date; } })()}
+                          </div>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="inline-flex items-center gap-1 text-xs text-neutral-600 bg-neutral-100 px-2 py-0.5 rounded-md font-medium">
+                              <i className="fas fa-arrow-right-to-bracket text-[9px] text-amber-500" />
+                              {r.time}
+                            </span>
+                            {r.pickupTime && (
+                              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-medium">
+                                <i className="fas fa-arrow-right-from-bracket text-[9px] text-emerald-500" />
+                                {r.pickupTime}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-4">{r.branchName || "-"}</td>
                         <td className="p-4 text-right pr-6">

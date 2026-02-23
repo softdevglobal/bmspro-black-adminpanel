@@ -79,6 +79,9 @@ export default function BookingEnginePage() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [authName, setAuthName] = useState("");
   const [authPhone, setAuthPhone] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -408,6 +411,9 @@ export default function BookingEnginePage() {
     e.preventDefault();
     if (!workshop) return;
     setAuthLoading(true); setAuthError("");
+    if (authMode === "register" && authPassword !== authConfirmPassword) {
+      setAuthError("Passwords do not match"); setAuthLoading(false); return;
+    }
     try {
       const res = await fetch("/api/book-now/customer-auth", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -418,7 +424,7 @@ export default function BookingEnginePage() {
       const session: CustomerSession = { customerId: data.customerId, name: data.name, email: data.email, phone: data.phone };
       setCustomer(session); setCustomerName(data.name); setCustomerEmail(data.email); setCustomerPhone(data.phone);
       sessionStorage.setItem(`bms_customer_${slug}`, JSON.stringify(session));
-      setShowAuth(false); setAuthEmail(""); setAuthPassword(""); setAuthName(""); setAuthPhone("");
+      setShowAuth(false); setAuthEmail(""); setAuthPassword(""); setAuthConfirmPassword(""); setAuthName(""); setAuthPhone("");
     } catch (err: any) { setAuthError(err.message || "Something went wrong"); }
     finally { setAuthLoading(false); }
   };
@@ -1500,9 +1506,9 @@ export default function BookingEnginePage() {
                             </div>
                           )}
                         </div>
-                        <div className="grid grid-cols-3 gap-1.5 p-2.5 flex-1 overflow-y-auto" style={{ alignContent: "start" }}>
+                        <div className="grid grid-cols-4 gap-1.5 p-2.5 flex-1 overflow-y-auto" style={{ alignContent: "start" }}>
                           {availabilityLoading && date && (
-                            <div className="col-span-3 flex items-center justify-center gap-2 py-4">
+                            <div className="col-span-4 flex items-center justify-center gap-2 py-4">
                               <svg className="animate-spin h-3.5 w-3.5 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -1510,42 +1516,34 @@ export default function BookingEnginePage() {
                               <span className="text-[11px] text-neutral-400">Checking availability...</span>
                             </div>
                           )}
-                          {!availabilityLoading && timeSlots.length === 0 ? (
-                            <p className="col-span-3 text-center text-[11px] text-neutral-400 py-6">
+                          {!availabilityLoading && allTimeSlots.length === 0 ? (
+                            <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
                               {!date ? "Select a date first to see available times."
                                 : branchDayHours === null && date ? "Branch is closed on this day. Please select another date."
-                                : date === branchToday ? "No more drop-off times available today. Please pick a future date."
                                 : "No available times for this date."}
                             </p>
                           ) : !availabilityLoading && (
-                            timeSlots.map((t) => {
+                            allTimeSlots.map((t) => {
                               const isFull = blockedSlots.has(t);
-                              const cap = slotCapacity[t];
-                              const spotsLeft = cap ? cap.available : null;
-                              const isLow = spotsLeft !== null && spotsLeft > 0 && spotsLeft <= 2 && cap!.total > 1;
-
+                              const isBookable = timeSlots.includes(t);
+                              const isDisabled = isFull || !isBookable;
                               return (
                                 <button
                                   key={t}
                                   type="button"
-                                  onClick={() => !isFull && setTime(t)}
-                                  disabled={isFull}
-                                  title={isFull ? "Fully booked" : isLow ? `${spotsLeft} spot${spotsLeft === 1 ? "" : "s"} left` : undefined}
-                                  className={`relative rounded-lg text-xs font-semibold transition-all text-center flex flex-col items-center justify-center py-1.5 min-h-[36px]
+                                  onClick={() => !isDisabled && setTime(t)}
+                                  disabled={isDisabled}
+                                  className={`relative rounded-lg text-[13px] font-semibold transition-all text-center flex flex-col items-center justify-center py-2 min-h-[40px]
                                     ${isFull
-                                      ? "bg-neutral-100 text-neutral-300 cursor-not-allowed line-through"
-                                      : time === t
-                                        ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20"
-                                        : "bg-neutral-50 text-neutral-600 hover:bg-neutral-100 hover:text-neutral-800"}
+                                      ? "bg-red-50 text-red-300 cursor-not-allowed"
+                                      : isDisabled
+                                        ? "bg-neutral-100 text-neutral-300 cursor-not-allowed"
+                                        : time === t
+                                          ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20"
+                                          : "bg-amber-50 text-neutral-700 hover:bg-amber-100 hover:text-neutral-900 border border-amber-200/60"}
                                   `}
                                 >
                                   <span>{t}</span>
-                                  {isFull && (
-                                    <span className="text-[8px] font-bold text-red-400 no-underline leading-none" style={{ textDecoration: "none" }}>FULL</span>
-                                  )}
-                                  {isLow && !isFull && time !== t && (
-                                    <span className="text-[8px] font-bold text-amber-500 leading-none">{spotsLeft} left</span>
-                                  )}
                                 </button>
                               );
                             })
@@ -1678,7 +1676,13 @@ export default function BookingEnginePage() {
                         <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
                           <i className="fas fa-location-dot text-amber-500 text-[10px]" />
                         </div>
-                        <span className="font-medium text-neutral-700 text-xs">{selectedBranch?.name}</span>
+                        <div className="flex items-center justify-between flex-1 min-w-0">
+                          <span className="font-medium text-neutral-700 text-xs">{selectedBranch?.name}</span>
+                          <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                            <i className="fas fa-clock text-[10px]" />
+                            {branchCurrentTime}
+                          </span>
+                        </div>
                       </div>
                       {date && (
                         <div className="flex items-center gap-2.5 text-sm">
@@ -2434,10 +2438,32 @@ export default function BookingEnginePage() {
                     <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-300">
                       <i className="fas fa-lock text-xs" />
                     </div>
-                    <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required minLength={6} placeholder="••••••••"
-                      className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                    <input type={showPassword ? "text" : "password"} value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} required minLength={6} placeholder="••••••••"
+                      className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl pl-10 pr-10 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 transition-colors">
+                      <i className={`fas ${showPassword ? "fa-eye-slash" : "fa-eye"} text-xs`} />
+                    </button>
                   </div>
                 </div>
+
+                {authMode === "register" && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Confirm Password <span className="text-red-400">*</span></label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-300">
+                        <i className="fas fa-lock text-xs" />
+                      </div>
+                      <input type={showConfirmPassword ? "text" : "password"} value={authConfirmPassword} onChange={(e) => setAuthConfirmPassword(e.target.value)} required minLength={6} placeholder="••••••••"
+                        className={`w-full border-2 ${authConfirmPassword && authConfirmPassword !== authPassword ? "border-red-300 focus:border-red-500" : "border-neutral-200 hover:border-neutral-300 focus:border-neutral-900"} rounded-xl pl-10 pr-10 py-2.5 text-sm focus:ring-0 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium`} />
+                      <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 transition-colors">
+                        <i className={`fas ${showConfirmPassword ? "fa-eye-slash" : "fa-eye"} text-xs`} />
+                      </button>
+                    </div>
+                    {authConfirmPassword && authConfirmPassword !== authPassword && (
+                      <p className="text-[10px] text-red-500 mt-1 font-medium">Passwords do not match</p>
+                    )}
+                  </div>
+                )}
 
                 {authError && (
                   <div className="bg-red-50 border border-red-200/50 rounded-xl px-4 py-3 flex items-center gap-2.5 animate-[shakeX_0.4s_ease-out]">

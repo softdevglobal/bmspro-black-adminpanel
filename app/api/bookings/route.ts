@@ -323,6 +323,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check daily booking limit for the branch
+    if (body.branchId && body.date) {
+      const branchDoc = await adminDb().collection("branches").doc(String(body.branchId)).get();
+      const branchLimitData = branchDoc.exists ? branchDoc.data() : null;
+      const dailyLimit = branchLimitData?.bookingLimitPerDay ? Number(branchLimitData.bookingLimitPerDay) : null;
+
+      if (dailyLimit && dailyLimit > 0) {
+        const existingSnap = await adminDb()
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .where("date", "==", String(body.date))
+          .where("branchId", "==", String(body.branchId))
+          .get();
+
+        const activeCount = existingSnap.docs.filter((d) => shouldBlockSlots(d.data().status)).length;
+
+        if (activeCount >= dailyLimit) {
+          return NextResponse.json(
+            { error: "This branch has reached its daily booking limit. Please select another date." },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Enrich names and timezone if not provided
     let serviceName = body.serviceName || null;
     let staffName = body.staffName || null;

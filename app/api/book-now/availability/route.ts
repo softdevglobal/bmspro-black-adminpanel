@@ -138,6 +138,12 @@ export async function GET(req: NextRequest) {
       .map((d) => ({ id: d.id, ...d.data() } as any))
       .filter((b: any) => b.branchId === branchId && shouldBlockSlots(b.status));
 
+    // Check daily booking limit
+    const branchData = branchDoc.exists ? branchDoc.data() : null;
+    const bookingLimitPerDay = branchData?.bookingLimitPerDay ? Number(branchData.bookingLimitPerDay) : null;
+    const dailyBookingCount = activeBookings.length;
+    const isDayFull = bookingLimitPerDay !== null && bookingLimitPerDay > 0 && dailyBookingCount >= bookingLimitPerDay;
+
     // Generate all 30-min slots
     const openMins = timeToMinutes(branchHours.open);
     const closeMins = timeToMinutes(branchHours.close);
@@ -156,6 +162,13 @@ export async function GET(req: NextRequest) {
       let minAvailable = Infinity;
       let minTotal = Infinity;
       let isBlocked = false;
+
+      // If daily booking limit reached, block all slots
+      if (isDayFull) {
+        blockedSlots.push(slot);
+        capacity[slot] = { available: 0, total: 1 };
+        continue;
+      }
 
       for (const serviceId of serviceIds) {
         const eligibleIds = eligibleStaffByService[serviceId] || [];
@@ -229,7 +242,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ blockedSlots, capacity });
+    return NextResponse.json({
+      blockedSlots,
+      capacity,
+      isDayFull,
+      dailyBookingCount,
+      bookingLimitPerDay: bookingLimitPerDay ?? null,
+    });
   } catch (error: any) {
     console.error("Error checking availability:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

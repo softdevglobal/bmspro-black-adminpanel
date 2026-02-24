@@ -44,6 +44,16 @@ type Estimate = {
   updatedAt: any;
 };
 
+function mapEstimateFromFirestore(doc: { id: string; data: () => Record<string, unknown> }): Estimate {
+  const d = doc.data() as Record<string, unknown>;
+  const imageUrls = Array.isArray(d?.imageUrls)
+    ? (d.imageUrls as string[]).map((u) => String(u))
+    : Array.isArray(d?.images)
+      ? (d.images as unknown[]).map((u) => String(u))
+      : [];
+  return { id: doc.id, ...d, imageUrls } as Estimate;
+}
+
 const statusConfig: Record<
   string,
   { bg: string; text: string; icon: string; label: string }
@@ -91,7 +101,7 @@ export default function EstimatesPage() {
       orderBy("createdAt", "desc")
     );
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Estimate));
+      const data = snap.docs.map((d) => mapEstimateFromFirestore(d));
       setEstimates(data);
       setLoading(false);
     }, (error) => {
@@ -103,7 +113,7 @@ export default function EstimatesPage() {
       );
       onSnapshot(fallbackQ, (snap) => {
         const data = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() } as Estimate))
+          .map((d) => mapEstimateFromFirestore(d))
           .sort((a, b) => {
             const aTime = a.createdAt?.toDate?.() || new Date(0);
             const bTime = b.createdAt?.toDate?.() || new Date(0);
@@ -354,6 +364,13 @@ export default function EstimatesPage() {
 
                         <p className="text-xs text-neutral-600 line-clamp-2 mb-3">{e.description}</p>
 
+                        {(e.imageUrls?.length ?? 0) > 0 && (
+                          <div className="flex items-center gap-1.5 mb-2 text-[10px] text-amber-600">
+                            <i className="fas fa-images" />
+                            <span>{e.imageUrls!.length} photo{(e.imageUrls!.length ?? 0) > 1 ? "s" : ""} attached</span>
+                          </div>
+                        )}
+
                         <div className="flex items-center justify-between text-[10px] text-neutral-400">
                           {e.branchName && (
                             <span className="flex items-center gap-1">
@@ -442,7 +459,14 @@ export default function EstimatesPage() {
                               )}
                             </td>
                             <td className="p-4 max-w-[200px]">
-                              <p className="text-xs text-neutral-600 truncate" title={e.description}>{e.description}</p>
+                              <div className="flex items-center gap-1.5">
+                                {(e.imageUrls?.length ?? 0) > 0 && (
+                                  <span className="text-amber-500 flex-shrink-0" title={`${e.imageUrls!.length} photo(s)`}>
+                                    <i className="fas fa-images text-[10px]" />
+                                  </span>
+                                )}
+                                <p className="text-xs text-neutral-600 truncate" title={e.description}>{e.description}</p>
+                              </div>
                             </td>
                             <td className="p-4">
                               <span className="text-xs text-neutral-600">{e.branchName || "-"}</span>
@@ -552,6 +576,25 @@ export default function EstimatesPage() {
                 </div>
               )}
 
+              {/* Customer Photos - shown prominently after Vehicle */}
+              {((previewEstimate.imageUrls?.length ?? 0) > 0) && (
+                <div>
+                  <h4 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                    Customer Photos ({previewEstimate.imageUrls!.length})
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {previewEstimate.imageUrls!.map((url, i) => (
+                      <button key={i} onClick={() => setLightboxUrl(url)} className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md">
+                        <img src={url} alt={`Customer photo ${i + 1}`} className="w-24 h-24 object-cover" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
+                          <i className="fas fa-expand text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Branch */}
               {previewEstimate.branchName && (
                 <div>
@@ -570,23 +613,6 @@ export default function EstimatesPage() {
                   <p className="text-sm text-neutral-700 leading-relaxed whitespace-pre-wrap">{previewEstimate.description}</p>
                 </div>
               </div>
-
-              {/* Customer Photos */}
-              {previewEstimate.imageUrls && previewEstimate.imageUrls.length > 0 && (
-                <div>
-                  <h4 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Customer Photos ({previewEstimate.imageUrls.length})</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {previewEstimate.imageUrls.map((url, i) => (
-                      <button key={i} onClick={() => setLightboxUrl(url)} className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md">
-                        <img src={url} alt="Customer photo" className="w-24 h-24 object-cover" />
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center">
-                          <i className="fas fa-expand text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Actions */}
               <div className="flex items-center gap-2 pt-2">

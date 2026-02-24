@@ -202,22 +202,44 @@ async function getUserFcmToken(userUid: string): Promise<string | null> {
 }
 
 /**
+ * Recursively strip undefined values from objects/arrays (Firestore rejects undefined)
+ */
+function stripUndefined<T>(obj: T): T {
+  if (obj === undefined || obj === null) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => stripUndefined(item)) as T;
+  }
+  if (typeof obj === "object") {
+    const result: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        result[key] = stripUndefined(value);
+      }
+    }
+    return result as T;
+  }
+  return obj;
+}
+
+/**
  * Create a notification (generic)
  */
 export async function createNotification(data: Omit<Notification, "id" | "createdAt" | "read">): Promise<string> {
   try {
     const db = adminDb();
     
-    // Filter out undefined values to avoid Firestore errors
+    // Filter out undefined values to avoid Firestore errors (including nested e.g. services[0].staffId)
     const cleanData: any = {
       read: false,
       createdAt: FieldValue.serverTimestamp(),
     };
     
-    // Add all defined values
+    // Add all defined values, recursively stripping undefined from nested objects/arrays
     Object.entries(data).forEach(([key, value]) => {
       if (value !== undefined) {
-        cleanData[key] = value;
+        cleanData[key] = stripUndefined(value);
       }
     });
     

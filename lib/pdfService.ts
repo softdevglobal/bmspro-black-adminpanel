@@ -106,6 +106,20 @@ const COLORS = {
 
 const PAGE_MARGIN = 40;
 const FOOTER_RESERVE = 52;
+const TASK_IMAGE_SIZE = 72;
+const FINAL_IMAGE_SIZE = 160;
+
+async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+  if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const arr = await res.arrayBuffer();
+    return Buffer.from(arr);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Generate a comprehensive job task PDF for a booking.
@@ -157,7 +171,21 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     salonName,
   };
 
-  const pdfBuffer = await buildPDF(booking);
+  // Pre-fetch all images (task-wise and overall)
+  const imageUrls = new Set<string>();
+  for (const task of booking.tasks || []) {
+    if (task.done && task.imageUrl) imageUrls.add(task.imageUrl);
+  }
+  if (booking.finalSubmission?.imageUrl) imageUrls.add(booking.finalSubmission.imageUrl);
+  const imageBuffers = new Map<string, Buffer>();
+  await Promise.all(
+    Array.from(imageUrls).map(async (url) => {
+      const buf = await fetchImageBuffer(url);
+      if (buf) imageBuffers.set(url, buf);
+    })
+  );
+
+  const pdfBuffer = await buildPDF(booking, imageBuffers);
   const code = booking.bookingCode || bookingId.substring(0, 8);
   const filename = `Job-Report-${code}.pdf`;
 
@@ -173,7 +201,7 @@ function ensureSpace(doc: PDFKit.PDFDocument, y: number, needed: number): number
   return y;
 }
 
-async function buildPDF(booking: BookingPDFData): Promise<Buffer> {
+async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffer>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
@@ -306,7 +334,8 @@ async function buildPDF(booking: BookingPDFData): Promise<Buffer> {
 
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
-        const cardH = measureTaskCard(doc, task, pageWidth);
+        const hasTaskImage = !!(task.done && task.imageUrl && imageBuffers.has(task.imageUrl));
+        const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImage);
         y = ensureSpace(doc, y, cardH);
 
         const cardBg = task.done ? "#f0fdf4" : COLORS.white;
@@ -370,17 +399,34 @@ async function buildPDF(booking: BookingPDFData): Promise<Buffer> {
           }
         }
 
+        // Task completion image
+        if (hasTaskImage) {
+          const imgBuf = imageBuffers.get(task.imageUrl!);
+          if (imgBuf) {
+            try {
+              doc.fontSize(7).fillColor(COLORS.muted).text("Photo:", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
+              iy += 12;
+              doc.image(imgBuf, leftMargin + 30, iy, { width: TASK_IMAGE_SIZE, height: TASK_IMAGE_SIZE });
+              iy += TASK_IMAGE_SIZE + 4;
+            } catch {
+              /* skip if image fails to render */
+            }
+          }
+        }
+
         y += cardH + 4;
       }
       y += 4;
     }
 
     // ─── FINAL SUBMISSION ─────────────────────────────────────
-    if (booking.finalSubmission && booking.finalSubmission.description) {
+    if (booking.finalSubmission && (booking.finalSubmission.description || booking.finalSubmission.imageUrl)) {
       const fs = booking.finalSubmission;
       doc.fontSize(10);
-      const descH = doc.heightOfString(fs.description, { width: pageWidth - 28 });
-      const cardH = 10 + descH + 8 + (fs.submittedByStaffName ? 14 : 0) + 10;
+      const descH = fs.description ? doc.heightOfString(fs.description, { width: pageWidth - 28 }) : 0;
+      const hasFinalImage = !!(fs.imageUrl && imageBuffers.has(fs.imageUrl));
+      let cardH = 10 + descH + 8 + (fs.submittedByStaffName ? 14 : 0) + 10;
+      if (hasFinalImage) cardH += 12 + FINAL_IMAGE_SIZE + 8; // "Overall photo:" + image + padding
 
       y = ensureSpace(doc, y, cardH + 30);
       y = drawSectionHeader(doc, "Final Submission", leftMargin, y, pageWidth);
@@ -390,13 +436,30 @@ async function buildPDF(booking: BookingPDFData): Promise<Buffer> {
         .fillAndStroke("#eef2ff", "#c7d2fe");
 
       let fsY = y + 10;
-      doc.fontSize(10).fillColor("#312e81")
-        .text(fs.description, leftMargin + 14, fsY, { width: pageWidth - 28 });
-      fsY += descH + 8;
+      if (fs.description) {
+        doc.fontSize(10).fillColor("#312e81")
+          .text(fs.description, leftMargin + 14, fsY, { width: pageWidth - 28 });
+        fsY += descH + 8;
+      }
 
       if (fs.submittedByStaffName) {
         const stamp = `Submitted by ${fs.submittedByStaffName}${fs.submittedAt ? ` on ${formatTimestamp(fs.submittedAt)}` : ""}`;
         doc.fontSize(8).fillColor(COLORS.muted).text(stamp, leftMargin + 14, fsY, { width: pageWidth - 28 });
+        fsY += 14;
+      }
+
+      // Overall/final image
+      if (hasFinalImage) {
+        const imgBuf = imageBuffers.get(fs.imageUrl!);
+        if (imgBuf) {
+          try {
+            doc.fontSize(7).fillColor(COLORS.muted).text("Overall photo:", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
+            fsY += 12;
+            doc.image(imgBuf, leftMargin + 14, fsY, { width: FINAL_IMAGE_SIZE, height: FINAL_IMAGE_SIZE });
+          } catch {
+            /* skip if image fails to render */
+          }
+        }
       }
 
       y += cardH + 8;
@@ -462,9 +525,9 @@ function drawKeyValueTable(doc: PDFKit.PDFDocument, rows: [string, string][], x:
 
 /**
  * Precisely measure the height a task card will occupy in the PDF.
- * No images are included.
+ * Includes image height when hasTaskImage is true.
  */
-function measureTaskCard(doc: PDFKit.PDFDocument, task: BookingTask, pageWidth: number): number {
+function measureTaskCard(doc: PDFKit.PDFDocument, task: BookingTask, pageWidth: number, hasTaskImage?: boolean): number {
   let h = task.serviceName ? 38 : 28;
 
   if (task.description) {
@@ -477,6 +540,10 @@ function measureTaskCard(doc: PDFKit.PDFDocument, task: BookingTask, pageWidth: 
     const noteH = doc.heightOfString(task.staffNote, { width: pageWidth - 80 });
     h += noteH + 20;
     if (task.completedByStaffName) h += 12;
+  }
+
+  if (hasTaskImage) {
+    h += 12 + TASK_IMAGE_SIZE + 4; // "Photo:" label + image + padding
   }
 
   return Math.max(h, 32) + 6; // +6 for inner padding

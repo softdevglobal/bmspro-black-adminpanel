@@ -2123,7 +2123,7 @@ export default function DashboardPage() {
             };
             const blocks = toBlocks();
 
-            // Parse time: supports "09:00", "9:00", "9:00 AM", "1:00 PM", "13:00"
+            // Parse time: supports "09:00", "9:00", "9:00 AM", "1:00 PM", "13:00", "0700" (HHMM)
             const parseTime = (t: string): { h: number; m: number } => {
               if (!t || typeof t !== "string") return { h: 9, m: 0 };
               const upper = t.toUpperCase();
@@ -2132,8 +2132,17 @@ export default function DashboardPage() {
               const is12AM = /12\s*:\s*\d+\s*AM/i.test(t);
               const numPart = t.replace(/\s*(AM|PM)/gi, "").trim();
               const parts = numPart.split(":").map(x => parseInt(x.replace(/\D/g, "") || "0", 10));
-              let h = parts[0] ?? 9;
-              const m = parts[1] ?? 0;
+              let h: number;
+              let m: number;
+              // Handle "0700" or "0930" (HHMM) format when no colon
+              if (parts.length === 1 && parts[0] >= 100) {
+                const v = parts[0];
+                h = Math.floor(v / 100) % 24;
+                m = v % 100;
+              } else {
+                h = parts[0] ?? 9;
+                m = parts[1] ?? 0;
+              }
               if (is12AM && h === 12) h = 0;
               else if ((is12PM || isPM) && h !== 12) h += 12;
               return { h, m };
@@ -2168,8 +2177,56 @@ export default function DashboardPage() {
 
             const formatHour = (hour: number) => hour === 0 ? "12 AM" : hour === 12 ? "12 PM" : hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
 
+            // Assign column index to overlapping blocks (waterfall layout)
+            const assignOverlapColumns = (bks: typeof blocks) => {
+              if (bks.length === 0) return [];
+              const withMinutes = bks.map(b => {
+                const { h, m } = parseTime(b.time);
+                const dur = b.duration || 60;
+                const startM = h * 60 + m;
+                const endM = startM + dur;
+                return { ...b, startM, endM };
+              });
+              withMinutes.sort((a, b) => a.startM !== b.startM ? a.startM - b.startM : (a.id || "").localeCompare(b.id || ""));
+              const columnAssign: { [id: string]: number } = {};
+              const active: { endM: number; col: number }[] = [];
+              for (const b of withMinutes) {
+                // Free columns that have ended
+                while (active.length > 0 && active[0].endM <= b.startM) {
+                  active.shift();
+                }
+                const usedCols = new Set(active.map(x => x.col));
+                let col = 0;
+                while (usedCols.has(col)) col++;
+                columnAssign[b.id] = col;
+                active.push({ endM: b.endM, col });
+                active.sort((a, b) => a.endM - b.endM);
+              }
+              const maxCol = Math.max(...Object.values(columnAssign), 0);
+              const n = maxCol + 1;
+              return bks.map(b => {
+                const col = columnAssign[b.id] ?? 0;
+                return { ...b, overlapCol: col, overlapCount: n };
+              });
+            };
+
             return (
               <div className="bg-gradient-to-br from-white via-neutral-50 to-white rounded-2xl border border-neutral-200 shadow-sm mb-8 overflow-visible">
+                <style>{`
+                  .cal-block-wrapper {
+                    transition: left 0.25s ease-out, right 0.25s ease-out, width 0.25s ease-out;
+                    transition-delay: 0.18s;
+                  }
+                  .cal-block-wrapper:hover {
+                    left: 4px !important;
+                    right: 4px !important;
+                    width: auto !important;
+                    transition-delay: 0s;
+                  }
+                  .cal-block-inner {
+                    transition: opacity 0.2s ease-out;
+                  }
+                `}</style>
                 {/* Header */}
                 <div className="p-4 sm:p-6 border-b border-neutral-200">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -2257,7 +2314,8 @@ export default function DashboardPage() {
                       {/* Day columns - each contains its booking blocks */}
                       {weekDates.map((d, dayIdx) => {
                         const ds = fmtDate(d);
-                        const dayBks = blocks.filter(b => b.date === ds);
+                        const dayBksRaw = blocks.filter(b => b.date === ds);
+                        const dayBks = assignOverlapColumns(dayBksRaw);
                         const dayTintClass = dayIdx % 2 === 0
                           ? "bg-gradient-to-b from-cyan-50/45 to-white"
                           : "bg-gradient-to-b from-lime-50/45 to-white";
@@ -2273,7 +2331,10 @@ export default function DashboardPage() {
                             ))}
                             {/* Booking blocks */}
                             {dayBks.map((bk: any) => {
-                              const { h, m } = parseTime(bk.time);
+                              let { h, m } = parseTime(bk.time);
+                              // Clamp invalid hours (e.g. from "0700" parsed as 700) to visible range
+                              if (h < 0 || h > 23) h = 9;
+                              if (m < 0 || m > 59) m = 0;
                               const dur = bk.duration || 60;
                               const topPx = ((h - CAL_HOURS[0]) * SLOT_H) + ((m / 60) * SLOT_H);
                               const heightPx = Math.max(24, Math.min((dur / 60) * SLOT_H, GRID_HEIGHT - topPx - 2));
@@ -2327,13 +2388,56 @@ export default function DashboardPage() {
                                         ? "Cancelled"
                                         : "Pending";
 
+                              const n = bk.overlapCount ?? 1;
+                              const colIdx = bk.overlapCol ?? 0;
+                              const gapPct = n > 1 ? 2 : 0;
+                              const widthPct = (100 / n) - gapPct;
+                              const leftPct = (colIdx * (100 / n)) + (gapPct / 2);
+                              const isCompact = n > 1;
+                              const initials = (bk.client || "?").split(/\s+/).map((s: string) => s[0]).join("").toUpperCase().slice(0, 2);
+
                               return (
                                 <div
-                                  key={bk.id}
-                                  className={`group absolute left-1 right-1 z-20 hover:z-[70] rounded-xl border-2 px-2.5 py-1.5 overflow-visible cursor-pointer hover:opacity-95 transition-all duration-150 shadow-[0_6px_14px_rgba(0,0,0,0.12)] hover:shadow-[0_10px_24px_rgba(0,0,0,0.18)] hover:-translate-y-[1px] ${colorCls}`}
-                                  style={{ top: topPx + 2, height: heightPx - 2 }}
+                                  key={`${bk.bookingId || bk.id}-${bk.id}-${(bk.client || "").slice(0, 20)}`}
+                                  className={`group absolute z-20 hover:z-[70] overflow-visible cursor-pointer ${isCompact ? "cal-block-wrapper" : ""}`}
+                                  style={{
+                                    top: topPx + 2,
+                                    height: heightPx - 2,
+                                    left: isCompact ? `calc(${leftPct}% + 4px)` : 4,
+                                    width: isCompact ? `calc(${widthPct}% - 8px)` : "calc(100% - 8px)",
+                                    minWidth: isCompact ? 85 : undefined,
+                                  }}
                                   onClick={() => router.push(`${targetPath}?highlight=${bk.bookingId || bk.id.split("-")[0]}`)}
                                 >
+                                  <div
+                                    className={`rounded-xl border-2 shadow-[0_6px_14px_rgba(0,0,0,0.12)] hover:shadow-[0_10px_24px_rgba(0,0,0,0.18)] ${colorCls} ${isCompact ? "cal-block-inner h-full px-1.5 py-1" : "h-full px-2.5 py-1.5"}`}
+                                    style={isCompact ? { minWidth: "100%" } : undefined}
+                                  >
+                                  {isCompact ? (
+                                    <>
+                                      <div className="flex items-center gap-1.5 min-w-0 group-hover:hidden">
+                                        <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold ${isDark ? "bg-white/20 text-white" : "bg-black/10 text-neutral-700"}`}>{initials}</span>
+                                        <div className="min-w-0 flex-1">
+                                          <p className={`text-[10px] font-bold truncate ${isDark ? "text-white" : ""}`}>{bk.client}</p>
+                                          <p className={`text-[9px] truncate ${isDark ? "text-white/80" : "text-neutral-600"}`}>{bk.time}</p>
+                                        </div>
+                                        <span className={`shrink-0 text-[8px] px-1 py-0.5 rounded font-bold ${
+                                          statusNorm === "completed" ? "bg-blue-500/20 text-blue-700" : statusNorm === "confirmed" ? "bg-emerald-500/20 text-emerald-700" : "bg-amber-500/20 text-amber-700"
+                                        }`}>{statusNorm === "completed" ? "✓" : statusNorm === "confirmed" ? "●" : "○"}</span>
+                                      </div>
+                                      <div className="hidden group-hover:block">
+                                        <div className="flex items-center justify-between gap-1 mb-1">
+                                          <p className={`text-[11px] font-extrabold truncate leading-tight ${isDark ? "text-white" : ""}`}>{bk.client}</p>
+                                          <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
+                                            statusNorm === "completed" ? "bg-blue-500/15 text-blue-700" : statusNorm === "confirmed" ? "bg-emerald-500/15 text-emerald-700" : isDark ? "bg-white/15 text-white" : "bg-black/10 text-neutral-700"
+                                          }`}>{statusNorm === "completed" ? "DONE" : statusNorm === "confirmed" ? "LIVE" : "BOOK"}</span>
+                                        </div>
+                                        <p className={`text-[10px] font-semibold truncate leading-snug mb-0.5 ${isDark ? "text-neutral-100" : "text-inherit opacity-90"}`}>{bk.serviceName}{bk.price ? ` ($${bk.price})` : ""}</p>
+                                        <p className={`text-[10px] truncate leading-snug ${isDark ? "text-neutral-300" : "text-inherit opacity-75"}`}>{bk.time} – {endH}:{String(endMin).padStart(2,"0")}</p>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
                                   <div className="flex items-center justify-between gap-1 mb-1">
                                     <p className={`text-[11px] font-extrabold truncate leading-tight ${isDark ? "text-white" : ""}`}>{bk.client}</p>
                                     <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
@@ -2352,6 +2456,8 @@ export default function DashboardPage() {
                                   <p className={`text-[10px] truncate leading-snug ${isDark ? "text-neutral-300" : "text-inherit opacity-75"}`}>
                                     {bk.time} – {endH}:{String(endMin).padStart(2,"0")}
                                   </p>
+                                    </>
+                                  )}
 
                                   {/* Creative hover details card */}
                                   <div className="pointer-events-none absolute z-[80] left-1/2 top-full mt-2 w-72 -translate-x-1/2 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-top">
@@ -2390,6 +2496,7 @@ export default function DashboardPage() {
                                         <span className="text-sm font-extrabold text-emerald-300">${Number(bk.price || 0).toFixed(2)}</span>
                                       </div>
                                     </div>
+                                  </div>
                                   </div>
                                 </div>
                               );

@@ -346,6 +346,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
               notif.type === "booking_needs_assignment" ||
               notif.type === "booking_request";
             
+            const isNewEstimate = notif.type === "new_estimate";
+            
             const isStaffRejected = notif.type === "staff_rejected";
             
             if (isNewBooking) {
@@ -355,6 +357,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
                 notif.status === "PartiallyApproved";
               return isPending;
             }
+            
+            if (isNewEstimate) return true;
             
             return isStaffRejected;
           });

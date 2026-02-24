@@ -89,6 +89,8 @@ export default function BookingEnginePage() {
   const [estimateError, setEstimateError] = useState("");
   const [estimateImages, setEstimateImages] = useState<File[]>([]);
   const [estimateImagePreviews, setEstimateImagePreviews] = useState<string[]>([]);
+  const [customerEstimateNotifications, setCustomerEstimateNotifications] = useState<any[]>([]);
+  const [customerEstimateUnreadCount, setCustomerEstimateUnreadCount] = useState(0);
 
   const [step, setStep] = useState(1);
   const [prevStep, setPrevStep] = useState(1);
@@ -316,12 +318,55 @@ export default function BookingEnginePage() {
     fetchCustomerEstimates();
   }, [customer?.customerId, fetchCustomerEstimates]);
 
+  const fetchCustomerNotifications = useCallback(async () => {
+    if (!customer?.customerId) return;
+    try {
+      const res = await fetch(`/api/book-now/customer-notifications?customerId=${customer.customerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerEstimateNotifications(data.notifications || []);
+        setCustomerEstimateUnreadCount(data.unreadCount ?? 0);
+      }
+    } catch (err) {
+      console.error("Failed to fetch customer notifications:", err);
+    }
+  }, [customer?.customerId]);
+
+  useEffect(() => {
+    if (!customer?.customerId) {
+      setCustomerEstimateNotifications([]);
+      setCustomerEstimateUnreadCount(0);
+      return;
+    }
+    fetchCustomerNotifications();
+    const interval = setInterval(fetchCustomerNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [customer?.customerId, fetchCustomerNotifications]);
+
+  const markEstimateNotificationsAsRead = useCallback(async (estimateId: string) => {
+    const toMark = customerEstimateNotifications
+      .filter((n) => n.type === "estimate_reply" && n.estimateId === estimateId && !n.read)
+      .map((n) => n.id);
+    if (toMark.length === 0 || !customer?.customerId) return;
+    try {
+      await fetch("/api/book-now/customer-notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: customer.customerId, notificationIds: toMark }),
+      });
+      fetchCustomerNotifications();
+    } catch (err) {
+      console.error("Failed to mark notifications as read:", err);
+    }
+  }, [customer?.customerId, customerEstimateNotifications, fetchCustomerNotifications]);
+
   const toggleEstimateExpand = useCallback(async (estimateId: string) => {
     if (expandedEstimateId === estimateId) {
       setExpandedEstimateId(null);
       return;
     }
     setExpandedEstimateId(estimateId);
+    markEstimateNotificationsAsRead(estimateId);
     if (!estimateReplies[estimateId]) {
       setEstimateRepliesLoading(estimateId);
       try {
@@ -336,7 +381,7 @@ export default function BookingEnginePage() {
         setEstimateRepliesLoading(null);
       }
     }
-  }, [expandedEstimateId, estimateReplies]);
+  }, [expandedEstimateId, estimateReplies, markEstimateNotificationsAsRead]);
 
   const branchServices = useMemo(() => {
     if (!selectedBranch) return [];
@@ -819,7 +864,7 @@ export default function BookingEnginePage() {
           )}
           {customer && (
             <button
-              onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); }}
+              onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); fetchCustomerNotifications(); }}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                 activeView === "myEstimates"
                   ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
@@ -828,7 +873,12 @@ export default function BookingEnginePage() {
             >
               <i className="fas fa-file-invoice text-[9px]" />
               My Estimates
-              {customerEstimates.length > 0 && (
+              {customerEstimateUnreadCount > 0 && (
+                <span className="min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 bg-amber-500 text-white animate-pulse">
+                  {customerEstimateUnreadCount}
+                </span>
+              )}
+              {customerEstimateUnreadCount === 0 && customerEstimates.length > 0 && (
                 <span className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 ${
                   activeView === "myEstimates" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-600"
                 }`}>
@@ -1140,6 +1190,26 @@ export default function BookingEnginePage() {
             <div className="sm:hidden h-[env(safe-area-inset-bottom)]" />
           </div>
         </>
+      )}
+
+      {/* ═══════════════════ ESTIMATE REPLY NOTIFICATION BANNER ═══════════════════ */}
+      {customer && customerEstimateUnreadCount > 0 && activeView !== "myEstimates" && (
+        <div className="relative z-20 bg-amber-50 border-b border-amber-200/80">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <i className="fas fa-file-invoice text-amber-600 text-sm" />
+              <span className="text-sm font-medium text-amber-900">
+                You have {customerEstimateUnreadCount} new reply{customerEstimateUnreadCount > 1 ? "s" : ""} to your estimate request{customerEstimateUnreadCount > 1 ? "s" : ""}.
+              </span>
+            </div>
+            <button
+              onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); fetchCustomerNotifications(); }}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors"
+            >
+              View My Estimates
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ═══════════════════ HERO BANNER (Step 1 only) ═══════════════════ */}

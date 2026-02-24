@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { sendEstimateRequestEmail } from "@/lib/emailService";
 
@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
 
     await db.collection("notifications").add({
       ownerUid,
+      targetOwnerUid: ownerUid,
       type: "new_estimate",
       title: "New Estimate Request",
       message: `${customerName} has requested an estimate${branchName ? ` at ${branchName}` : ""}.`,
@@ -81,6 +82,38 @@ export async function POST(req: NextRequest) {
       estimateId: estimateRef.id,
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    // Send FCM push notification to the owner
+    try {
+      const ownerDoc = await db.collection("users").doc(ownerUid).get();
+      const fcmToken = ownerDoc.data()?.fcmToken;
+      if (fcmToken) {
+        const messaging = adminMessaging();
+        await messaging.send({
+          token: fcmToken,
+          notification: {
+            title: "New Estimate Request",
+            body: `${customerName} has requested an estimate${branchName ? ` at ${branchName}` : ""}.`,
+          },
+          data: {
+            type: "new_estimate",
+            estimateId: estimateRef.id,
+          },
+          android: {
+            priority: "high",
+            notification: { channelId: "appointments", sound: "default" },
+          },
+          apns: {
+            headers: { "apns-priority": "10" },
+            payload: {
+              aps: { alert: { title: "New Estimate Request", body: `${customerName} has requested an estimate.` }, sound: "default", badge: 1 },
+            },
+          },
+        });
+      }
+    } catch (pushErr) {
+      console.error("Failed to send estimate push notification:", pushErr);
+    }
 
     // Send email notification to the salon/workshop owner
     try {

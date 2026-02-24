@@ -51,6 +51,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Create in-app notification for booking engine customer
+    const customerId = estimateData.customerId;
+    if (customerId) {
+      try {
+        await db.collection("customer_notifications").add({
+          customerId,
+          type: "estimate_reply",
+          estimateId,
+          title: "New Reply to Your Estimate",
+          message: "The workshop has replied to your estimate request.",
+          read: false,
+          workshopName: (await db.collection("users").doc(ownerUid).get()).data()?.workshopName || "Workshop",
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (notifErr) {
+        console.error("Failed to create customer notification:", notifErr);
+      }
+    }
+
     // Send email to customer
     try {
       const ownerDoc = await db.collection("users").doc(ownerUid).get();

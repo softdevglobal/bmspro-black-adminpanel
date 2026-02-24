@@ -1009,6 +1009,55 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   };
   const closePreview = () => setPreviewOpen(false);
 
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
+  const [pdfConfirmBookingId, setPdfConfirmBookingId] = useState<string | null>(null);
+
+  const handleDownloadPDF = (bookingId: string) => {
+    setPdfConfirmBookingId(bookingId);
+  };
+
+  const confirmDownloadPDF = async () => {
+    const bookingId = pdfConfirmBookingId;
+    setPdfConfirmBookingId(null);
+    if (!bookingId) return;
+    try {
+      setDownloadingPdf(bookingId);
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/bookings/${bookingId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        let message = `Failed to download PDF (${res.status})`;
+        try {
+          const errorJson = await res.json();
+          if (errorJson?.error) message = `${message}: ${errorJson.error}`;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = res.headers.get("Content-Disposition");
+      const match = disposition?.match(/filename="?([^"]+)"?/);
+      a.download = match?.[1] || `Job-Report-${bookingId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF download error:", err);
+      // eslint-disable-next-line no-alert
+      alert(err instanceof Error ? err.message : "Failed to download PDF");
+    } finally {
+      setDownloadingPdf(null);
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-white">
       {/* Mobile Sidebar Overlay */}
@@ -1499,6 +1548,16 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   )}
                   </div>
                   <div className="shrink-0 border-t border-neutral-200 p-4 flex items-center justify-end gap-2 bg-white/90 backdrop-blur">
+                    {previewRow && previewRow.status === "Completed" && (
+                      <button
+                        onClick={() => previewRow && handleDownloadPDF(previewRow.id)}
+                        disabled={downloadingPdf === previewRow?.id}
+                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 bg-gradient-to-r from-neutral-800 to-neutral-900 hover:from-neutral-900 hover:to-black text-white shadow-sm disabled:opacity-60 mr-auto"
+                      >
+                        {downloadingPdf === previewRow?.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-file-pdf" />}
+                        {downloadingPdf === previewRow?.id ? "Generating..." : "Download Job Report"}
+                      </button>
+                    )}
                     <button
                       onClick={closePreview}
                       className="px-3 py-1.5 rounded-full text-xs font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-700"
@@ -1652,9 +1711,19 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     {/* Action buttons */}
                     {rowActions.length > 0 && (
                       <div className="border-t border-neutral-100 px-4 py-2.5 flex items-center gap-2 bg-neutral-50/50">
-                        <button onClick={() => openPreview(r)} className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center">
+                        <button onClick={() => openPreview(r)} className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center" title="Preview">
                           <i className="fas fa-eye text-sm" />
                         </button>
+                        {r.status === "Completed" && (
+                          <button
+                            onClick={() => handleDownloadPDF(r.id)}
+                            disabled={downloadingPdf === r.id}
+                            className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center disabled:opacity-50"
+                            title="Download Job Report PDF"
+                          >
+                            <i className={`fas ${downloadingPdf === r.id ? "fa-spinner fa-spin" : "fa-file-pdf"} text-sm`} />
+                          </button>
+                        )}
                         <div className="flex-1" />
                         {rowActions.includes("Confirm" as any) && (
                           <button disabled={!!updatingState[r.id]} onClick={() => handleConfirmClick(r)}
@@ -1896,6 +1965,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             >
                               <i className="fas fa-eye" />
                             </button>
+                            {r.status === "Completed" && (
+                              <button
+                                aria-label="Download Job Report"
+                                title="Download Job Report PDF"
+                                onClick={() => handleDownloadPDF(r.id)}
+                                disabled={downloadingPdf === r.id}
+                                className="hidden sm:inline-flex text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center disabled:opacity-50"
+                              >
+                                <i className={`fas ${downloadingPdf === r.id ? "fa-spinner fa-spin" : "fa-file-pdf"}`} />
+                              </button>
+                            )}
                             {rowActions.length > 0 && (
                               <>
                               {rowActions.includes("Confirm" as any) && (
@@ -2568,6 +2648,40 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     <span>Reassign Booking</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PDF Download Confirmation Modal ────────────────────────── */}
+      {pdfConfirmBookingId && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden animate-scale-in">
+            <div className="bg-neutral-900 px-6 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+                <i className="fas fa-file-pdf text-white" />
+              </div>
+              <h3 className="text-white font-semibold">Download Job Report</h3>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-neutral-600 text-sm leading-relaxed">
+                Do you want to download the complete job task report as a PDF? This includes all booking details, services, and task information.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setPdfConfirmBookingId(null)}
+                className="px-4 py-2 rounded-full text-sm font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDownloadPDF}
+                className="px-5 py-2 rounded-full text-sm font-semibold bg-neutral-900 hover:bg-black text-white shadow-sm transition inline-flex items-center gap-2"
+              >
+                <i className="fas fa-download text-xs" />
+                Download PDF
               </button>
             </div>
           </div>

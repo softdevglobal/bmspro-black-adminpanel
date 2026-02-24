@@ -258,12 +258,12 @@ function generateEmailHTML(
       bgColor = "#ecfdf5";
       break;
     case "Completed":
-      subject = `Thank You - ${salonName}`;
-      title = "Booking Completed";
-      message = `Thank you for visiting ${salonName}! We hope you had a wonderful experience and look forward to seeing you again.`;
-      icon = "✨";
-      color = "#6366f1";
-      bgColor = "#eef2ff";
+      subject = `Booking Completed – Ready to Pick Up - ${salonName}`;
+      title = "Booking Completed – Ready to Pick Up";
+      message = `Great news! Your booking at ${salonName} has been completed and is ready for pick up. Please find the full job task report attached to this email. You can also download it from your customer portal at any time.`;
+      icon = "✅";
+      color = "#059669";
+      bgColor = "#ecfdf5";
       break;
     case "Canceled":
       subject = `Booking Cancelled - ${salonName}`;
@@ -434,16 +434,42 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
     
     const html = generateEmailHTML(data.status, data);
     const salonName = data.salonName || "Salon";
-    const subject = data.bookingCode 
-      ? `${data.status === "Pending" ? "Booking Request Received" : data.status === "Confirmed" ? "Booking Confirmed" : data.status === "Completed" ? "Thank You" : "Booking " + data.status} - ${salonName} (${data.bookingCode})`
-      : `${data.status === "Pending" ? "Booking Request Received" : data.status === "Confirmed" ? "Booking Confirmed" : data.status === "Completed" ? "Thank You" : "Booking " + data.status} - ${salonName}`;
+    const statusSubjectMap: Record<string, string> = {
+      Pending: "Booking Request Received",
+      Confirmed: "Booking Confirmed",
+      Completed: "Booking Completed – Ready to Pick Up",
+      Canceled: "Booking Cancelled",
+    };
+    const statusLabel = statusSubjectMap[data.status] || `Booking ${data.status}`;
+    const subject = data.bookingCode
+      ? `${statusLabel} - ${salonName} (${data.bookingCode})`
+      : `${statusLabel} - ${salonName}`;
     
-    const msg = {
+    const msg: any = {
       to: email,
       from: FROM_EMAIL,
       subject: subject,
       html: html,
     };
+
+    // Attach PDF for completed bookings
+    if (data.status === "Completed" && data.bookingId) {
+      try {
+        const { generateBookingPDF } = await import("./pdfService");
+        const { buffer, filename } = await generateBookingPDF(data.bookingId);
+        msg.attachments = [
+          {
+            content: buffer.toString("base64"),
+            filename,
+            type: "application/pdf",
+            disposition: "attachment",
+          },
+        ];
+        console.log(`[EMAIL] PDF attachment generated for booking ${data.bookingId}: ${filename}`);
+      } catch (pdfError) {
+        console.error(`[EMAIL] Failed to generate PDF attachment for booking ${data.bookingId}:`, pdfError);
+      }
+    }
     
     console.log(`[EMAIL] Sending email via SendGrid:`, {
       to: email,

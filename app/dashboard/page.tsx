@@ -37,6 +37,16 @@ export default function DashboardPage() {
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [scheduleViewMode, setScheduleViewMode] = useState<'time' | 'staff' | 'branch'>('time');
+
+  // Weekly calendar state
+  const [calWeekStart, setCalWeekStart] = useState<Date>(() => {
+    const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); d.setHours(0,0,0,0); return d;
+  });
+  const [calBookings, setCalBookings] = useState<any[]>([]);
+  const [calStaffFilter, setCalStaffFilter] = useState<string>("all");
+  const [calStaffList, setCalStaffList] = useState<{id:string;name:string}[]>([]);
+  const [calBranchFilter, setCalBranchFilter] = useState<string>("all");
+  const [calBranchList, setCalBranchList] = useState<{ value: string; label: string }[]>([]);
   
   // Use notification context from NotificationProvider
   const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications } = useNotifications();
@@ -47,6 +57,29 @@ export default function DashboardPage() {
   const statusCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartsRef = useRef<{ revenue?: any; status?: any }>({});
   const builtRef = useRef(false);
+
+  const normalizeDateKey = (value: any): string => {
+    if (!value) return "";
+    if (typeof value === "string") {
+      const v = value.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      if (/^\d{4}\/\d{2}\/\d{2}$/.test(v)) return v.replace(/\//g, "-");
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(v)) {
+        const [dd, mm, yyyy] = v.split("/");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      const parsed = new Date(v);
+      if (!isNaN(parsed.getTime())) {
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+      }
+      return "";
+    }
+    if (typeof value?.toDate === "function") {
+      const d = value.toDate();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    return "";
+  };
 
   // Notification sound is now handled by NotificationProvider
 
@@ -579,6 +612,85 @@ export default function DashboardPage() {
       unsubTodayBookings?.();
     };
   }, [ownerUid, isSuperAdmin, authLoading]);
+
+  // Fetch weekly calendar bookings
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    let unsub: (() => void) | undefined;
+
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+      const constraints: any[] = [where("ownerUid", "==", ownerUid)];
+
+      unsub = onSnapshot(
+        query(collection(db, "bookings"), ...constraints),
+        (snap) => {
+          const bks: any[] = [];
+          const staffSet = new Map<string, { id: string; name: string }>();
+          const branchSet = new Map<string, { value: string; label: string }>();
+          snap.docs.forEach((d) => {
+            const data = d.data();
+            const st = (data.status || "").toLowerCase();
+            if (st === "canceled" || st === "cancelled" || st === "staffrejected") return;
+            const bk = {
+              id: d.id,
+              date: data.date || "",
+              dateKey: normalizeDateKey(data.date),
+              time: data.time || "09:00",
+              pickupTime: data.pickupTime || "",
+              duration: data.duration || 60,
+              client: data.client || data.clientName || "Customer",
+              serviceName: data.serviceName || (Array.isArray(data.services) ? data.services.map((s:any) => s.name).join(", ") : "Service"),
+              branchId: data.branchId || "",
+              branchName: data.branchName || "",
+              staffName: data.staffName || "",
+              staffId: data.staffId || "",
+              status: data.status || "Pending",
+              price: data.price || 0,
+              services: data.services || [],
+            };
+            bks.push(bk);
+            if (bk.staffId && bk.staffName && !bk.staffName.toLowerCase().includes("any")) {
+              staffSet.set(bk.staffId, { id: bk.staffId, name: bk.staffName });
+            }
+            if (Array.isArray(data.services)) {
+              data.services.forEach((s: any) => {
+                if (s?.staffId && s?.staffName && !s.staffName.toLowerCase().includes("any")) {
+                  staffSet.set(s.staffId, { id: s.staffId, name: s.staffName });
+                }
+                if (s?.staffAuthUid && s?.staffName && !s.staffName.toLowerCase().includes("any")) {
+                  staffSet.set(s.staffAuthUid, { id: s.staffAuthUid, name: s.staffName });
+                }
+              });
+            }
+            const branchValue = (data.branchId || data.branchName || "").toString();
+            const branchLabel = (data.branchName || data.branchId || "Unassigned").toString();
+            if (branchValue) branchSet.set(branchValue, { value: branchValue, label: branchLabel });
+          });
+          setCalBookings(bks);
+          setCalStaffList([...staffSet.values()].sort((a, b) => a.name.localeCompare(b.name)));
+          setCalBranchList([...branchSet.values()].sort((a, b) => a.label.localeCompare(b.label)));
+        },
+        () => {
+          setCalBookings([]);
+          setCalStaffList([]);
+          setCalBranchList([]);
+        }
+      );
+    })();
+
+    return () => { unsub?.(); };
+  }, [ownerUid, isSuperAdmin, authLoading, isBranchAdmin, branchAdminBranchId]);
+
+  useEffect(() => {
+    if (isBranchAdmin && branchAdminBranchId) {
+      setCalBranchFilter(branchAdminBranchId);
+      return;
+    }
+    if (calBranchFilter !== "all" && !calBranchList.some((b) => b.value === calBranchFilter)) {
+      setCalBranchFilter("all");
+    }
+  }, [isBranchAdmin, branchAdminBranchId, calBranchList, calBranchFilter]);
 
   // Notifications are now managed by NotificationProvider context
   // No need for duplicate listener here
@@ -1908,6 +2020,389 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {/* ═══════ WEEKLY CALENDAR ═══════ */}
+          {!authLoading && !isSuperAdmin && (() => {
+            const CAL_HOURS = Array.from({ length: 12 }, (_, i) => i + 7); // 7 AM – 6 PM
+            const SLOT_H = 48;
+            const GRID_HEIGHT = CAL_HOURS.length * SLOT_H;
+            const dayNames = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+            const weekDates: Date[] = [];
+            for (let i = 0; i < 7; i++) { const d = new Date(calWeekStart); d.setDate(d.getDate() + i); weekDates.push(d); }
+            const todayStr = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })();
+            const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const weekLabel = (() => { const s = weekDates[0]; const e = weekDates[6]; const fmt = (d: Date) => d.toLocaleDateString("en-AU",{day:"numeric",month:"short"}); return `${fmt(s)} – ${fmt(e)} ${e.getFullYear()}`; })();
+
+            const prevWeek = () => { const d = new Date(calWeekStart); d.setDate(d.getDate() - 7); setCalWeekStart(d); };
+            const nextWeek = () => { const d = new Date(calWeekStart); d.setDate(d.getDate() + 7); setCalWeekStart(d); };
+            const goToday = () => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay()+6)%7)); d.setHours(0,0,0,0); setCalWeekStart(d); };
+
+            const weekDateSet = new Set(weekDates.map(d => fmtDate(d)));
+            const inWeek = calBookings.filter((b: any) => weekDateSet.has(b.dateKey || normalizeDateKey(b.date)));
+            const branchAdminOnly = isBranchAdmin
+              ? inWeek.filter((b: any) => {
+                  const bid = (b.branchId || "").toString();
+                  const bname = (b.branchName || "").toString().trim().toLowerCase();
+                  const adminBid = (branchAdminBranchId || "").toString();
+                  const adminBname = (branchAdminBranchName || "").toString().trim().toLowerCase();
+                  if (adminBid && bid && bid === adminBid) return true;
+                  if (adminBname && bname && bname === adminBname) return true;
+                  return false;
+                })
+              : inWeek;
+            const byBranch = calBranchFilter === "all"
+              ? branchAdminOnly
+              : branchAdminOnly.filter((b: any) => (b.branchId || b.branchName) === calBranchFilter);
+            const filtered = calStaffFilter === "all" ? byBranch : byBranch.filter((b: any) => {
+              if (b.staffId === calStaffFilter) return true;
+              return b.services?.some((s: any) => s.staffId === calStaffFilter || s.staffAuthUid === calStaffFilter);
+            });
+
+            // Flatten to blocks: multi-service bookings become one block per service (with its own time)
+            const toBlocks = (): {
+              id: string;
+              bookingId: string;
+              date: string;
+              time: string;
+              duration: number;
+              client: string;
+              serviceName: string;
+              servicesText: string;
+              staffName: string;
+              staffId: string;
+              branchName: string;
+              pickupTime: string;
+              price: number;
+              status: string;
+            }[] => {
+              const blocks: any[] = [];
+              filtered.forEach(b => {
+                if (Array.isArray(b.services) && b.services.length > 0) {
+                  b.services.forEach((svc: any, idx: number) => {
+                    const t = svc.time || b.time || "09:00";
+                    const dur = Number(svc.duration) || 60;
+                    blocks.push({
+                      id: `${b.id}-${idx}`,
+                      bookingId: b.id,
+                      date: b.dateKey || normalizeDateKey(b.date),
+                      time: t,
+                      duration: dur,
+                      client: b.client,
+                      serviceName: svc.name || b.serviceName || "Service",
+                      servicesText: Array.isArray(b.services) && b.services.length > 0
+                        ? b.services.map((x: any) => x?.name).filter(Boolean).join(", ")
+                        : (svc.name || b.serviceName || "Service"),
+                      staffName: svc.staffName || b.staffName || "",
+                      staffId: svc.staffId || svc.staffAuthUid || b.staffId || "",
+                      branchName: b.branchName || "",
+                      pickupTime: b.pickupTime || "",
+                      price: svc.price ?? b.price ?? 0,
+                      status: b.status || "Pending",
+                    });
+                  });
+                } else {
+                  blocks.push({
+                    id: b.id,
+                    bookingId: b.id,
+                    date: b.dateKey || normalizeDateKey(b.date),
+                    time: b.time || "09:00",
+                    duration: b.duration || 60,
+                    client: b.client,
+                    serviceName: b.serviceName || "Service",
+                    servicesText: b.serviceName || "Service",
+                    staffName: b.staffName || "",
+                    staffId: b.staffId || "",
+                    branchName: b.branchName || "",
+                    pickupTime: b.pickupTime || "",
+                    price: b.price || 0,
+                    status: b.status || "Pending",
+                  });
+                }
+              });
+              return blocks;
+            };
+            const blocks = toBlocks();
+
+            // Parse time: supports "09:00", "9:00", "9:00 AM", "1:00 PM", "13:00"
+            const parseTime = (t: string): { h: number; m: number } => {
+              if (!t || typeof t !== "string") return { h: 9, m: 0 };
+              const upper = t.toUpperCase();
+              const isPM = upper.includes("PM") && !upper.includes("12:00");
+              const is12PM = /12\s*:\s*\d+\s*PM/i.test(t);
+              const is12AM = /12\s*:\s*\d+\s*AM/i.test(t);
+              const numPart = t.replace(/\s*(AM|PM)/gi, "").trim();
+              const parts = numPart.split(":").map(x => parseInt(x.replace(/\D/g, "") || "0", 10));
+              let h = parts[0] ?? 9;
+              const m = parts[1] ?? 0;
+              if (is12AM && h === 12) h = 0;
+              else if ((is12PM || isPM) && h !== 12) h += 12;
+              return { h, m };
+            };
+
+            const COLORFUL_COLORS = [
+              "bg-gradient-to-br from-cyan-100 to-sky-100 border-cyan-300 text-cyan-900",
+              "bg-gradient-to-br from-emerald-100 to-lime-100 border-emerald-300 text-emerald-900",
+              "bg-gradient-to-br from-blue-100 to-indigo-100 border-blue-300 text-blue-900",
+              "bg-gradient-to-br from-teal-100 to-cyan-100 border-teal-300 text-teal-900",
+              "bg-gradient-to-br from-violet-100 to-purple-100 border-violet-300 text-violet-900",
+              "bg-gradient-to-br from-amber-100 to-yellow-100 border-amber-300 text-amber-900",
+            ];
+            const DAY_HEADER_COLORS = [
+              "from-cyan-50 to-cyan-100/70",
+              "from-lime-50 to-emerald-100/70",
+              "from-blue-50 to-indigo-100/70",
+              "from-teal-50 to-cyan-100/70",
+              "from-violet-50 to-fuchsia-100/70",
+              "from-amber-50 to-yellow-100/70",
+              "from-rose-50 to-pink-100/70",
+            ];
+            const staffColorMap = new Map<string, string>();
+            let colorIdx = 0;
+            const getColor = (staffKey: string) => {
+              if (!staffColorMap.has(staffKey)) {
+                staffColorMap.set(staffKey, COLORFUL_COLORS[colorIdx % COLORFUL_COLORS.length]);
+                colorIdx++;
+              }
+              return staffColorMap.get(staffKey)!;
+            };
+
+            const formatHour = (hour: number) => hour === 0 ? "12 AM" : hour === 12 ? "12 PM" : hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
+
+            return (
+              <div className="bg-gradient-to-br from-white via-neutral-50 to-white rounded-2xl border border-neutral-200 shadow-sm mb-8 overflow-visible">
+                {/* Header */}
+                <div className="p-4 sm:p-6 border-b border-neutral-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-neutral-900 rounded-xl flex items-center justify-center">
+                        <i className="fas fa-calendar-week text-white text-sm" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-lg text-neutral-900">Calendar</h3>
+                        <p className="text-sm text-neutral-500">{weekLabel}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {!isBranchAdmin ? (
+                        <div className="relative">
+                          <select
+                            value={calBranchFilter}
+                            onChange={e => setCalBranchFilter(e.target.value)}
+                            className="appearance-none text-xs font-medium border border-neutral-200 rounded-lg pl-2.5 pr-7 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                          >
+                            <option value="all">All Branches</option>
+                            {calBranchList.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                          </select>
+                          <i className="fas fa-chevron-down pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-neutral-500" />
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-neutral-50 text-neutral-700">
+                          <i className="fas fa-location-dot text-[10px]" />
+                          {branchAdminBranchName || "Branch"}
+                        </span>
+                      )}
+                      <div className="relative">
+                        <select
+                          value={calStaffFilter}
+                          onChange={e => setCalStaffFilter(e.target.value)}
+                          className="appearance-none text-xs font-medium border border-neutral-200 rounded-lg pl-2.5 pr-7 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                        >
+                          <option value="all">All Staff</option>
+                          {calStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                        <i className="fas fa-chevron-down pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-neutral-500" />
+                      </div>
+                      <button onClick={goToday} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition">Today</button>
+                      <button onClick={prevWeek} className="w-8 h-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition"><i className="fas fa-chevron-left text-xs text-neutral-600" /></button>
+                      <button onClick={nextWeek} className="w-8 h-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition"><i className="fas fa-chevron-right text-xs text-neutral-600" /></button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Calendar grid - day columns with booking blocks inside */}
+                <div className="overflow-x-auto">
+                  <div className="min-w-[800px]">
+                    {/* Day headers */}
+                    <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-neutral-200 bg-neutral-50/70">
+                      <div className="p-2" />
+                      {weekDates.map((d, i) => {
+                        const ds = fmtDate(d);
+                        const isToday = ds === todayStr;
+                        return (
+                          <div
+                            key={i}
+                            className={`p-2 text-center border-l border-neutral-200 ${
+                              isToday
+                                ? "bg-neutral-900"
+                                : `bg-gradient-to-b ${DAY_HEADER_COLORS[i % DAY_HEADER_COLORS.length]}`
+                            }`}
+                          >
+                            <p className={`text-[10px] font-extrabold uppercase tracking-wider ${isToday ? "text-neutral-400" : "text-neutral-500"}`}>{dayNames[i].substring(0,3)}</p>
+                            <p className={`text-lg font-black ${isToday ? "text-white" : "text-neutral-800"}`}>{d.getDate()}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Time labels + day columns with booking blocks */}
+                    <div className="grid grid-cols-[60px_repeat(7,1fr)]" style={{ minHeight: GRID_HEIGHT }}>
+                      {/* Time column */}
+                      <div className="border-r border-neutral-200 relative" style={{ minHeight: GRID_HEIGHT }}>
+                        {CAL_HOURS.map((hour, i) => (
+                          <div key={hour} className="absolute right-1 text-[10px] font-semibold text-neutral-400" style={{ top: i * SLOT_H - 2 }}>
+                            {formatHour(hour)}
+                          </div>
+                        ))}
+                      </div>
+                      {/* Day columns - each contains its booking blocks */}
+                      {weekDates.map((d, dayIdx) => {
+                        const ds = fmtDate(d);
+                        const dayBks = blocks.filter(b => b.date === ds);
+                        const dayTintClass = dayIdx % 2 === 0
+                          ? "bg-gradient-to-b from-cyan-50/45 to-white"
+                          : "bg-gradient-to-b from-lime-50/45 to-white";
+                        return (
+                          <div
+                            key={dayIdx}
+                            className={`relative border-l border-neutral-100 overflow-visible ${ds === todayStr ? "bg-amber-50/40" : dayTintClass}`}
+                            style={{ minHeight: GRID_HEIGHT }}
+                          >
+                            {/* Hour grid lines */}
+                            {CAL_HOURS.slice(1).map(hour => (
+                              <div key={hour} className="absolute left-0 right-0 border-b border-neutral-100" style={{ top: (hour - CAL_HOURS[0]) * SLOT_H }} />
+                            ))}
+                            {/* Booking blocks */}
+                            {dayBks.map((bk: any) => {
+                              const { h, m } = parseTime(bk.time);
+                              const dur = bk.duration || 60;
+                              const topPx = ((h - CAL_HOURS[0]) * SLOT_H) + ((m / 60) * SLOT_H);
+                              const heightPx = Math.max(24, Math.min((dur / 60) * SLOT_H, GRID_HEIGHT - topPx - 2));
+
+                              if (h < CAL_HOURS[0] || h >= CAL_HOURS[CAL_HOURS.length - 1] + 1) return null;
+
+                              const staffKey = bk.staffId || bk.staffName || "default";
+                              const statusNorm = String(bk.status || "").toLowerCase().replace(/[\s_-]/g, "");
+                              const statusColorCls = statusNorm === "completed"
+                                ? "bg-gradient-to-br from-blue-100 to-sky-100 border-blue-300 text-blue-900"
+                                : statusNorm === "confirmed"
+                                  ? "bg-gradient-to-br from-emerald-100 to-green-100 border-emerald-300 text-emerald-900"
+                                  : null;
+                              const colorCls = statusColorCls || getColor(staffKey);
+                              const isDark = colorCls.includes("neutral-8") || colorCls.includes("neutral-9");
+                              const targetPath = (() => {
+                                if (statusNorm === "completed") return "/bookings/completed";
+                                if (statusNorm === "confirmed") return "/bookings/confirmed";
+                                if (statusNorm === "awaitingstaffapproval") return "/bookings/awaiting-staff";
+                                if (statusNorm === "staffrejected") return "/bookings/staff-rejected";
+                                if (statusNorm === "canceled" || statusNorm === "cancelled") return "/bookings/cancelled";
+                                return "/bookings/pending";
+                              })();
+
+                              const endM = h * 60 + m + dur;
+                              const endH = Math.floor(endM / 60);
+                              const endMin = endM % 60;
+                              const formatTimeLabel = (hh: number, mm: number) => {
+                                const safeH = ((hh % 24) + 24) % 24;
+                                const ap = safeH >= 12 ? "PM" : "AM";
+                                const h12 = safeH % 12 === 0 ? 12 : safeH % 12;
+                                return `${h12}:${String(mm).padStart(2, "0")} ${ap}`;
+                              };
+                              const pickupDisplay = (() => {
+                                if (bk.pickupTime && String(bk.pickupTime).trim() !== "") {
+                                  const { h: ph, m: pm } = parseTime(String(bk.pickupTime));
+                                  return formatTimeLabel(ph, pm);
+                                }
+                                // Fallback: use calculated end time when pickup time is not stored
+                                return formatTimeLabel(endH, endMin);
+                              })();
+                              const statusLabel = statusNorm === "completed"
+                                ? "Completed"
+                                : statusNorm === "confirmed"
+                                  ? "Confirmed"
+                                  : statusNorm === "awaitingstaffapproval"
+                                    ? "Awaiting Staff"
+                                    : statusNorm === "staffrejected"
+                                      ? "Staff Rejected"
+                                      : statusNorm === "canceled" || statusNorm === "cancelled"
+                                        ? "Cancelled"
+                                        : "Pending";
+
+                              return (
+                                <div
+                                  key={bk.id}
+                                  className={`group absolute left-1 right-1 z-20 hover:z-[70] rounded-xl border-2 px-2.5 py-1.5 overflow-visible cursor-pointer hover:opacity-95 transition-all duration-150 shadow-[0_6px_14px_rgba(0,0,0,0.12)] hover:shadow-[0_10px_24px_rgba(0,0,0,0.18)] hover:-translate-y-[1px] ${colorCls}`}
+                                  style={{ top: topPx + 2, height: heightPx - 2 }}
+                                  onClick={() => router.push(`${targetPath}?highlight=${bk.bookingId || bk.id.split("-")[0]}`)}
+                                >
+                                  <div className="flex items-center justify-between gap-1 mb-1">
+                                    <p className={`text-[11px] font-extrabold truncate leading-tight ${isDark ? "text-white" : ""}`}>{bk.client}</p>
+                                    <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
+                                      statusNorm === "completed"
+                                        ? "bg-blue-500/15 text-blue-700"
+                                        : statusNorm === "confirmed"
+                                          ? "bg-emerald-500/15 text-emerald-700"
+                                          : isDark
+                                            ? "bg-white/15 text-white"
+                                            : "bg-black/10 text-neutral-700"
+                                    }`}>
+                                      {statusNorm === "completed" ? "DONE" : statusNorm === "confirmed" ? "LIVE" : "BOOK"}
+                                    </span>
+                                  </div>
+                                  <p className={`text-[10px] font-semibold truncate leading-snug mb-0.5 ${isDark ? "text-neutral-100" : "text-inherit opacity-90"}`}>{bk.serviceName}{bk.price ? ` ($${bk.price})` : ""}</p>
+                                  <p className={`text-[10px] truncate leading-snug ${isDark ? "text-neutral-300" : "text-inherit opacity-75"}`}>
+                                    {bk.time} – {endH}:{String(endMin).padStart(2,"0")}
+                                  </p>
+
+                                  {/* Creative hover details card */}
+                                  <div className="pointer-events-none absolute z-[80] left-1/2 top-full mt-2 w-72 -translate-x-1/2 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-top">
+                                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-neutral-900 border-l border-t border-neutral-700" />
+                                    <div className="rounded-xl border border-neutral-700 bg-neutral-900/95 text-white shadow-2xl backdrop-blur p-4">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <p className="text-xs font-extrabold tracking-wide">{bk.client}</p>
+                                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/10 text-white">
+                                          {statusLabel}
+                                        </span>
+                                      </div>
+                                      <div className="space-y-2.5 text-[11px] text-neutral-200">
+                                        <div className="grid grid-cols-[92px_1fr] gap-2">
+                                          <span className="text-neutral-400">Services</span>
+                                          <span className="font-semibold text-neutral-100 leading-snug">{bk.servicesText || bk.serviceName}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[92px_1fr] gap-2">
+                                          <span className="text-neutral-400">Time</span>
+                                          <span className="font-semibold">{formatTimeLabel(h, m)} - {formatTimeLabel(endH, endMin)}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[92px_1fr] gap-2">
+                                          <span className="text-neutral-400">Pick-up Time</span>
+                                          <span className="font-semibold">{pickupDisplay}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[92px_1fr] gap-2">
+                                          <span className="text-neutral-400">Staff</span>
+                                          <span className="font-semibold">{bk.staffName || "Not assigned"}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[92px_1fr] gap-2">
+                                          <span className="text-neutral-400">Branch</span>
+                                          <span className="font-semibold">{bk.branchName || "No branch"}</span>
+                                        </div>
+                                      </div>
+                                      <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between">
+                                        <span className="text-[11px] text-neutral-400">Price</span>
+                                        <span className="text-sm font-extrabold text-emerald-300">${Number(bk.price || 0).toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0 overflow-hidden">

@@ -104,7 +104,8 @@ const COLORS = {
   white: "#ffffff" as const,
 };
 
-const PAGE_BOTTOM = 792 - 60; // A4 height minus footer reserve
+const PAGE_MARGIN = 40;
+const FOOTER_RESERVE = 52;
 
 /**
  * Generate a comprehensive job task PDF for a booking.
@@ -164,9 +165,10 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
 }
 
 function ensureSpace(doc: PDFKit.PDFDocument, y: number, needed: number): number {
-  if (y + needed > PAGE_BOTTOM) {
+  const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
+  if (y + needed > pageBottom) {
     doc.addPage();
-    return 40;
+    return PAGE_MARGIN;
   }
   return y;
 }
@@ -415,9 +417,13 @@ async function buildPDF(booking: BookingPDFData): Promise<Buffer> {
     const footerText = `Generated on ${new Date().toLocaleString("en-AU")} | ${booking.salonName || "BMS PRO BLACK"} | Powered by BMS PRO`;
     for (let i = 0; i < pageCount; i++) {
       doc.switchToPage(i);
-      const footerY = doc.page.height - 40;
+      const footerY = doc.page.height - 52;
       doc.fontSize(7).fillColor(COLORS.muted)
-        .text(footerText, leftMargin, footerY, { width: pageWidth, align: "center" });
+        .text(footerText, leftMargin, footerY, {
+          width: pageWidth,
+          align: "center",
+          lineBreak: false,
+        });
     }
 
     doc.end();
@@ -426,9 +432,10 @@ async function buildPDF(booking: BookingPDFData): Promise<Buffer> {
 
 function drawSectionHeader(doc: PDFKit.PDFDocument, title: string, x: number, y: number, width: number): number {
   // Never start a section title at the page footer boundary.
-  if (y + 24 > PAGE_BOTTOM) {
+  const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
+  if (y + 24 > pageBottom) {
     doc.addPage();
-    y = 40;
+    y = PAGE_MARGIN;
   }
   doc.roundedRect(x, y, 4, 16, 2).fill(COLORS.accent);
   doc.fontSize(12).fillColor(COLORS.primary).text(title, x + 12, y + 1, { width: width - 16 });
@@ -438,9 +445,10 @@ function drawSectionHeader(doc: PDFKit.PDFDocument, title: string, x: number, y:
 function drawKeyValueTable(doc: PDFKit.PDFDocument, rows: [string, string][], x: number, y: number, width: number): number {
   const colWidth = width / 2;
   for (let i = 0; i < rows.length; i++) {
-    if (y + 20 > PAGE_BOTTOM) {
+    const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
+    if (y + 20 > pageBottom) {
       doc.addPage();
-      y = 40;
+      y = PAGE_MARGIN;
     }
     const [label, value] = rows[i];
     const rowBg = i % 2 === 0 ? COLORS.background : COLORS.white;

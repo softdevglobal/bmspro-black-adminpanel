@@ -128,6 +128,8 @@ export default function BookingEnginePage() {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [downloadingBookingId, setDownloadingBookingId] = useState<string | null>(null);
+  const [pdfConfirmBooking, setPdfConfirmBooking] = useState<CustomerBooking | null>(null);
 
   // Navigate between steps with animation direction
   const goToStep = useCallback((target: number) => {
@@ -230,6 +232,57 @@ export default function BookingEnginePage() {
     const interval = setInterval(fetchCustomerBookings, 30000);
     return () => clearInterval(interval);
   }, [customer?.customerId, fetchCustomerBookings]);
+
+  const downloadBookingPdf = async (booking: CustomerBooking) => {
+    if (!customer?.customerId) {
+      setShowAuth(true);
+      return;
+    }
+    if (booking.status !== "Completed") {
+      alert("Job report is only available for completed bookings.");
+      return;
+    }
+
+    try {
+      setDownloadingBookingId(booking.id);
+      const res = await fetch(
+        `/api/book-now/customer-bookings/${booking.id}/pdf?customerId=${encodeURIComponent(customer.customerId)}`
+      );
+      if (!res.ok) {
+        let message = "Failed to download PDF";
+        try {
+          const data = await res.json();
+          message = data?.error || message;
+        } catch {
+          // Keep default error message when response is not JSON.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const safeCode = (booking.bookingCode || booking.id).replace(/[^a-zA-Z0-9_-]/g, "");
+      a.href = url;
+      a.download = `Job-Report-${safeCode}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err?.message || "Failed to download PDF");
+    } finally {
+      setDownloadingBookingId(null);
+    }
+  };
+
+  const requestDownloadBookingPdf = (booking: CustomerBooking) => {
+    if (booking.status !== "Completed") {
+      alert("Job report is only available for completed bookings.");
+      return;
+    }
+    setPdfConfirmBooking(booking);
+  };
 
   const fetchCustomerEstimates = useCallback(async () => {
     if (!customer?.customerId) return;
@@ -2252,6 +2305,19 @@ export default function BookingEnginePage() {
                             </div>
                           )}
 
+                          {bk.status === "Completed" && (
+                            <div className="mt-3">
+                              <button
+                                onClick={() => requestDownloadBookingPdf(bk)}
+                                disabled={downloadingBookingId === bk.id}
+                                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-[11px] font-bold bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+                              >
+                                <i className={`fas ${downloadingBookingId === bk.id ? "fa-spinner fa-spin" : "fa-file-pdf"} text-[10px]`} />
+                                {downloadingBookingId === bk.id ? "Generating..." : "Download Job Report"}
+                              </button>
+                            </div>
+                          )}
+
                           {/* ─── Task Progress Bar ─────────────────────────── */}
                           {bk.tasks && bk.tasks.length > 0 && (() => {
                             const doneCount = bk.tasks.filter(t => t.done).length;
@@ -2507,6 +2573,43 @@ export default function BookingEnginePage() {
               alt="Task completion"
               className="w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
             />
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════ PDF DOWNLOAD CONFIRM ═══════════════════ */}
+      {pdfConfirmBooking && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]">
+          <div className="w-full max-w-sm bg-white rounded-2xl border border-neutral-200 shadow-2xl overflow-hidden animate-[modalPop_0.22s_ease-out]">
+            <div className="h-1 bg-gradient-to-r from-neutral-800 via-neutral-700 to-neutral-800" />
+            <div className="p-5">
+              <div className="w-11 h-11 rounded-xl bg-neutral-100 flex items-center justify-center mb-3">
+                <i className="fas fa-file-pdf text-neutral-700" />
+              </div>
+              <h3 className="text-sm font-extrabold text-neutral-900">Download job report?</h3>
+              <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
+                This will generate and download the PDF for booking{" "}
+                <span className="font-semibold text-neutral-700">{pdfConfirmBooking.bookingCode || pdfConfirmBooking.id}</span>.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 border-t border-neutral-100">
+              <button
+                onClick={() => setPdfConfirmBooking(null)}
+                className="px-4 py-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const target = pdfConfirmBooking;
+                  setPdfConfirmBooking(null);
+                  if (target) await downloadBookingPdf(target);
+                }}
+                className="px-4 py-3 text-xs font-bold text-white bg-neutral-900 hover:bg-neutral-800 transition-colors"
+              >
+                Download
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -39,7 +39,6 @@ type Branch = {
         Saturday?: { open?: string; close?: string; closed?: boolean };
         Sunday?: { open?: string; close?: string; closed?: boolean };
       };
-  capacity?: number;
   bookingLimitPerDay?: number;
   manager?: string;
   adminStaffId?: string;
@@ -88,7 +87,6 @@ export default function BranchesPage() {
     Saturday: { open: "10:00", close: "16:00", closed: false },
     Sunday: { open: "10:00", close: "16:00", closed: true },
   });
-  const [capacity, setCapacity] = useState<number | "">("");
   const [bookingLimitPerDay, setBookingLimitPerDay] = useState<number | "">("");
   const [adminStaffId, setAdminStaffId] = useState("");
   const [status, setStatus] = useState<"Active" | "Pending" | "Closed">("Active");
@@ -265,7 +263,7 @@ export default function BranchesPage() {
         timezone: r.timezone,
         // @ts-ignore
         hours: r.hours,
-        capacity: r.capacity,
+        bookingLimitPerDay: r.bookingLimitPerDay,
         manager: r.manager,
         adminStaffId: r.adminStaffId, // Map adminStaffId from Firestore
         status: (r.status as any) || "Active",
@@ -386,7 +384,7 @@ export default function BranchesPage() {
       Saturday: { open: "10:00", close: "16:00", closed: false },
       Sunday: { open: "10:00", close: "16:00", closed: true },
     });
-    setCapacity("");
+    setBookingLimitPerDay("");
     setAdminStaffId("");
     setStatus("Active");
     setSelectedServiceIds({});
@@ -427,7 +425,7 @@ export default function BranchesPage() {
         Sunday: { open: "10:00", close: "16:00", closed: true },
       });
     }
-    setCapacity((b as any).capacity ?? "");
+    setBookingLimitPerDay((b as any).bookingLimitPerDay ?? "");
     setAdminStaffId((b as any).adminStaffId || "");
     setStatus(((b as any).status as any) || "Active");
     // Set location state
@@ -457,7 +455,12 @@ export default function BranchesPage() {
       staffIds: Object.keys(selectedStaffIds).filter((id) => selectedStaffIds[id]),
       serviceIds: Object.keys(selectedServiceIds).filter((id) => selectedServiceIds[id]),
       hours: hoursObj,
-      capacity: typeof capacity === "number" ? capacity : capacity === "" ? undefined : Number(capacity),
+      bookingLimitPerDay:
+        typeof bookingLimitPerDay === "number"
+          ? bookingLimitPerDay
+          : bookingLimitPerDay === ""
+            ? undefined
+            : Number(bookingLimitPerDay),
       manager: derivedManager,
       adminStaffId: adminStaffId || null,
       status,
@@ -827,15 +830,16 @@ export default function BranchesPage() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Capacity</label>
+                        <label className="block text-xs font-bold text-neutral-500 uppercase mb-1">Daily Booking Limit</label>
                         <div className="relative">
-                          <i className="fas fa-chair absolute left-3 top-3 text-neutral-400" />
+                          <i className="fas fa-calendar-day absolute left-3 top-3 text-neutral-400" />
                           <input
-                            value={capacity}
-                            onChange={(e) => setCapacity(e.target.value === "" ? "" : Number(e.target.value))}
+                            value={bookingLimitPerDay}
+                            onChange={(e) => setBookingLimitPerDay(e.target.value === "" ? "" : Number(e.target.value))}
                             type="number"
+                            min={1}
                             className="w-full pl-10 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-lg text-sm focus:bg-white focus:border-neutral-900 focus:ring-4 focus:ring-neutral-900/10 transition-all outline-none"
-                            placeholder="e.g. 12 stations"
+                            placeholder="e.g. 25 bookings"
                           />
                         </div>
                       </div>
@@ -1153,9 +1157,9 @@ export default function BranchesPage() {
                         <i className="fas fa-user-tie text-neutral-400" /> {previewBranch.manager}
                       </div>
                     )}
-                    {typeof previewBranch.capacity !== "undefined" && previewBranch.capacity !== null && previewBranch.capacity !== ("" as any) && (
+                    {typeof previewBranch.bookingLimitPerDay !== "undefined" && previewBranch.bookingLimitPerDay !== null && previewBranch.bookingLimitPerDay !== ("" as any) && (
                       <div className="flex items-center gap-2">
-                        <i className="fas fa-chair text-neutral-400" /> Capacity: {String(previewBranch.capacity)}
+                        <i className="fas fa-calendar-day text-neutral-400" /> Daily booking limit: {String(previewBranch.bookingLimitPerDay)}
                       </div>
                     )}
                     {previewBranch.timezone && (

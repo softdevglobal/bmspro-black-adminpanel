@@ -44,7 +44,7 @@ function timeRangesOverlap(
 
 /**
  * Public API: Check time slot availability for the booking engine.
- * Returns which slots are blocked (at capacity) and remaining capacity per slot.
+ * Returns slots blocked by staff availability and daily booking limit.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!branchHours) {
-      return NextResponse.json({ blockedSlots: [], capacity: {} });
+      return NextResponse.json({ blockedSlots: [], dailyLimitReached: false });
     }
 
     const allStaff = staffSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -148,13 +148,28 @@ export async function GET(req: NextRequest) {
       allSlots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
 
-    // For each slot, check capacity against each selected service
+    const branchData = branchDoc.exists ? branchDoc.data() : null;
+    const bookingLimitPerDay =
+      typeof branchData?.bookingLimitPerDay === "number" ? branchData.bookingLimitPerDay : null;
+    const isDailyLimitReached =
+      typeof bookingLimitPerDay === "number" && bookingLimitPerDay > 0
+        ? activeBookings.length >= bookingLimitPerDay
+        : false;
+
+    // If daily limit is reached, all slots are unavailable.
+    if (isDailyLimitReached) {
+      return NextResponse.json({
+        blockedSlots: allSlots,
+        dailyLimitReached: true,
+        dailyLimit: bookingLimitPerDay,
+        dayBookings: activeBookings.length,
+      });
+    }
+
+    // For each slot, check staff availability against each selected service
     const blockedSlots: string[] = [];
-    const capacity: Record<string, { available: number; total: number }> = {};
 
     for (const slot of allSlots) {
-      let minAvailable = Infinity;
-      let minTotal = Infinity;
       let isBlocked = false;
 
       for (const serviceId of serviceIds) {
@@ -216,20 +231,19 @@ export async function GET(req: NextRequest) {
         if (freeStaff <= 0) {
           isBlocked = true;
         }
-        minAvailable = Math.min(minAvailable, Math.max(0, freeStaff));
-        minTotal = Math.min(minTotal, totalCapacity);
       }
 
       if (isBlocked) {
         blockedSlots.push(slot);
       }
-
-      if (minTotal !== Infinity) {
-        capacity[slot] = { available: minAvailable === Infinity ? 0 : minAvailable, total: minTotal };
-      }
     }
 
-    return NextResponse.json({ blockedSlots, capacity });
+    return NextResponse.json({
+      blockedSlots,
+      dailyLimitReached: false,
+      dailyLimit: bookingLimitPerDay,
+      dayBookings: activeBookings.length,
+    });
   } catch (error: any) {
     console.error("Error checking availability:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

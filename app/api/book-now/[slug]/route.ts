@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 /**
  * Public API: Get workshop data by slug for booking engine.
- * Returns: workshop name, branches (id, name, address), services (id, name, price, duration, checklist, branches).
+ * Returns: workshop name, branches (id, name, address, bookingLimitPerDay), services (id, name, price, duration, checklist, branches).
  * No authentication required.
  */
 export async function GET(
@@ -57,6 +57,7 @@ export async function GET(
         phone: data.phone || "",
         timezone: data.timezone || "Australia/Sydney",
         hours: data.hours || null,
+        bookingLimitPerDay: typeof data.bookingLimitPerDay === "number" ? data.bookingLimitPerDay : null,
       };
     });
 

@@ -9,7 +9,15 @@ type BranchHoursMap = {
   Monday?: DayHours; Tuesday?: DayHours; Wednesday?: DayHours; Thursday?: DayHours;
   Friday?: DayHours; Saturday?: DayHours; Sunday?: DayHours;
 };
-type Branch = { id: string; name: string; address: string; phone: string; timezone: string; hours?: BranchHoursMap | string | null };
+type Branch = {
+  id: string;
+  name: string;
+  address: string;
+  phone: string;
+  timezone: string;
+  hours?: BranchHoursMap | string | null;
+  bookingLimitPerDay?: number | null;
+};
 type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
@@ -115,9 +123,9 @@ export default function BookingEnginePage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [expandedService, setExpandedService] = useState<string | null>(null);
 
-  // Slot availability (capacity limiting)
+  // Slot availability
   const [blockedSlots, setBlockedSlots] = useState<Set<string>>(new Set());
-  const [slotCapacity, setSlotCapacity] = useState<Record<string, { available: number; total: number }>>({});
+  const [dailyLimitReached, setDailyLimitReached] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
 
   // Notification panel state
@@ -491,7 +499,7 @@ export default function BookingEnginePage() {
   useEffect(() => {
     if (!slug || !selectedBranch || selectedServices.length === 0 || !date) {
       setBlockedSlots(new Set());
-      setSlotCapacity({});
+      setDailyLimitReached(false);
       return;
     }
     let cancelled = false;
@@ -509,7 +517,7 @@ export default function BookingEnginePage() {
         const data = await res.json();
         if (cancelled) return;
         setBlockedSlots(new Set(data.blockedSlots || []));
-        setSlotCapacity(data.capacity || {});
+        setDailyLimitReached(Boolean(data.dailyLimitReached));
         // Clear selected time if it's now blocked
         if (data.blockedSlots?.includes(time)) {
           setTime("");
@@ -517,7 +525,7 @@ export default function BookingEnginePage() {
       } catch {
         if (!cancelled) {
           setBlockedSlots(new Set());
-          setSlotCapacity({});
+          setDailyLimitReached(false);
         }
       } finally {
         if (!cancelled) setAvailabilityLoading(false);
@@ -1723,6 +1731,11 @@ export default function BookingEnginePage() {
                             </div>
                           )}
                         </div>
+                        {dailyLimitReached && (
+                          <div className="mx-2.5 mt-2.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-700">
+                            Daily booking limit reached for this branch. Please choose another date.
+                          </div>
+                        )}
                         <div className="grid grid-cols-4 gap-1.5 p-2.5 flex-1 overflow-y-auto" style={{ alignContent: "start" }}>
                           {availabilityLoading && date && (
                             <div className="col-span-4 flex items-center justify-center gap-2 py-4">

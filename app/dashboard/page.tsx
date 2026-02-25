@@ -17,7 +17,6 @@ export default function DashboardPage() {
   const [revenueData, setRevenueData] = useState<number[]>([]);
   const [revenueLabels, setRevenueLabels] = useState<string[]>([]);
   const [statusData, setStatusData] = useState({ confirmed: 0, pending: 0, completed: 0, canceled: 0 });
-  const [pendingUnassignedCount, setPendingUnassignedCount] = useState<number>(0);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [weeklyBookings, setWeeklyBookings] = useState<number>(0);
   const [revenueGrowth, setRevenueGrowth] = useState<number>(0);
@@ -249,34 +248,15 @@ export default function DashboardPage() {
           canceled: 0
         };
         
-        const isUnassigned = (b: any) => {
-          const check = (staffId: string | null | undefined, staffName: string | null | undefined) => {
-            if (!staffId || String(staffId).trim() === '' || String(staffId) === 'null') return true;
-            const sn = (staffName || '').toLowerCase();
-            return sn.includes('any') || sn.includes('not assigned');
-          };
-          if (check(b.staffId, b.staffName)) return true;
-          if (b.services?.length) {
-            return b.services.some((s: any) => check(s.staffId, s.staffName));
-          }
-          return check(b.staffId, b.staffName);
-        };
-        
-        let pendingUnassigned = 0;
         bookings.forEach((b: any) => {
           const status = (b.status || '').toLowerCase();
           if (status === 'confirmed') statusCount.confirmed++;
           else if (status === 'pending') statusCount.pending++;
           else if (status === 'completed') statusCount.completed++;
           else if (status === 'canceled' || status === 'cancelled') statusCount.canceled++;
-          // Count pending/awaiting bookings not yet assigned to staff
-          if (status === 'pending' || status.includes('awaiting') || status.includes('partially') || status.includes('staffrejected')) {
-            if (isUnassigned(b)) pendingUnassigned++;
-          }
         });
         
         setStatusData(statusCount);
-        setPendingUnassignedCount(pendingUnassigned);
       },
       (error) => {
         if (error.code === "permission-denied") {
@@ -291,7 +271,6 @@ export default function DashboardPage() {
         } else {
           console.error("Error in bookings snapshot:", error);
         }
-        setPendingUnassignedCount(0);
       }
       );
 
@@ -1071,21 +1050,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Right side - Pending request button + Notification icon */}
+                {/* Right side - Notification icon */}
                 <div className="flex items-center gap-3">
-                  {pendingUnassignedCount > 0 && (
-                    <button 
-                      onClick={() => router.push('/bookings/pending')}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-semibold text-sm transition-all shadow-lg"
-                      title="Pending requests - assign staff"
-                    >
-                      <i className="fas fa-user-clock text-base" />
-                      <span>Pending request</span>
-                      <span className="min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                        {pendingUnassignedCount > 9 ? '9+' : pendingUnassignedCount}
-                      </span>
-                    </button>
-                  )}
                   <button 
                     onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
                     className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all group ${

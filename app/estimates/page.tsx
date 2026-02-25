@@ -383,8 +383,8 @@ export default function EstimatesPage() {
                       </div>
 
                       <div className="border-t border-neutral-100 px-4 py-2.5 flex items-center gap-2 bg-neutral-50/50">
-                        <button onClick={() => openPreview(e)} className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center">
-                          <i className="fas fa-eye text-sm" />
+                        <button onClick={() => openPreview(e)} className="px-3 py-1.5 rounded-full text-xs font-semibold bg-neutral-300 text-neutral-800 hover:bg-neutral-400 transition inline-flex items-center gap-1">
+                          Preview
                         </button>
                         <div className="flex-1" />
                         {e.status === "New" && (
@@ -482,8 +482,8 @@ export default function EstimatesPage() {
                             </td>
                             <td className="p-4 text-right pr-6">
                               <div className="inline-flex items-center gap-1.5">
-                                <button onClick={() => openPreview(e)} className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center" title="Preview">
-                                  <i className="fas fa-eye text-sm" />
+                                <button onClick={() => openPreview(e)} className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-neutral-300 text-neutral-800 hover:bg-neutral-400 transition" title="Preview">
+                                  Preview
                                 </button>
                                 {e.status === "New" && (
                                   <button disabled={updatingId === e.id} onClick={() => updateStatus(e.id, "Reviewed")}

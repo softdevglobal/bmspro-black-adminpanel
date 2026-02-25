@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit/js/pdfkit.standalone";
-import { adminDb } from "./firebaseAdmin";
+import { adminDb, adminStorage } from "./firebaseAdmin";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
 
 interface BookingPDFData {
@@ -109,10 +109,56 @@ const FOOTER_RESERVE = 52;
 const TASK_IMAGE_SIZE = 72;
 const FINAL_IMAGE_SIZE = 160;
 
+/**
+ * Parse Firebase Storage URL to get bucket name and file path.
+ * Supports: firebasestorage.googleapis.com and storage.googleapis.com formats.
+ */
+function parseFirebaseStorageUrl(url: string): { bucket: string; path: string } | null {
+  try {
+    const u = new URL(url);
+    // https://firebasestorage.googleapis.com/v0/b/BUCKET/o/ENCODED_PATH?alt=media&token=...
+    if (u.hostname.includes("firebasestorage.googleapis.com")) {
+      const match = u.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+      if (match) {
+        const path = decodeURIComponent(match[2]);
+        return { bucket: match[1], path };
+      }
+    }
+    // https://storage.googleapis.com/BUCKET/path/to/file
+    if (u.hostname.includes("storage.googleapis.com") || u.hostname.includes("googleapis.com")) {
+      const parts = u.pathname.replace(/^\//, "").split("/");
+      if (parts.length >= 2) {
+        const bucket = parts[0];
+        const path = parts.slice(1).join("/");
+        return { bucket, path };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
+
+  // Use Firebase Admin Storage for Firebase Storage URLs (more reliable than fetch with tokens)
+  const parsed = parseFirebaseStorageUrl(url);
+  if (parsed) {
+    try {
+      const storage = adminStorage();
+      const bucket = storage.bucket(parsed.bucket);
+      const file = bucket.file(parsed.path);
+      const [buf] = await file.download();
+      return buf && buf.length > 0 ? buf : null;
+    } catch {
+      /* fall through to fetch */
+    }
+  }
+
+  // Fallback: fetch for non-Firebase URLs or when Admin download fails
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { "User-Agent": "BMS-PRO-PDF/1.0" } });
     if (!res.ok) return null;
     const arr = await res.arrayBuffer();
     return Buffer.from(arr);
@@ -174,9 +220,13 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   // Pre-fetch all images (task-wise and overall)
   const imageUrls = new Set<string>();
   for (const task of booking.tasks || []) {
-    if (task.done && task.imageUrl) imageUrls.add(task.imageUrl);
+    if (task.done) {
+      const url = (task as any).imageUrl || (task as any).image;
+      if (url && typeof url === "string") imageUrls.add(url);
+    }
   }
-  if (booking.finalSubmission?.imageUrl) imageUrls.add(booking.finalSubmission.imageUrl);
+  const fsImage = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
+  if (fsImage && typeof fsImage === "string") imageUrls.add(fsImage);
   const imageBuffers = new Map<string, Buffer>();
   await Promise.all(
     Array.from(imageUrls).map(async (url) => {
@@ -334,7 +384,8 @@ async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffe
 
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
-        const hasTaskImage = !!(task.done && task.imageUrl && imageBuffers.has(task.imageUrl));
+        const taskImageUrl = (task as any).imageUrl || (task as any).image;
+        const hasTaskImage = !!(task.done && taskImageUrl && imageBuffers.has(taskImageUrl));
         const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImage);
         y = ensureSpace(doc, y, cardH);
 
@@ -400,9 +451,9 @@ async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffe
         }
 
         // Task completion image
-        if (hasTaskImage) {
-          const imgBuf = imageBuffers.get(task.imageUrl!);
-          if (imgBuf) {
+        if (hasTaskImage && taskImageUrl) {
+          const imgBuf = imageBuffers.get(taskImageUrl);
+          if (imgBuf && imgBuf.length > 0) {
             try {
               doc.fontSize(7).fillColor(COLORS.muted).text("Photo:", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
               iy += 12;
@@ -420,11 +471,12 @@ async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffe
     }
 
     // ─── FINAL SUBMISSION ─────────────────────────────────────
-    if (booking.finalSubmission && (booking.finalSubmission.description || booking.finalSubmission.imageUrl)) {
+    const fsImageUrl = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
+    if (booking.finalSubmission && (booking.finalSubmission.description || fsImageUrl)) {
       const fs = booking.finalSubmission;
       doc.fontSize(10);
       const descH = fs.description ? doc.heightOfString(fs.description, { width: pageWidth - 28 }) : 0;
-      const hasFinalImage = !!(fs.imageUrl && imageBuffers.has(fs.imageUrl));
+      const hasFinalImage = !!(fsImageUrl && imageBuffers.has(fsImageUrl));
       let cardH = 10 + descH + 8 + (fs.submittedByStaffName ? 14 : 0) + 10;
       if (hasFinalImage) cardH += 12 + FINAL_IMAGE_SIZE + 8; // "Overall photo:" + image + padding
 
@@ -449,9 +501,9 @@ async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffe
       }
 
       // Overall/final image
-      if (hasFinalImage) {
-        const imgBuf = imageBuffers.get(fs.imageUrl!);
-        if (imgBuf) {
+      if (hasFinalImage && fsImageUrl) {
+        const imgBuf = imageBuffers.get(fsImageUrl);
+        if (imgBuf && imgBuf.length > 0) {
           try {
             doc.fontSize(7).fillColor(COLORS.muted).text("Overall photo:", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
             fsY += 12;

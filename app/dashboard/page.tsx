@@ -1082,10 +1082,20 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Right side - Pending request, Calendar, Notifications */}
+                {/* Right side - Calendar, Pending request, Notifications */}
                 <div className="flex items-center gap-3">
                   {!isSuperAdmin && (
                     <>
+                      <button
+                        onClick={() => setShowCalendarOnly(!showCalendarOnly)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                          showCalendarOnly ? "bg-white/20 text-white" : "bg-white/10 hover:bg-white/20 text-white/90"
+                        }`}
+                        title={showCalendarOnly ? "Show full dashboard" : "Show calendar only"}
+                      >
+                        <i className="fas fa-calendar-week" />
+                        <span>Calendar</span>
+                      </button>
                       {pendingUnassignedCount > 0 && (
                         <button
                           onClick={() => router.push("/bookings/pending")}
@@ -1099,16 +1109,6 @@ export default function DashboardPage() {
                           </span>
                         </button>
                       )}
-                      <button
-                        onClick={() => setShowCalendarOnly(!showCalendarOnly)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-                          showCalendarOnly ? "bg-white/20 text-white" : "bg-white/10 hover:bg-white/20 text-white/90"
-                        }`}
-                        title={showCalendarOnly ? "Show full dashboard" : "Show calendar only"}
-                      >
-                        <i className="fas fa-calendar-week" />
-                        <span>Calendar</span>
-                      </button>
                     </>
                   )}
                   <button 

@@ -810,7 +810,9 @@ export async function createOwnerNotification(data: {
       break;
     case "booking_needs_assignment":
       title = "New Booking - Staff Assignment Required";
-      message = `New booking from ${data.clientName} for ${serviceList} on ${data.bookingDate} at ${data.bookingTime}. Please assign staff.`;
+      message = data.branchName
+        ? `New booking from ${data.clientName} for ${serviceList} at ${data.branchName} on ${data.bookingDate} at ${data.bookingTime}. Please assign staff.`
+        : `New booking from ${data.clientName} for ${serviceList} on ${data.bookingDate} at ${data.bookingTime}. Please assign staff.`;
       break;
     case "booking_engine_new_booking":
       title = "New Online Booking";

@@ -1825,10 +1825,11 @@ export async function sendEstimateRequestEmail(
       return { success: false, error: "Owner not found" };
     }
     const ownerData = ownerDoc.data();
-    const ownerEmail = ownerData?.email;
-    const salonName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
+    const ownerEmail = ownerData?.email || ownerData?.workEmail || ownerData?.ownerEmail;
+    const salonName = ownerData?.workshopName || ownerData?.displayName || ownerData?.name || "Workshop";
 
-    if (!ownerEmail) {
+    if (!ownerEmail?.trim()) {
+      console.warn(`[EMAIL] Owner ${ownerUid} has no email in users collection (fields: email, workEmail, ownerEmail)`);
       return { success: false, error: "Owner email not found" };
     }
 

@@ -687,7 +687,14 @@ export default function BookingEnginePage() {
           formData.append("file", file);
           formData.append("folder", "estimates/customer-uploads");
           const uploadRes = await fetch("/api/book-now/upload-image", { method: "POST", body: formData });
-          const uploadData = await uploadRes.json();
+          const uploadText = await uploadRes.text();
+          let uploadData: { url?: string; error?: string } = {};
+          try {
+            uploadData = uploadText ? JSON.parse(uploadText) : {};
+          } catch {
+            if (uploadRes.status === 413) throw new Error("Image too large. Please use smaller photos (max 5MB each).");
+            throw new Error(`Failed to upload image ${i + 1} of ${estimateImages.length}`);
+          }
           if (!uploadRes.ok) {
             throw new Error(uploadData.error || `Failed to upload image ${i + 1} of ${estimateImages.length}`);
           }
@@ -718,7 +725,14 @@ export default function BookingEnginePage() {
           imageUrls,
         }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: { error?: string } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        if (res.status === 413) throw new Error("Request payload too large. Try reducing the number or size of photos.");
+        throw new Error("Invalid response from server. Please try again.");
+      }
       if (!res.ok) throw new Error(data.error || "Failed to submit estimate request");
       setEstimateSuccess(true);
       setEstimateImages([]);

@@ -125,8 +125,12 @@ export function middleware(request: NextRequest) {
   
   // 2. Protect API endpoints
   if (pathname.startsWith("/api/")) {
-    // Booking creation can have larger payloads (multi-service bookings)
-    const maxSize = pathname.includes("/bookings") ? MAX_PAYLOAD_1MB : MAX_PAYLOAD_100KB;
+    // File uploads (images for estimates, etc.) need 10MB
+    const MAX_PAYLOAD_10MB = 10 * 1024 * 1024;
+    const isUpload = pathname.includes("/upload-image") || pathname.includes("/upload/");
+    // Booking creation, estimates (with image URLs), and estimate replies can have larger payloads
+    const isLargePayload = pathname.includes("/bookings") || pathname.includes("/estimate") || pathname.includes("/estimate-reply");
+    const maxSize = isUpload ? MAX_PAYLOAD_10MB : isLargePayload ? MAX_PAYLOAD_1MB : MAX_PAYLOAD_100KB;
     
     if (contentLength && parseInt(contentLength) > maxSize) {
       console.warn(`[CVE-2025] Blocked oversized API request to ${pathname}: ${contentLength} bytes`);

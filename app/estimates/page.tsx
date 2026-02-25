@@ -208,7 +208,14 @@ export default function EstimatesPage() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const text = await res.text();
+        let data: { error?: string } = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          if (res.status === 413) throw new Error("Request payload too large. Try reducing the number or size of attached images.");
+          throw new Error("Failed to send reply");
+        }
         throw new Error(data.error || "Failed to send reply");
       }
 

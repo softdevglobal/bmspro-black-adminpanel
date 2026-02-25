@@ -681,14 +681,20 @@ export default function BookingEnginePage() {
       // Upload images first via server API
       let imageUrls: string[] = [];
       if (estimateImages.length > 0) {
-        for (const file of estimateImages) {
+        for (let i = 0; i < estimateImages.length; i++) {
+          const file = estimateImages[i];
           const formData = new FormData();
           formData.append("file", file);
           formData.append("folder", "estimates/customer-uploads");
           const uploadRes = await fetch("/api/book-now/upload-image", { method: "POST", body: formData });
-          if (uploadRes.ok) {
-            const uploadData = await uploadRes.json();
-            if (uploadData.url) imageUrls.push(uploadData.url);
+          const uploadData = await uploadRes.json();
+          if (!uploadRes.ok) {
+            throw new Error(uploadData.error || `Failed to upload image ${i + 1} of ${estimateImages.length}`);
+          }
+          if (uploadData.url) {
+            imageUrls.push(uploadData.url);
+          } else {
+            console.warn("Upload succeeded but no URL returned for image", i + 1);
           }
         }
       }

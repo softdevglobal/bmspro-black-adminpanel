@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [salonName, setSalonName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [pendingUnassignedCount, setPendingUnassignedCount] = useState<number>(0);
+  const [showCalendarOnly, setShowCalendarOnly] = useState<boolean>(false);
   
   // Today's Schedule state
   const [todayBookings, setTodayBookings] = useState<any[]>([]);
@@ -257,6 +259,35 @@ export default function DashboardPage() {
         });
         
         setStatusData(statusCount);
+
+        // Count pending bookings that need staff assignment
+        const isBookingUnassigned = (b: any) => {
+          const check = (staffId: string | null | undefined, staffName: string | null | undefined) => {
+            if (!staffId || String(staffId).trim() === "" || staffId === "null") return true;
+            const sn = (staffName ?? "").toLowerCase();
+            return sn.includes("any") || sn.includes("not assigned");
+          };
+          if (check(b.staffId, b.staffName)) return true;
+          const services = b.services;
+          if (Array.isArray(services)) {
+            for (const s of services) {
+              if (s && check(s.staffId, s.staffName)) return true;
+            }
+          }
+          return check(b.staffId, b.staffName);
+        };
+        let pendingUnassigned = 0;
+        const seenIds = new Set<string>();
+        for (const b of bookings as any[]) {
+          const status = (b.status || "").toString().toLowerCase().trim();
+          const isPendingStatus = status === "pending" || status.includes("awaiting") || status.includes("partially") || status === "staffrejected";
+          if (!isPendingStatus || seenIds.has(b.id)) continue;
+          if (isBookingUnassigned(b)) {
+            seenIds.add(b.id);
+            pendingUnassigned++;
+          }
+        }
+        setPendingUnassignedCount(pendingUnassigned);
       },
       (error) => {
         if (error.code === "permission-denied") {
@@ -268,6 +299,7 @@ export default function DashboardPage() {
           setRevenueData([]);
           setRevenueLabels([]);
           setStatusData({ confirmed: 0, pending: 0, completed: 0, canceled: 0 });
+          setPendingUnassignedCount(0);
         } else {
           console.error("Error in bookings snapshot:", error);
         }
@@ -1050,8 +1082,35 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Right side - Notification icon */}
+                {/* Right side - Pending request, Calendar, Notifications */}
                 <div className="flex items-center gap-3">
+                  {!isSuperAdmin && (
+                    <>
+                      {pendingUnassignedCount > 0 && (
+                        <button
+                          onClick={() => router.push("/bookings/pending")}
+                          className="relative flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-100 font-semibold text-sm transition-all"
+                          title="Pending requests need staff assignment"
+                        >
+                          <i className="fas fa-user-clock" />
+                          <span>Pending request</span>
+                          <span className="min-w-[20px] h-5 px-1.5 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                            {pendingUnassignedCount > 9 ? "9+" : pendingUnassignedCount}
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowCalendarOnly(!showCalendarOnly)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                          showCalendarOnly ? "bg-white/20 text-white" : "bg-white/10 hover:bg-white/20 text-white/90"
+                        }`}
+                        title={showCalendarOnly ? "Show full dashboard" : "Show calendar only"}
+                      >
+                        <i className="fas fa-calendar-week" />
+                        <span>Calendar</span>
+                      </button>
+                    </>
+                  )}
                   <button 
                     onClick={() => setNotificationPanelOpen(!notificationPanelOpen)}
                     className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all group ${
@@ -1070,6 +1129,8 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+          {!showCalendarOnly && (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0">
               <div className="flex items-center justify-between mb-3">
@@ -2020,9 +2081,22 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+          </>
+          )}
 
           {/* ═══════ WEEKLY CALENDAR ═══════ */}
-          {!authLoading && !isSuperAdmin && (() => {
+          {!authLoading && !isSuperAdmin && (
+          <>
+          {showCalendarOnly && (
+            <button
+              onClick={() => setShowCalendarOnly(false)}
+              className="flex items-center gap-2 px-4 py-2.5 mb-4 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-semibold text-sm transition-colors border border-neutral-200"
+            >
+              <i className="fas fa-arrow-left" />
+              Back to Dashboard
+            </button>
+          )}
+          {(() => {
             const CAL_HOURS = Array.from({ length: 12 }, (_, i) => i + 7); // 7 AM – 6 PM
             const SLOT_H = 48;
             const GRID_HEIGHT = CAL_HOURS.length * SLOT_H;
@@ -2390,21 +2464,20 @@ export default function DashboardPage() {
 
                               const n = bk.overlapCount ?? 1;
                               const colIdx = bk.overlapCol ?? 0;
-                              const gapPct = n > 1 ? 2 : 0;
-                              const widthPct = (100 / n) - gapPct;
-                              const leftPct = (colIdx * (100 / n)) + (gapPct / 2);
+                              const STACK_OFFSET = 10;
                               const isCompact = n > 1;
                               const initials = (bk.client || "?").split(/\s+/).map((s: string) => s[0]).join("").toUpperCase().slice(0, 2);
 
                               return (
                                 <div
                                   key={`${bk.bookingId || bk.id}-${bk.id}-${(bk.client || "").slice(0, 20)}`}
-                                  className={`group absolute z-20 hover:z-[70] overflow-visible cursor-pointer ${isCompact ? "cal-block-wrapper" : ""}`}
+                                  className={`group absolute overflow-visible cursor-pointer hover:z-[70] ${isCompact ? "cal-block-wrapper" : ""}`}
                                   style={{
                                     top: topPx + 2,
                                     height: heightPx - 2,
-                                    left: isCompact ? `calc(${leftPct}% + 4px)` : 4,
-                                    width: isCompact ? `calc(${widthPct}% - 8px)` : "calc(100% - 8px)",
+                                    left: isCompact ? 4 + colIdx * STACK_OFFSET : 4,
+                                    width: "calc(100% - 8px)",
+                                    zIndex: 20 + colIdx,
                                     minWidth: isCompact ? 85 : undefined,
                                   }}
                                   onClick={() => router.push(`${targetPath}?highlight=${bk.bookingId || bk.id.split("-")[0]}`)}
@@ -2510,7 +2583,11 @@ export default function DashboardPage() {
               </div>
             );
           })()}
+          </>
+          )}
           
+          {!showCalendarOnly && (
+          <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-neutral-200 shadow-sm min-w-0 overflow-hidden">
               <div className="flex items-center justify-between mb-6">
@@ -2857,6 +2934,8 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+          )}
+          </>
           )}
         </main>
         )}

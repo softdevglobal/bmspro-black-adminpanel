@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { shouldBlockSlots } from "@/lib/bookingTypes";
+import { shouldBlockSlots, countsTowardDailyLimit } from "@/lib/bookingTypes";
 
 export const runtime = "nodejs";
 
@@ -151,9 +151,12 @@ export async function GET(req: NextRequest) {
     const branchData = branchDoc.exists ? branchDoc.data() : null;
     const bookingLimitPerDay =
       typeof branchData?.bookingLimitPerDay === "number" ? branchData.bookingLimitPerDay : null;
+    const bookingsTowardLimit = bookingsSnapshot.docs
+      .map((d) => ({ id: d.id, ...d.data() } as any))
+      .filter((b: any) => b.branchId === branchId && countsTowardDailyLimit(b.status));
     const isDailyLimitReached =
       typeof bookingLimitPerDay === "number" && bookingLimitPerDay > 0
-        ? activeBookings.length >= bookingLimitPerDay
+        ? bookingsTowardLimit.length >= bookingLimitPerDay
         : false;
 
     // If daily limit is reached, all slots are unavailable.
@@ -162,7 +165,7 @@ export async function GET(req: NextRequest) {
         blockedSlots: allSlots,
         dailyLimitReached: true,
         dailyLimit: bookingLimitPerDay,
-        dayBookings: activeBookings.length,
+        dayBookings: bookingsTowardLimit.length,
       });
     }
 
@@ -242,7 +245,7 @@ export async function GET(req: NextRequest) {
       blockedSlots,
       dailyLimitReached: false,
       dailyLimit: bookingLimitPerDay,
-      dayBookings: activeBookings.length,
+      dayBookings: bookingsTowardLimit.length,
     });
   } catch (error: any) {
     console.error("Error checking availability:", error);

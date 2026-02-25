@@ -272,6 +272,20 @@ export function shouldBlockSlots(status: string | null | undefined): boolean {
   return !inactiveStatuses.includes(normalized);
 }
 
+/**
+ * Check if a booking counts toward the daily booking limit.
+ * Daily limit is a capacity/regulation rule: cancelled bookings free up a slot,
+ * but completed bookings do NOT (they used that day's capacity).
+ * Returns true if the booking counts toward the limit.
+ */
+export function countsTowardDailyLimit(status: string | null | undefined): boolean {
+  if (!status) return true;
+  const normalized = normalizeBookingStatus(status);
+  // Only cancelled and staff-rejected don't count (slot was never used)
+  const excludeFromLimit: BookingStatus[] = ['Canceled', 'StaffRejected'];
+  return !excludeFromLimit.includes(normalized);
+}
+
 // ─── Staff Task Management ───────────────────────────────────────────────────
 
 /** A single task within a booking (copied from service checklist at booking creation) */

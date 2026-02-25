@@ -49,6 +49,8 @@ export default function DashboardPage() {
   const [calStaffList, setCalStaffList] = useState<{id:string;name:string}[]>([]);
   const [calBranchFilter, setCalBranchFilter] = useState<string>("all");
   const [calBranchList, setCalBranchList] = useState<{ value: string; label: string }[]>([]);
+  const [calHoverTooltip, setCalHoverTooltip] = useState<{ data: any; rect: DOMRect } | null>(null);
+  const calTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // Use notification context from NotificationProvider
   const { notifications, unreadCount, markAsRead, markAllAsRead, deleteNotification, deleteAllNotifications } = useNotifications();
@@ -672,6 +674,9 @@ export default function DashboardPage() {
               pickupTime: data.pickupTime || "",
               duration: data.duration || 60,
               client: data.client || data.clientName || "Customer",
+              clientPhone: data.clientPhone || "",
+              clientEmail: data.clientEmail || "",
+              notes: data.notes || "",
               serviceName: data.serviceName || (Array.isArray(data.services) ? data.services.map((s:any) => s.name).join(", ") : "Service"),
               branchId: data.branchId || "",
               branchName: data.branchName || "",
@@ -2098,7 +2103,7 @@ export default function DashboardPage() {
           )}
           {(() => {
             const CAL_HOURS = Array.from({ length: 12 }, (_, i) => i + 7); // 7 AM – 6 PM
-            const SLOT_H = 48;
+            const SLOT_H = 52; // 52px per hour (compact)
             const GRID_HEIGHT = CAL_HOURS.length * SLOT_H;
             const dayNames = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
             const weekDates: Date[] = [];
@@ -2162,6 +2167,9 @@ export default function DashboardPage() {
                       time: t,
                       duration: dur,
                       client: b.client,
+                      clientPhone: b.clientPhone || "",
+                      clientEmail: b.clientEmail || "",
+                      notes: b.notes || "",
                       serviceName: svc.name || b.serviceName || "Service",
                       servicesText: Array.isArray(b.services) && b.services.length > 0
                         ? b.services.map((x: any) => x?.name).filter(Boolean).join(", ")
@@ -2182,6 +2190,9 @@ export default function DashboardPage() {
                     time: b.time || "09:00",
                     duration: b.duration || 60,
                     client: b.client,
+                    clientPhone: b.clientPhone || "",
+                    clientEmail: b.clientEmail || "",
+                    notes: b.notes || "",
                     serviceName: b.serviceName || "Service",
                     servicesText: b.serviceName || "Service",
                     staffName: b.staffName || "",
@@ -2285,41 +2296,58 @@ export default function DashboardPage() {
             };
 
             return (
-              <div className="bg-gradient-to-br from-white via-neutral-50 to-white rounded-2xl border border-neutral-200 shadow-sm mb-8 overflow-visible">
+              <div className="bg-white rounded-2xl shadow-xl border border-slate-200 mb-8 overflow-hidden">
                 <style>{`
-                  .cal-block-wrapper {
-                    transition: left 0.25s ease-out, right 0.25s ease-out, width 0.25s ease-out;
-                    transition-delay: 0.18s;
+                  .cal-grid-scroll::-webkit-scrollbar { width: 6px; }
+                  .cal-grid-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+                  .cal-booking-card {
+                    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                    overflow: hidden;
+                    white-space: nowrap;
+                    position: absolute;
+                    border: 1px solid rgba(255,255,255,0.2);
                   }
-                  .cal-block-wrapper:hover {
-                    left: 4px !important;
-                    right: 4px !important;
-                    width: auto !important;
-                    transition-delay: 0s;
+                  .cal-booking-card:hover {
+                    width: 200px !important;
+                    min-width: 200px !important;
+                    z-index: 50 !important;
                   }
-                  .cal-block-inner {
-                    transition: opacity 0.2s ease-out;
+                  .cal-day-column:hover .cal-booking-card:not(:hover) {
+                    opacity: 0.35;
+                    filter: grayscale(0.6);
                   }
+                  .cal-hour-marker { height: 52px; border-bottom: 1px solid #f1f5f9; }
+                  .cal-today-column { background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%) !important; }
+                  .cal-day-tint-0 { background: linear-gradient(180deg, #f0f9ff 0%, #fff 100%); }
+                  .cal-day-tint-1 { background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%); }
+                  .cal-day-tint-2 { background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%); }
+                  .cal-day-tint-3 { background: linear-gradient(180deg, #fff7ed 0%, #fff 100%); }
+                  .cal-day-tint-4 { background: linear-gradient(180deg, #fefce8 0%, #fff 100%); }
+                  .cal-day-tint-5 { background: linear-gradient(180deg, #fdf4ff 0%, #fff 100%); }
+                  .cal-day-tint-6 { background: linear-gradient(180deg, #fce7f3 0%, #fff 100%); }
+                  .cal-booking-card { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+                  .cal-booking-card:hover { box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
                 `}</style>
-                {/* Header */}
-                <div className="p-4 sm:p-6 border-b border-neutral-200">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                {/* Sticky Header: Left = Calendar + Filters, Right = Nav */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-6 border-b border-slate-200 bg-white sticky top-0 z-30">
+                  <div className="flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-neutral-900 rounded-xl flex items-center justify-center">
+                      <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/25">
                         <i className="fas fa-calendar-week text-white text-sm" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-lg text-neutral-900">Calendar</h3>
+                        <h3 className="font-bold text-lg text-neutral-900">Calendar</h3>
                         <p className="text-sm text-neutral-500">{weekLabel}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+                    <div className="flex items-center gap-2">
                       {!isBranchAdmin ? (
                         <div className="relative">
                           <select
                             value={calBranchFilter}
                             onChange={e => setCalBranchFilter(e.target.value)}
-                            className="appearance-none text-xs font-medium border border-neutral-200 rounded-lg pl-2.5 pr-7 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                            className="appearance-none text-xs font-medium border border-neutral-200 rounded-lg pl-2.5 pr-7 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
                           >
                             <option value="all">All Branches</option>
                             {calBranchList.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
@@ -2336,75 +2364,83 @@ export default function DashboardPage() {
                         <select
                           value={calStaffFilter}
                           onChange={e => setCalStaffFilter(e.target.value)}
-                          className="appearance-none text-xs font-medium border border-neutral-200 rounded-lg pl-2.5 pr-7 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                          className="appearance-none text-xs font-medium border border-neutral-200 rounded-lg pl-2.5 pr-7 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
                         >
                           <option value="all">All Staff</option>
                           {calStaffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                         <i className="fas fa-chevron-down pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-neutral-500" />
                       </div>
-                      <button onClick={goToday} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition">Today</button>
-                      <button onClick={prevWeek} className="w-8 h-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition"><i className="fas fa-chevron-left text-xs text-neutral-600" /></button>
-                      <button onClick={nextWeek} className="w-8 h-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition"><i className="fas fa-chevron-right text-xs text-neutral-600" /></button>
+                      {(calBranchFilter !== "all" || calStaffFilter !== "all") && (
+                        <button
+                          onClick={() => { setCalBranchFilter("all"); setCalStaffFilter("all"); }}
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition"
+                          title="Clear filters"
+                        >
+                          <i className="fas fa-times" /> Clear
+                        </button>
+                      )}
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={prevWeek} className="p-2.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition" title="Previous week"><i className="fas fa-chevron-left text-sm" /></button>
+                    <button onClick={nextWeek} className="p-2.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition" title="Next week"><i className="fas fa-chevron-right text-sm" /></button>
                   </div>
                 </div>
 
-                {/* Calendar grid - day columns with booking blocks inside */}
-                <div className="overflow-x-auto">
-                  <div className="min-w-[800px]">
-                    {/* Day headers */}
-                    <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-neutral-200 bg-neutral-50/70">
-                      <div className="p-2" />
-                      {weekDates.map((d, i) => {
-                        const ds = fmtDate(d);
-                        const isToday = ds === todayStr;
-                        return (
-                          <div
-                            key={i}
-                            className={`p-2 text-center border-l border-neutral-200 ${
-                              isToday
-                                ? "bg-neutral-900"
-                                : `bg-gradient-to-b ${DAY_HEADER_COLORS[i % DAY_HEADER_COLORS.length]}`
-                            }`}
-                          >
-                            <p className={`text-[10px] font-extrabold uppercase tracking-wider ${isToday ? "text-neutral-400" : "text-neutral-500"}`}>{dayNames[i].substring(0,3)}</p>
-                            <p className={`text-lg font-black ${isToday ? "text-white" : "text-neutral-800"}`}>{d.getDate()}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
+                {/* Day headers row */}
+                <div className="grid grid-cols-[80px_1fr] border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100/80">
+                  <div className="border-r border-slate-200" />
+                  <div className="grid grid-cols-7 text-center text-xs font-bold uppercase tracking-widest">
+                    {weekDates.map((d, i) => {
+                      const ds = fmtDate(d);
+                      const isToday = ds === todayStr;
+                      const dayShort = dayNames[i].substring(0, 3);
+                      return (
+                        <div
+                          key={i}
+                          className={`py-4 border-r border-slate-200 last:border-r-0 transition-colors ${
+                            isToday
+                              ? "bg-gradient-to-br from-indigo-600 to-violet-700 text-white shadow-sm"
+                              : "text-slate-600"
+                          }`}
+                        >
+                          {dayShort} {d.getDate()}{isToday ? " (Today)" : ""}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                    {/* Time labels + day columns with booking blocks */}
-                    <div className="grid grid-cols-[60px_repeat(7,1fr)]" style={{ minHeight: GRID_HEIGHT }}>
-                      {/* Time column */}
-                      <div className="border-r border-neutral-200 relative" style={{ minHeight: GRID_HEIGHT }}>
-                        {CAL_HOURS.map((hour, i) => (
-                          <div key={hour} className="absolute right-1 text-[10px] font-semibold text-neutral-400" style={{ top: i * SLOT_H - 2 }}>
-                            {formatHour(hour)}
-                          </div>
-                        ))}
+                {/* Calendar grid - scrollable */}
+                <div className="cal-grid-scroll grid grid-cols-[80px_1fr] h-[520px] overflow-y-auto overflow-x-auto">
+                  {/* Time column */}
+                  <div className="border-r border-slate-200 bg-white">
+                    {CAL_HOURS.map((hour) => (
+                      <div key={hour} className="cal-hour-marker text-[11px] text-slate-400 font-bold text-right pr-3 pt-2">
+                        {formatHour(hour)}
                       </div>
-                      {/* Day columns - each contains its booking blocks */}
-                      {weekDates.map((d, dayIdx) => {
-                        const ds = fmtDate(d);
-                        const dayBksRaw = blocks.filter(b => b.date === ds);
-                        const dayBks = assignOverlapColumns(dayBksRaw);
-                        const dayTintClass = dayIdx % 2 === 0
-                          ? "bg-gradient-to-b from-cyan-50/45 to-white"
-                          : "bg-gradient-to-b from-lime-50/45 to-white";
-                        return (
-                          <div
-                            key={dayIdx}
-                            className={`relative border-l border-neutral-100 overflow-visible ${ds === todayStr ? "bg-amber-50/40" : dayTintClass}`}
-                            style={{ minHeight: GRID_HEIGHT }}
-                          >
-                            {/* Hour grid lines */}
-                            {CAL_HOURS.slice(1).map(hour => (
-                              <div key={hour} className="absolute left-0 right-0 border-b border-neutral-100" style={{ top: (hour - CAL_HOURS[0]) * SLOT_H }} />
-                            ))}
-                            {/* Booking blocks */}
-                            {dayBks.map((bk: any) => {
+                    ))}
+                  </div>
+                  {/* Day columns - 7 columns */}
+                  <div className="grid grid-cols-7 relative overflow-visible min-w-[700px]">
+                    {weekDates.map((d, dayIdx) => {
+                      const ds = fmtDate(d);
+                      const dayBksRaw = blocks.filter(b => b.date === ds);
+                      const dayBks = assignOverlapColumns(dayBksRaw);
+                      const isToday = ds === todayStr;
+                      return (
+                        <div
+                          key={dayIdx}
+                          className={`cal-day-column relative overflow-visible ${dayIdx < 6 ? "border-r border-slate-100" : ""} ${isToday ? "cal-today-column" : `cal-day-tint-${dayIdx}`}`}
+                          style={{ minHeight: GRID_HEIGHT }}
+                        >
+                          {/* Hour grid lines */}
+                          {CAL_HOURS.slice(1).map(hour => (
+                            <div key={hour} className="absolute left-0 right-0 border-b border-slate-100" style={{ top: (hour - CAL_HOURS[0]) * SLOT_H }} />
+                          ))}
+                          {/* Booking blocks - side-by-side for overlaps */}
+                          {dayBks.map((bk: any) => {
                               let { h, m } = parseTime(bk.time);
                               // Clamp invalid hours (e.g. from "0700" parsed as 700) to visible range
                               if (h < 0 || h > 23) h = 9;
@@ -2464,112 +2500,69 @@ export default function DashboardPage() {
 
                               const n = bk.overlapCount ?? 1;
                               const colIdx = bk.overlapCol ?? 0;
-                              const STACK_OFFSET = 10;
-                              const isCompact = n > 1;
-                              const initials = (bk.client || "?").split(/\s+/).map((s: string) => s[0]).join("").toUpperCase().slice(0, 2);
+                              // Dynamic width: each block gets equal share, no limit on count (6, 10, or more)
+                              const gapPct = n > 1 ? Math.min(1, 8 / n) : 0; // smaller gap when many blocks
+                              const widthPct = n > 1 ? (100 / n) - gapPct : 100;
+                              const leftPct = n > 1 ? colIdx * (100 / n) + (gapPct / 2) : 0;
+
+                              const tooltipData = {
+                                client: bk.client,
+                                serviceName: bk.serviceName,
+                                statusLabel,
+                                statusNorm,
+                                timeLabel: `${formatTimeLabel(h, m)} – ${formatTimeLabel(endH, endMin)}`,
+                                dur,
+                                branchName: bk.branchName,
+                                staffName: bk.staffName,
+                                pickupDisplay,
+                                clientPhone: bk.clientPhone,
+                                clientEmail: bk.clientEmail,
+                                notes: bk.notes,
+                                price: Number(bk.price || 0),
+                              };
+
+                              const showTooltip = (e: React.MouseEvent) => {
+                                if (calTooltipTimeoutRef.current) {
+                                  clearTimeout(calTooltipTimeoutRef.current);
+                                  calTooltipTimeoutRef.current = null;
+                                }
+                                setCalHoverTooltip({ data: tooltipData, rect: e.currentTarget.getBoundingClientRect() });
+                              };
+                              const hideTooltip = () => {
+                                calTooltipTimeoutRef.current = setTimeout(() => setCalHoverTooltip(null), 200);
+                              };
 
                               return (
                                 <div
                                   key={`${bk.bookingId || bk.id}-${bk.id}-${(bk.client || "").slice(0, 20)}`}
-                                  className={`group absolute overflow-visible cursor-pointer hover:z-[70] ${isCompact ? "cal-block-wrapper" : ""}`}
+                                  className="cal-booking-card absolute cursor-pointer rounded-lg text-white"
                                   style={{
                                     top: topPx + 2,
                                     height: heightPx - 2,
-                                    left: isCompact ? 4 + colIdx * STACK_OFFSET : 4,
-                                    width: "calc(100% - 8px)",
+                                    left: `${leftPct}%`,
+                                    width: `${widthPct}%`,
+                                    minWidth: n > 1 ? (n <= 6 ? 36 : 0) : 60, // no min when many blocks so they fit
+                                    backgroundColor: (() => {
+                                      const palette = [
+                                        "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#ec4899",
+                                        "#14b8a6", "#10b981", "#22c55e", "#84cc16", "#eab308", "#f59e0b",
+                                        "#ef4444", "#f97316", "#0ea5e9", "#06b6d4",
+                                      ];
+                                      // Use colIdx for overlapping slots so adjacent blocks get different colors
+                                      const idx = n > 1 ? colIdx % palette.length : Math.abs(`${bk.staffId || ""}-${bk.client || ""}-${bk.id}`.split("").reduce((a: number, c: string) => a + c.charCodeAt(0), 0)) % palette.length;
+                                      return palette[idx];
+                                    })(),
                                     zIndex: 20 + colIdx,
-                                    minWidth: isCompact ? 85 : undefined,
                                   }}
+                                  onMouseEnter={showTooltip}
+                                  onMouseLeave={hideTooltip}
                                   onClick={() => router.push(`${targetPath}?highlight=${bk.bookingId || bk.id.split("-")[0]}`)}
                                 >
-                                  <div
-                                    className={`rounded-xl border-2 shadow-[0_6px_14px_rgba(0,0,0,0.12)] hover:shadow-[0_10px_24px_rgba(0,0,0,0.18)] ${colorCls} ${isCompact ? "cal-block-inner h-full px-1.5 py-1" : "h-full px-2.5 py-1.5"}`}
-                                    style={isCompact ? { minWidth: "100%" } : undefined}
-                                  >
-                                  {isCompact ? (
-                                    <>
-                                      <div className="flex items-center gap-1.5 min-w-0 group-hover:hidden">
-                                        <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold ${isDark ? "bg-white/20 text-white" : "bg-black/10 text-neutral-700"}`}>{initials}</span>
-                                        <div className="min-w-0 flex-1">
-                                          <p className={`text-[10px] font-bold truncate ${isDark ? "text-white" : ""}`}>{bk.client}</p>
-                                          <p className={`text-[9px] truncate ${isDark ? "text-white/80" : "text-neutral-600"}`}>{bk.time}</p>
-                                        </div>
-                                        <span className={`shrink-0 text-[8px] px-1 py-0.5 rounded font-bold ${
-                                          statusNorm === "completed" ? "bg-blue-500/20 text-blue-700" : statusNorm === "confirmed" ? "bg-emerald-500/20 text-emerald-700" : "bg-amber-500/20 text-amber-700"
-                                        }`}>{statusNorm === "completed" ? "✓" : statusNorm === "confirmed" ? "●" : "○"}</span>
-                                      </div>
-                                      <div className="hidden group-hover:block">
-                                        <div className="flex items-center justify-between gap-1 mb-1">
-                                          <p className={`text-[11px] font-extrabold truncate leading-tight ${isDark ? "text-white" : ""}`}>{bk.client}</p>
-                                          <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
-                                            statusNorm === "completed" ? "bg-blue-500/15 text-blue-700" : statusNorm === "confirmed" ? "bg-emerald-500/15 text-emerald-700" : isDark ? "bg-white/15 text-white" : "bg-black/10 text-neutral-700"
-                                          }`}>{statusNorm === "completed" ? "DONE" : statusNorm === "confirmed" ? "LIVE" : "BOOK"}</span>
-                                        </div>
-                                        <p className={`text-[10px] font-semibold truncate leading-snug mb-0.5 ${isDark ? "text-neutral-100" : "text-inherit opacity-90"}`}>{bk.serviceName}{bk.price ? ` ($${bk.price})` : ""}</p>
-                                        <p className={`text-[10px] truncate leading-snug ${isDark ? "text-neutral-300" : "text-inherit opacity-75"}`}>{bk.time} – {endH}:{String(endMin).padStart(2,"0")}</p>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <>
-                                  <div className="flex items-center justify-between gap-1 mb-1">
-                                    <p className={`text-[11px] font-extrabold truncate leading-tight ${isDark ? "text-white" : ""}`}>{bk.client}</p>
-                                    <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold ${
-                                      statusNorm === "completed"
-                                        ? "bg-blue-500/15 text-blue-700"
-                                        : statusNorm === "confirmed"
-                                          ? "bg-emerald-500/15 text-emerald-700"
-                                          : isDark
-                                            ? "bg-white/15 text-white"
-                                            : "bg-black/10 text-neutral-700"
-                                    }`}>
-                                      {statusNorm === "completed" ? "DONE" : statusNorm === "confirmed" ? "LIVE" : "BOOK"}
-                                    </span>
-                                  </div>
-                                  <p className={`text-[10px] font-semibold truncate leading-snug mb-0.5 ${isDark ? "text-neutral-100" : "text-inherit opacity-90"}`}>{bk.serviceName}{bk.price ? ` ($${bk.price})` : ""}</p>
-                                  <p className={`text-[10px] truncate leading-snug ${isDark ? "text-neutral-300" : "text-inherit opacity-75"}`}>
-                                    {bk.time} – {endH}:{String(endMin).padStart(2,"0")}
-                                  </p>
-                                    </>
-                                  )}
-
-                                  {/* Creative hover details card */}
-                                  <div className="pointer-events-none absolute z-[80] left-1/2 top-full mt-2 w-72 -translate-x-1/2 opacity-0 scale-95 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-top">
-                                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-neutral-900 border-l border-t border-neutral-700" />
-                                    <div className="rounded-xl border border-neutral-700 bg-neutral-900/95 text-white shadow-2xl backdrop-blur p-4">
-                                      <div className="flex items-center justify-between mb-3">
-                                        <p className="text-xs font-extrabold tracking-wide">{bk.client}</p>
-                                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/10 text-white">
-                                          {statusLabel}
-                                        </span>
-                                      </div>
-                                      <div className="space-y-2.5 text-[11px] text-neutral-200">
-                                        <div className="grid grid-cols-[92px_1fr] gap-2">
-                                          <span className="text-neutral-400">Services</span>
-                                          <span className="font-semibold text-neutral-100 leading-snug">{bk.servicesText || bk.serviceName}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[92px_1fr] gap-2">
-                                          <span className="text-neutral-400">Time</span>
-                                          <span className="font-semibold">{formatTimeLabel(h, m)} - {formatTimeLabel(endH, endMin)}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[92px_1fr] gap-2">
-                                          <span className="text-neutral-400">Pick-up Time</span>
-                                          <span className="font-semibold">{pickupDisplay}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[92px_1fr] gap-2">
-                                          <span className="text-neutral-400">Staff</span>
-                                          <span className="font-semibold">{bk.staffName || "Not assigned"}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[92px_1fr] gap-2">
-                                          <span className="text-neutral-400">Branch</span>
-                                          <span className="font-semibold">{bk.branchName || "No branch"}</span>
-                                        </div>
-                                      </div>
-                                      <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between">
-                                        <span className="text-[11px] text-neutral-400">Price</span>
-                                        <span className="text-sm font-extrabold text-emerald-300">${Number(bk.price || 0).toFixed(2)}</span>
-                                      </div>
-                                    </div>
-                                  </div>
+                                  <div className="cal-booking-inner h-full overflow-hidden p-1.5 flex flex-col justify-center">
+                                    <b className="text-[11px] font-bold block truncate">
+                                      {n > 4 ? (bk.client || "?").split(/\s+/).map((s: string) => s[0]).join("").toUpperCase().slice(0, 2) : (bk.client || "—")}
+                                    </b>
+                                    <span className="text-[9px] opacity-90">{formatTimeLabel(h, m).replace(/\s/g, "")}</span>
                                   </div>
                                 </div>
                               );
@@ -2579,7 +2572,52 @@ export default function DashboardPage() {
                       })}
                     </div>
                   </div>
-                </div>
+                <p className="text-center text-slate-400 text-xs py-4 border-t border-slate-100"><i className="fas fa-hand-pointer text-slate-300 mr-1" /> Hover over any booking to expand details</p>
+                {/* Floating tooltip for small slots - always visible */}
+                {calHoverTooltip && (
+                  <div
+                    className="fixed z-[100] w-[320px] rounded-xl shadow-2xl border border-slate-200 bg-white p-4 text-left"
+                    style={{
+                      left: Math.max(12, Math.min(calHoverTooltip.rect.left + calHoverTooltip.rect.width / 2 - 160, (typeof window !== "undefined" ? window.innerWidth : 1200) - 332)),
+                      top: calHoverTooltip.rect.top < 360 ? calHoverTooltip.rect.bottom + 8 : calHoverTooltip.rect.top - 8,
+                      transform: calHoverTooltip.rect.top < 360 ? "none" : "translateY(-100%)",
+                    }}
+                    onMouseEnter={() => {
+                      if (calTooltipTimeoutRef.current) {
+                        clearTimeout(calTooltipTimeoutRef.current);
+                        calTooltipTimeoutRef.current = null;
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      calTooltipTimeoutRef.current = setTimeout(() => setCalHoverTooltip(null), 200);
+                    }}
+                  >
+                    {(() => {
+                      const d = calHoverTooltip.data;
+                      return (
+                        <div className="space-y-2 text-slate-800">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-bold truncate">{d.client}</p>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${
+                              d.statusNorm === "completed" ? "bg-blue-100 text-blue-800" :
+                              d.statusNorm === "confirmed" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                            }`}>{d.statusLabel}</span>
+                          </div>
+                          <p className="text-xs font-semibold">{d.serviceName}</p>
+                          <p className="text-[11px] text-slate-600">{d.timeLabel} · {d.dur} min</p>
+                          {d.branchName && <p className="text-[10px] text-slate-600"><i className="fas fa-location-dot w-3 mr-1" />{d.branchName}</p>}
+                          {d.staffName && <p className="text-[10px] text-slate-600"><i className="fas fa-user w-3 mr-1" />{d.staffName}</p>}
+                          {d.pickupDisplay && <p className="text-[10px] text-slate-600"><i className="fas fa-clock w-3 mr-1" />Pickup: {d.pickupDisplay}</p>}
+                          {d.clientPhone && <p className="text-[10px] text-slate-600"><i className="fas fa-phone w-3 mr-1" />{d.clientPhone}</p>}
+                          {d.clientEmail && <p className="text-[10px] text-slate-600 truncate"><i className="fas fa-envelope w-3 mr-1" />{d.clientEmail}</p>}
+                          {d.notes && String(d.notes).trim() && <p className="text-[10px] text-slate-600 line-clamp-2">{d.notes}</p>}
+                          <p className="text-xs font-bold pt-1 border-t border-slate-200">${d.price.toLocaleString()}</p>
+                          <p className="text-[10px] text-slate-400 pt-1">Click to open full booking</p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             );
           })()}

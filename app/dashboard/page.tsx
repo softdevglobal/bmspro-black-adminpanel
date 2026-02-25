@@ -660,7 +660,6 @@ export default function DashboardPage() {
         query(collection(db, "bookings"), ...constraints),
         (snap) => {
           const bks: any[] = [];
-          const staffSet = new Map<string, { id: string; name: string }>();
           const branchSet = new Map<string, { value: string; label: string }>();
           snap.docs.forEach((d) => {
             const data = d.data();
@@ -687,36 +686,63 @@ export default function DashboardPage() {
               services: data.services || [],
             };
             bks.push(bk);
-            if (bk.staffId && bk.staffName && !bk.staffName.toLowerCase().includes("any")) {
-              staffSet.set(bk.staffId, { id: bk.staffId, name: bk.staffName });
-            }
-            if (Array.isArray(data.services)) {
-              data.services.forEach((s: any) => {
-                if (s?.staffId && s?.staffName && !s.staffName.toLowerCase().includes("any")) {
-                  staffSet.set(s.staffId, { id: s.staffId, name: s.staffName });
-                }
-                if (s?.staffAuthUid && s?.staffName && !s.staffName.toLowerCase().includes("any")) {
-                  staffSet.set(s.staffAuthUid, { id: s.staffAuthUid, name: s.staffName });
-                }
-              });
-            }
             const branchValue = (data.branchId || data.branchName || "").toString();
             const branchLabel = (data.branchName || data.branchId || "Unassigned").toString();
             if (branchValue) branchSet.set(branchValue, { value: branchValue, label: branchLabel });
           });
           setCalBookings(bks);
-          setCalStaffList([...staffSet.values()].sort((a, b) => a.name.localeCompare(b.name)));
           setCalBranchList([...branchSet.values()].sort((a, b) => a.label.localeCompare(b.label)));
         },
         () => {
           setCalBookings([]);
-          setCalStaffList([]);
           setCalBranchList([]);
         }
       );
     })();
 
     return () => { unsub?.(); };
+  }, [ownerUid, isSuperAdmin, authLoading, isBranchAdmin, branchAdminBranchId]);
+
+  // Fetch all staff from users for calendar filter (not just those with bookings)
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    let unsubStaff: (() => void) | undefined;
+    (async () => {
+      const { db } = await import("@/lib/firebase");
+      const staffQuery = query(
+        collection(db, "users"),
+        where("ownerUid", "==", ownerUid)
+      );
+      unsubStaff = onSnapshot(
+        staffQuery,
+        async (snap) => {
+          let staff = snap.docs
+            .map(doc => {
+              const data = doc.data();
+              const role = (data.role || "").toLowerCase();
+              const name = (data.displayName || data.name || "").toString().trim() || "Unknown";
+              return { id: doc.id, name, role };
+            })
+            .filter((s: { role: string }) => s.role === "staff" || s.role === "branch_admin");
+          if (isBranchAdmin && branchAdminBranchId) {
+            try {
+              const { doc: getDocRef, getDoc } = await import("firebase/firestore");
+              const branchDoc = await getDoc(getDocRef(db, "branches", branchAdminBranchId));
+              if (branchDoc.exists()) {
+                const branchData = branchDoc.data();
+                const branchStaffIds = branchData?.staffIds || [];
+                staff = staff.filter((s: { id: string }) => branchStaffIds.includes(s.id));
+              }
+            } catch {
+              // ignore
+            }
+          }
+          setCalStaffList(staff.sort((a, b) => a.name.localeCompare(b.name)));
+        },
+        () => setCalStaffList([])
+      );
+    })();
+    return () => { unsubStaff?.(); };
   }, [ownerUid, isSuperAdmin, authLoading, isBranchAdmin, branchAdminBranchId]);
 
   useEffect(() => {
@@ -2316,7 +2342,7 @@ export default function DashboardPage() {
                     opacity: 0.35;
                     filter: grayscale(0.6);
                   }
-                  .cal-hour-marker { height: 52px; border-bottom: 1px solid #f1f5f9; }
+                  .cal-hour-marker { height: 52px; border-bottom: 1px solid #e2e8f0; }
                   .cal-today-column { background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%) !important; }
                   .cal-day-tint-0 { background: linear-gradient(180deg, #f0f9ff 0%, #fff 100%); }
                   .cal-day-tint-1 { background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%); }
@@ -2402,7 +2428,7 @@ export default function DashboardPage() {
                           className={`py-4 border-r border-slate-200 last:border-r-0 transition-colors ${
                             isToday
                               ? "bg-gradient-to-br from-indigo-600 to-violet-700 text-white shadow-sm"
-                              : "text-slate-600"
+                              : "text-slate-700"
                           }`}
                         >
                           {dayShort} {d.getDate()}{isToday ? " (Today)" : ""}
@@ -2417,7 +2443,7 @@ export default function DashboardPage() {
                   {/* Time column */}
                   <div className="border-r border-slate-200 bg-white">
                     {CAL_HOURS.map((hour) => (
-                      <div key={hour} className="cal-hour-marker text-[11px] text-slate-400 font-bold text-right pr-3 pt-2">
+                      <div key={hour} className="cal-hour-marker text-xs text-slate-600 font-bold text-right pr-3 pt-2">
                         {formatHour(hour)}
                       </div>
                     ))}
@@ -2432,12 +2458,12 @@ export default function DashboardPage() {
                       return (
                         <div
                           key={dayIdx}
-                          className={`cal-day-column relative overflow-visible ${dayIdx < 6 ? "border-r border-slate-100" : ""} ${isToday ? "cal-today-column" : `cal-day-tint-${dayIdx}`}`}
+                          className={`cal-day-column relative overflow-visible ${dayIdx < 6 ? "border-r border-slate-200" : ""} ${isToday ? "cal-today-column" : `cal-day-tint-${dayIdx}`}`}
                           style={{ minHeight: GRID_HEIGHT }}
                         >
                           {/* Hour grid lines */}
                           {CAL_HOURS.slice(1).map(hour => (
-                            <div key={hour} className="absolute left-0 right-0 border-b border-slate-100" style={{ top: (hour - CAL_HOURS[0]) * SLOT_H }} />
+                            <div key={hour} className="absolute left-0 right-0 border-b border-slate-200" style={{ top: (hour - CAL_HOURS[0]) * SLOT_H }} />
                           ))}
                           {/* Booking blocks - side-by-side for overlaps */}
                           {dayBks.map((bk: any) => {
@@ -2559,10 +2585,10 @@ export default function DashboardPage() {
                                   onClick={() => router.push(`${targetPath}?highlight=${bk.bookingId || bk.id.split("-")[0]}`)}
                                 >
                                   <div className="cal-booking-inner h-full overflow-hidden p-1.5 flex flex-col justify-center">
-                                    <b className="text-[11px] font-bold block truncate">
+                                    <b className="text-xs font-bold block truncate">
                                       {n > 4 ? (bk.client || "?").split(/\s+/).map((s: string) => s[0]).join("").toUpperCase().slice(0, 2) : (bk.client || "—")}
                                     </b>
-                                    <span className="text-[9px] opacity-90">{formatTimeLabel(h, m).replace(/\s/g, "")}</span>
+                                    <span className="text-[10px] font-medium opacity-95">{formatTimeLabel(h, m).replace(/\s/g, "")}</span>
                                   </div>
                                 </div>
                               );
@@ -2572,7 +2598,7 @@ export default function DashboardPage() {
                       })}
                     </div>
                   </div>
-                <p className="text-center text-slate-400 text-xs py-4 border-t border-slate-100"><i className="fas fa-hand-pointer text-slate-300 mr-1" /> Hover over any booking to expand details</p>
+                <p className="text-center text-slate-500 text-xs py-4 border-t border-slate-100"><i className="fas fa-hand-pointer text-slate-400 mr-1" /> Hover over any booking to expand details</p>
                 {/* Floating tooltip for small slots - always visible */}
                 {calHoverTooltip && (
                   <div
@@ -2595,24 +2621,24 @@ export default function DashboardPage() {
                     {(() => {
                       const d = calHoverTooltip.data;
                       return (
-                        <div className="space-y-2 text-slate-800">
+                        <div className="space-y-2 text-neutral-800">
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-sm font-bold truncate">{d.client}</p>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold shrink-0 ${
+                            <p className="text-sm font-bold truncate text-neutral-900">{d.client}</p>
+                            <span className={`text-xs px-1.5 py-0.5 rounded font-semibold shrink-0 ${
                               d.statusNorm === "completed" ? "bg-blue-100 text-blue-800" :
                               d.statusNorm === "confirmed" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
                             }`}>{d.statusLabel}</span>
                           </div>
-                          <p className="text-xs font-semibold">{d.serviceName}</p>
-                          <p className="text-[11px] text-slate-600">{d.timeLabel} · {d.dur} min</p>
-                          {d.branchName && <p className="text-[10px] text-slate-600"><i className="fas fa-location-dot w-3 mr-1" />{d.branchName}</p>}
-                          {d.staffName && <p className="text-[10px] text-slate-600"><i className="fas fa-user w-3 mr-1" />{d.staffName}</p>}
-                          {d.pickupDisplay && <p className="text-[10px] text-slate-600"><i className="fas fa-clock w-3 mr-1" />Pickup: {d.pickupDisplay}</p>}
-                          {d.clientPhone && <p className="text-[10px] text-slate-600"><i className="fas fa-phone w-3 mr-1" />{d.clientPhone}</p>}
-                          {d.clientEmail && <p className="text-[10px] text-slate-600 truncate"><i className="fas fa-envelope w-3 mr-1" />{d.clientEmail}</p>}
-                          {d.notes && String(d.notes).trim() && <p className="text-[10px] text-slate-600 line-clamp-2">{d.notes}</p>}
-                          <p className="text-xs font-bold pt-1 border-t border-slate-200">${d.price.toLocaleString()}</p>
-                          <p className="text-[10px] text-slate-400 pt-1">Click to open full booking</p>
+                          <p className="text-xs font-semibold text-neutral-800">{d.serviceName}</p>
+                          <p className="text-xs text-slate-700">{d.timeLabel} · {d.dur} min</p>
+                          {d.branchName && <p className="text-xs text-slate-700"><i className="fas fa-location-dot w-3 mr-1" />{d.branchName}</p>}
+                          {d.staffName && <p className="text-xs text-slate-700"><i className="fas fa-user w-3 mr-1" />{d.staffName}</p>}
+                          {d.pickupDisplay && <p className="text-xs text-slate-700"><i className="fas fa-clock w-3 mr-1" />Pickup: {d.pickupDisplay}</p>}
+                          {d.clientPhone && <p className="text-xs text-slate-700"><i className="fas fa-phone w-3 mr-1" />{d.clientPhone}</p>}
+                          {d.clientEmail && <p className="text-xs text-slate-700 truncate"><i className="fas fa-envelope w-3 mr-1" />{d.clientEmail}</p>}
+                          {d.notes && String(d.notes).trim() && <p className="text-xs text-slate-700 line-clamp-2">{d.notes}</p>}
+                          <p className="text-sm font-bold pt-1 border-t border-slate-200 text-neutral-900">${d.price.toLocaleString()}</p>
+                          <p className="text-xs text-slate-600 pt-1">Click to open full booking</p>
                         </div>
                       );
                     })()}

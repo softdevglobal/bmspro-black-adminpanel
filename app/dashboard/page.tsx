@@ -2208,6 +2208,7 @@ export default function DashboardPage() {
                       client: b.client,
                       clientPhone: b.clientPhone || "",
                       clientEmail: b.clientEmail || "",
+                      vehicleNumber: b.vehicleNumber || "",
                       notes: b.notes || "",
                       serviceName: svc.name || b.serviceName || "Service",
                       servicesText: Array.isArray(b.services) && b.services.length > 0
@@ -2231,6 +2232,7 @@ export default function DashboardPage() {
                     client: b.client,
                     clientPhone: b.clientPhone || "",
                     clientEmail: b.clientEmail || "",
+                    vehicleNumber: b.vehicleNumber || "",
                     notes: b.notes || "",
                     serviceName: b.serviceName || "Service",
                     servicesText: b.serviceName || "Service",
@@ -2556,6 +2558,7 @@ export default function DashboardPage() {
                                 pickupDisplay,
                                 clientPhone: bk.clientPhone,
                                 clientEmail: bk.clientEmail,
+                                vehicleNumber: bk.vehicleNumber,
                                 notes: bk.notes,
                                 price: Number(bk.price || 0),
                               };
@@ -2649,6 +2652,7 @@ export default function DashboardPage() {
                           {d.pickupDisplay && <p className="text-xs text-slate-700"><i className="fas fa-clock w-3 mr-1" />Pickup: {d.pickupDisplay}</p>}
                           {d.clientPhone && <p className="text-xs text-slate-700"><i className="fas fa-phone w-3 mr-1" />{d.clientPhone}</p>}
                           {d.clientEmail && <p className="text-xs text-slate-700 truncate"><i className="fas fa-envelope w-3 mr-1" />{d.clientEmail}</p>}
+                          {d.vehicleNumber && <p className="text-xs text-slate-700"><i className="fas fa-car w-3 mr-1" />{d.vehicleNumber}</p>}
                           {d.notes && String(d.notes).trim() && <p className="text-xs text-slate-700 line-clamp-2">{d.notes}</p>}
                           <p className="text-sm font-bold pt-1 border-t border-slate-200 text-neutral-900">${d.price.toLocaleString()}</p>
                           <p className="text-xs text-slate-600 pt-1">Click to open full booking</p>

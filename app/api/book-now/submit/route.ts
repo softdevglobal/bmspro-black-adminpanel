@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
       customerName,
       customerEmail,
       customerPhone,
+      vehicleNumber,
       notes,
       date,
       time,
@@ -73,9 +74,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate required fields
-    if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !date || !time || !pickupTime) {
+    if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields. Email and Vehicle Number are required." },
         { status: 400 }
       );
     }
@@ -325,6 +326,7 @@ export async function POST(req: NextRequest) {
       client: customerName,
       clientEmail: customerEmail || null,
       clientPhone: customerPhone || null,
+      vehicleNumber: (vehicleNumber || "").trim() || null,
       notes: notes || null,
       serviceId: serviceDetails.length === 1 ? serviceDetails[0].id : serviceDetails.map((s: any) => s.id).join(","),
       serviceName: serviceDetails.map((s: any) => s.name).join(", "),

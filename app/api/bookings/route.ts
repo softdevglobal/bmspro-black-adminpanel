@@ -209,6 +209,7 @@ type CreateBookingInput = {
   client: string;
   clientEmail?: string;
   clientPhone?: string;
+  vehicleNumber?: string;
   notes?: string;
   serviceId: string | number;
   serviceName?: string;
@@ -749,6 +750,7 @@ export async function POST(req: NextRequest) {
       client: String(body.client),
       clientEmail: body.clientEmail || null,
       clientPhone: body.clientPhone || null,
+      vehicleNumber: body.vehicleNumber || null,
       notes: body.notes || null,
       serviceId: typeof body.serviceId === "number" ? body.serviceId : String(body.serviceId),
       serviceName: serviceName,

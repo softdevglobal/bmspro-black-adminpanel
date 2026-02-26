@@ -51,6 +51,7 @@ type Row = {
   price: number;
   clientEmail?: string | null;
   clientPhone?: string | null;
+  vehicleNumber?: string | null;
   notes?: string | null;
   status?: string | null;
   bookingCode?: string | null;
@@ -169,6 +170,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               price: Number(d.price || 0),
               clientEmail: d.clientEmail || null,
               clientPhone: d.clientPhone || null,
+              vehicleNumber: d.vehicleNumber || null,
               notes: d.notes || null,
               status: normalizedStatus,
               bookingCode: d.bookingCode || null,
@@ -1146,6 +1148,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           <div className="flex flex-wrap gap-2 mt-1">
                             {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
                             {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
+                            {previewRow.vehicleNumber && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-car" />{previewRow.vehicleNumber}</span>}
                           </div>
                         </div>
                       </div>

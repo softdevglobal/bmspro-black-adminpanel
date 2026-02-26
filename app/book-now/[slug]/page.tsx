@@ -106,6 +106,7 @@ export default function BookingEnginePage() {
   const [customerName, setCustomerName] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [vehicleNumber, setVehicleNumber] = useState("");
   const [notes, setNotes] = useState("");
 
   const [customer, setCustomer] = useState<CustomerSession | null>(null);
@@ -629,7 +630,7 @@ export default function BookingEnginePage() {
   const [savingProfile, setSavingProfile] = useState(false);
 
   const handleLogout = () => {
-    setCustomer(null); setCustomerName(""); setCustomerEmail(""); setCustomerPhone("");
+    setCustomer(null); setCustomerName(""); setCustomerEmail(""); setCustomerPhone(""); setVehicleNumber("");
     sessionStorage.removeItem(`bms_customer_${slug}`);
     setShowLogoutConfirm(false);
     setShowProfileMenu(false);
@@ -665,12 +666,12 @@ export default function BookingEnginePage() {
       setShowAuth(true);
       return;
     }
-    if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !date || !time || !pickupTime) return;
+    if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/book-now/submit", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, branchId: selectedBranch.id, branchName: selectedBranch.name, services: selectedServiceDetails.map((s) => ({ id: s.id, time })), customerName, customerEmail, customerPhone, notes, date, time, pickupTime, customerId: customer?.customerId || null }),
+        body: JSON.stringify({ slug, branchId: selectedBranch.id, branchName: selectedBranch.name, services: selectedServiceDetails.map((s) => ({ id: s.id, time })), customerName, customerEmail, customerPhone, vehicleNumber, notes, date, time, pickupTime, customerId: customer?.customerId || null }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to submit booking");
@@ -1995,8 +1996,13 @@ export default function BookingEnginePage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Email <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                      <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="john@example.com"
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Email <span className="text-red-400">*</span></label>
+                      <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="john@example.com" required
+                        className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Vehicle Number <span className="text-red-400">*</span></label>
+                      <input type="text" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="e.g. ABC 123" required
                         className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
                     </div>
                     <div>
@@ -2095,16 +2101,16 @@ export default function BookingEnginePage() {
                     {/* Confirm button */}
                     <button
                       onClick={!customer ? () => setShowAuth(true) : handleSubmit}
-                      disabled={submitting || (!!customer && (!customerName || !customerPhone || !date || !time || !pickupTime))}
+                      disabled={submitting || (!!customer && (!customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime))}
                       className={`w-full mt-5 font-bold py-3.5 rounded-xl transition-all text-sm relative overflow-hidden group ${
                         !customer
                           ? "bg-amber-500 text-neutral-900 hover:bg-amber-400 active:scale-[0.98] shadow-xl shadow-amber-500/20"
-                          : submitting || !customerName || !customerPhone || !date || !time || !pickupTime
+                          : submitting || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime
                             ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
                             : "bg-neutral-900 text-white hover:bg-neutral-800 active:scale-[0.98] shadow-xl shadow-neutral-900/15"
                       }`}
                     >
-                      {customer && !(submitting || !customerName || !customerPhone || !date || !time || !pickupTime) && (
+                      {customer && !(submitting || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime) && (
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent group-hover:animate-[shimmerBg_1.5s_linear_infinite]" style={{ backgroundSize: "200% 100%" }} />
                       )}
                       <span className="relative z-10 flex items-center justify-center gap-2">

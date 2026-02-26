@@ -36,6 +36,7 @@ function BookingsPageContent() {
   const [bkClientName, setBkClientName] = useState<string>("");
   const [bkClientEmail, setBkClientEmail] = useState<string>("");
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
+  const [bkVehicleNumber, setBkVehicleNumber] = useState<string>("");
   const [bkNotes, setBkNotes] = useState<string>("");
   const [bkPickupTime, setBkPickupTime] = useState<string>("");
   const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
@@ -1377,6 +1378,7 @@ function BookingsPageContent() {
     setBkClientName("");
     setBkClientEmail("");
     setBkClientPhone("");
+    setBkVehicleNumber("");
     setBkNotes("");
   };
   const openBookingWizard = () => {
@@ -1991,6 +1993,7 @@ function BookingsPageContent() {
       price: totalPrice,
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
+      vehicleNumber: bkVehicleNumber?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
       services: selectedServiceObjects.map(s => {
         const sId = String(s?.id);
@@ -2015,6 +2018,7 @@ function BookingsPageContent() {
           client: newBooking.client,
           clientEmail: newBooking.clientEmail,
           clientPhone: newBooking.clientPhone,
+          vehicleNumber: newBooking.vehicleNumber,
           notes: newBooking.notes,
           serviceId: newBooking.serviceId,
           serviceName: newBooking.serviceName,
@@ -2967,6 +2971,16 @@ function BookingsPageContent() {
                           />
                         </div>
                         <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Vehicle Number <span className="text-red-400">*</span></label>
+                          <input
+                            type="text"
+                            value={bkVehicleNumber}
+                            onChange={(e) => setBkVehicleNumber(e.target.value)}
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium"
+                            placeholder="e.g. ABC 123" required
+                          />
+                        </div>
+                        <div>
                           <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Additional Notes <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
                           <textarea
                             value={bkNotes}
@@ -3069,10 +3083,10 @@ function BookingsPageContent() {
 
                       {/* Confirm Button */}
                       <button
-                        disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || !bkPickupTime || !bkClientName.trim() || !bkClientEmail.trim() || !bkClientPhone.trim() || submittingBooking}
+                        disabled={!bkBranchId || bkSelectedServices.length === 0 || !bkDate || Object.keys(bkServiceTimes).length !== bkSelectedServices.length || !bkPickupTime || !bkClientName.trim() || !bkClientEmail.trim() || !bkClientPhone.trim() || !bkVehicleNumber.trim() || submittingBooking}
                         onClick={handleConfirmBooking}
                         className={`w-full mt-4 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${
-                          bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkPickupTime && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && !submittingBooking
+                            bkBranchId && bkSelectedServices.length > 0 && bkDate && Object.keys(bkServiceTimes).length === bkSelectedServices.length && bkPickupTime && bkClientName.trim() && bkClientEmail.trim() && bkClientPhone.trim() && bkVehicleNumber.trim() && !submittingBooking
                             ? "bg-neutral-900 text-white hover:bg-neutral-800 shadow-lg shadow-neutral-900/20"
                             : "bg-neutral-200 text-neutral-400 cursor-not-allowed"
                         }`}

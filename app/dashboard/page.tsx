@@ -6,6 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
 import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { useNotifications } from "@/components/NotificationProvider";
+import { subscribeBranchesForOwner } from "@/lib/branches";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -18,6 +19,7 @@ export default function DashboardPage() {
   const [revenueLabels, setRevenueLabels] = useState<string[]>([]);
   const [statusData, setStatusData] = useState({ confirmed: 0, pending: 0, completed: 0, canceled: 0 });
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
   const [weeklyBookings, setWeeklyBookings] = useState<number>(0);
   const [revenueGrowth, setRevenueGrowth] = useState<number>(0);
   const [recentTenants, setRecentTenants] = useState<any[]>([]);
@@ -100,6 +102,7 @@ export default function DashboardPage() {
         try {
           const token = await user.getIdToken();
           if (typeof window !== "undefined") localStorage.setItem("idToken", token);
+          setCurrentUserUid(user.uid);
           setOwnerUid(user.uid);
           
           // Check if user is super admin or branch admin
@@ -647,6 +650,24 @@ export default function DashboardPage() {
     };
   }, [ownerUid, isSuperAdmin, authLoading]);
 
+  // Fetch all branches for calendar filter (from branches collection, not just from bookings)
+  useEffect(() => {
+    if (!ownerUid || isSuperAdmin || authLoading) return;
+    const unsub = subscribeBranchesForOwner(
+      ownerUid,
+      (rows) => {
+        const list = rows.map((r: any) => ({
+          value: r.id,
+          label: r.name || r.address || r.id || "Branch",
+        }));
+        setCalBranchList(list.sort((a: any, b: any) => a.label.localeCompare(b.label)));
+      },
+      isBranchAdmin ? "branch_admin" : undefined,
+      isBranchAdmin && currentUserUid ? currentUserUid : undefined
+    );
+    return () => unsub?.();
+  }, [ownerUid, isSuperAdmin, authLoading, isBranchAdmin, currentUserUid]);
+
   // Fetch weekly calendar bookings
   useEffect(() => {
     if (!ownerUid || isSuperAdmin || authLoading) return;
@@ -660,7 +681,6 @@ export default function DashboardPage() {
         query(collection(db, "bookings"), ...constraints),
         (snap) => {
           const bks: any[] = [];
-          const branchSet = new Map<string, { value: string; label: string }>();
           snap.docs.forEach((d) => {
             const data = d.data();
             const st = (data.status || "").toLowerCase();
@@ -686,17 +706,10 @@ export default function DashboardPage() {
               services: data.services || [],
             };
             bks.push(bk);
-            const branchValue = (data.branchId || data.branchName || "").toString();
-            const branchLabel = (data.branchName || data.branchId || "Unassigned").toString();
-            if (branchValue) branchSet.set(branchValue, { value: branchValue, label: branchLabel });
           });
           setCalBookings(bks);
-          setCalBranchList([...branchSet.values()].sort((a, b) => a.label.localeCompare(b.label)));
         },
-        () => {
-          setCalBookings([]);
-          setCalBranchList([]);
-        }
+        () => setCalBookings([])
       );
     })();
 

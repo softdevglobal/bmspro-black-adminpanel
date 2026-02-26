@@ -37,6 +37,10 @@ function BookingsPageContent() {
   const [bkClientEmail, setBkClientEmail] = useState<string>("");
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
   const [bkVehicleNumber, setBkVehicleNumber] = useState<string>("");
+  const [bkVehicleBodyType, setBkVehicleBodyType] = useState<string>("");
+  const [bkVehicleColour, setBkVehicleColour] = useState<string>("");
+  const [bkVehicleVinChassis, setBkVehicleVinChassis] = useState<string>("");
+  const [bkVehicleEngineNumber, setBkVehicleEngineNumber] = useState<string>("");
   const [bkNotes, setBkNotes] = useState<string>("");
   const [bkPickupTime, setBkPickupTime] = useState<string>("");
   const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
@@ -1379,6 +1383,10 @@ function BookingsPageContent() {
     setBkClientEmail("");
     setBkClientPhone("");
     setBkVehicleNumber("");
+    setBkVehicleBodyType("");
+    setBkVehicleColour("");
+    setBkVehicleVinChassis("");
+    setBkVehicleEngineNumber("");
     setBkNotes("");
   };
   const openBookingWizard = () => {
@@ -1994,8 +2002,12 @@ function BookingsPageContent() {
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
       vehicleNumber: bkVehicleNumber?.trim() || undefined,
+      vehicleBodyType: bkVehicleBodyType?.trim() || undefined,
+      vehicleColour: bkVehicleColour?.trim() || undefined,
+      vehicleVinChassis: bkVehicleVinChassis?.trim() || undefined,
+      vehicleEngineNumber: bkVehicleEngineNumber?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
-      services: selectedServiceObjects.map(s => {
+      services: selectedServiceObjects.map((s) => {
         const sId = String(s?.id);
         const stId = bkServiceStaff[sId];
         const stName = stId ? staffList.find(st => st.id === stId)?.name : "Not Assigned Yet";
@@ -2019,6 +2031,10 @@ function BookingsPageContent() {
           clientEmail: newBooking.clientEmail,
           clientPhone: newBooking.clientPhone,
           vehicleNumber: newBooking.vehicleNumber,
+          vehicleBodyType: newBooking.vehicleBodyType,
+          vehicleColour: newBooking.vehicleColour,
+          vehicleVinChassis: newBooking.vehicleVinChassis,
+          vehicleEngineNumber: newBooking.vehicleEngineNumber,
           notes: newBooking.notes,
           serviceId: newBooking.serviceId,
           serviceName: newBooking.serviceName,
@@ -2970,15 +2986,44 @@ function BookingsPageContent() {
                             required
                           />
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Vehicle Number <span className="text-red-400">*</span></label>
-                          <input
-                            type="text"
-                            value={bkVehicleNumber}
-                            onChange={(e) => setBkVehicleNumber(e.target.value)}
-                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium"
-                            placeholder="e.g. ABC 123" required
-                          />
+                        {/* Vehicle details block */}
+                        <div className="space-y-3 rounded-xl border-2 border-neutral-200/80 p-4 bg-neutral-50/30">
+                          <h5 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
+                            <i className="fas fa-car" />
+                            Vehicle details
+                          </h5>
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Registration number <span className="text-red-400">*</span></label>
+                            <input
+                              type="text"
+                              value={bkVehicleNumber}
+                              onChange={(e) => setBkVehicleNumber(e.target.value)}
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium"
+                              placeholder="e.g. ABC 123" required
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Body type <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                              <input type="text" value={bkVehicleBodyType} onChange={(e) => setBkVehicleBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
+                                className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                              <input type="text" value={bkVehicleColour} onChange={(e) => setBkVehicleColour(e.target.value)} placeholder="e.g. White, Black"
+                                className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">VIN / Chassis <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                            <input type="text" value={bkVehicleVinChassis} onChange={(e) => setBkVehicleVinChassis(e.target.value)} placeholder="e.g. 1HGBH41JXMN109186"
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Engine number <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                            <input type="text" value={bkVehicleEngineNumber} onChange={(e) => setBkVehicleEngineNumber(e.target.value)} placeholder="e.g. ABC123456"
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                          </div>
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Additional Notes <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>

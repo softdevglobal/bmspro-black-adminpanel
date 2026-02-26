@@ -52,6 +52,10 @@ type Row = {
   clientEmail?: string | null;
   clientPhone?: string | null;
   vehicleNumber?: string | null;
+  vehicleBodyType?: string | null;
+  vehicleColour?: string | null;
+  vehicleVinChassis?: string | null;
+  vehicleEngineNumber?: string | null;
   mileage?: string | null;
   notes?: string | null;
   status?: string | null;
@@ -172,6 +176,10 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               clientEmail: d.clientEmail || null,
               clientPhone: d.clientPhone || null,
               vehicleNumber: d.vehicleNumber || null,
+              vehicleBodyType: d.vehicleBodyType || null,
+              vehicleColour: d.vehicleColour || null,
+              vehicleVinChassis: d.vehicleVinChassis || null,
+              vehicleEngineNumber: d.vehicleEngineNumber || null,
               mileage: d.mileage || null,
               notes: d.notes || null,
               status: normalizedStatus,
@@ -1190,6 +1198,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
                             {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
                             {previewRow.vehicleNumber && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-car" />{previewRow.vehicleNumber}</span>}
+                            {previewRow.vehicleBodyType && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{previewRow.vehicleBodyType}</span>}
+                            {previewRow.vehicleColour && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{previewRow.vehicleColour}</span>}
                             {previewRow.mileage && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-gauge-high" />{previewRow.mileage}</span>}
                           </div>
                         </div>

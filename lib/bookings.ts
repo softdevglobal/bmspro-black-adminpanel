@@ -54,6 +54,10 @@ export type BookingInput = {
   clientEmail?: string;
   clientPhone?: string;
   vehicleNumber?: string;
+  vehicleBodyType?: string;
+  vehicleColour?: string;
+  vehicleVinChassis?: string;
+  vehicleEngineNumber?: string;
   notes?: string;
   serviceId: string | number;
   serviceName?: string;

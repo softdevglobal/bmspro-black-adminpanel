@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
       customerEmail,
       customerPhone,
       vehicleNumber,
+      vehicleDetails,
       notes,
       date,
       time,
@@ -73,10 +74,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate required fields
-    if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime) {
+    const effectiveVehicleNumber =
+      (vehicleNumber || "").trim() ||
+      [vehicleDetails?.make, vehicleDetails?.model, vehicleDetails?.year].filter(Boolean).join(" ").trim() ||
+      "Vehicle";
+
+    if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !customerEmail?.trim() || !date || !time || !pickupTime) {
       return NextResponse.json(
-        { error: "Missing required fields. Email and Vehicle Number are required." },
+        { error: "Missing required fields. Please fill in all required fields." },
         { status: 400 }
       );
     }
@@ -326,7 +331,15 @@ export async function POST(req: NextRequest) {
       client: customerName,
       clientEmail: customerEmail || null,
       clientPhone: customerPhone || null,
-      vehicleNumber: (vehicleNumber || "").trim() || null,
+      vehicleNumber: effectiveVehicleNumber || null,
+      vehicleMake: vehicleDetails?.make || null,
+      vehicleModel: vehicleDetails?.model || null,
+      vehicleYear: vehicleDetails?.year || null,
+      vehicleMileage: vehicleDetails?.mileage || null,
+      vehicleBodyType: vehicleDetails?.bodyType || null,
+      vehicleColour: vehicleDetails?.colour || null,
+      vehicleVinChassis: vehicleDetails?.vinChassis || null,
+      vehicleEngineNumber: vehicleDetails?.engineNumber || null,
       notes: notes || null,
       serviceId: serviceDetails.length === 1 ? serviceDetails[0].id : serviceDetails.map((s: any) => s.id).join(","),
       serviceName: serviceDetails.map((s: any) => s.name).join(", "),

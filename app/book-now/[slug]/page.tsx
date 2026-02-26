@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
 import { type ChecklistItem, normalizeChecklist } from "@/lib/services";
 
@@ -21,6 +22,18 @@ type Branch = {
 type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
+type CustomerVehicle = {
+  id: string;
+  registrationNumber: string;
+  make?: string;
+  model?: string;
+  year?: string;
+  mileage?: string;
+  bodyType?: string;
+  colour?: string;
+  vinChassis?: string;
+  engineNumber?: string;
+};
 type CustomerBookingTask = {
   id: string;
   serviceId?: string;
@@ -65,7 +78,7 @@ export default function BookingEnginePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeView, setActiveView] = useState<"booking" | "myBookings" | "estimate" | "myEstimates">("booking");
+  const [activeView, setActiveView] = useState<"booking" | "myBookings" | "myVehicles" | "estimate" | "myEstimates">("booking");
   const [bookingsFilter, setBookingsFilter] = useState("All");
   const [customerEstimates, setCustomerEstimates] = useState<any[]>([]);
   const [customerEstimatesLoading, setCustomerEstimatesLoading] = useState(false);
@@ -107,7 +120,31 @@ export default function BookingEnginePage() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
+  const [vehicleMake, setVehicleMake] = useState("");
+  const [vehicleModel, setVehicleModel] = useState("");
+  const [vehicleYear, setVehicleYear] = useState("");
+  const [vehicleMileage, setVehicleMileage] = useState("");
+  const [vehicleBodyType, setVehicleBodyType] = useState("");
+  const [vehicleColour, setVehicleColour] = useState("");
+  const [vehicleVinChassis, setVehicleVinChassis] = useState("");
+  const [vehicleEngineNumber, setVehicleEngineNumber] = useState("");
+  const [customerVehicles, setCustomerVehicles] = useState<CustomerVehicle[]>([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | "new">("new");
   const [notes, setNotes] = useState("");
+  const [vehiclesLoading, setVehiclesLoading] = useState(false);
+  const [vehicleFormOpen, setVehicleFormOpen] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<CustomerVehicle | null>(null);
+  const [vehicleFormRego, setVehicleFormRego] = useState("");
+  const [vehicleFormMake, setVehicleFormMake] = useState("");
+  const [vehicleFormModel, setVehicleFormModel] = useState("");
+  const [vehicleFormYear, setVehicleFormYear] = useState("");
+  const [vehicleFormMileage, setVehicleFormMileage] = useState("");
+  const [vehicleFormBodyType, setVehicleFormBodyType] = useState("");
+  const [vehicleFormColour, setVehicleFormColour] = useState("");
+  const [vehicleFormVin, setVehicleFormVin] = useState("");
+  const [vehicleFormEngine, setVehicleFormEngine] = useState("");
+  const [vehicleSaving, setVehicleSaving] = useState(false);
+  const [vehicleDeleting, setVehicleDeleting] = useState<string | null>(null);
 
   const [customer, setCustomer] = useState<CustomerSession | null>(null);
   const [showAuth, setShowAuth] = useState(false);
@@ -143,6 +180,11 @@ export default function BookingEnginePage() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [downloadingBookingId, setDownloadingBookingId] = useState<string | null>(null);
   const [pdfConfirmBooking, setPdfConfirmBooking] = useState<CustomerBooking | null>(null);
+
+  const getSelectedVehicleStorageKey = useCallback(() => {
+    if (!customer?.customerId || !slug) return null;
+    return `bms_selected_vehicle_${slug}_${customer.customerId}`;
+  }, [customer?.customerId, slug]);
 
   // Navigate between steps with animation direction
   const goToStep = useCallback((target: number) => {
@@ -185,6 +227,135 @@ export default function BookingEnginePage() {
       setEstimatePhone(customer.phone || "");
     }
   }, [customer?.customerId]);
+
+  const fetchCustomerVehicles = useCallback(async () => {
+    if (!customer?.customerId || !slug) return;
+    setVehiclesLoading(true);
+    try {
+      const res = await fetch(`/api/book-now/customer-vehicles?customerId=${encodeURIComponent(customer.customerId)}&slug=${encodeURIComponent(slug)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const vehicles = (data.vehicles || []) as CustomerVehicle[];
+        setCustomerVehicles(vehicles);
+        if (vehicles.length > 0) {
+          const storageKey = getSelectedVehicleStorageKey();
+          let preferredId: string | "new" = vehicles[0].id;
+          if (storageKey) {
+            const savedId = localStorage.getItem(storageKey);
+            if (savedId && vehicles.some((v) => v.id === savedId)) preferredId = savedId;
+          }
+          setSelectedVehicleId(preferredId);
+          const selectedVehicle = vehicles.find((v) => v.id === preferredId) || vehicles[0];
+          setVehicleNumber(selectedVehicle.registrationNumber || "");
+          setVehicleMake(selectedVehicle.make || ""); setVehicleModel(selectedVehicle.model || ""); setVehicleYear(selectedVehicle.year || ""); setVehicleMileage(selectedVehicle.mileage || "");
+          setVehicleBodyType(selectedVehicle.bodyType || ""); setVehicleColour(selectedVehicle.colour || "");
+          setVehicleVinChassis(selectedVehicle.vinChassis || ""); setVehicleEngineNumber(selectedVehicle.engineNumber || "");
+        } else {
+          setSelectedVehicleId("new");
+          setVehicleNumber(""); setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
+          setVehicleBodyType(""); setVehicleColour(""); setVehicleVinChassis(""); setVehicleEngineNumber("");
+        }
+      } else {
+        setCustomerVehicles([]);
+      }
+    } catch {
+      setCustomerVehicles([]);
+    } finally {
+      setVehiclesLoading(false);
+    }
+  }, [customer?.customerId, slug, getSelectedVehicleStorageKey]);
+
+  const openAddVehicle = () => {
+    setEditingVehicle(null);
+    setVehicleFormRego(""); setVehicleFormMake(""); setVehicleFormModel(""); setVehicleFormYear(""); setVehicleFormMileage("");
+    setVehicleFormBodyType(""); setVehicleFormColour(""); setVehicleFormVin(""); setVehicleFormEngine("");
+    setVehicleFormOpen(true);
+  };
+  const openEditVehicle = (v: CustomerVehicle) => {
+    setEditingVehicle(v);
+    setVehicleFormRego(v.registrationNumber || "");
+    setVehicleFormMake(v.make || ""); setVehicleFormModel(v.model || ""); setVehicleFormYear(v.year || ""); setVehicleFormMileage(v.mileage || "");
+    setVehicleFormBodyType(v.bodyType || ""); setVehicleFormColour(v.colour || "");
+    setVehicleFormVin(v.vinChassis || ""); setVehicleFormEngine(v.engineNumber || "");
+    setVehicleFormOpen(true);
+  };
+  const closeVehicleForm = () => {
+    setVehicleFormOpen(false);
+    setEditingVehicle(null);
+    setVehicleSaving(false);
+  };
+  const handleSaveVehicle = async () => {
+    if (!customer?.customerId || !slug) return;
+    if (!vehicleFormRego?.trim() && !vehicleFormMake?.trim() && !vehicleFormModel?.trim()) {
+      alert("Please add at least one identifier: Registration number, Make, or Model.");
+      return;
+    }
+    setVehicleSaving(true);
+    try {
+      if (editingVehicle) {
+        const res = await fetch(`/api/book-now/customer-vehicles/${editingVehicle.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: customer.customerId,
+            slug,
+            registrationNumber: vehicleFormRego?.trim() || undefined,
+            make: vehicleFormMake?.trim() || undefined,
+            model: vehicleFormModel?.trim() || undefined,
+            year: vehicleFormYear?.trim() || undefined,
+            mileage: vehicleFormMileage?.trim() || undefined,
+            bodyType: vehicleFormBodyType?.trim() || undefined,
+            colour: vehicleFormColour?.trim() || undefined,
+            vinChassis: vehicleFormVin?.trim() || undefined,
+            engineNumber: vehicleFormEngine?.trim() || undefined,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Failed to update");
+      } else {
+        const res = await fetch("/api/book-now/customer-vehicles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerId: customer.customerId,
+            slug,
+            registrationNumber: vehicleFormRego?.trim() || undefined,
+            make: vehicleFormMake?.trim() || undefined,
+            model: vehicleFormModel?.trim() || undefined,
+            year: vehicleFormYear?.trim() || undefined,
+            mileage: vehicleFormMileage?.trim() || undefined,
+            bodyType: vehicleFormBodyType?.trim() || undefined,
+            colour: vehicleFormColour?.trim() || undefined,
+            vinChassis: vehicleFormVin?.trim() || undefined,
+            engineNumber: vehicleFormEngine?.trim() || undefined,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Failed to add");
+      }
+      closeVehicleForm();
+      await fetchCustomerVehicles();
+    } catch (e: any) {
+      alert(e?.message || "Failed to save vehicle");
+    } finally {
+      setVehicleSaving(false);
+    }
+  };
+  const handleDeleteVehicle = async (vehicleId: string) => {
+    if (!customer?.customerId || !slug || !confirm("Delete this vehicle?")) return;
+    setVehicleDeleting(vehicleId);
+    try {
+      const res = await fetch(`/api/book-now/customer-vehicles/${vehicleId}?customerId=${encodeURIComponent(customer.customerId)}&slug=${encodeURIComponent(slug)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed to delete");
+      await fetchCustomerVehicles();
+    } catch (e: any) {
+      alert(e?.message || "Failed to delete vehicle");
+    } finally {
+      setVehicleDeleting(null);
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomerVehicles();
+  }, [fetchCustomerVehicles]);
 
   // Load dismissed & read notification IDs from localStorage
   useEffect(() => {
@@ -631,9 +802,35 @@ export default function BookingEnginePage() {
 
   const handleLogout = () => {
     setCustomer(null); setCustomerName(""); setCustomerEmail(""); setCustomerPhone(""); setVehicleNumber("");
+    setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
+    setVehicleBodyType(""); setVehicleColour(""); setVehicleVinChassis(""); setVehicleEngineNumber("");
+    setCustomerVehicles([]); setSelectedVehicleId("new");
+    const storageKey = getSelectedVehicleStorageKey();
+    if (storageKey) localStorage.removeItem(storageKey);
     sessionStorage.removeItem(`bms_customer_${slug}`);
     setShowLogoutConfirm(false);
     setShowProfileMenu(false);
+  };
+
+  const handleSelectVehicle = (id: string | "new") => {
+    setSelectedVehicleId(id);
+    const storageKey = getSelectedVehicleStorageKey();
+    if (storageKey) {
+      if (id === "new") localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, id);
+    }
+    if (id === "new") {
+      setVehicleNumber(""); setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
+      setVehicleBodyType(""); setVehicleColour(""); setVehicleVinChassis(""); setVehicleEngineNumber("");
+    } else {
+      const v = customerVehicles.find((x) => x.id === id);
+      if (v) {
+        setVehicleNumber(v.registrationNumber || "");
+        setVehicleMake(v.make || ""); setVehicleModel(v.model || ""); setVehicleYear(v.year || ""); setVehicleMileage(v.mileage || "");
+        setVehicleBodyType(v.bodyType || ""); setVehicleColour(v.colour || "");
+        setVehicleVinChassis(v.vinChassis || ""); setVehicleEngineNumber(v.engineNumber || "");
+      }
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -666,17 +863,59 @@ export default function BookingEnginePage() {
       setShowAuth(true);
       return;
     }
-    if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime) return;
+    const effectiveVehicle = (vehicleNumber || "").trim() || [vehicleMake, vehicleModel, vehicleYear].filter(Boolean).join(" ").trim() || "Vehicle";
+    if (!selectedBranch || selectedServices.length === 0 || !customerName || !customerPhone || !customerEmail?.trim() || !date || !time || !pickupTime) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/book-now/submit", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, branchId: selectedBranch.id, branchName: selectedBranch.name, services: selectedServiceDetails.map((s) => ({ id: s.id, time })), customerName, customerEmail, customerPhone, vehicleNumber, notes, date, time, pickupTime, customerId: customer?.customerId || null }),
+        body: JSON.stringify({
+          slug, branchId: selectedBranch.id, branchName: selectedBranch.name,
+          services: selectedServiceDetails.map((s) => ({ id: s.id, time })),
+          customerName, customerEmail, customerPhone, vehicleNumber: effectiveVehicle, notes, date, time, pickupTime,
+          customerId: customer?.customerId || null,
+          vehicleDetails: {
+            make: vehicleMake?.trim() || null,
+            model: vehicleModel?.trim() || null,
+            year: vehicleYear?.trim() || null,
+            mileage: vehicleMileage?.trim() || null,
+            bodyType: vehicleBodyType?.trim() || null,
+            colour: vehicleColour?.trim() || null,
+            vinChassis: vehicleVinChassis?.trim() || null,
+            engineNumber: vehicleEngineNumber?.trim() || null,
+          },
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to submit booking");
       setBookingResult({ bookingCode: data.bookingCode, totalPrice: data.totalPrice, totalDuration: data.totalDuration });
       fetchCustomerBookings(); // Refresh bookings list immediately
+      // Save new vehicle for future use if customer added one
+      if (selectedVehicleId === "new" && (vehicleNumber?.trim() || vehicleMake?.trim() || vehicleModel?.trim()) && customer?.customerId) {
+        try {
+          await fetch("/api/book-now/customer-vehicles", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              customerId: customer.customerId,
+              slug,
+              registrationNumber: vehicleNumber?.trim() || undefined,
+              make: vehicleMake?.trim() || undefined,
+              model: vehicleModel?.trim() || undefined,
+              year: vehicleYear?.trim() || undefined,
+              mileage: vehicleMileage?.trim() || undefined,
+              bodyType: vehicleBodyType?.trim() || undefined,
+              colour: vehicleColour?.trim() || undefined,
+              vinChassis: vehicleVinChassis?.trim() || undefined,
+              engineNumber: vehicleEngineNumber?.trim() || undefined,
+            }),
+          });
+          const vRes = await fetch(`/api/book-now/customer-vehicles?customerId=${encodeURIComponent(customer.customerId)}&slug=${encodeURIComponent(slug)}`);
+          if (vRes.ok) setCustomerVehicles((await vRes.json()).vehicles || []);
+        } catch {
+          /* ignore */
+        }
+      }
       goToStep(4);
       setTimeout(() => setShowConfetti(true), 400);
     } catch (err: any) { alert(err.message || "Something went wrong"); }
@@ -887,63 +1126,85 @@ export default function BookingEnginePage() {
           )}
         </div>
         {/* ── View Tabs ── */}
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center gap-1 pt-2 pb-1">
-          <button
-            onClick={() => { setActiveView("booking"); setEstimateSuccess(false); }}
-            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-              activeView === "booking"
-                ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
-                : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
-            }`}
-          >
-            <i className="fas fa-calendar-plus text-[9px]" />
-            Book Now
-          </button>
-          {customer && (
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-2 pb-1.5">
+          <div className="flex items-center gap-1.5 p-1.5 rounded-2xl bg-neutral-100/90 border border-neutral-200/80 overflow-x-auto">
             <button
-              onClick={() => setActiveView("myBookings")}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                activeView === "myBookings"
-                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
-                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+              onClick={() => { setActiveView("booking"); setEstimateSuccess(false); }}
+              className={`h-8 shrink-0 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-[11px] font-bold transition-all ${
+                activeView === "booking"
+                  ? "bg-white text-neutral-900 shadow-sm border border-neutral-200"
+                  : "text-neutral-500 hover:bg-white/80 hover:text-neutral-700"
               }`}
             >
-              <i className="fas fa-list-check text-[9px]" />
-              My Bookings
-              {customerBookings.length > 0 && (
-                <span className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 ${
-                  activeView === "myBookings" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-600"
-                }`}>
-                  {customerBookings.length}
-                </span>
-              )}
+              <i className="fas fa-calendar-plus text-[9px]" />
+              Book Now
             </button>
-          )}
-          {customer && (
-            <button
-              onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); fetchCustomerNotifications(); }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
-                activeView === "myEstimates"
-                  ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/15"
-                  : "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
-              }`}
-            >
-              <i className="fas fa-file-invoice text-[9px]" />
-              My Estimates
-              {customerEstimateUnreadCount > 0 && (
-                <span className="min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 bg-amber-500 text-white animate-pulse">
-                  {customerEstimateUnreadCount}
-                </span>
-              )}
-              {customerEstimateUnreadCount === 0 && customerEstimates.length > 0 && (
-                <span className={`min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full px-1 ${
-                  activeView === "myEstimates" ? "bg-white/20 text-white" : "bg-neutral-200 text-neutral-600"
-                }`}>
-                  {customerEstimates.length}
-                </span>
-              )}
-            </button>
-          )}
+            {customer && (
+              <button
+                onClick={() => setActiveView("myBookings")}
+                className={`h-8 shrink-0 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-[11px] font-bold transition-all ${
+                  activeView === "myBookings"
+                    ? "bg-white text-neutral-900 shadow-sm border border-neutral-200"
+                    : "text-neutral-500 hover:bg-white/80 hover:text-neutral-700"
+                }`}
+              >
+                <i className="fas fa-list-check text-[9px]" />
+                My Bookings
+                {customerBookings.length > 0 && (
+                  <span className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
+                    activeView === "myBookings" ? "bg-neutral-900 text-white" : "bg-neutral-200 text-neutral-700"
+                  }`}>
+                    {customerBookings.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {customer && (
+              <button
+                onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); fetchCustomerNotifications(); }}
+                className={`h-8 shrink-0 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-[11px] font-bold transition-all ${
+                  activeView === "myEstimates"
+                    ? "bg-white text-neutral-900 shadow-sm border border-neutral-200"
+                    : "text-neutral-500 hover:bg-white/80 hover:text-neutral-700"
+                }`}
+              >
+                <i className="fas fa-file-invoice text-[9px]" />
+                My Estimates
+                {customerEstimateUnreadCount > 0 && (
+                  <span className="min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 bg-amber-500 text-white">
+                    {customerEstimateUnreadCount}
+                  </span>
+                )}
+                {customerEstimateUnreadCount === 0 && customerEstimates.length > 0 && (
+                  <span className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
+                    activeView === "myEstimates" ? "bg-neutral-900 text-white" : "bg-neutral-200 text-neutral-700"
+                  }`}>
+                    {customerEstimates.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {customer && (
+              <button
+                onClick={() => { setActiveView("myVehicles"); fetchCustomerVehicles(); }}
+                className={`h-8 shrink-0 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-[11px] font-bold transition-all ${
+                  activeView === "myVehicles"
+                    ? "bg-white text-neutral-900 shadow-sm border border-neutral-200"
+                    : "text-neutral-500 hover:bg-white/80 hover:text-neutral-700"
+                }`}
+              >
+                <i className="fas fa-car text-[9px]" />
+                My Vehicles
+                {customerVehicles.length > 0 && (
+                  <span className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
+                    activeView === "myVehicles" ? "bg-neutral-900 text-white" : "bg-neutral-200 text-neutral-700"
+                  }`}>
+                    {customerVehicles.length}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -2000,10 +2261,91 @@ export default function BookingEnginePage() {
                       <input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="john@example.com" required
                         className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Vehicle Number <span className="text-red-400">*</span></label>
-                      <input type="text" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="e.g. ABC 123" required
-                        className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                    {/* Vehicle block */}
+                    <div className="space-y-4 rounded-xl border-2 border-neutral-200/80 p-4 bg-neutral-50/30">
+                      <h5 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-2">
+                        <i className="fas fa-car" />
+                        Vehicle details
+                      </h5>
+                      {customer && customerVehicles.length > 0 && (
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Select vehicle or add new</label>
+                          <div className="relative">
+                            <select
+                              value={selectedVehicleId}
+                              onChange={(e) => handleSelectVehicle(e.target.value as string | "new")}
+                              className="w-full appearance-none border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 pr-10 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white font-medium"
+                            >
+                              <option value="new">Add new vehicle</option>
+                              {customerVehicles.map((v) => (
+                                <option key={v.id} value={v.id}>
+                                  {[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"} {v.bodyType ? `(${v.bodyType})` : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400" />
+                          </div>
+                        </div>
+                      )}
+                      {customer && (
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <p className="text-[10px] text-neutral-500">
+                            <i className="fas fa-info-circle mr-1" /> All vehicle fields are optional. Add at least one identifier (e.g. registration, make/model).
+                          </p>
+                          <button type="button" onClick={openAddVehicle} className="text-[10px] font-semibold text-neutral-600 hover:text-neutral-900 shrink-0">
+                            <i className="fas fa-plus mr-1" />Add vehicle
+                          </button>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Make <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                          <input type="text" value={vehicleMake} onChange={(e) => setVehicleMake(e.target.value)} placeholder="e.g. Toyota, Honda"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Model <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                          <input type="text" value={vehicleModel} onChange={(e) => setVehicleModel(e.target.value)} placeholder="e.g. Camry, Civic"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Year <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                          <input type="text" value={vehicleYear} onChange={(e) => setVehicleYear(e.target.value)} placeholder="e.g. 2020"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Registration number <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                        <input type="text" value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="e.g. ABC 123"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Mileage <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                        <input type="text" value={vehicleMileage} onChange={(e) => setVehicleMileage(e.target.value)} placeholder="e.g. 45000 km"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Body type <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                          <input type="text" value={vehicleBodyType} onChange={(e) => setVehicleBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                          <input type="text" value={vehicleColour} onChange={(e) => setVehicleColour(e.target.value)} placeholder="e.g. White, Black"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">VIN / Chassis <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                        <input type="text" value={vehicleVinChassis} onChange={(e) => setVehicleVinChassis(e.target.value)} placeholder="e.g. 1HGBH41JXMN109186"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Engine number <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                        <input type="text" value={vehicleEngineNumber} onChange={(e) => setVehicleEngineNumber(e.target.value)} placeholder="e.g. ABC123456"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                      </div>
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Notes <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
@@ -2101,16 +2443,16 @@ export default function BookingEnginePage() {
                     {/* Confirm button */}
                     <button
                       onClick={!customer ? () => setShowAuth(true) : handleSubmit}
-                      disabled={submitting || (!!customer && (!customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime))}
+                      disabled={submitting || (!!customer && (!customerName || !customerPhone || !customerEmail?.trim() || (!vehicleNumber?.trim() && !vehicleMake?.trim() && !vehicleModel?.trim()) || !date || !time || !pickupTime))}
                       className={`w-full mt-5 font-bold py-3.5 rounded-xl transition-all text-sm relative overflow-hidden group ${
                         !customer
                           ? "bg-amber-500 text-neutral-900 hover:bg-amber-400 active:scale-[0.98] shadow-xl shadow-amber-500/20"
-                          : submitting || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime
+                          : submitting || !customerName || !customerPhone || !customerEmail?.trim() || (!vehicleNumber?.trim() && !vehicleMake?.trim() && !vehicleModel?.trim()) || !date || !time || !pickupTime
                             ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
                             : "bg-neutral-900 text-white hover:bg-neutral-800 active:scale-[0.98] shadow-xl shadow-neutral-900/15"
                       }`}
                     >
-                      {customer && !(submitting || !customerName || !customerPhone || !customerEmail?.trim() || !vehicleNumber?.trim() || !date || !time || !pickupTime) && (
+                      {customer && !(submitting || !customerName || !customerPhone || !customerEmail?.trim() || (!vehicleNumber?.trim() && !vehicleMake?.trim() && !vehicleModel?.trim()) || !date || !time || !pickupTime) && (
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent group-hover:animate-[shimmerBg_1.5s_linear_infinite]" style={{ backgroundSize: "200% 100%" }} />
                       )}
                       <span className="relative z-10 flex items-center justify-center gap-2">
@@ -3037,6 +3379,203 @@ export default function BookingEnginePage() {
           </div>
         </main>
       )}
+
+      {/* ═══════════════════ MY VEHICLES VIEW ═══════════════════ */}
+      {activeView === "myVehicles" && (
+        <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full relative z-10">
+          <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+            <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight mb-1">My Vehicles</h3>
+            <p className="text-neutral-500 text-sm mb-6">Manage your saved vehicles for quicker booking</p>
+
+            {vehiclesLoading ? (
+              <div className="flex justify-center py-20">
+                <svg className="animate-spin h-6 w-6 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </div>
+            ) : customerVehicles.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
+                <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-2xl flex items-center justify-center">
+                  <i className="fas fa-car text-2xl text-neutral-300" />
+                </div>
+                <p className="text-neutral-500 font-medium mb-1">No vehicles saved yet</p>
+                <p className="text-neutral-400 text-xs mb-5">Add a vehicle to speed up future bookings.</p>
+                <button
+                  onClick={openAddVehicle}
+                  className="bg-neutral-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl hover:bg-neutral-800 transition-all shadow-md"
+                >
+                  <i className="fas fa-plus mr-1.5" />Add Vehicle
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <button
+                    onClick={openAddVehicle}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-neutral-900 text-white hover:bg-neutral-800 transition-all shadow-md"
+                  >
+                    <i className="fas fa-plus text-[9px]" />Add Vehicle
+                  </button>
+                </div>
+                {customerVehicles.map((v, i) => (
+                  <div key={v.id} className="group relative overflow-hidden rounded-3xl border border-neutral-200/80 bg-white shadow-sm hover:shadow-xl hover:shadow-neutral-900/10 transition-all p-4 sm:p-5">
+                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+                      i % 3 === 0 ? "bg-gradient-to-b from-amber-400 to-orange-500" :
+                      i % 3 === 1 ? "bg-gradient-to-b from-cyan-400 to-blue-500" :
+                      "bg-gradient-to-b from-violet-400 to-purple-500"
+                    }`} />
+                    <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full bg-neutral-100/70 blur-2xl pointer-events-none" />
+                    <div className="relative">
+                      <div className="flex items-start justify-between gap-4 mb-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-2xl bg-neutral-900 text-white flex items-center justify-center shadow-sm shrink-0">
+                            <i className="fas fa-car-side text-xs" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-neutral-400">Saved Vehicle</p>
+                            <div className="mt-1 inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-gradient-to-r from-neutral-50 to-white px-3 py-1.5">
+                              <i className="fas fa-id-card text-[10px] text-neutral-500" />
+                              <span className="font-black tracking-[0.08em] text-neutral-900 text-sm sm:text-base truncate">{[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => openEditVehicle(v)}
+                            className="w-9 h-9 rounded-xl text-neutral-500 bg-white border border-neutral-200 hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all"
+                            title="Edit"
+                          >
+                            <i className="fas fa-pen text-xs" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteVehicle(v.id)}
+                            disabled={vehicleDeleting === v.id}
+                            className="w-9 h-9 rounded-xl text-red-500 bg-white border border-red-100 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all disabled:opacity-50"
+                            title="Delete"
+                          >
+                            {vehicleDeleting === v.id ? <i className="fas fa-spinner fa-spin text-xs" /> : <i className="fas fa-trash text-xs" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide bg-neutral-900 text-white px-2.5 py-1 rounded-full">
+                          <i className="fas fa-layer-group text-[9px]" />
+                          {v.bodyType || "Body N/A"}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold bg-neutral-100 text-neutral-700 px-2.5 py-1 rounded-full border border-neutral-200">
+                          <i className="fas fa-palette text-[9px]" />
+                          {v.colour || "Colour N/A"}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                        <div className="rounded-xl bg-gradient-to-br from-neutral-50 to-white border border-neutral-200/80 px-3 py-2.5">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">VIN / Chassis</p>
+                          <p className="font-semibold text-neutral-700 truncate">{v.vinChassis || "-"}</p>
+                        </div>
+                        <div className="rounded-xl bg-gradient-to-br from-neutral-50 to-white border border-neutral-200/80 px-3 py-2.5">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Engine Number</p>
+                          <p className="font-semibold text-neutral-700 truncate">{v.engineNumber || "-"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
+      )}
+
+      {/* Add/Edit Vehicle Modal - rendered via portal (available from booking + My Vehicles) */}
+      {vehicleFormOpen && typeof document !== "undefined" && createPortal(
+            <>
+              <div className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-md" onClick={closeVehicleForm} />
+              <div className="fixed inset-0 z-[9999] p-4 flex items-center justify-center">
+                <div className="w-full max-w-[560px] max-h-[90vh] overflow-hidden rounded-3xl border border-neutral-200/80 bg-white shadow-2xl shadow-neutral-900/30 flex flex-col">
+                <div className="relative px-4 py-3 sm:px-5 sm:py-4 border-b border-neutral-200/70 bg-gradient-to-r from-neutral-900 via-neutral-800 to-neutral-900">
+                  <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-amber-400/20 blur-2xl" />
+                  <div className="flex items-center gap-3 relative">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white/15 text-white flex items-center justify-center border border-white/20">
+                      <i className="fas fa-car text-sm" />
+                    </div>
+                    <div>
+                      <h4 className="text-base sm:text-lg font-black text-white tracking-tight">{editingVehicle ? "Edit Vehicle" : "Add Vehicle"}</h4>
+                      <p className="hidden sm:block text-xs text-white/70">Keep your vehicle details ready for faster bookings</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 sm:p-5 space-y-2.5 sm:space-y-3 overflow-y-auto flex-1 min-h-0 bg-gradient-to-b from-white to-neutral-50/60">
+                  <p className="text-[10px] text-neutral-500">Add at least one: Registration number, Make, or Model.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Make <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormMake} onChange={(e) => setVehicleFormMake(e.target.value)} placeholder="e.g. Toyota, Honda"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Model <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormModel} onChange={(e) => setVehicleFormModel(e.target.value)} placeholder="e.g. Camry, Civic"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Year <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormYear} onChange={(e) => setVehicleFormYear(e.target.value)} placeholder="e.g. 2020"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                  </div>
+                  <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Registration number <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                    <input type="text" value={vehicleFormRego} onChange={(e) => setVehicleFormRego(e.target.value)} placeholder="e.g. ABC 123"
+                      className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm font-semibold tracking-wide focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                  </div>
+                  <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Mileage <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                    <input type="text" value={vehicleFormMileage} onChange={(e) => setVehicleFormMileage(e.target.value)} placeholder="e.g. 45000 km"
+                      className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Body type <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormBodyType} onChange={(e) => setVehicleFormBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormColour} onChange={(e) => setVehicleFormColour(e.target.value)} placeholder="e.g. White, Black"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">VIN / Chassis <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormVin} onChange={(e) => setVehicleFormVin(e.target.value)} placeholder="e.g. 1HGBH41JXMN109186"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Engine number <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                      <input type="text" value={vehicleFormEngine} onChange={(e) => setVehicleFormEngine(e.target.value)} placeholder="e.g. ABC123456"
+                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-4 sm:px-5 py-3 border-t border-neutral-200/80 bg-white flex gap-2">
+                  <button onClick={closeVehicleForm} className="flex-1 py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold border-2 border-neutral-200 text-neutral-600 hover:bg-neutral-50 transition-all">
+                    Cancel
+                  </button>
+                  <button onClick={handleSaveVehicle} disabled={vehicleSaving || (!vehicleFormRego?.trim() && !vehicleFormMake?.trim() && !vehicleFormModel?.trim())} className="flex-1 py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-bold bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 transition-all shadow-md shadow-neutral-900/15">
+                    {vehicleSaving ? "Saving..." : editingVehicle ? "Update Vehicle" : "Add Vehicle"}
+                  </button>
+                </div>
+              </div>
+              </div>
+            </>,
+            document.body
+          )}
 
       {/* ═══════════════════ MY ESTIMATES VIEW ═══════════════════ */}
       {activeView === "myEstimates" && (

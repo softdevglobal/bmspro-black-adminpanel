@@ -9,6 +9,10 @@ interface BookingPDFData {
   clientEmail?: string;
   clientPhone?: string;
   vehicleNumber?: string | null;
+  vehicleBodyType?: string | null;
+  vehicleColour?: string | null;
+  vehicleVinChassis?: string | null;
+  vehicleEngineNumber?: string | null;
   mileage?: string | null;
   date: string;
   time: string;
@@ -201,6 +205,10 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     clientEmail: data.clientEmail,
     clientPhone: data.clientPhone,
     vehicleNumber: data.vehicleNumber || null,
+    vehicleBodyType: data.vehicleBodyType || null,
+    vehicleColour: data.vehicleColour || null,
+    vehicleVinChassis: data.vehicleVinChassis || null,
+    vehicleEngineNumber: data.vehicleEngineNumber || null,
     mileage: data.mileage || null,
     date: data.date || "",
     time: data.time || "",
@@ -311,7 +319,11 @@ async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffe
     ];
     if (booking.clientEmail) details.push(["Email", booking.clientEmail]);
     if (booking.clientPhone) details.push(["Phone", booking.clientPhone]);
-    if (booking.vehicleNumber) details.push(["Vehicle Number", booking.vehicleNumber]);
+    if (booking.vehicleNumber) details.push(["Registration", booking.vehicleNumber]);
+    if (booking.vehicleBodyType) details.push(["Body Type", booking.vehicleBodyType]);
+    if (booking.vehicleColour) details.push(["Colour", booking.vehicleColour]);
+    if (booking.vehicleVinChassis) details.push(["VIN/Chassis", booking.vehicleVinChassis]);
+    if (booking.vehicleEngineNumber) details.push(["Engine Number", booking.vehicleEngineNumber]);
     if (booking.mileage) details.push(["Mileage", booking.mileage]);
     details.push(["Date", booking.date || "N/A"]);
     details.push(["Drop-off Time", booking.time ? formatTime12h(booking.time) : "N/A"]);

@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 
 type Customer = {
   id: string;
@@ -15,6 +15,29 @@ type Customer = {
   lastVisit?: string;
   notes?: string;
   status?: "Active" | "Inactive";
+  firestoreId?: string; // Firestore customers doc id when available
+};
+
+type Vehicle = {
+  id: string;
+  registrationNumber: string;
+  make?: string;
+  model?: string;
+  year?: string;
+  mileage?: string;
+  bodyType?: string;
+  colour?: string;
+  vinChassis?: string;
+  engineNumber?: string;
+};
+
+type PreviewBooking = {
+  id: string;
+  date: string;
+  time: string;
+  serviceName: string;
+  status: string;
+  branchName?: string;
 };
 
 export default function CustomersPage() {
@@ -31,6 +54,9 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewCust, setPreviewCust] = useState<Customer | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewVehicles, setPreviewVehicles] = useState<Vehicle[]>([]);
+  const [previewBookings, setPreviewBookings] = useState<PreviewBooking[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [bookingsAgg, setBookingsAgg] = useState<Customer[]>([]);
   const [savedCustomers, setSavedCustomers] = useState<Customer[]>([]);
 
@@ -158,7 +184,7 @@ export default function CustomersPage() {
     const keyFor = (c: Customer) => (c.email || c.phone || c.name).toString().toLowerCase();
     const map = new Map<string, Customer>();
     for (const c of savedCustomers) {
-      map.set(keyFor(c), { ...c });
+      map.set(keyFor(c), { ...c, firestoreId: c.id });
     }
     for (const b of bookingsAgg) {
       const k = keyFor(b);
@@ -173,6 +199,110 @@ export default function CustomersPage() {
     }
     setCustomers(Array.from(map.values()));
   }, [bookingsAgg, savedCustomers]);
+
+  // Fetch vehicles and bookings when preview opens
+  useEffect(() => {
+    if (!previewCust || !ownerUid) {
+      setPreviewVehicles([]);
+      setPreviewBookings([]);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    (async () => {
+      try {
+        // Resolve Firestore customer ID
+        let customerId = previewCust.firestoreId;
+        if (!customerId) {
+          const custQuery = query(
+            collection(db, "customers"),
+            where("ownerUid", "==", ownerUid)
+          );
+          const custSnap = await getDocs(custQuery);
+          const email = (previewCust.email || "").trim().toLowerCase();
+          const phone = (previewCust.phone || "").trim();
+          const name = (previewCust.name || "").trim().toLowerCase();
+          for (const d of custSnap.docs) {
+            const data = d.data();
+            const dEmail = (data.email || "").toString().toLowerCase();
+            const dPhone = (data.phone || data.clientPhone || "").toString().trim();
+            const dName = (data.name || data.client || "").toString().trim().toLowerCase();
+            if ((email && dEmail === email) || (phone && dPhone === phone) || (name && dName === name)) {
+              customerId = d.id;
+              break;
+            }
+          }
+        }
+        const [vehiclesList, bookingsList] = await Promise.all([
+          customerId
+            ? getDocs(collection(db, "customers", customerId, "vehicles")).then((snap) =>
+                snap.docs.map((d) => {
+                  const data = d.data();
+                  return {
+                    id: d.id,
+                    registrationNumber: (data.registrationNumber || data.vehicleNumber || "").toString(),
+                    make: data.make,
+                    model: data.model,
+                    year: data.year,
+                    mileage: data.mileage,
+                    bodyType: data.bodyType,
+                    colour: data.colour,
+                    vinChassis: data.vinChassis,
+                    engineNumber: data.engineNumber,
+                  };
+                })
+              )
+            : Promise.resolve([]),
+          getDocs(query(collection(db, "bookings"), where("ownerUid", "==", ownerUid))).then((snap) => {
+            const email = (previewCust.email || "").trim().toLowerCase();
+            const phone = (previewCust.phone || "").trim();
+            const name = (previewCust.name || "").trim().toLowerCase();
+            const list: PreviewBooking[] = [];
+            for (const d of snap.docs) {
+              const data = d.data() as any;
+              const bEmail = (data.clientEmail || "").toString().trim().toLowerCase();
+              const bPhone = (data.clientPhone || "").toString().trim();
+              const bName = (data.client || "").toString().trim().toLowerCase();
+              const matches =
+                (email && bEmail === email) ||
+                (phone && bPhone === phone) ||
+                (!email && !phone && name && bName === name);
+              if (!matches) continue;
+              const services = data.services || [];
+              const firstService = Array.isArray(services) ? services[0] : null;
+              list.push({
+                id: d.id,
+                date: (data.date || "").toString(),
+                time: (data.time || "").toString(),
+                serviceName: (data.serviceName || (firstService?.name ?? "Service")).toString(),
+                status: (data.status || "").toString(),
+                branchName: data.branchName,
+              });
+            }
+            list.sort((a, b) => {
+              const d = (a.date || "").localeCompare(b.date || "", undefined, { numeric: true });
+              return d !== 0 ? -d : (b.time || "").localeCompare(a.time || "", undefined, { numeric: true });
+            });
+            return list.slice(0, 20);
+          }),
+        ]);
+        if (!cancelled) {
+          setPreviewVehicles(vehiclesList);
+          setPreviewBookings(bookingsList);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPreviewVehicles([]);
+          setPreviewBookings([]);
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewCust, ownerUid]);
 
   const saveData = (next: Customer[]) => {
     setCustomers(next);
@@ -490,6 +620,76 @@ export default function CustomersPage() {
                       <div className="text-xs text-neutral-600 font-medium">Last Visit</div>
                     </div>
                   </div>
+                </div>
+
+                {/* Vehicle Details */}
+                <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                  <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-car text-neutral-600" />
+                    Vehicle Details
+                  </h5>
+                  {previewLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <svg className="animate-spin h-5 w-5 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    </div>
+                  ) : previewVehicles.length === 0 ? (
+                    <p className="text-xs text-neutral-500 py-2">No vehicles on file</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {previewVehicles.map((v) => (
+                        <div key={v.id} className="bg-neutral-50 rounded-lg p-3 border border-neutral-200">
+                          <div className="font-semibold text-sm text-neutral-900 flex items-center gap-2">
+                            <i className="fas fa-id-card text-[10px] text-neutral-500" />
+                            {[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "—"}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 mt-1.5 text-[11px] text-neutral-600">
+                            {v.bodyType && <span className="bg-neutral-200 px-1.5 py-0.5 rounded">{v.bodyType}</span>}
+                            {v.colour && <span className="bg-neutral-200 px-1.5 py-0.5 rounded">{v.colour}</span>}
+                            {v.mileage && <span className="bg-neutral-200 px-1.5 py-0.5 rounded">{v.mileage}</span>}
+                            {v.vinChassis && <span className="text-neutral-500 truncate max-w-[120px]" title={v.vinChassis}>VIN: {v.vinChassis}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Previous Bookings */}
+                <div className="bg-white rounded-xl p-4 border-2 border-neutral-200">
+                  <h5 className="font-semibold text-sm text-neutral-800 mb-3 flex items-center gap-2">
+                    <i className="fas fa-history text-neutral-600" />
+                    Previous Bookings
+                  </h5>
+                  {previewLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <svg className="animate-spin h-5 w-5 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    </div>
+                  ) : previewBookings.length === 0 ? (
+                    <p className="text-xs text-neutral-500 py-2">No booking history</p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {previewBookings.map((b) => (
+                        <div key={b.id} className="flex items-center justify-between gap-2 py-2 border-b border-neutral-100 last:border-0">
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm text-neutral-800 truncate">{b.serviceName}</div>
+                            <div className="text-[11px] text-neutral-500">{b.date} {b.time}</div>
+                          </div>
+                          <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            b.status === "Completed" ? "bg-green-100 text-green-700" :
+                            b.status === "Confirmed" ? "bg-blue-100 text-blue-700" :
+                            b.status === "Canceled" || b.status === "Cancelled" ? "bg-red-100 text-red-700" :
+                            "bg-amber-100 text-amber-700"
+                          }`}>{b.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Loyalty Badge */}

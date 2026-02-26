@@ -82,11 +82,13 @@ export default function BookingEnginePage() {
   const [estimateVehicleModel, setEstimateVehicleModel] = useState("");
   const [estimateVehicleYear, setEstimateVehicleYear] = useState("");
   const [estimateRego, setEstimateRego] = useState("");
+  const [estimateMileage, setEstimateMileage] = useState("");
   const [estimateDescription, setEstimateDescription] = useState("");
   const [estimateBranch, setEstimateBranch] = useState<Branch | null>(null);
   const [estimateSubmitting, setEstimateSubmitting] = useState(false);
   const [estimateSuccess, setEstimateSuccess] = useState(false);
   const [estimateError, setEstimateError] = useState("");
+  const [estimateFieldErrors, setEstimateFieldErrors] = useState<Record<string, string>>({});
   const [estimateImages, setEstimateImages] = useState<File[]>([]);
   const [estimateImagePreviews, setEstimateImagePreviews] = useState<string[]>([]);
   const [customerEstimateNotifications, setCustomerEstimateNotifications] = useState<any[]>([]);
@@ -173,6 +175,15 @@ export default function BookingEnginePage() {
       }
     } catch {}
   }, [slug]);
+
+  // Auto-fill estimate contact from logged-in customer
+  useEffect(() => {
+    if (customer) {
+      setEstimateName(customer.name || "");
+      setEstimateEmail(customer.email || "");
+      setEstimatePhone(customer.phone || "");
+    }
+  }, [customer?.customerId]);
 
   // Load dismissed & read notification IDs from localStorage
   useEffect(() => {
@@ -671,12 +682,35 @@ export default function BookingEnginePage() {
     finally { setSubmitting(false); }
   };
 
+  const validateEstimateForm = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (!estimateName?.trim()) errs.name = "Full name is required";
+    if (!estimatePhone?.trim()) errs.phone = "Phone is required";
+    else if (!/^[\d\s+\-()]+$/.test(estimatePhone) || estimatePhone.replace(/\D/g, "").length < 8) {
+      errs.phone = "Enter a valid phone number (numbers only, at least 8 digits)";
+    }
+    if (!estimateEmail?.trim()) errs.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(estimateEmail.trim())) errs.email = "Enter a valid email address";
+    if (!estimateDescription?.trim()) errs.description = "Description is required";
+    if (estimateVehicleYear && !/^\d+$/.test(estimateVehicleYear.trim())) errs.year = "Year must be numbers only";
+    if (estimateMileage && !/^\d+$/.test(estimateMileage)) {
+      errs.mileage = "Mileage must be numbers only";
+    }
+    setEstimateFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   const handleEstimateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customer?.customerId) { setShowAuth(true); return; }
-    if (!workshop || !estimateName || !estimatePhone || !estimateEmail || !estimateDescription) return;
+    if (!workshop) return;
+    if (!validateEstimateForm()) {
+      setEstimateError("Please fix the errors below.");
+      return;
+    }
     setEstimateSubmitting(true);
     setEstimateError("");
+    setEstimateFieldErrors({});
     try {
       // Upload images first via server API
       let imageUrls: string[] = [];
@@ -721,6 +755,7 @@ export default function BookingEnginePage() {
           vehicleModel: estimateVehicleModel,
           vehicleYear: estimateVehicleYear,
           rego: estimateRego,
+          mileage: estimateMileage ? `${estimateMileage.replace(/\D/g, "")} km` : "",
           description: estimateDescription,
           imageUrls,
         }),
@@ -737,6 +772,7 @@ export default function BookingEnginePage() {
       setEstimateSuccess(true);
       setEstimateImages([]);
       setEstimateImagePreviews([]);
+      setEstimateFieldErrors({});
       fetchCustomerEstimates();
     } catch (err: any) {
       setEstimateError(err.message || "Something went wrong");
@@ -1372,7 +1408,7 @@ export default function BookingEnginePage() {
           <div className="animate-[fadeSlideUp_0.5s_ease-out]">
             {/* Get Estimate Card */}
             <button
-              onClick={() => { setActiveView("estimate"); setEstimateSuccess(false); if (branches.length === 1 && !estimateBranch) setEstimateBranch(branches[0]); }}
+              onClick={() => { setActiveView("estimate"); setEstimateSuccess(false); setEstimateError(""); setEstimateFieldErrors({}); if (branches.length === 1 && !estimateBranch) setEstimateBranch(branches[0]); }}
               className="w-full mb-6 group relative overflow-hidden bg-gradient-to-r from-amber-50 via-amber-50/80 to-orange-50 hover:from-amber-100 hover:via-amber-100/80 hover:to-orange-100 border border-amber-200/60 rounded-2xl p-4 sm:p-5 flex items-center gap-4 transition-all duration-200 text-left"
             >
               <div className="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0">
@@ -2772,7 +2808,7 @@ export default function BookingEnginePage() {
                   Thank you for your request. We&apos;ll review your details and get back to you with an estimate as soon as possible.
                 </p>
                 <button
-                  onClick={() => { setEstimateSuccess(false); setEstimateName(""); setEstimatePhone(""); setEstimateEmail(""); setEstimateVehicleMake(""); setEstimateVehicleModel(""); setEstimateVehicleYear(""); setEstimateRego(""); setEstimateDescription(""); setEstimateBranch(null); setActiveView("booking"); }}
+                  onClick={() => { setEstimateSuccess(false); setEstimateError(""); setEstimateFieldErrors({}); setEstimateName(""); setEstimatePhone(""); setEstimateEmail(""); setEstimateVehicleMake(""); setEstimateVehicleModel(""); setEstimateVehicleYear(""); setEstimateRego(""); setEstimateMileage(""); setEstimateDescription(""); setEstimateBranch(null); setActiveView("booking"); }}
                   className="bg-neutral-900 text-white font-bold text-sm px-6 py-3 rounded-xl hover:bg-neutral-800 transition-all shadow-lg shadow-neutral-900/15"
                 >
                   Back to Booking
@@ -2812,18 +2848,21 @@ export default function BookingEnginePage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Full Name <span className="text-red-400">*</span></label>
-                        <input type="text" required value={estimateName} onChange={(e) => setEstimateName(e.target.value)} placeholder="John Smith"
-                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                        <input type="text" required value={estimateName} onChange={(e) => { setEstimateName(e.target.value); setEstimateFieldErrors((p) => ({ ...p, name: "" })); }} placeholder="John Smith"
+                          className={`w-full border-2 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 transition-all outline-none font-medium placeholder:text-neutral-300 ${estimateFieldErrors.name ? "border-red-400 bg-red-50/50" : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50 focus:border-neutral-900"}`} />
+                        {estimateFieldErrors.name && <p className="text-xs text-red-500 mt-1">{estimateFieldErrors.name}</p>}
                       </div>
                       <div>
                         <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Phone <span className="text-red-400">*</span></label>
-                        <input type="tel" required value={estimatePhone} onChange={(e) => setEstimatePhone(e.target.value)} placeholder="0412 345 678"
-                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                        <input type="tel" required value={estimatePhone} onChange={(e) => { const v = e.target.value.replace(/[^\d\s+\-()]/g, ""); setEstimatePhone(v); setEstimateFieldErrors((p) => ({ ...p, phone: "" })); }} placeholder="0412 345 678"
+                          className={`w-full border-2 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 transition-all outline-none font-medium placeholder:text-neutral-300 ${estimateFieldErrors.phone ? "border-red-400 bg-red-50/50" : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50 focus:border-neutral-900"}`} />
+                        {estimateFieldErrors.phone && <p className="text-xs text-red-500 mt-1">{estimateFieldErrors.phone}</p>}
                       </div>
                       <div className="sm:col-span-2">
                         <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Email <span className="text-red-400">*</span></label>
-                        <input type="email" required value={estimateEmail} onChange={(e) => setEstimateEmail(e.target.value)} placeholder="john@email.com"
-                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                        <input type="email" required value={estimateEmail} onChange={(e) => { setEstimateEmail(e.target.value); setEstimateFieldErrors((p) => ({ ...p, email: "" })); }} placeholder="john@email.com"
+                          className={`w-full border-2 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 transition-all outline-none font-medium placeholder:text-neutral-300 ${estimateFieldErrors.email ? "border-red-400 bg-red-50/50" : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50 focus:border-neutral-900"}`} />
+                        {estimateFieldErrors.email && <p className="text-xs text-red-500 mt-1">{estimateFieldErrors.email}</p>}
                       </div>
                     </div>
                   </div>
@@ -2849,13 +2888,23 @@ export default function BookingEnginePage() {
                       </div>
                       <div>
                         <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Year</label>
-                        <input type="text" value={estimateVehicleYear} onChange={(e) => setEstimateVehicleYear(e.target.value)} placeholder="2024"
-                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                        <input type="text" inputMode="numeric" value={estimateVehicleYear} onChange={(e) => { const v = e.target.value.replace(/\D/g, "").slice(0, 4); setEstimateVehicleYear(v); setEstimateFieldErrors((p) => ({ ...p, year: "" })); }} placeholder="2024"
+                          className={`w-full border-2 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 transition-all outline-none font-medium placeholder:text-neutral-300 ${estimateFieldErrors.year ? "border-red-400 bg-red-50/50" : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50 focus:border-neutral-900"}`} />
+                        {estimateFieldErrors.year && <p className="text-xs text-red-500 mt-1">{estimateFieldErrors.year}</p>}
                       </div>
                       <div className="sm:col-span-3">
                         <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Registration Number</label>
                         <input type="text" value={estimateRego} onChange={(e) => setEstimateRego(e.target.value)} placeholder="ABC 123"
                           className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Mileage</label>
+                        <div className="flex items-center gap-2">
+                          <input type="text" inputMode="numeric" value={estimateMileage} onChange={(e) => { const v = e.target.value.replace(/\D/g, ""); setEstimateMileage(v); setEstimateFieldErrors((p) => ({ ...p, mileage: "" })); }} placeholder="e.g. 45000"
+                            className={`flex-1 border-2 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 transition-all outline-none font-medium placeholder:text-neutral-300 ${estimateFieldErrors.mileage ? "border-red-400 bg-red-50/50" : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50 focus:border-neutral-900"}`} />
+                          <span className="text-sm font-semibold text-neutral-500 shrink-0">km</span>
+                        </div>
+                        {estimateFieldErrors.mileage && <p className="text-xs text-red-500 mt-1">{estimateFieldErrors.mileage}</p>}
                       </div>
                     </div>
                   </div>
@@ -2893,9 +2942,10 @@ export default function BookingEnginePage() {
                       </div>
                       <h4 className="font-bold text-neutral-900 text-sm">What do you need?</h4>
                     </div>
-                    <textarea required rows={5} value={estimateDescription} onChange={(e) => setEstimateDescription(e.target.value)}
+                    <textarea required rows={5} value={estimateDescription} onChange={(e) => { setEstimateDescription(e.target.value); setEstimateFieldErrors((p) => ({ ...p, description: "" })); }}
                       placeholder="Describe the issue or service you need — e.g. 'My car makes a grinding noise when braking, need brake pads checked and replaced if needed...'"
-                      className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium resize-none" />
+                      className={`w-full border-2 rounded-xl px-3.5 py-3 text-sm focus:ring-0 transition-all outline-none font-medium resize-none placeholder:text-neutral-300 ${estimateFieldErrors.description ? "border-red-400 bg-red-50/50" : "border-neutral-200 hover:border-neutral-300 bg-neutral-50/50 focus:border-neutral-900"}`} />
+                    {estimateFieldErrors.description && <p className="text-xs text-red-500 mt-1">{estimateFieldErrors.description}</p>}
                   </div>
 
                   {/* Attach Images */}
@@ -3004,7 +3054,7 @@ export default function BookingEnginePage() {
                 <p className="text-neutral-500 font-medium mb-1">No estimate requests yet</p>
                 <p className="text-neutral-400 text-xs mb-5">Submit a request to get a quote from us.</p>
                 <button
-                  onClick={() => { setActiveView("estimate"); setEstimateSuccess(false); if (branches.length === 1 && !estimateBranch) setEstimateBranch(branches[0]); }}
+                  onClick={() => { setActiveView("estimate"); setEstimateSuccess(false); setEstimateError(""); setEstimateFieldErrors({}); if (branches.length === 1 && !estimateBranch) setEstimateBranch(branches[0]); }}
                   className="bg-neutral-900 text-white font-bold text-xs px-5 py-2.5 rounded-xl hover:bg-neutral-800 transition-all shadow-md"
                 >
                   <i className="fas fa-plus mr-1.5" />Get an Estimate
@@ -3045,6 +3095,7 @@ export default function BookingEnginePage() {
                             <i className="fas fa-car text-neutral-400 text-xs" />
                             <span className="text-sm font-semibold text-neutral-800">{vehicleInfo}</span>
                             {est.rego && <span className="text-xs text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">{est.rego}</span>}
+                            {est.mileage && <span className="text-xs text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">{est.mileage}</span>}
                           </div>
                         )}
 

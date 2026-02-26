@@ -37,6 +37,7 @@ type Estimate = {
   vehicleModel: string;
   vehicleYear: string;
   rego: string;
+  mileage?: string;
   description: string;
   imageUrls?: string[];
   status: "New" | "Reviewed" | "Quoted" | "Closed";
@@ -365,6 +366,7 @@ export default function EstimatesPage() {
                             <span className="font-medium">
                               {[e.vehicleYear, e.vehicleMake, e.vehicleModel].filter(Boolean).join(" ")}
                               {e.rego && <span className="text-neutral-400 ml-1">({e.rego})</span>}
+                              {e.mileage && <span className="text-neutral-400 ml-1">• {e.mileage}</span>}
                             </span>
                           </div>
                         )}
@@ -460,6 +462,7 @@ export default function EstimatesPage() {
                                     {[e.vehicleYear, e.vehicleMake, e.vehicleModel].filter(Boolean).join(" ")}
                                   </div>
                                   {e.rego && <div className="text-[11px] text-neutral-400 mt-0.5">Reg: {e.rego}</div>}
+                                  {e.mileage && <div className="text-[11px] text-neutral-400 mt-0.5">Mileage: {e.mileage}</div>}
                                 </div>
                               ) : (
                                 <span className="text-neutral-300">-</span>
@@ -564,7 +567,7 @@ export default function EstimatesPage() {
               </div>
 
               {/* Vehicle */}
-              {(previewEstimate.vehicleMake || previewEstimate.vehicleModel || previewEstimate.rego) && (
+              {(previewEstimate.vehicleMake || previewEstimate.vehicleModel || previewEstimate.rego || previewEstimate.mileage) && (
                 <div>
                   <h4 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Vehicle</h4>
                   <div className="bg-neutral-50 rounded-xl p-3.5 border border-neutral-100">
@@ -577,6 +580,11 @@ export default function EstimatesPage() {
                     {previewEstimate.rego && (
                       <div className="mt-1.5 text-xs text-neutral-500">
                         <span className="font-semibold">Registration Number:</span> {previewEstimate.rego}
+                      </div>
+                    )}
+                    {previewEstimate.mileage && (
+                      <div className="mt-1.5 text-xs text-neutral-500">
+                        <span className="font-semibold">Mileage:</span> {previewEstimate.mileage}
                       </div>
                     )}
                   </div>

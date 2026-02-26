@@ -1813,6 +1813,7 @@ export async function sendEstimateRequestEmail(
     vehicleModel?: string;
     vehicleYear?: string;
     rego?: string;
+    mileage?: string;
     description: string;
     branchName?: string | null;
     imageUrls?: string[];
@@ -1865,11 +1866,12 @@ export async function sendEstimateRequestEmail(
         <p style="margin:0;font-size:16px;color:#171717;font-weight:700;">${estimateData.customerName}</p>
         <p style="margin:4px 0 0;font-size:13px;color:#525252;">${estimateData.customerPhone} &nbsp;|&nbsp; ${estimateData.customerEmail}</p>
       </td></tr>
-      ${vehicleInfo || estimateData.rego ? `
+      ${vehicleInfo || estimateData.rego || estimateData.mileage ? `
       <tr><td colspan="2" style="padding:16px 0;border-bottom:1px solid #f4f4f5;">
         <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Vehicle</p>
         <p style="margin:0;font-size:14px;color:#171717;font-weight:600;">${vehicleInfo || "-"}</p>
         ${estimateData.rego ? `<p style="margin:4px 0 0;font-size:13px;color:#525252;">Registration Number: ${estimateData.rego}</p>` : ""}
+        ${estimateData.mileage ? `<p style="margin:4px 0 0;font-size:13px;color:#525252;">Mileage: ${estimateData.mileage}</p>` : ""}
       </td></tr>` : ""}
       <tr><td colspan="2" style="padding:16px 0;">
         <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Description</p>

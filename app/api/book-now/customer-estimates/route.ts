@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
           vehicleModel: d.vehicleModel || "",
           vehicleYear: d.vehicleYear || "",
           rego: d.rego || "",
+          mileage: d.mileage || "",
           description: d.description || "",
           imageUrls: Array.isArray(d.imageUrls) ? d.imageUrls : [],
           branchName: d.branchName || null,

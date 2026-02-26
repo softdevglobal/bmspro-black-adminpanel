@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
       vehicleModel,
       vehicleYear,
       rego,
+      mileage,
       description,
       imageUrls,
     } = body;
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
       vehicleModel: (vehicleModel || "").trim(),
       vehicleYear: (vehicleYear || "").trim(),
       rego: (rego || "").trim(),
+      mileage: (mileage || "").trim(),
       description: description.trim(),
       imageUrls: Array.isArray(imageUrls) ? imageUrls : [],
       status: "New",
@@ -125,6 +127,7 @@ export async function POST(req: NextRequest) {
         vehicleModel: (vehicleModel || "").trim(),
         vehicleYear: (vehicleYear || "").trim(),
         rego: (rego || "").trim(),
+        mileage: (mileage || "").trim(),
         description: description.trim(),
         branchName: branchName || null,
         imageUrls: Array.isArray(imageUrls) ? imageUrls : [],

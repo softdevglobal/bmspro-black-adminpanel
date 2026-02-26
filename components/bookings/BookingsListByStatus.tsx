@@ -52,6 +52,7 @@ type Row = {
   clientEmail?: string | null;
   clientPhone?: string | null;
   vehicleNumber?: string | null;
+  mileage?: string | null;
   notes?: string | null;
   status?: string | null;
   bookingCode?: string | null;
@@ -171,6 +172,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               clientEmail: d.clientEmail || null,
               clientPhone: d.clientPhone || null,
               vehicleNumber: d.vehicleNumber || null,
+              mileage: d.mileage || null,
               notes: d.notes || null,
               status: normalizedStatus,
               bookingCode: d.bookingCode || null,
@@ -309,6 +311,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null);
+  const [mileageEditValue, setMileageEditValue] = useState("");
+  const [mileageSaving, setMileageSaving] = useState(false);
 
   // Staff assignment modal state
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
@@ -324,6 +328,16 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
   // Reassign modal state (for StaffRejected bookings)
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [bookingToReassign, setBookingToReassign] = useState<Row | null>(null);
+
+  // Sync mileage edit value when preview row changes
+  useEffect(() => {
+    if (previewRow?.mileage) {
+      const val = String(previewRow.mileage).replace(/\s*km\s*$/i, "").trim();
+      setMileageEditValue(val);
+    } else {
+      setMileageEditValue("");
+    }
+  }, [previewRow?.id, previewRow?.mileage]);
 
   // Combined effect: Fetch services and staff together to ensure proper filtering
   useEffect(() => {
@@ -1060,6 +1074,33 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
     }
   };
 
+  const handleSaveMileage = async () => {
+    if (!previewRow) return;
+    const digits = mileageEditValue.replace(/\D/g, "");
+    const mileage = digits ? `${digits} km` : null;
+    try {
+      setMileageSaving(true);
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/bookings/${previewRow.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mileage }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed to save mileage");
+      }
+      setPreviewRow((prev) => (prev ? { ...prev, mileage: mileage || undefined } : null));
+    } catch (e: any) {
+      // eslint-disable-next-line no-alert
+      alert(e?.message || "Failed to save mileage");
+    } finally {
+      setMileageSaving(false);
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-white">
       {/* Mobile Sidebar Overlay */}
@@ -1149,6 +1190,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
                             {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
                             {previewRow.vehicleNumber && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-car" />{previewRow.vehicleNumber}</span>}
+                            {previewRow.mileage && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-gauge-high" />{previewRow.mileage}</span>}
                           </div>
                         </div>
                       </div>
@@ -1545,6 +1587,29 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         <div>
                           <p className="text-neutral-400">Notes</p>
                           <p className="text-neutral-700 whitespace-pre-wrap">{previewRow.notes}</p>
+                        </div>
+                      )}
+                      {previewRow.status === "Confirmed" && (
+                        <div className="pt-2 border-t border-neutral-100">
+                          <p className="text-neutral-400 text-xs mb-2">Add Mileage (optional)</p>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={mileageEditValue}
+                              onChange={(e) => setMileageEditValue(e.target.value.replace(/\D/g, ""))}
+                              placeholder="e.g. 45000"
+                              className="flex-1 border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-neutral-400 focus:border-neutral-500 outline-none"
+                            />
+                            <span className="self-center text-neutral-500 text-sm">km</span>
+                            <button
+                              onClick={handleSaveMileage}
+                              disabled={mileageSaving}
+                              className="px-3 py-2 rounded-lg text-sm font-semibold bg-neutral-800 text-white hover:bg-neutral-700 disabled:opacity-60"
+                            >
+                              {mileageSaving ? "Saving..." : "Save"}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>

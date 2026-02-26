@@ -9,6 +9,7 @@ interface BookingPDFData {
   clientEmail?: string;
   clientPhone?: string;
   vehicleNumber?: string | null;
+  mileage?: string | null;
   date: string;
   time: string;
   pickupTime?: string | null;
@@ -200,6 +201,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     clientEmail: data.clientEmail,
     clientPhone: data.clientPhone,
     vehicleNumber: data.vehicleNumber || null,
+    mileage: data.mileage || null,
     date: data.date || "",
     time: data.time || "",
     pickupTime: data.pickupTime,
@@ -310,6 +312,7 @@ async function buildPDF(booking: BookingPDFData, imageBuffers: Map<string, Buffe
     if (booking.clientEmail) details.push(["Email", booking.clientEmail]);
     if (booking.clientPhone) details.push(["Phone", booking.clientPhone]);
     if (booking.vehicleNumber) details.push(["Vehicle Number", booking.vehicleNumber]);
+    if (booking.mileage) details.push(["Mileage", booking.mileage]);
     details.push(["Date", booking.date || "N/A"]);
     details.push(["Drop-off Time", booking.time ? formatTime12h(booking.time) : "N/A"]);
     if (booking.pickupTime) details.push(["Pick-up Time", formatTime12h(booking.pickupTime)]);

@@ -60,6 +60,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
     const body = (await req.json().catch(() => ({}))) as { 
       serviceId?: string | number; // Optional: specify which service to complete (for multi-service bookings)
+      mileage?: string | null; // Optional: vehicle mileage (e.g. "45000 km") - staff can add before completing
     };
 
     const db = adminDb();
@@ -173,6 +174,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         services: updatedServices,
         updatedAt: FieldValue.serverTimestamp(),
       };
+      if (body.mileage !== undefined) {
+        const val = typeof body.mileage === "string" ? body.mileage.trim() : "";
+        updateData.mileage = val || null;
+      }
 
       // If all services are completed, update booking status to "Completed"
       if (allCompleted) {
@@ -363,6 +368,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         completedByStaffName: staffName,
         updatedAt: FieldValue.serverTimestamp(),
       };
+      if (body.mileage !== undefined) {
+        const val = typeof body.mileage === "string" ? body.mileage.trim() : "";
+        updateData.mileage = val || null;
+      }
 
       await bookingRef.update(updateData);
       

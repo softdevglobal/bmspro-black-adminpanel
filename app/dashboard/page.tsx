@@ -695,6 +695,9 @@ export default function DashboardPage() {
               client: data.client || data.clientName || "Customer",
               clientPhone: data.clientPhone || "",
               clientEmail: data.clientEmail || "",
+              vehicleNumber: data.vehicleNumber || "",
+              vehicleMake: data.vehicleMake || "",
+              vehicleModel: data.vehicleModel || "",
               notes: data.notes || "",
               serviceName: data.serviceName || (Array.isArray(data.services) ? data.services.map((s:any) => s.name).join(", ") : "Service"),
               branchId: data.branchId || "",
@@ -2209,6 +2212,8 @@ export default function DashboardPage() {
                       clientPhone: b.clientPhone || "",
                       clientEmail: b.clientEmail || "",
                       vehicleNumber: b.vehicleNumber || "",
+                      vehicleMake: b.vehicleMake || "",
+                      vehicleModel: b.vehicleModel || "",
                       notes: b.notes || "",
                       serviceName: svc.name || b.serviceName || "Service",
                       servicesText: Array.isArray(b.services) && b.services.length > 0
@@ -2233,6 +2238,8 @@ export default function DashboardPage() {
                     clientPhone: b.clientPhone || "",
                     clientEmail: b.clientEmail || "",
                     vehicleNumber: b.vehicleNumber || "",
+                    vehicleMake: b.vehicleMake || "",
+                    vehicleModel: b.vehicleModel || "",
                     notes: b.notes || "",
                     serviceName: b.serviceName || "Service",
                     servicesText: b.serviceName || "Service",
@@ -2559,6 +2566,8 @@ export default function DashboardPage() {
                                 clientPhone: bk.clientPhone,
                                 clientEmail: bk.clientEmail,
                                 vehicleNumber: bk.vehicleNumber,
+                                vehicleMake: bk.vehicleMake,
+                                vehicleModel: bk.vehicleModel,
                                 notes: bk.notes,
                                 price: Number(bk.price || 0),
                               };
@@ -2652,8 +2661,12 @@ export default function DashboardPage() {
                           {d.pickupDisplay && <p className="text-xs text-slate-700"><i className="fas fa-clock w-3 mr-1" />Pickup: {d.pickupDisplay}</p>}
                           {d.clientPhone && <p className="text-xs text-slate-700"><i className="fas fa-phone w-3 mr-1" />{d.clientPhone}</p>}
                           {d.clientEmail && <p className="text-xs text-slate-700 truncate"><i className="fas fa-envelope w-3 mr-1" />{d.clientEmail}</p>}
-                          {d.vehicleNumber && <p className="text-xs text-slate-700"><i className="fas fa-car w-3 mr-1" />{d.vehicleNumber}</p>}
-                          {d.notes && String(d.notes).trim() && <p className="text-xs text-slate-700 line-clamp-2">{d.notes}</p>}
+                          {((d.vehicleMake || d.vehicleModel) && (
+                            <p className="text-xs text-slate-700">
+                              <i className="fas fa-car-side w-3 mr-1" />
+                              {[d.vehicleMake, d.vehicleModel].filter(Boolean).join(" ")}
+                            </p>
+                          ))}
                           <p className="text-sm font-bold pt-1 border-t border-slate-200 text-neutral-900">${d.price.toLocaleString()}</p>
                           <p className="text-xs text-slate-600 pt-1">Click to open full booking</p>
                         </div>

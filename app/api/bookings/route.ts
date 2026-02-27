@@ -663,39 +663,39 @@ export async function POST(req: NextRequest) {
             }));
           }
         } else if (userRole === "workshop_owner" || userRole === "branch_admin") {
-          // For workshop_owner and branch_admin: skip Pending status
-          // If services have staff assigned, go directly to AwaitingStaffApproval
-          // If all services need assignment, still go to AwaitingStaffApproval (not Pending)
+          // For workshop_owner and branch_admin: Owner/branch admin holds authority.
+          // When staff is assigned, auto-confirm without staff approval.
+          // Services with staff -> accepted; services without staff -> needs_assignment
           
-          // Initialize services with approval status
           if (processedServices && Array.isArray(processedServices) && processedServices.length > 0) {
             processedServices = processedServices.map((service: any) => {
               const hasStaff = service.staffId && service.staffId !== "null" && 
                                !String(service.staffId).toLowerCase().includes("any");
               return {
                 ...service,
-                // Services with valid staff get "pending" approval status
+                // Services with valid staff get "accepted" (auto-confirmed by owner/admin authority)
                 // Services without staff (Any Available) get "needs_assignment" status
-                approvalStatus: hasStaff ? "pending" : "needs_assignment",
+                approvalStatus: hasStaff ? "accepted" : "needs_assignment",
               };
             });
             
-            // Check if any service has staff assigned
-            const hasAnyAssignedStaff = processedServices.some((s: any) => 
-              s.approvalStatus === "pending"
-            );
+            const hasAnyAssignedStaff = processedServices.some((s: any) => s.approvalStatus === "accepted");
+            const hasAnyNeedsAssignment = processedServices.some((s: any) => s.approvalStatus === "needs_assignment");
             
-            // Skip Pending status - go directly to AwaitingStaffApproval
-            if (hasAnyAssignedStaff || processedServices.some((s: any) => s.approvalStatus === "needs_assignment")) {
-              finalStatus = "AwaitingStaffApproval";
+            // All services have staff assigned -> Confirmed (auto-confirm, no staff approval needed)
+            // Any service needs assignment -> Pending (until owner/admin assigns staff)
+            if (hasAnyAssignedStaff && !hasAnyNeedsAssignment) {
+              finalStatus = "Confirmed";
+            } else {
+              finalStatus = "Pending";
             }
           } else if (body.staffId && body.staffId !== "null" && 
                      !String(body.staffId).toLowerCase().includes("any")) {
-            // Single service booking with staff assigned - skip Pending
-            finalStatus = "AwaitingStaffApproval";
+            // Single service booking with staff assigned - auto-confirm
+            finalStatus = "Confirmed";
           } else {
-            // Single service booking without staff - still skip Pending for owner/admin
-            finalStatus = "AwaitingStaffApproval";
+            // Single service booking without staff - Pending until assigned
+            finalStatus = "Pending";
           }
         }
       }
@@ -859,7 +859,7 @@ export async function POST(req: NextRequest) {
       
       // Send email to customer when booking is created (Request Received)
       // IMPORTANT: Always send email for new bookings, regardless of status
-      // For "AwaitingStaffApproval" status (branch admin/owner bookings), send "Pending" email
+      // For "Confirmed" status (owner/admin with staff assigned), send "Confirmed" email
       // For "Confirmed" status (staff bookings), send "Confirmed" email
       // For "Pending" status, send "Pending" email
       try {
@@ -894,7 +894,6 @@ export async function POST(req: NextRequest) {
         });
         
         // Determine email status based on booking status
-        // "AwaitingStaffApproval" should send a "Pending" email (booking is waiting for approval)
         // "Confirmed" should send a "Confirmed" email
         // "Pending" should send a "Pending" email
         let emailStatus: "Pending" | "Confirmed" = "Pending";
@@ -965,8 +964,8 @@ export async function POST(req: NextRequest) {
         // Don't fail the request if email sending fails
       }
       
-      // Send notifications to assigned staff members if booking requires approval
-      if (finalStatus === "AwaitingStaffApproval") {
+      // Send notifications to assigned staff members (informational - booking confirmed, no approval needed)
+      if (finalStatus === "Confirmed") {
         try {
           const staffToNotify: Array<{ uid: string; name: string }> = [];
           

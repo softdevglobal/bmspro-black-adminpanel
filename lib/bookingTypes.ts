@@ -102,6 +102,7 @@ export function canTransitionStatus(current: BookingStatus, next: BookingStatus)
   //   Confirmed -> Canceled (admin cancels confirmed booking)
   
   if (current === "Pending" && next === "AwaitingStaffApproval") return true;
+  if (current === "Pending" && next === "Confirmed") return true; // Owner/admin confirms with staff assigned (no staff approval)
   if (current === "Pending" && next === "Canceled") return true;
   if (current === "AwaitingStaffApproval" && next === "PartiallyApproved") return true;
   if (current === "AwaitingStaffApproval" && next === "Confirmed") return true;

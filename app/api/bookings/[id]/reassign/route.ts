@@ -14,18 +14,17 @@ export const runtime = "nodejs";
  * Calculate booking status based on service approval statuses
  */
 function calculateBookingStatus(services: BookingService[]): string {
-  if (!services || services.length === 0) return "AwaitingStaffApproval";
+  if (!services || services.length === 0) return "Confirmed";
   
-  const statuses = services.map(s => s.approvalStatus || "pending");
+  const statuses = services.map(s => s.approvalStatus || "needs_assignment");
   const allAccepted = statuses.every(s => s === "accepted");
   const anyRejected = statuses.some(s => s === "rejected");
-  const anyAccepted = statuses.some(s => s === "accepted");
-  const allPending = statuses.every(s => s === "pending");
+  const anyNeedsAssignment = statuses.some(s => s === "needs_assignment");
   
   if (allAccepted) return "Confirmed";
   if (anyRejected) return "StaffRejected";
-  if (anyAccepted && !allPending) return "PartiallyApproved";
-  return "AwaitingStaffApproval";
+  if (anyNeedsAssignment) return "Pending";
+  return "Confirmed";
 }
 
 /**
@@ -193,15 +192,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         }, { status: 400 });
       }
 
-      // Update the specific service
+      // Update the specific service - owner/admin authority: newly assigned = accepted
       const updatedServices = existingServices.map((service, idx) => {
         if (idx === serviceIndex) {
-          // Create clean service object (Firestore doesn't accept undefined)
           const updatedService: any = {
             ...service,
             staffId: body.staffId,
             staffName: body.staffName || "Staff",
-            approvalStatus: "pending" as const,
+            approvalStatus: "accepted" as const, // Owner/admin authority - no staff approval needed
           };
           // Remove previous response data
           delete updatedService.acceptedAt;
@@ -230,15 +228,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       // Multi-service reassignment
       // Preserve accepted services and only update rejected/pending ones
       updateData.services = body.services!.map((service: any) => {
-        // If this service was already accepted, keep it as-is
         if (service.approvalStatus === "accepted") {
           return service;
         }
         
-        // For rejected/pending services, reset with new staff
+        // For rejected/pending services: owner/admin authority - newly assigned = accepted
         const cleanService: any = {
           ...service,
-          approvalStatus: "pending",
+          approvalStatus: "accepted", // Owner/admin authority - no staff approval needed
         };
         // Remove previous response data
         delete cleanService.acceptedAt;
@@ -278,10 +275,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }
 
     } else if (body.staffId) {
-      // Single service booking reassignment
+      // Single service booking reassignment - owner/admin authority: auto-confirm
       updateData.staffId = body.staffId;
       updateData.staffName = body.staffName || "Staff";
-      updateData.status = "AwaitingStaffApproval";
+      updateData.status = "Confirmed";
       
       // Clear previous rejection info
       updateData.rejectionReason = FieldValue.delete();

@@ -52,6 +52,8 @@ type Row = {
   clientEmail?: string | null;
   clientPhone?: string | null;
   vehicleNumber?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
   vehicleBodyType?: string | null;
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
@@ -176,6 +178,8 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               clientEmail: d.clientEmail || null,
               clientPhone: d.clientPhone || null,
               vehicleNumber: d.vehicleNumber || null,
+              vehicleMake: d.vehicleMake || null,
+              vehicleModel: d.vehicleModel || null,
               vehicleBodyType: d.vehicleBodyType || null,
               vehicleColour: d.vehicleColour || null,
               vehicleVinChassis: d.vehicleVinChassis || null,
@@ -1197,14 +1201,84 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           <div className="flex flex-wrap gap-2 mt-1">
                             {previewRow.clientEmail && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-envelope" />{previewRow.clientEmail}</span>}
                             {previewRow.clientPhone && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-phone" />{previewRow.clientPhone}</span>}
-                            {previewRow.vehicleNumber && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-car" />{previewRow.vehicleNumber}</span>}
-                            {previewRow.vehicleBodyType && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{previewRow.vehicleBodyType}</span>}
-                            {previewRow.vehicleColour && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">{previewRow.vehicleColour}</span>}
-                            {previewRow.mileage && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700"><i className="fas fa-gauge-high" />{previewRow.mileage}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Vehicle Details Section - Creative Card */}
+                      <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-gradient-to-br from-slate-50 via-white to-neutral-50 shadow-sm">
+                        {/* Decorative accent */}
+                        <div className="absolute top-0 right-0 w-32 h-32 -translate-y-1/2 translate-x-1/2 rounded-full bg-gradient-to-br from-amber-100/60 to-orange-100/40 blur-2xl" />
+                        <div className="absolute bottom-0 left-0 w-24 h-24 -translate-y-1/2 -translate-x-1/2 rounded-full bg-gradient-to-tr from-blue-50/80 to-transparent blur-xl" />
+                        
+                        <div className="relative">
+                          {/* Header with vehicle identity */}
+                          <div className="flex items-center gap-4 p-4 pb-3 border-b border-neutral-100/80">
+                            <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center border border-amber-200/50">
+                              <i className="fas fa-car-side text-2xl text-amber-600/90" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-bold text-amber-600/90 uppercase tracking-widest">Vehicle Information</p>
+                              <p className="mt-0.5 font-bold text-neutral-900 text-lg truncate">
+                                {(previewRow.vehicleMake || previewRow.vehicleModel)
+                                  ? [previewRow.vehicleMake, previewRow.vehicleModel].filter(Boolean).join(" ")
+                                  : "Vehicle Details"}
+                              </p>
+                              {(previewRow.vehicleNumber || previewRow.vehicleBodyType) && (
+                                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                  {previewRow.vehicleNumber && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-neutral-800 text-white text-xs font-mono font-semibold">
+                                      <i className="fas fa-id-card text-[9px] opacity-80" />
+                                      {previewRow.vehicleNumber}
+                                    </span>
+                                  )}
+                                  {previewRow.vehicleBodyType && (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
+                                      {previewRow.vehicleBodyType}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Details grid */}
+                          <div className="p-4 pt-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              {[
+                                { label: "Make", value: previewRow.vehicleMake, icon: "fa-industry" },
+                                { label: "Model", value: previewRow.vehicleModel, icon: "fa-tag" },
+                                { label: "Body Type", value: previewRow.vehicleBodyType, icon: "fa-shapes" },
+                                { label: "Colour", value: previewRow.vehicleColour, icon: "fa-palette" },
+                                { label: "Registration", value: previewRow.vehicleNumber, icon: "fa-id-card" },
+                                { label: "VIN / Chassis", value: previewRow.vehicleVinChassis, icon: "fa-barcode" },
+                                { label: "Engine No.", value: previewRow.vehicleEngineNumber, icon: "fa-gears" },
+                                { label: "Mileage", value: previewRow.mileage, icon: "fa-gauge-high" },
+                              ].map(({ label, value, icon }) => (
+                                <div key={label} className="flex items-center gap-3 rounded-lg bg-white/70 backdrop-blur-sm py-2.5 px-3 border border-neutral-100">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
+                                    <i className={`fas ${icon} text-[10px] text-neutral-500`} />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wide">{label}</p>
+                                    <p className="text-sm font-semibold text-neutral-800 truncate">{value || "N/A"}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </div>
                       
+                      {previewRow.mileage && (
+                        <div className="rounded-xl border border-emerald-200 p-3 bg-emerald-50/80">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-gauge-high text-emerald-600" />
+                            <span className="text-emerald-700 text-xs font-semibold uppercase tracking-wide">Vehicle Mileage (Recorded by Staff)</span>
+                          </div>
+                          <p className="mt-1.5 font-bold text-emerald-900 text-lg">{previewRow.mileage}</p>
+                        </div>
+                      )}
                       <div className="rounded-xl border border-neutral-200 p-3 bg-neutral-50/50">
                         <div className="flex items-center justify-between">
                           <span className="text-neutral-500 text-xs uppercase tracking-wide">Booking Code</span>
@@ -1760,6 +1834,29 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         </div>
                       )}
 
+                      {/* Vehicle (make, model, body type) - 3 lines with labels */}
+                      <div className="mt-2 rounded-lg bg-neutral-50 border border-neutral-100 px-3 py-2">
+                        {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 min-w-0 flex items-baseline gap-2">
+                                <span className="text-[9px] font-semibold text-neutral-400 uppercase shrink-0">Make</span>
+                                <span className="text-[11px] font-semibold text-neutral-800 truncate">{r.vehicleMake || "N/A"}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-baseline gap-2 pl-4">
+                              <span className="text-[9px] font-semibold text-neutral-400 uppercase w-10 shrink-0">Model</span>
+                              <span className="text-[11px] text-neutral-700 truncate">{r.vehicleModel || "N/A"}</span>
+                            </div>
+                            <div className="flex items-baseline gap-2 pl-4">
+                              <span className="text-[9px] font-semibold text-neutral-400 uppercase w-10 shrink-0">Body</span>
+                              <span className="text-[11px] text-neutral-600 truncate">{r.vehicleBodyType || "N/A"}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-neutral-400">N/A</span>
+                        )}
+                      </div>
                       {/* Info grid: Date, Branch, Price */}
                       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                         <div className="bg-neutral-50 rounded-lg py-2 px-1">
@@ -1848,11 +1945,12 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
             {/* ═══ DESKTOP TABLE VIEW ═══ */}
             <div className="hidden md:block bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
               <div className="relative overflow-x-auto">
-                <table className="min-w-[800px] w-full text-left text-sm text-neutral-600">
+                <table className="min-w-[900px] w-full text-left text-sm text-neutral-600">
                   <thead className="bg-neutral-50/90 backdrop-blur text-neutral-800 font-semibold border-b border-neutral-100 sticky top-0 z-10">
                   <tr>
                     <th className="p-4 pl-6">Client &amp; Service</th>
                     <th className="p-4">Date &amp; Time</th>
+                    <th className="p-4 min-w-[150px]">Vehicle</th>
                     <th className="p-4">Branch</th>
                     <th className="p-4 text-right pr-6">Price</th>
                     <th className="p-4 text-right pr-6">Actions</th>
@@ -1861,17 +1959,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <tbody>
                   {loading && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={5}>Loading...</td>
+                      <td className="p-6 text-neutral-500" colSpan={6}>Loading...</td>
                     </tr>
                   )}
                   {!loading && error && (
                     <tr>
-                      <td className="p-6 text-rose-600" colSpan={5}>{error}</td>
+                      <td className="p-6 text-rose-600" colSpan={6}>{error}</td>
                     </tr>
                   )}
                   {!loading && rows.length === 0 && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={5}>No bookings.</td>
+                      <td className="p-6 text-neutral-500" colSpan={6}>No bookings.</td>
                     </tr>
                   )}
                   {!loading &&
@@ -1887,9 +1985,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                       const statusLabel = getStatusLabel(normalizeBookingStatus(r.status));
                       return (
                       <tr key={r.id} className="hover:bg-neutral-50 transition">
-                        <td className="p-4 pl-6">
-                          <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 flex-shrink-0 bg-neutral-900 text-white flex items-center justify-center text-sm font-bold shadow-sm mt-0.5" style={{ borderRadius: "50%" }}>
+                        <td className="p-4 pl-6 align-middle">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 flex-shrink-0 bg-neutral-900 text-white flex items-center justify-center text-sm font-bold shadow-sm" style={{ borderRadius: "50%" }}>
                               {initials || <i className="fas fa-user" />}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -2004,8 +2102,8 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             </div>
                           </div>
                         </td>
-                        <td className="p-4">
-                          <div className="flex items-center gap-1.5 font-medium text-neutral-700 text-sm whitespace-nowrap">
+                        <td className="p-4 align-middle">
+                          <div className="flex flex-col gap-1 font-medium text-neutral-700 text-sm whitespace-nowrap">
                             <i className="far fa-calendar text-neutral-400 text-[11px]" />
                             {(() => { try { return new Date(r.date + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); } catch { return r.date; } })()}
                           </div>
@@ -2022,14 +2120,36 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                             )}
                           </div>
                         </td>
-                        <td className="p-4">{r.branchName || "-"}</td>
-                        <td className="p-4 text-right pr-6">
+                        <td className="p-3 align-middle">
+                          <div className="min-w-[130px] max-w-[160px] rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-2">
+                            {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
+                              <div className="space-y-1.5 text-[11px]">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Make</span>
+                                  <span className="font-semibold text-neutral-800 truncate" title={r.vehicleMake || "N/A"}>{r.vehicleMake || "N/A"}</span>
+                                </div>
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Model</span>
+                                  <span className="text-neutral-700 truncate" title={r.vehicleModel || "N/A"}>{r.vehicleModel || "N/A"}</span>
+                                </div>
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Body</span>
+                                  <span className="text-neutral-600 truncate" title={r.vehicleBodyType || "N/A"}>{r.vehicleBodyType || "N/A"}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-neutral-400">N/A</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4 align-middle">{r.branchName || "-"}</td>
+                        <td className="p-4 align-middle text-right pr-6">
                           <span className="inline-flex items-center gap-1 font-bold text-neutral-800">
                             <i className="fas fa-dollar-sign text-neutral-400" />
                             {r.price}
                           </span>
                         </td>
-                        <td className="p-4 text-right pr-6">
+                        <td className="p-4 align-middle text-right pr-6">
                           <div className="inline-flex items-center gap-2 justify-end bg-neutral-100/60 rounded-full px-2 py-1">
                             {/* Status Badge */}
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>

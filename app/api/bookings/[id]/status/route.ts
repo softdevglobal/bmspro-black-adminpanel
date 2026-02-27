@@ -143,14 +143,13 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       : currentStatus;
     
     // Handle the transition from Pending -> "Confirmed" in admin panel
-    // In new workflow, this actually means Pending -> AwaitingStaffApproval
+    // Owner/branch admin holds authority - when they assign staff and confirm, go directly to Confirmed (no staff approval)
     let actualNextStatus = requestedStatus;
     let isAdminConfirmingPending = false;
     
     if (currentStatus === "Pending" && requestedStatus === "Confirmed") {
-      // Admin is trying to confirm a pending booking
-      // In the new workflow, this should go to AwaitingStaffApproval
-      actualNextStatus = "AwaitingStaffApproval" as any;
+      // Admin is confirming a pending booking (with staff assigned) - go directly to Confirmed
+      actualNextStatus = "Confirmed";
       isAdminConfirmingPending = true;
     }
     
@@ -201,15 +200,14 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     // Add services update if provided (for multi-service staff assignment)
     if (body.services && Array.isArray(body.services) && body.services.length > 0) {
-      // Initialize approvalStatus to "pending" for each service when sending to staff
-      if (isAdminConfirmingPending || actualNextStatus === "AwaitingStaffApproval") {
+      // When admin confirms with staff assigned (Pending or AwaitingStaffApproval): mark services as "accepted" (no staff approval needed)
+      const isAdminConfirmingWithStaff = (isAdminConfirmingPending || currentStatus === "AwaitingStaffApproval" || currentStatus === "PartiallyApproved") && actualNextStatus === "Confirmed";
+      if (isAdminConfirmingWithStaff) {
         updateData.services = body.services.map((service: any) => {
-          // Create a clean service object without undefined values (Firestore doesn't accept undefined)
           const cleanService: any = {
             ...service,
-            approvalStatus: "pending", // Initialize approval status
+            approvalStatus: "accepted", // Owner/admin authority - auto-accepted
           };
-          // Remove any previous response data
           delete cleanService.acceptedAt;
           delete cleanService.rejectedAt;
           delete cleanService.rejectionReason;
@@ -246,8 +244,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       updateData.rejectedByStaffName = FieldValue.delete();
     }
 
-    // If admin is sending to staff for approval (from booking request or pending), move to bookings if needed
-    if (isBookingRequest && (isAdminConfirmingPending || actualNextStatus === "AwaitingStaffApproval")) {
+    // If admin is confirming (from booking request or pending), move to bookings if needed
+    if (isBookingRequest && (isAdminConfirmingPending || actualNextStatus === "Confirmed")) {
       // Create in bookings collection
       const bookingData = {
         ...data,
@@ -304,15 +302,16 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       };
 
       if (isAdminConfirmingPending) {
-        // Admin sending to staff for approval
-        const staffNames = body.services?.map((s: any) => s.staffName).filter(Boolean) || [];
-        await logBookingSentToStaffServer(
+        // Admin confirmed with staff assigned (no staff approval needed)
+        await logBookingStatusChangedServer(
           ownerUid,
           id,
           data.bookingCode,
           clientName,
+          currentStatus,
+          actualNextStatus,
           performer,
-          staffNames.length > 0 ? staffNames : [body.staffName || "Staff"],
+          undefined,
           data.branchName
         );
       } else if (isAdminReassigning) {
@@ -354,13 +353,13 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       const finalBookingTime = data.time || null;
       const clientName = data.client || data.clientName || "Customer";
 
-      // CASE 1: Admin confirms pending booking -> Send notification to STAFF (not customer)
-      if (isAdminConfirmingPending || isAdminReassigning) {
-        // Collect all unique staff UIDs that need to be notified
+      // CASE 1: Admin confirms/assigns staff (Pending or AwaitingStaffApproval -> Confirmed) -> Notify staff + customer confirmation
+      const isAdminConfirmingOrAssigning = isAdminConfirmingPending || 
+        ((currentStatus === "AwaitingStaffApproval" || currentStatus === "PartiallyApproved") && actualNextStatus === "Confirmed");
+      if (isAdminConfirmingOrAssigning) {
+        // Send informational notification to assigned staff (booking confirmed, no approval needed)
         const staffToNotify: Array<{ uid: string; name: string }> = [];
-        
         if (finalServices && Array.isArray(finalServices) && finalServices.length > 0) {
-          // Multi-service booking - notify each staff member
           for (const svc of finalServices) {
             if (svc.staffId && svc.staffId !== "null") {
               const existing = staffToNotify.find(s => s.uid === svc.staffId);
@@ -370,14 +369,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             }
           }
         } else if (body.staffId) {
-          // Single staff assignment
           staffToNotify.push({ uid: body.staffId, name: body.staffName || "Staff" });
         } else if (data.staffId) {
-          // Use existing staff assignment
           staffToNotify.push({ uid: data.staffId, name: data.staffName || "Staff" });
         }
-        
-        // Send notification to each assigned staff member
         for (const staff of staffToNotify) {
           await createStaffAssignmentNotification({
             bookingId: id,
@@ -398,14 +393,57 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
             duration: data.duration,
             price: data.price,
             ownerUid: ownerUid,
-            isReassignment: isAdminReassigning,
+            isReassignment: false,
           });
         }
-        
-        console.log(`Sent staff assignment notifications to ${staffToNotify.length} staff member(s)`);
+        if (staffToNotify.length > 0) {
+          console.log(`Sent staff assignment notifications to ${staffToNotify.length} staff member(s)`);
+        }
+      }
+      // CASE 1b: Admin reassigning after rejection
+      else if (isAdminReassigning) {
+        const staffToNotify: Array<{ uid: string; name: string }> = [];
+        if (finalServices && Array.isArray(finalServices) && finalServices.length > 0) {
+          for (const svc of finalServices) {
+            if (svc.staffId && svc.staffId !== "null") {
+              const existing = staffToNotify.find(s => s.uid === svc.staffId);
+              if (!existing) {
+                staffToNotify.push({ uid: svc.staffId, name: svc.staffName || "Staff" });
+              }
+            }
+          }
+        } else if (body.staffId) {
+          staffToNotify.push({ uid: body.staffId, name: body.staffName || "Staff" });
+        }
+        for (const staff of staffToNotify) {
+          await createStaffAssignmentNotification({
+            bookingId: id,
+            bookingCode: data.bookingCode,
+            staffUid: staff.uid,
+            staffName: staff.name,
+            clientName: clientName,
+            clientPhone: data.clientPhone,
+            serviceName: finalServiceName,
+            services: finalServices?.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName,
+              staffId: s.staffId,
+            })),
+            branchName: data.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            duration: data.duration,
+            price: data.price,
+            ownerUid: ownerUid,
+            isReassignment: true,
+          });
+        }
+        if (staffToNotify.length > 0) {
+          console.log(`Sent staff reassignment notifications to ${staffToNotify.length} staff member(s)`);
+        }
       }
       
-      // CASE 2: Staff accepts booking -> Send confirmation notification to CUSTOMER
+      // CASE 2: Staff accepts booking -> Send confirmation notification to CUSTOMER (legacy - staff approval no longer required)
       else if (isStaffAccepting) {
         await createCustomerConfirmationNotification({
           bookingId: id,

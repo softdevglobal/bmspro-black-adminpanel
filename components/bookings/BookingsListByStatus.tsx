@@ -58,7 +58,9 @@ type Row = {
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
   vehicleEngineNumber?: string | null;
-  mileage?: string | null;
+  vehicleMileage?: string | null;  // Customer-added at booking
+  mileage?: string | null;         // Staff-recorded when starting job
+  mileageRecordedByStaffName?: string | null;
   notes?: string | null;
   status?: string | null;
   bookingCode?: string | null;
@@ -184,7 +186,9 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               vehicleColour: d.vehicleColour || null,
               vehicleVinChassis: d.vehicleVinChassis || null,
               vehicleEngineNumber: d.vehicleEngineNumber || null,
-              mileage: d.mileage || d.vehicleMileage || null,
+              vehicleMileage: d.vehicleMileage || null,
+              mileage: d.mileage || null,
+              mileageRecordedByStaffName: d.mileageRecordedByStaffName || null,
               notes: d.notes || null,
               status: normalizedStatus,
               bookingCode: d.bookingCode || null,
@@ -1253,8 +1257,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                 { label: "Registration", value: previewRow.vehicleNumber, icon: "fa-id-card" },
                                 { label: "VIN / Chassis", value: previewRow.vehicleVinChassis, icon: "fa-barcode" },
                                 { label: "Engine No.", value: previewRow.vehicleEngineNumber, icon: "fa-gears" },
-                                { label: "Mileage", value: previewRow.mileage, icon: "fa-gauge-high" },
-                              ].map(({ label, value, icon }) => (
+                                { label: "Customer Mileage", value: previewRow.vehicleMileage, icon: "fa-gauge-high" },
+                                { label: "Mileage (recorded by staff)", value: previewRow.mileage, icon: "fa-user-check", sub: previewRow.mileage ? previewRow.mileageRecordedByStaffName : null },
+                              ].map(({ label, value, icon, sub }) => (
                                 <div key={label} className="flex items-center gap-3 rounded-lg bg-white/70 backdrop-blur-sm py-2.5 px-3 border border-neutral-100">
                                   <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
                                     <i className={`fas ${icon} text-[10px] text-neutral-500`} />
@@ -1262,6 +1267,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                                   <div className="flex-1 min-w-0">
                                     <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wide">{label}</p>
                                     <p className="text-sm font-semibold text-neutral-800 truncate">{value || "N/A"}</p>
+                                    {sub && <p className="text-[10px] text-neutral-500 mt-0.5">by {sub}</p>}
                                   </div>
                                 </div>
                               ))}
@@ -1270,15 +1276,6 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         </div>
                       </div>
                       
-                      {previewRow.mileage && (
-                        <div className="rounded-xl border border-emerald-200 p-3 bg-emerald-50/80">
-                          <div className="flex items-center gap-2">
-                            <i className="fas fa-gauge-high text-emerald-600" />
-                            <span className="text-emerald-700 text-xs font-semibold uppercase tracking-wide">Vehicle Mileage (Recorded by Staff)</span>
-                          </div>
-                          <p className="mt-1.5 font-bold text-emerald-900 text-lg">{previewRow.mileage}</p>
-                        </div>
-                      )}
                       <div className="rounded-xl border border-neutral-200 p-3 bg-neutral-50/50">
                         <div className="flex items-center justify-between">
                           <span className="text-neutral-500 text-xs uppercase tracking-wide">Booking Code</span>

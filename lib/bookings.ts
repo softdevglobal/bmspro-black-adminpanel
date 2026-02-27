@@ -58,6 +58,7 @@ export type BookingInput = {
   vehicleColour?: string;
   vehicleVinChassis?: string;
   vehicleEngineNumber?: string;
+  vehicleMileage?: string;  // Customer-provided mileage at booking
   notes?: string;
   serviceId: string | number;
   serviceName?: string;

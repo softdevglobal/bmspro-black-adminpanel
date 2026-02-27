@@ -13,7 +13,8 @@ interface BookingPDFData {
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
   vehicleEngineNumber?: string | null;
-  mileage?: string | null;
+  vehicleMileage?: string | null;  // Customer-added at booking
+  mileage?: string | null;         // Staff-recorded when starting job
   mileageRecordedBy?: string | null;
   mileageRecordedByStaffName?: string | null;
   date: string;
@@ -269,7 +270,8 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     vehicleColour: data.vehicleColour || null,
     vehicleVinChassis: data.vehicleVinChassis || null,
     vehicleEngineNumber: data.vehicleEngineNumber || null,
-    mileage: data.mileage || data.vehicleMileage || null,
+    vehicleMileage: data.vehicleMileage || null,
+    mileage: data.mileage || null,
     mileageRecordedBy: data.mileageRecordedBy || null,
     mileageRecordedByStaffName: data.mileageRecordedByStaffName || null,
     date: data.date || "",
@@ -410,6 +412,7 @@ async function buildPDF(
     if (booking.vehicleColour) details.push(["Colour", booking.vehicleColour]);
     if (booking.vehicleVinChassis) details.push(["VIN/Chassis", booking.vehicleVinChassis]);
     if (booking.vehicleEngineNumber) details.push(["Engine Number", booking.vehicleEngineNumber]);
+    if (booking.vehicleMileage) details.push(["Customer Mileage", booking.vehicleMileage]);
     if (booking.mileage) {
       const mileageLabel = booking.mileageRecordedByStaffName
         ? `Mileage (recorded by staff: ${booking.mileageRecordedByStaffName})`

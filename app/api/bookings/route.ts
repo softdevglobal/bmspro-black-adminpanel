@@ -210,10 +210,13 @@ type CreateBookingInput = {
   clientEmail?: string;
   clientPhone?: string;
   vehicleNumber?: string;
+  vehicleMake?: string;
+  vehicleModel?: string;
   vehicleBodyType?: string;
   vehicleColour?: string;
   vehicleVinChassis?: string;
   vehicleEngineNumber?: string;
+  vehicleMileage?: string;  // Customer-provided mileage at booking
   notes?: string;
   serviceId: string | number;
   serviceName?: string;
@@ -755,10 +758,13 @@ export async function POST(req: NextRequest) {
       clientEmail: body.clientEmail || null,
       clientPhone: body.clientPhone || null,
       vehicleNumber: body.vehicleNumber || null,
+      vehicleMake: body.vehicleMake || null,
+      vehicleModel: body.vehicleModel || null,
       vehicleBodyType: body.vehicleBodyType || null,
       vehicleColour: body.vehicleColour || null,
       vehicleVinChassis: body.vehicleVinChassis || null,
       vehicleEngineNumber: body.vehicleEngineNumber || null,
+      vehicleMileage: body.vehicleMileage || null,
       notes: body.notes || null,
       serviceId: typeof body.serviceId === "number" ? body.serviceId : String(body.serviceId),
       serviceName: serviceName,

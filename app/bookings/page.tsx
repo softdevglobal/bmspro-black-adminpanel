@@ -41,6 +41,7 @@ function BookingsPageContent() {
   const [bkVehicleColour, setBkVehicleColour] = useState<string>("");
   const [bkVehicleVinChassis, setBkVehicleVinChassis] = useState<string>("");
   const [bkVehicleEngineNumber, setBkVehicleEngineNumber] = useState<string>("");
+  const [bkVehicleMileage, setBkVehicleMileage] = useState<string>("");
   const [bkNotes, setBkNotes] = useState<string>("");
   const [bkPickupTime, setBkPickupTime] = useState<string>("");
   const [submittingBooking, setSubmittingBooking] = useState<boolean>(false);
@@ -1387,6 +1388,7 @@ function BookingsPageContent() {
     setBkVehicleColour("");
     setBkVehicleVinChassis("");
     setBkVehicleEngineNumber("");
+    setBkVehicleMileage("");
     setBkNotes("");
   };
   const openBookingWizard = () => {
@@ -2006,6 +2008,7 @@ function BookingsPageContent() {
       vehicleColour: bkVehicleColour?.trim() || undefined,
       vehicleVinChassis: bkVehicleVinChassis?.trim() || undefined,
       vehicleEngineNumber: bkVehicleEngineNumber?.trim() || undefined,
+      vehicleMileage: bkVehicleMileage?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
       services: selectedServiceObjects.map((s) => {
         const sId = String(s?.id);
@@ -2035,6 +2038,7 @@ function BookingsPageContent() {
           vehicleColour: newBooking.vehicleColour,
           vehicleVinChassis: newBooking.vehicleVinChassis,
           vehicleEngineNumber: newBooking.vehicleEngineNumber,
+          vehicleMileage: newBooking.vehicleMileage,
           notes: newBooking.notes,
           serviceId: newBooking.serviceId,
           serviceName: newBooking.serviceName,
@@ -3022,6 +3026,11 @@ function BookingsPageContent() {
                           <div>
                             <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Engine number <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
                             <input type="text" value={bkVehicleEngineNumber} onChange={(e) => setBkVehicleEngineNumber(e.target.value)} placeholder="e.g. ABC123456"
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Customer Mileage <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                            <input type="text" value={bkVehicleMileage} onChange={(e) => setBkVehicleMileage(e.target.value)} placeholder="e.g. 45000 km"
                               className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
                           </div>
                         </div>

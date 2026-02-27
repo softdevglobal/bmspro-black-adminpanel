@@ -331,6 +331,18 @@ export default function BookingEnginePage() {
         });
         if (!res.ok) throw new Error((await res.json()).error || "Failed to add");
       }
+      // If we edited the currently selected vehicle, sync form fields immediately so mileage etc. show correctly
+      if (editingVehicle && editingVehicle.id === selectedVehicleId) {
+        setVehicleNumber(vehicleFormRego?.trim() || "");
+        setVehicleMake(vehicleFormMake?.trim() || "");
+        setVehicleModel(vehicleFormModel?.trim() || "");
+        setVehicleYear(vehicleFormYear?.trim() || "");
+        setVehicleMileage(vehicleFormMileage?.trim() || "");
+        setVehicleBodyType(vehicleFormBodyType?.trim() || "");
+        setVehicleColour(vehicleFormColour?.trim() || "");
+        setVehicleVinChassis(vehicleFormVin?.trim() || "");
+        setVehicleEngineNumber(vehicleFormEngine?.trim() || "");
+      }
       closeVehicleForm();
       await fetchCustomerVehicles();
     } catch (e: any) {
@@ -3418,71 +3430,84 @@ export default function BookingEnginePage() {
                     <i className="fas fa-plus text-[9px]" />Add Vehicle
                   </button>
                 </div>
-                {customerVehicles.map((v, i) => (
-                  <div key={v.id} className="group relative overflow-hidden rounded-3xl border border-neutral-200/80 bg-white shadow-sm hover:shadow-xl hover:shadow-neutral-900/10 transition-all p-4 sm:p-5">
-                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
-                      i % 3 === 0 ? "bg-gradient-to-b from-amber-400 to-orange-500" :
-                      i % 3 === 1 ? "bg-gradient-to-b from-cyan-400 to-blue-500" :
-                      "bg-gradient-to-b from-violet-400 to-purple-500"
-                    }`} />
-                    <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full bg-neutral-100/70 blur-2xl pointer-events-none" />
-                    <div className="relative">
-                      <div className="flex items-start justify-between gap-4 mb-4">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-2xl bg-neutral-900 text-white flex items-center justify-center shadow-sm shrink-0">
-                            <i className="fas fa-car-side text-xs" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-neutral-400">Saved Vehicle</p>
-                            <div className="mt-1 inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-gradient-to-r from-neutral-50 to-white px-3 py-1.5">
-                              <i className="fas fa-id-card text-[10px] text-neutral-500" />
-                              <span className="font-black tracking-[0.08em] text-neutral-900 text-sm sm:text-base truncate">{[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"}</span>
+                {customerVehicles.map((v, i) => {
+                  const accent = i % 3 === 0 ? "amber" : i % 3 === 1 ? "cyan" : "violet";
+                  const accentClasses = {
+                    amber: "from-amber-500/10 via-orange-500/5 to-transparent border-amber-200/60",
+                    cyan: "from-cyan-500/10 via-blue-500/5 to-transparent border-cyan-200/60",
+                    violet: "from-violet-500/10 via-purple-500/5 to-transparent border-violet-200/60",
+                  };
+                  const plateClasses = {
+                    amber: "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-300/80",
+                    cyan: "bg-gradient-to-br from-cyan-50 to-blue-50 border-cyan-300/80",
+                    violet: "bg-gradient-to-br from-violet-50 to-purple-50 border-violet-300/80",
+                  };
+                  const details = [
+                    { label: "Make", value: v.make, icon: "fa-industry" },
+                    { label: "Model", value: v.model, icon: "fa-tag" },
+                    { label: "Year", value: v.year, icon: "fa-calendar" },
+                    { label: "Body Type", value: v.bodyType, icon: "fa-shapes" },
+                    { label: "Colour", value: v.colour, icon: "fa-palette" },
+                    { label: "Mileage", value: v.mileage, icon: "fa-gauge-high" },
+                    { label: "VIN / Chassis", value: v.vinChassis, icon: "fa-barcode" },
+                    { label: "Engine No.", value: v.engineNumber, icon: "fa-gears" },
+                  ].filter((d) => d.value);
+                  return (
+                    <div key={v.id} className={`group relative overflow-hidden rounded-3xl border-2 bg-gradient-to-br ${accentClasses[accent]} shadow-sm hover:shadow-xl transition-all duration-300`}>
+                      <div className="relative p-5 sm:p-6">
+                        {/* Header: registration plate + actions */}
+                        <div className="flex items-start justify-between gap-4 mb-5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-500 mb-2">Registration</p>
+                            <div className={`inline-flex items-center gap-2 rounded-xl border-2 px-4 py-2.5 font-mono font-black tracking-[0.15em] text-neutral-900 text-base sm:text-lg ${plateClasses[accent]}`}>
+                              {v.registrationNumber || "—"}
                             </div>
+                            <p className="mt-2 font-bold text-neutral-800 text-lg sm:text-xl truncate">
+                              {[v.make, v.model].filter(Boolean).join(" ") || "Vehicle"}
+                              {v.year && <span className="font-normal text-neutral-500 ml-1">({v.year})</span>}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => openEditVehicle(v)}
+                              className="w-10 h-10 rounded-xl text-neutral-500 bg-white/80 backdrop-blur border border-neutral-200 hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
+                              title="Edit"
+                            >
+                              <i className="fas fa-pen text-xs" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteVehicle(v.id)}
+                              disabled={vehicleDeleting === v.id}
+                              className="w-10 h-10 rounded-xl text-red-500 bg-white/80 backdrop-blur border border-red-100 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all disabled:opacity-50 shadow-sm"
+                              title="Delete"
+                            >
+                              {vehicleDeleting === v.id ? <i className="fas fa-spinner fa-spin text-xs" /> : <i className="fas fa-trash text-xs" />}
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            onClick={() => openEditVehicle(v)}
-                            className="w-9 h-9 rounded-xl text-neutral-500 bg-white border border-neutral-200 hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all"
-                            title="Edit"
-                          >
-                            <i className="fas fa-pen text-xs" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteVehicle(v.id)}
-                            disabled={vehicleDeleting === v.id}
-                            className="w-9 h-9 rounded-xl text-red-500 bg-white border border-red-100 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all disabled:opacity-50"
-                            title="Delete"
-                          >
-                            {vehicleDeleting === v.id ? <i className="fas fa-spinner fa-spin text-xs" /> : <i className="fas fa-trash text-xs" />}
-                          </button>
-                        </div>
-                      </div>
 
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide bg-neutral-900 text-white px-2.5 py-1 rounded-full">
-                          <i className="fas fa-layer-group text-[9px]" />
-                          {v.bodyType || "Body N/A"}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold bg-neutral-100 text-neutral-700 px-2.5 py-1 rounded-full border border-neutral-200">
-                          <i className="fas fa-palette text-[9px]" />
-                          {v.colour || "Colour N/A"}
-                        </span>
-                      </div>
+                        {/* Details grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          {details.map(({ label, value, icon }) => (
+                            <div key={label} className="flex items-center gap-2.5 rounded-xl bg-white/70 backdrop-blur-sm border border-neutral-200/60 px-3 py-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center shrink-0">
+                                <i className={`fas ${icon} text-[10px] text-neutral-500`} />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[9px] font-bold uppercase tracking-wider text-neutral-400 truncate">{label}</p>
+                                <p className="text-xs font-semibold text-neutral-800 truncate">{value}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                        <div className="rounded-xl bg-gradient-to-br from-neutral-50 to-white border border-neutral-200/80 px-3 py-2.5">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">VIN / Chassis</p>
-                          <p className="font-semibold text-neutral-700 truncate">{v.vinChassis || "-"}</p>
-                        </div>
-                        <div className="rounded-xl bg-gradient-to-br from-neutral-50 to-white border border-neutral-200/80 px-3 py-2.5">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 mb-1">Engine Number</p>
-                          <p className="font-semibold text-neutral-700 truncate">{v.engineNumber || "-"}</p>
-                        </div>
+                        {details.length === 0 && (
+                          <p className="text-sm text-neutral-400 italic py-2">No additional details</p>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

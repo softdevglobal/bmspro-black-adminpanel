@@ -269,7 +269,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     vehicleColour: data.vehicleColour || null,
     vehicleVinChassis: data.vehicleVinChassis || null,
     vehicleEngineNumber: data.vehicleEngineNumber || null,
-    mileage: data.mileage || null,
+    mileage: data.mileage || data.vehicleMileage || null,
     mileageRecordedBy: data.mileageRecordedBy || null,
     mileageRecordedByStaffName: data.mileageRecordedByStaffName || null,
     date: data.date || "",

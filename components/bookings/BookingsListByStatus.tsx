@@ -184,7 +184,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               vehicleColour: d.vehicleColour || null,
               vehicleVinChassis: d.vehicleVinChassis || null,
               vehicleEngineNumber: d.vehicleEngineNumber || null,
-              mileage: d.mileage || null,
+              mileage: d.mileage || d.vehicleMileage || null,
               notes: d.notes || null,
               status: normalizedStatus,
               bookingCode: d.bookingCode || null,

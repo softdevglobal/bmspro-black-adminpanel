@@ -1828,6 +1828,9 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                         <div className="mt-3 flex items-center gap-2 py-1 px-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
                           <i className="fas fa-spa text-[10px] text-neutral-500" />
                           <span className="text-xs font-semibold text-neutral-700">{r.serviceName}</span>
+                          {r.staffName && !["Any Available", "Any Staff", "Not Assigned Yet"].includes(String(r.staffName)) && (
+                            <span className="ml-auto text-[10px] text-purple-600 font-medium"><i className="far fa-user text-[8px] mr-0.5" />{r.staffName}</span>
+                          )}
                         </div>
                       )}
 
@@ -1949,6 +1952,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     <th className="p-4">Date &amp; Time</th>
                     <th className="p-4 min-w-[150px]">Vehicle</th>
                     <th className="p-4">Branch</th>
+                    <th className="p-4 min-w-[100px]">Staff</th>
                     <th className="p-4 text-right pr-6">Price</th>
                     <th className="p-4 text-right pr-6">Actions</th>
                   </tr>
@@ -1956,17 +1960,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <tbody>
                   {loading && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={6}>Loading...</td>
+                      <td className="p-6 text-neutral-500" colSpan={7}>Loading...</td>
                     </tr>
                   )}
                   {!loading && error && (
                     <tr>
-                      <td className="p-6 text-rose-600" colSpan={6}>{error}</td>
+                      <td className="p-6 text-rose-600" colSpan={7}>{error}</td>
                     </tr>
                   )}
                   {!loading && rows.length === 0 && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={6}>No bookings.</td>
+                      <td className="p-6 text-neutral-500" colSpan={7}>No bookings.</td>
                     </tr>
                   )}
                   {!loading &&
@@ -2140,6 +2144,21 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           </div>
                         </td>
                         <td className="p-4 align-middle">{r.branchName || "-"}</td>
+                        <td className="p-4 align-middle">
+                          {(() => {
+                            const staffNames = r.services && r.services.length > 0
+                              ? [...new Set(r.services.map(s => s.staffName).filter(Boolean).filter(n => !["Any Available", "Any Staff", "Not Assigned Yet"].includes(String(n))))]
+                              : (r.staffName && !["Any Available", "Any Staff", "Not Assigned Yet"].includes(String(r.staffName))) ? [r.staffName] : [];
+                            return staffNames.length > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-sm font-medium text-neutral-700" title={staffNames.join(", ")}>
+                                <i className="fas fa-user text-neutral-400 text-[10px]" />
+                                {staffNames.join(", ")}
+                              </span>
+                            ) : (
+                              <span className="text-neutral-400 text-sm">—</span>
+                            );
+                          })()}
+                        </td>
                         <td className="p-4 align-middle text-right pr-6">
                           <span className="inline-flex items-center gap-1 font-bold text-neutral-800">
                             <i className="fas fa-dollar-sign text-neutral-400" />

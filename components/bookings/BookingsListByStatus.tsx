@@ -1857,6 +1857,13 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           <span className="text-[11px] text-neutral-400">N/A</span>
                         )}
                       </div>
+                      {/* Customer notes - visible at a glance */}
+                      {r.notes && r.notes.trim() && (
+                        <div className="mt-2 rounded-lg bg-amber-50/80 border border-amber-100 px-3 py-2">
+                          <div className="text-[9px] font-semibold text-amber-700 uppercase mb-0.5">Notes</div>
+                          <p className="text-[11px] text-neutral-700 line-clamp-2" title={r.notes}>{r.notes}</p>
+                        </div>
+                      )}
                       {/* Info grid: Date, Branch, Price */}
                       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                         <div className="bg-neutral-50 rounded-lg py-2 px-1">
@@ -1952,6 +1959,7 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                     <th className="p-4">Date &amp; Time</th>
                     <th className="p-4 min-w-[150px]">Vehicle</th>
                     <th className="p-4">Branch</th>
+                    <th className="p-4 min-w-[120px]">Notes</th>
                     <th className="p-4 min-w-[100px]">Staff</th>
                     <th className="p-4 text-right pr-6">Price</th>
                     <th className="p-4 text-right pr-6">Actions</th>
@@ -1960,17 +1968,17 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                   <tbody>
                   {loading && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={7}>Loading...</td>
+                      <td className="p-6 text-neutral-500" colSpan={8}>Loading...</td>
                     </tr>
                   )}
                   {!loading && error && (
                     <tr>
-                      <td className="p-6 text-rose-600" colSpan={7}>{error}</td>
+                      <td className="p-6 text-rose-600" colSpan={8}>{error}</td>
                     </tr>
                   )}
                   {!loading && rows.length === 0 && (
                     <tr>
-                      <td className="p-6 text-neutral-500" colSpan={7}>No bookings.</td>
+                      <td className="p-6 text-neutral-500" colSpan={8}>No bookings.</td>
                     </tr>
                   )}
                   {!loading &&
@@ -2144,6 +2152,18 @@ export default function BookingsListByStatus({ status, title }: { status: Bookin
                           </div>
                         </td>
                         <td className="p-4 align-middle">{r.branchName || "-"}</td>
+                        <td className="p-4 align-middle max-w-[180px]">
+                          {r.notes && r.notes.trim() ? (
+                            <span
+                              className="block text-xs text-neutral-600 line-clamp-2"
+                              title={r.notes}
+                            >
+                              {r.notes}
+                            </span>
+                          ) : (
+                            <span className="text-neutral-400 text-xs">—</span>
+                          )}
+                        </td>
                         <td className="p-4 align-middle">
                           {(() => {
                             const staffNames = r.services && r.services.length > 0

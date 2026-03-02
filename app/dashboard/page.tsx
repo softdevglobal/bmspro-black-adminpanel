@@ -34,10 +34,8 @@ export default function DashboardPage() {
   const [pendingUnassignedCount, setPendingUnassignedCount] = useState<number>(0);
   const [showCalendarOnly, setShowCalendarOnly] = useState<boolean>(false);
   
-  // Today's Schedule state
+  // Today's Schedule state (branches and staff filters use calBranchList/calStaffList from branches & users collections)
   const [todayBookings, setTodayBookings] = useState<any[]>([]);
-  const [allBranches, setAllBranches] = useState<string[]>([]);
-  const [allStaff, setAllStaff] = useState<any[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [scheduleViewMode, setScheduleViewMode] = useState<'time' | 'staff' | 'branch'>('time');
@@ -583,8 +581,6 @@ export default function DashboardPage() {
         todayQuery,
         (snapshot) => {
           const bookings: any[] = [];
-          const branchNames = new Set<string>();
-          const staffMap = new Map<string, { id: string; name: string }>();
 
           snapshot.docs.forEach(doc => {
             const data = doc.data();
@@ -610,33 +606,12 @@ export default function DashboardPage() {
             };
 
             bookings.push(booking);
-
-            // Collect branch names
-            if (booking.branchName) {
-              branchNames.add(booking.branchName);
-            }
-
-            // Collect staff from top-level
-            if (booking.staffId && booking.staffName && !booking.staffName.toLowerCase().includes('any')) {
-              staffMap.set(booking.staffId, { id: booking.staffId, name: booking.staffName });
-            }
-
-            // Collect staff from services array
-            if (Array.isArray(data.services)) {
-              data.services.forEach((svc: any) => {
-                if (svc?.staffId && svc?.staffName && !svc.staffName.toLowerCase().includes('any')) {
-                  staffMap.set(svc.staffId, { id: svc.staffId, name: svc.staffName });
-                }
-              });
-            }
           });
 
           // Sort bookings by time
           bookings.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
           setTodayBookings(bookings);
-          setAllBranches([...branchNames].sort());
-          setAllStaff([...staffMap.values()].sort((a, b) => a.name.localeCompare(b.name)));
         },
         (error) => {
           console.error("Error fetching today's schedule:", error);
@@ -1332,16 +1307,17 @@ export default function DashboardPage() {
                     )}
                   </div>
                   
-                  {/* Branch filter - hide for branch admins */}
-                  {allBranches.length > 0 && !isBranchAdmin && (
+                  {/* Branch filter - hide for branch admins (uses all branches from branches collection) */}
+                  {calBranchList.length > 0 && !isBranchAdmin && (
                     <select
                       value={selectedBranch || ''}
                       onChange={(e) => setSelectedBranch(e.target.value || null)}
-                      className="px-3 py-1.5 bg-white border border-neutral-200 rounded-lg text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                      className="pl-3 pr-10 py-1.5 bg-white border border-neutral-200 rounded-lg text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 appearance-none bg-no-repeat bg-[length:14px] bg-[right_12px_center]"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")` }}
                     >
                       <option value="">All Branches</option>
-                      {allBranches.map(branch => (
-                        <option key={branch} value={branch}>{branch}</option>
+                      {calBranchList.map(branch => (
+                        <option key={branch.value} value={branch.label}>{branch.label}</option>
                       ))}
                     </select>
                   )}
@@ -1354,35 +1330,18 @@ export default function DashboardPage() {
                     </div>
                   )}
                   
-                  {/* Staff filter */}
-                  {allStaff.length > 0 && (
+                  {/* Staff filter (uses all staff from users collection) */}
+                  {calStaffList.length > 0 && (
                     <select
                       value={selectedStaffId || ''}
                       onChange={(e) => setSelectedStaffId(e.target.value || null)}
-                      className="px-3 py-1.5 bg-white border border-neutral-200 rounded-lg text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900"
+                      className="pl-3 pr-10 py-1.5 bg-white border border-neutral-200 rounded-lg text-sm text-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-900 appearance-none bg-no-repeat bg-[length:14px] bg-[right_12px_center]"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")` }}
                     >
                       <option value="">All Staff</option>
-                      {(() => {
-                        // For branch admins, only show staff from their branch's bookings
-                        if (isBranchAdmin && branchAdminBranchName) {
-                          const branchBookings = todayBookings.filter(b => b.branchName === branchAdminBranchName);
-                          const branchStaffMap = new Map<string, string>();
-                          branchBookings.forEach(b => {
-                            if (b.staffId && b.staffName) branchStaffMap.set(b.staffId, b.staffName);
-                            b.services?.forEach((s: any) => {
-                              if (s.staffId && s.staffName) branchStaffMap.set(s.staffId, s.staffName);
-                            });
-                          });
-                          return [...branchStaffMap.entries()]
-                            .sort((a, b) => a[1].localeCompare(b[1]))
-                            .map(([id, name]) => (
-                              <option key={id} value={id}>{name}</option>
-                            ));
-                        }
-                        return allStaff.map(staff => (
-                          <option key={staff.id} value={staff.id}>{staff.name}</option>
-                        ));
-                      })()}
+                      {calStaffList.map(staff => (
+                        <option key={staff.id} value={staff.id}>{staff.name}</option>
+                      ))}
                     </select>
                   )}
                   

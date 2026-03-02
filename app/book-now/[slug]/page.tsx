@@ -159,6 +159,16 @@ export default function BookingEnginePage() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
 
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordStep, setForgotPasswordStep] = useState<"email" | "reset">("email");
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordError, setForgotPasswordError] = useState("");
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState<{ bookingCode: string; totalPrice: number; totalDuration: number } | null>(null);
 
@@ -803,6 +813,53 @@ export default function BookingEnginePage() {
       setShowAuth(false); setAuthEmail(""); setAuthPassword(""); setAuthConfirmPassword(""); setAuthName(""); setAuthPhone("");
     } catch (err: any) { setAuthError(err.message || "Something went wrong"); }
     finally { setAuthLoading(false); }
+  };
+
+  const handleForgotPasswordEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workshop || !forgotPasswordEmail.trim()) return;
+    setForgotPasswordLoading(true); setForgotPasswordError("");
+    try {
+      const res = await fetch("/api/book-now/customer-forgot-password", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotPasswordEmail.trim(), ownerUid: workshop.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setForgotPasswordError(data.error || "Failed to send reset code"); return; }
+      setForgotPasswordStep("reset");
+      setForgotPasswordError("");
+    } catch (err: any) { setForgotPasswordError(err.message || "Something went wrong"); }
+    finally { setForgotPasswordLoading(false); }
+  };
+
+  const handleForgotPasswordResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!workshop || !forgotPasswordEmail.trim() || !resetCode.trim() || !newPassword || !newPasswordConfirm) return;
+    if (newPassword !== newPasswordConfirm) { setForgotPasswordError("Passwords do not match"); return; }
+    if (newPassword.length < 6) { setForgotPasswordError("Password must be at least 6 characters"); return; }
+    setForgotPasswordLoading(true); setForgotPasswordError("");
+    try {
+      const res = await fetch("/api/book-now/customer-reset-password", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotPasswordEmail.trim(), code: resetCode.trim(), newPassword, ownerUid: workshop.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setForgotPasswordError(data.error || "Failed to reset password"); return; }
+      setForgotPasswordSuccess(true);
+      setForgotPasswordError("");
+    } catch (err: any) { setForgotPasswordError(err.message || "Something went wrong"); }
+    finally { setForgotPasswordLoading(false); }
+  };
+
+  const resetForgotPasswordFlow = () => {
+    setShowForgotPassword(false);
+    setForgotPasswordStep("email");
+    setForgotPasswordEmail("");
+    setResetCode("");
+    setNewPassword("");
+    setNewPasswordConfirm("");
+    setForgotPasswordError("");
+    setForgotPasswordSuccess(false);
   };
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -3779,18 +3836,115 @@ export default function BookingEnginePage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-neutral-900">
-                      {authMode === "login" ? "Welcome back" : "Create account"}
+                      {showForgotPassword
+                        ? forgotPasswordStep === "email"
+                          ? "Reset password"
+                          : "Enter reset code"
+                        : authMode === "login"
+                          ? "Welcome back"
+                          : "Create account"}
                     </h3>
                     <p className="text-xs text-neutral-400 mt-0.5">
-                      {authMode === "login" ? `Sign in to book at ${workshop.name}` : `Register for ${workshop.name}`}
+                      {showForgotPassword
+                        ? forgotPasswordStep === "email"
+                          ? `Enter your email to receive a reset code`
+                          : `Check your email for the 6-digit code`
+                        : authMode === "login"
+                          ? `Sign in to book at ${workshop.name}`
+                          : `Register for ${workshop.name}`}
                     </p>
                   </div>
-                  <button onClick={() => { setShowAuth(false); setAuthError(""); }} className="w-9 h-9 rounded-xl bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition group">
+                  <button onClick={() => { setShowAuth(false); setAuthError(""); resetForgotPasswordFlow(); }} className="w-9 h-9 rounded-xl bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition group">
                     <i className="fas fa-times text-neutral-400 group-hover:text-neutral-600 text-sm transition-colors" />
                   </button>
                 </div>
               </div>
 
+              {showForgotPassword ? (
+                forgotPasswordSuccess ? (
+                  <div className="px-6 pb-6 space-y-4">
+                    <div className="bg-emerald-50 border border-emerald-200/50 rounded-xl px-4 py-4 flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                        <i className="fas fa-check text-emerald-600 text-sm" />
+                      </div>
+                      <p className="text-sm text-emerald-800 font-medium">Password reset successfully. You can now sign in with your new password.</p>
+                    </div>
+                    <button type="button" onClick={() => { resetForgotPasswordFlow(); setShowAuth(false); }}
+                      className="w-full bg-neutral-900 text-white font-bold py-3 rounded-xl hover:bg-neutral-800 transition-all text-sm active:scale-[0.98] shadow-lg shadow-neutral-900/15">
+                      Sign in
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={forgotPasswordStep === "email" ? handleForgotPasswordEmailSubmit : handleForgotPasswordResetSubmit} className="px-6 pb-6 space-y-3.5">
+                    {forgotPasswordStep === "email" ? (
+                      <>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Email <span className="text-red-400">*</span></label>
+                          <div className="relative">
+                            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-300">
+                              <i className="fas fa-envelope text-xs" />
+                            </div>
+                            <input type="email" value={forgotPasswordEmail} onChange={(e) => setForgotPasswordEmail(e.target.value)} required placeholder="name@email.com"
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                          </div>
+                        </div>
+                        {forgotPasswordError && (
+                          <div className="bg-red-50 border border-red-200/50 rounded-xl px-4 py-3 flex items-center gap-2.5">
+                            <i className="fas fa-exclamation-triangle text-red-500 text-[10px]" />
+                            <p className="text-xs text-red-700 font-medium">{forgotPasswordError}</p>
+                          </div>
+                        )}
+                        <button type="submit" disabled={forgotPasswordLoading}
+                          className="w-full bg-neutral-900 text-white font-bold py-3 rounded-xl hover:bg-neutral-800 transition-all text-sm disabled:opacity-50 active:scale-[0.98] shadow-lg shadow-neutral-900/15">
+                          {forgotPasswordLoading ? "Sending..." : "Send reset code"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Email</label>
+                          <input type="text" value={forgotPasswordEmail} readOnly
+                            className="w-full border-2 border-neutral-200 rounded-xl px-3.5 py-2.5 text-sm bg-neutral-100 text-neutral-600 font-medium" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Reset code <span className="text-red-400">*</span></label>
+                          <input type="text" value={resetCode} onChange={(e) => setResetCode(e.target.value)} required placeholder="123456" maxLength={6} inputMode="numeric" pattern="[0-9]*"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium tracking-[0.3em] text-center" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">New password <span className="text-red-400">*</span></label>
+                          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} placeholder="••••••••"
+                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-neutral-500 mb-1.5">Confirm password <span className="text-red-400">*</span></label>
+                          <input type="password" value={newPasswordConfirm} onChange={(e) => setNewPasswordConfirm(e.target.value)} required minLength={6} placeholder="••••••••"
+                            className={`w-full border-2 ${newPasswordConfirm && newPasswordConfirm !== newPassword ? "border-red-300" : "border-neutral-200 hover:border-neutral-300"} rounded-xl px-3.5 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-neutral-50/50 placeholder:text-neutral-300 font-medium`} />
+                          {newPasswordConfirm && newPasswordConfirm !== newPassword && (
+                            <p className="text-[10px] text-red-500 mt-1 font-medium">Passwords do not match</p>
+                          )}
+                        </div>
+                        {forgotPasswordError && (
+                          <div className="bg-red-50 border border-red-200/50 rounded-xl px-4 py-3 flex items-center gap-2.5">
+                            <i className="fas fa-exclamation-triangle text-red-500 text-[10px]" />
+                            <p className="text-xs text-red-700 font-medium">{forgotPasswordError}</p>
+                          </div>
+                        )}
+                        <button type="submit" disabled={forgotPasswordLoading}
+                          className="w-full bg-neutral-900 text-white font-bold py-3 rounded-xl hover:bg-neutral-800 transition-all text-sm disabled:opacity-50 active:scale-[0.98] shadow-lg shadow-neutral-900/15">
+                          {forgotPasswordLoading ? "Resetting..." : "Reset password"}
+                        </button>
+                      </>
+                    )}
+                    <div className="pt-2">
+                      <button type="button" onClick={resetForgotPasswordFlow}
+                        className="w-full text-center text-xs text-neutral-500 hover:text-neutral-900 font-medium py-2 transition">
+                        <span className="text-amber-600 font-semibold">← Back to sign in</span>
+                      </button>
+                    </div>
+                  </form>
+                )
+              ) : (
               <form onSubmit={handleAuth} className="px-6 pb-6 space-y-3.5">
                 {authMode === "register" && (
                   <div className="grid grid-cols-2 gap-3">
@@ -3831,6 +3985,15 @@ export default function BookingEnginePage() {
                     </button>
                   </div>
                 </div>
+
+                {authMode === "login" && (
+                  <div className="flex justify-end -mt-1">
+                    <button type="button" onClick={() => { setShowForgotPassword(true); setForgotPasswordEmail(authEmail); setAuthError(""); }}
+                      className="text-xs text-amber-600 hover:text-amber-700 font-medium transition">
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
 
                 {authMode === "register" && (
                   <div>
@@ -3893,6 +4056,7 @@ export default function BookingEnginePage() {
                   </button>
                 </div>
               </form>
+              )}
             </div>
           </div>
         </div>

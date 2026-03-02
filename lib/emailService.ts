@@ -1741,6 +1741,103 @@ export async function sendAdminSignupNotificationEmail(
 }
 
 /**
+ * Generate HTML for customer booking engine password reset email
+ */
+function generateCustomerPasswordResetEmailHTML(
+  userName: string,
+  resetCode: string,
+  workshopName: string
+): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reset Your Password - ${workshopName}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);">
+              <div style="padding: 30px; text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 10px;">🔐</div>
+                <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700;">Reset Your Password</h1>
+                <p style="margin: 10px 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">${workshopName}</p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 30px 40px 20px;">
+              <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${userName},</p>
+              <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
+                We received a request to reset your password for ${workshopName}. Use the 6-digit code below when prompted on the booking page.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 40px 30px; text-align: center;">
+              <div style="background: linear-gradient(135deg, #fef3c7 0%, #fef9e7 100%); border: 2px solid #f59e0b; border-radius: 16px; padding: 25px;">
+                <p style="margin: 0 0 10px; color: #78350f; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Verification Code</p>
+                <div style="font-size: 42px; font-weight: 700; letter-spacing: 8px; color: #92400e; font-family: monospace;">${resetCode}</div>
+                <p style="margin: 15px 0 0; color: #92400e; font-size: 13px;">Enter this code on the sign-in page to reset your password</p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #fff7ed; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px;">
+                <p style="margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;">
+                  <strong>Important:</strong> This code expires in 15 minutes. If you didn't request this, you can safely ignore this email.
+                </p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0; color: #6b7280; font-size: 12px;">This is an automated email from ${workshopName}.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`.trim();
+}
+
+/**
+ * Send password reset email to booking engine customer with 6-digit code
+ */
+export async function sendCustomerPasswordResetEmail(
+  email: string,
+  userName: string,
+  resetCode: string,
+  workshopName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    return { success: false, error: "SendGrid not configured" };
+  }
+  try {
+    const html = generateCustomerPasswordResetEmailHTML(userName, resetCode, workshopName);
+    const msg = {
+      to: email.trim().toLowerCase(),
+      from: FROM_EMAIL,
+      subject: `Reset Your Password - ${workshopName}`,
+      html,
+    };
+    await sgMail.send(msg);
+    return { success: true };
+  } catch (error: any) {
+    console.error("[EMAIL] Customer password reset send failed:", error);
+    return { success: false, error: error?.message || "Failed to send email" };
+  }
+}
+
+/**
  * Send password reset email to user with 6-digit code
  */
 export async function sendPasswordResetEmail(

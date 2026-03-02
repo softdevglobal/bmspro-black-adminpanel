@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       const canManage = await canManageStaff(userData.ownerUid, targetUid);
       if (!canManage.allowed) {
         return NextResponse.json(
-          { error: canManage.error || "You can only delete staff from your own salon" },
+          { error: canManage.error || "You can only delete staff from your own workshop" },
           { status: 403 }
         );
       }

@@ -28,7 +28,7 @@ export default function DashboardPage() {
   const [isBranchAdmin, setIsBranchAdmin] = useState<boolean>(false);
   const [branchAdminBranchId, setBranchAdminBranchId] = useState<string>("");
   const [branchAdminBranchName, setBranchAdminBranchName] = useState<string>("");
-  const [salonName, setSalonName] = useState<string>("");
+  const [workshopName, setWorkshopName] = useState<string>("");
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [pendingUnassignedCount, setPendingUnassignedCount] = useState<number>(0);
@@ -124,14 +124,14 @@ export default function DashboardPage() {
             setIsBranchAdmin(true);
             setBranchAdminBranchId(userData?.branchId || "");
             setBranchAdminBranchName(userData?.branchName || "");
-            // Set the owner UID to their salon owner's UID for data fetching
+            // Set the owner UID to their workshop owner's UID for data fetching
             if (userData?.ownerUid) {
               setOwnerUid(userData.ownerUid);
             }
           }
           
           setIsSuperAdmin(false);
-          setSalonName(userData?.name || userData?.displayName || userData?.branchName || "");
+          setWorkshopName(userData?.name || userData?.displayName || userData?.branchName || "");
           setLogoUrl(userData?.logoUrl || "");
           setAuthLoading(false);
         } catch {
@@ -144,7 +144,7 @@ export default function DashboardPage() {
 
   // Fetch real data from Firestore
   useEffect(() => {
-    if (!ownerUid || isSuperAdmin || authLoading) return; // Skip salon-specific data for super_admin
+    if (!ownerUid || isSuperAdmin || authLoading) return; // Skip workshop-specific data for super_admin
 
     let unsubBookings: (() => void) | undefined;
     let unsubStaff: (() => void) | undefined;
@@ -399,7 +399,7 @@ export default function DashboardPage() {
       const { db } = await import("@/lib/firebase");
       const { collection, query, where, onSnapshot } = await import("firebase/firestore");
 
-      // Fetch all tenants (salon owners)
+      // Fetch all tenants (workshop owners)
       const tenantsQuery = query(collection(db, "users"), where("role", "==", "workshop_owner"));
       unsubTenants = onSnapshot(
         tenantsQuery,
@@ -749,7 +749,7 @@ export default function DashboardPage() {
   // Notifications are now managed by NotificationProvider context
   // No need for duplicate listener here
 
-  // Fetch recent activity (tenants for super admin, booking activities for salon owners)
+  // Fetch recent activity (tenants for super admin, booking activities for workshop owners)
   // Skip for branch admins since we hide that section for them
   useEffect(() => {
     if (!ownerUid || isBranchAdmin || authLoading) return;
@@ -795,7 +795,7 @@ export default function DashboardPage() {
         }
         );
       } else {
-        // For salon owners, fetch recent booking activities
+        // For workshop owners, fetch recent booking activities
         // Note: Using simple query without orderBy to avoid index requirement
         // We'll sort client-side instead
         console.log("Fetching booking activities for ownerUid:", ownerUid);
@@ -1096,10 +1096,10 @@ export default function DashboardPage() {
                   )}
                   <div>
                     <h1 className="text-2xl font-bold tracking-tight">
-                      {isSuperAdmin ? "BMS Pro Admin" : (isBranchAdmin ? branchAdminBranchName : (salonName || "Dashboard"))}
+                      {isSuperAdmin ? "BMS Pro Admin" : (isBranchAdmin ? branchAdminBranchName : (workshopName || "Dashboard"))}
                     </h1>
                     <p className="text-neutral-400 mt-0.5">
-                      {isSuperAdmin ? "Super Admin Dashboard" : (isBranchAdmin ? "Branch Dashboard" : (salonName ? "Business Overview" : "Real-time system overview"))}
+                      {isSuperAdmin ? "Super Admin Dashboard" : (isBranchAdmin ? "Branch Dashboard" : (workshopName ? "Business Overview" : "Real-time system overview"))}
                     </p>
                   </div>
                 </div>

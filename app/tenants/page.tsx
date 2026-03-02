@@ -337,7 +337,7 @@ export default function TenantsPage() {
         uid: ownerUid,
         // business fields
         name: formBusinessName.trim(),
-        slug, // URL-friendly name for booking engine (e.g., "abc-salon")
+        slug, // URL-friendly name for booking engine (e.g., "abc-workshop")
         bookingEngineUrl, // Full booking engine link (e.g., "https://black.bmspros.com.au/book-now/abc-salon")
         abn: formAbn.replace(/\s/g, '').trim() || null,
         state: formState || null,
@@ -373,7 +373,7 @@ export default function TenantsPage() {
       });
       console.log("Firestore document created with ID:", ownerUid);
 
-      // Send welcome email to salon owner with login credentials and payment link
+      // Send welcome email to workshop owner with login credentials and payment link
       try {
         const idToken = await auth.currentUser?.getIdToken();
         // Build payment URL - they'll be redirected to subscription page after login

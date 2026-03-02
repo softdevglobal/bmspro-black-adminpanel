@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     const db = adminDb();
     
-    // Verify caller has permission (must be salon owner)
+    // Verify caller has permission (must be workshop owner)
     const callerDoc = await db.collection("users").doc(callerUid).get();
     if (!callerDoc.exists) {
       return NextResponse.json(
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     
     if (callerRole !== "workshop_owner") {
       return NextResponse.json(
-        { error: "Unauthorized - Only salon owners can assign branch admins" },
+        { error: "Unauthorized - Only workshop owners can assign branch admins" },
         { status: 403 }
       );
     }
@@ -149,21 +149,21 @@ export async function POST(req: NextRequest) {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // Get salon name for email
-    let salonName: string | undefined;
+    // Get workshop name for email
+    let workshopName: string | undefined;
     try {
       const ownerDoc = await db.collection("users").doc(ownerUid).get();
       if (ownerDoc.exists) {
         const ownerData = ownerDoc.data();
-        salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+        workshopName = ownerData?.workshopName || ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
       }
     } catch (e) {
-      console.error("Failed to fetch salon name for branch admin email:", e);
+      console.error("Failed to fetch workshop name for branch admin email:", e);
     }
 
     // Send branch admin assignment email
     try {
-      await sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
+      await sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, workshopName);
     } catch (emailError) {
       console.error("Failed to send branch admin assignment email:", emailError);
       // Don't fail the request if email fails

@@ -13,20 +13,20 @@ if (SENDGRID_API_KEY) {
 }
 
 /**
- * Get salon name from ownerUid
+ * Get workshop name from ownerUid
  */
-async function getSalonName(ownerUid: string): Promise<string> {
+async function getWorkshopName(ownerUid: string): Promise<string> {
   try {
     const db = adminDb();
     const ownerDoc = await db.doc(`users/${ownerUid}`).get();
     if (ownerDoc.exists) {
       const data = ownerDoc.data();
-      return data?.salonName || data?.name || data?.businessName || data?.displayName || "Salon";
+      return data?.workshopName || data?.salonName || data?.name || data?.businessName || data?.displayName || "Workshop";
     }
   } catch (error) {
-    console.error("Error fetching salon name:", error);
+    console.error("Error fetching workshop name:", error);
   }
-  return "Salon";
+  return "Workshop";
 }
 
 interface BookingEmailData {
@@ -144,7 +144,7 @@ function generateEmailHTML(
 ): string {
   const bookingDateTime = formatBookingDateTime(data.bookingDate, data.bookingTime);
   const bookingCode = data.bookingCode || "N/A";
-  const salonName = data.salonName || "Salon";
+  const workshopName = data.salonName || "Workshop";
   
   // Helper function to check if staff is "Any Available"
   const isAnyStaff = (staffName?: string | null): boolean => {
@@ -242,7 +242,7 @@ function generateEmailHTML(
   
   switch (status) {
     case "Pending":
-      subject = `Booking Request Received - ${salonName}`;
+      subject = `Booking Request Received - ${workshopName}`;
       title = "Booking Request Received";
       message = `Thank you for your booking request! We have received your request and will confirm it shortly.`;
       icon = "📋";
@@ -250,7 +250,7 @@ function generateEmailHTML(
       bgColor = "#fffbeb";
       break;
     case "Confirmed":
-      subject = `Booking Confirmed - ${salonName}`;
+      subject = `Booking Confirmed - ${workshopName}`;
       title = "Booking Confirmed";
       message = `Great news! Your booking has been confirmed. We look forward to seeing you soon!`;
       icon = "✅";
@@ -258,15 +258,15 @@ function generateEmailHTML(
       bgColor = "#ecfdf5";
       break;
     case "Completed":
-      subject = `Booking Completed – Ready to Pick Up - ${salonName}`;
+      subject = `Booking Completed – Ready to Pick Up - ${workshopName}`;
       title = "Booking Completed – Ready to Pick Up";
-      message = `Great news! Your booking at ${salonName} has been completed and is ready for pick up. Please find the full job task report attached to this email. You can also download it from your customer portal at any time.`;
+      message = `Great news! Your booking at ${workshopName} has been completed and is ready for pick up. Please find the full job task report attached to this email. You can also download it from your customer portal at any time.`;
       icon = "✅";
       color = "#059669";
       bgColor = "#ecfdf5";
       break;
     case "Canceled":
-      subject = `Booking Cancelled - ${salonName}`;
+      subject = `Booking Cancelled - ${workshopName}`;
       title = "Booking Cancelled";
       message = `Your booking has been cancelled. If you have any questions or would like to reschedule, please contact us.`;
       icon = "❌";
@@ -274,7 +274,7 @@ function generateEmailHTML(
       bgColor = "#fef2f2";
       break;
     default:
-      subject = `Booking Update - ${salonName}`;
+      subject = `Booking Update - ${workshopName}`;
       title = "Booking Update";
       message = `Your booking status has been updated.`;
       icon = "ℹ️";
@@ -294,12 +294,12 @@ function generateEmailHTML(
       <td style="padding: 40px 20px;">
         <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
           
-          <!-- Salon Header -->
+          <!-- Workshop Header -->
           <tr>
             <td style="padding: 0; background: linear-gradient(135deg, ${color} 0%, ${color}dd 100%);">
-              <!-- Salon Name Bar -->
+              <!-- Workshop Name Bar -->
               <div style="padding: 20px 40px; background-color: rgba(0,0,0,0.1); text-align: center;">
-                <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: 0.5px;">${salonName}</h1>
+                <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: 0.5px;">${workshopName}</h1>
               </div>
               <!-- Status Section -->
               <div style="padding: 35px 40px; text-align: center;">
@@ -366,7 +366,7 @@ function generateEmailHTML(
           <!-- Footer -->
           <tr>
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">${salonName}</p>
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">${workshopName}</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
                 This is an automated email. Please do not reply to this message.<br>
                 If you need assistance, please contact us directly.
@@ -427,13 +427,13 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
   }
   
   try {
-    // Fetch salon name if not provided
+    // Fetch workshop name if not provided
     if (!data.salonName) {
-      data.salonName = await getSalonName(data.ownerUid);
+      data.salonName = await getWorkshopName(data.ownerUid);
     }
     
     const html = generateEmailHTML(data.status, data);
-    const salonName = data.salonName || "Salon";
+    const workshopName = data.salonName || "Workshop";
     const statusSubjectMap: Record<string, string> = {
       Pending: "Booking Request Received",
       Confirmed: "Booking Confirmed",
@@ -442,8 +442,8 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
     };
     const statusLabel = statusSubjectMap[data.status] || `Booking ${data.status}`;
     const subject = data.bookingCode
-      ? `${statusLabel} - ${salonName} (${data.bookingCode})`
-      : `${statusLabel} - ${salonName}`;
+      ? `${statusLabel} - ${workshopName} (${data.bookingCode})`
+      : `${statusLabel} - ${workshopName}`;
     
     const msg: any = {
       to: email,
@@ -477,7 +477,7 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
       subject: subject,
       bookingId: data.bookingId,
       status: data.status,
-      salonName: salonName,
+      workshopName: workshopName,
     });
     
     await sgMail.send(msg);
@@ -536,8 +536,8 @@ export async function sendBookingRequestReceivedEmail(
     return;
   }
   
-  // Get salon name
-  const salonName = await getSalonName(ownerUid);
+  // Get workshop name
+  const workshopName = await getWorkshopName(ownerUid);
   
   const result = await sendBookingEmail({
     bookingId,
@@ -546,7 +546,7 @@ export async function sendBookingRequestReceivedEmail(
     customerName,
     status: "Pending",
     ownerUid,
-    salonName,
+    salonName: workshopName,
     ...bookingData,
   });
   
@@ -599,8 +599,8 @@ export async function sendBookingStatusChangeEmail(
     return;
   }
   
-  // Get salon name
-  const salonName = await getSalonName(ownerUid);
+  // Get workshop name
+  const workshopName = await getWorkshopName(ownerUid);
   
   const result = await sendBookingEmail({
     bookingId,
@@ -609,7 +609,7 @@ export async function sendBookingStatusChangeEmail(
     customerName,
     status: newStatus,
     ownerUid,
-    salonName,
+    salonName: workshopName,
     ...bookingData,
   });
   
@@ -619,11 +619,11 @@ export async function sendBookingStatusChangeEmail(
 }
 
 /**
- * Generate HTML for salon owner welcome email with login credentials and optional payment link
+ * Generate HTML for workshop owner welcome email with login credentials and optional payment link
  * If trialDays > 0, the account is active immediately without payment (card-free trial)
  */
 function generateWelcomeEmailHTML(
-  salonOwnerEmail: string,
+  ownerEmail: string,
   password: string,
   businessName: string,
   planName?: string,
@@ -738,7 +738,7 @@ function generateWelcomeEmailHTML(
               <div style="padding: 40px; text-align: center;">
                 <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
                 <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Welcome to BMS PRO BLACK</h1>
-                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your salon account has been created</p>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your workshop account has been created</p>
               </div>
             </td>
           </tr>
@@ -748,7 +748,7 @@ function generateWelcomeEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello,</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Your salon <strong>${businessName}</strong> has been successfully onboarded to BMS PRO BLACK. ${hasFreeTrial ? `<strong>Your ${trialDays}-day free trial is now active!</strong> You can start using all features immediately - no payment required during your trial.` : (paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your salon management dashboard using the login credentials below.')}
+                Your workshop <strong>${businessName}</strong> has been successfully onboarded to BMS PRO BLACK. ${hasFreeTrial ? `<strong>Your ${trialDays}-day free trial is now active!</strong> You can start using all features immediately - no payment required during your trial.` : (paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your workshop management dashboard using the login credentials below.')}
               </p>
             </td>
           </tr>
@@ -768,7 +768,7 @@ function generateWelcomeEmailHTML(
                 <table style="width: 100%; border-collapse: collapse;">
                   <tr>
                     <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Email Address:</td>
-                    <td style='padding: 12px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${salonOwnerEmail}</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${ownerEmail}</td>
                   </tr>
                   <tr>
                     <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Temporary Password:</td>
@@ -827,7 +827,7 @@ function generateWelcomeEmailHTML(
                   ${(paymentUrl && !hasFreeTrial) ? '<li style="margin-bottom: 10px;"><strong>Complete your subscription payment</strong> using the button above</li>' : ''}
                   <li style="margin-bottom: 10px;">Log in to your dashboard using the credentials above</li>
                   <li style="margin-bottom: 10px;">Change your temporary password to a secure one</li>
-                  <li style="margin-bottom: 10px;">Complete your salon profile and settings</li>
+                  <li style="margin-bottom: 10px;">Complete your workshop profile and settings</li>
                   <li style="margin-bottom: 10px;">Start managing your bookings, staff, and services</li>
                   ${hasFreeTrial ? `<li>Add payment details before your trial ends to continue uninterrupted</li>` : ''}
                 </ol>
@@ -876,11 +876,11 @@ function generateWelcomeEmailHTML(
 }
 
 /**
- * Send welcome email to salon owner with login credentials and optional payment link
+ * Send welcome email to workshop owner with login credentials and optional payment link
  * If trialDays > 0, the email will reflect card-free trial activation
  */
 export async function sendSalonOwnerWelcomeEmail(
-  salonOwnerEmail: string,
+  workshopOwnerEmail: string,
   password: string,
   businessName: string,
   planName?: string,
@@ -889,15 +889,15 @@ export async function sendSalonOwnerWelcomeEmail(
   trialDays?: number,
   bookingEngineUrl?: string
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(`[EMAIL] Attempting to send welcome email to salon owner: ${salonOwnerEmail}`);
+  console.log(`[EMAIL] Attempting to send welcome email to workshop owner: ${workshopOwnerEmail}`);
   
   // Validate email
-  if (!salonOwnerEmail || !salonOwnerEmail.trim()) {
-    console.error(`[EMAIL] No salon owner email provided`);
-    return { success: false, error: "No salon owner email provided" };
+  if (!workshopOwnerEmail || !workshopOwnerEmail.trim()) {
+    console.error(`[EMAIL] No workshop owner email provided`);
+    return { success: false, error: "No workshop owner email provided" };
   }
   
-  const email = salonOwnerEmail.trim().toLowerCase();
+  const email = workshopOwnerEmail.trim().toLowerCase();
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     console.error(`[EMAIL] Invalid email address: ${email}`);
@@ -966,7 +966,7 @@ function generateStaffWelcomeEmailHTML(
   password: string,
   staffName: string,
   role: string, // 'staff' or 'branch_admin'
-  salonName?: string,
+  workshopName?: string,
   branchName?: string
 ): string {
   const isBranchAdmin = role === 'branch_admin';
@@ -1003,7 +1003,7 @@ function generateStaffWelcomeEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${staffName},</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                ${salonName ? `You have been added as a <strong>${roleDisplayName}</strong> to <strong>${salonName}</strong>.` : `You have been added as a <strong>${roleDisplayName}</strong>.`}
+                ${workshopName ? `You have been added as a <strong>${roleDisplayName}</strong> to <strong>${workshopName}</strong>.` : `You have been added as a <strong>${roleDisplayName}</strong>.`}
                 ${branchName && isBranchAdmin ? ` You have been assigned as the administrator for the <strong>${branchName}</strong> branch.` : ''}
                 You can now access the BMS PRO BLACK system using the login credentials below.
               </p>
@@ -1088,7 +1088,7 @@ function generateStaffWelcomeEmailHTML(
             <td style="padding: 0 40px 30px;">
               <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; text-align: center;">
                 <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
-                  If you have any questions or need assistance, please contact your salon administrator.
+                  If you have any questions or need assistance, please contact your workshop administrator.
                 </p>
               </div>
             </td>
@@ -1122,7 +1122,7 @@ export async function sendStaffWelcomeEmail(
   password: string,
   staffName: string,
   role: string, // 'staff' or 'branch_admin'
-  salonName?: string,
+  workshopName?: string,
   branchName?: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to staff: ${staffEmail}`);
@@ -1147,7 +1147,7 @@ export async function sendStaffWelcomeEmail(
   }
   
   try {
-    const html = generateStaffWelcomeEmailHTML(email, password, staffName, role, salonName, branchName);
+    const html = generateStaffWelcomeEmailHTML(email, password, staffName, role, workshopName, branchName);
     const roleDisplayName = role === 'branch_admin' ? 'Branch Administrator' : 'Staff Member';
     const subject = `Welcome to BMS PRO BLACK - Your ${roleDisplayName} Account is Ready`;
     
@@ -1169,7 +1169,7 @@ export async function sendStaffWelcomeEmail(
       subject: subject,
       staffName: staffName,
       role: role,
-      salonName: salonName,
+      workshopName: workshopName,
       branchName: branchName,
       clickTracking: false,
     });
@@ -1197,7 +1197,7 @@ export async function sendStaffWelcomeEmail(
 function generateBranchAdminAssignmentEmailHTML(
   staffName: string,
   branchName: string,
-  salonName?: string
+  workshopName?: string
 ): string {
   const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
   
@@ -1231,7 +1231,7 @@ function generateBranchAdminAssignmentEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${staffName},</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                ${salonName ? `You have been assigned as the <strong>Branch Administrator</strong> for the <strong>${branchName}</strong> branch at <strong>${salonName}</strong>.` : `You have been assigned as the <strong>Branch Administrator</strong> for the <strong>${branchName}</strong> branch.`}
+                ${workshopName ? `You have been assigned as the <strong>Branch Administrator</strong> for the <strong>${branchName}</strong> branch at <strong>${workshopName}</strong>.` : `You have been assigned as the <strong>Branch Administrator</strong> for the <strong>${branchName}</strong> branch.`}
               </p>
             </td>
           </tr>
@@ -1268,7 +1268,7 @@ function generateBranchAdminAssignmentEmailHTML(
             <td style="padding: 0 40px 30px;">
               <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; text-align: center;">
                 <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
-                  If you have any questions about your new role, please contact your salon administrator.
+                  If you have any questions about your new role, please contact your workshop administrator.
                 </p>
               </div>
             </td>
@@ -1301,7 +1301,7 @@ export async function sendBranchAdminAssignmentEmail(
   staffEmail: string,
   staffName: string,
   branchName: string,
-  salonName?: string
+  workshopName?: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send branch admin assignment email to: ${staffEmail}`);
   
@@ -1325,7 +1325,7 @@ export async function sendBranchAdminAssignmentEmail(
   }
   
   try {
-    const html = generateBranchAdminAssignmentEmailHTML(staffName, branchName, salonName);
+    const html = generateBranchAdminAssignmentEmailHTML(staffName, branchName, workshopName);
     const subject = `Branch Administrator Assignment - ${branchName}`;
     
     const msg = {
@@ -1346,7 +1346,7 @@ export async function sendBranchAdminAssignmentEmail(
       subject: subject,
       staffName: staffName,
       branchName: branchName,
-      salonName: salonName,
+      workshopName: workshopName,
       clickTracking: false,
     });
     
@@ -1522,7 +1522,7 @@ function generateAdminSignupNotificationEmailHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Salon Signup - BMS PRO BLACK</title>
+  <title>New Workshop Signup - BMS PRO BLACK</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
   <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
@@ -1535,7 +1535,7 @@ function generateAdminSignupNotificationEmailHTML(
             <td style="padding: 0; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
               <div style="padding: 40px; text-align: center;">
                 <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
-                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">New Salon Signup!</h1>
+                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">New Workshop Signup!</h1>
                 <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">A new business has joined BMS PRO BLACK</p>
               </div>
             </td>
@@ -1545,7 +1545,7 @@ function generateAdminSignupNotificationEmailHTML(
           <tr>
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                A new salon has signed up for BMS PRO BLACK. Here are the details:
+                A new workshop has signed up for BMS PRO BLACK. Here are the details:
               </p>
             </td>
           </tr>
@@ -1698,7 +1698,7 @@ export async function sendAdminSignupNotificationEmail(
     );
     
     const hasFreeTrial = trialDays && trialDays > 0;
-    const subject = `🎉 New Salon Signup: ${businessName}${hasFreeTrial ? ` (${trialDays}-Day Trial)` : ''}`;
+    const subject = `🎉 New Workshop Signup: ${businessName}${hasFreeTrial ? ` (${trialDays}-Day Trial)` : ''}`;
     
     const msg = {
       to: ADMIN_NOTIFICATION_EMAIL,
@@ -1917,7 +1917,8 @@ export async function sendEstimateRequestEmail(
 export async function sendEstimateReplyEmail(data: {
   customerEmail: string;
   customerName: string;
-  salonName: string;
+  workshopName?: string;
+  salonName?: string;
   message: string;
   imageUrls?: string[];
   vehicleInfo?: string;
@@ -1931,6 +1932,8 @@ export async function sendEstimateReplyEmail(data: {
     if (!SENDGRID_API_KEY) {
       return { success: false, error: "SendGrid API key not configured" };
     }
+
+    const businessName = data.workshopName ?? data.salonName ?? "Workshop";
 
     const imagesHtml = data.imageUrls && data.imageUrls.length > 0
       ? `<tr><td colspan="2" style="padding:16px 0;border-top:1px solid #f4f4f5;">
@@ -1948,12 +1951,12 @@ export async function sendEstimateReplyEmail(data: {
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
   <tr><td style="background:#171717;padding:28px 32px;">
     <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">Reply to Your Estimate</h1>
-    <p style="margin:6px 0 0;color:#a3a3a3;font-size:13px;">${data.salonName} has responded to your estimate request.</p>
+    <p style="margin:6px 0 0;color:#a3a3a3;font-size:13px;">${businessName} has responded to your estimate request.</p>
   </td></tr>
   <tr><td style="padding:28px 32px;">
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr><td colspan="2" style="padding-bottom:16px;">
-        <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Message from ${data.salonName}</p>
+        <p style="margin:0 0 2px;font-size:11px;color:#a3a3a3;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Message from ${businessName}</p>
         <div style="margin-top:10px;padding:16px;background:#f9fafb;border:1px solid #f4f4f5;border-radius:12px;">
           <p style="margin:0;font-size:14px;color:#171717;line-height:1.7;white-space:pre-wrap;">${data.message}</p>
         </div>
@@ -1966,7 +1969,7 @@ export async function sendEstimateReplyEmail(data: {
     </table>
   </td></tr>
   <tr><td style="padding:20px 32px;background:#fafafa;border-top:1px solid #f4f4f5;">
-    <p style="margin:0;font-size:11px;color:#a3a3a3;text-align:center;">This reply was sent from ${data.salonName}.<br/>Powered by <strong>BMS PRO</strong></p>
+    <p style="margin:0;font-size:11px;color:#a3a3a3;text-align:center;">This reply was sent from ${businessName}.<br/>Powered by <strong>BMS PRO</strong></p>
   </td></tr>
 </table>
 </td></tr></table>
@@ -1975,7 +1978,7 @@ export async function sendEstimateReplyEmail(data: {
     const msg = {
       to: data.customerEmail.trim().toLowerCase(),
       from: FROM_EMAIL,
-      subject: `${data.salonName} replied to your estimate request`,
+      subject: `${businessName} replied to your estimate request`,
       html,
     };
 

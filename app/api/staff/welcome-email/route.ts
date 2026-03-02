@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password, staffName, role, salonName, branchName } = body;
+    const { email, password, staffName, role, workshopName, salonName, branchName } = body;
+    const businessName = workshopName ?? salonName;
     
     if (!email || !password || !staffName || !role) {
       return NextResponse.json(
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
       password,
       staffName,
       role,
-      salonName,
+      businessName,
       branchName
     );
     

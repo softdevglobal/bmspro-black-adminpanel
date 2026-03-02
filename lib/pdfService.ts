@@ -248,12 +248,12 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
 
   const data = bookingSnap.data() as any;
 
-  let salonName = "Salon";
+  let salonName = "Workshop";
   try {
     const ownerDoc = await db.doc(`users/${data.ownerUid}`).get();
     if (ownerDoc.exists) {
       const od = ownerDoc.data();
-      salonName = od?.salonName || od?.workshopName || od?.name || od?.businessName || od?.displayName || "Salon";
+      salonName = od?.salonName || od?.workshopName || od?.name || od?.businessName || od?.displayName || "Workshop";
     }
   } catch {
     /* ignore */

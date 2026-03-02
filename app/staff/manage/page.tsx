@@ -467,16 +467,16 @@ export default function SettingsPage() {
           // Send welcome email if auth credentials were just created for this staff member
           if (password && newAuthUid) {
             try {
-              // Get salon name
-              let salonName: string | undefined;
+              // Get workshop name
+              let workshopName: string | undefined;
               try {
                 const ownerDoc = await getDoc(doc(db, "users", ownerUid));
                 if (ownerDoc.exists()) {
                   const ownerData = ownerDoc.data();
-                  salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+                  workshopName = ownerData?.workshopName || ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
                 }
               } catch (e) {
-                console.error("Failed to fetch salon name:", e);
+                console.error("Failed to fetch workshop name:", e);
               }
               
               await fetch("/api/staff/welcome-email", {
@@ -487,7 +487,7 @@ export default function SettingsPage() {
                   password: password,
                   staffName: name,
                   role: systemRole,
-                  salonName: salonName,
+                  workshopName: workshopName,
                   branchName: branchRow?.name || "",
                 }),
               });
@@ -668,16 +668,16 @@ export default function SettingsPage() {
           // Send welcome email to new staff member
           if (!editingStaffId && password) {
             try {
-              // Get salon name
-              let salonName: string | undefined;
+              // Get workshop name
+              let workshopName: string | undefined;
               try {
                 const ownerDoc = await getDoc(doc(db, "users", ownerUid));
                 if (ownerDoc.exists()) {
                   const ownerData = ownerDoc.data();
-                  salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
+                  workshopName = ownerData?.workshopName || ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
                 }
               } catch (e) {
-                console.error("Failed to fetch salon name:", e);
+                console.error("Failed to fetch workshop name:", e);
               }
               
               await fetch("/api/staff/welcome-email", {
@@ -688,7 +688,7 @@ export default function SettingsPage() {
                   password: password,
                   staffName: name,
                   role: systemRole,
-                  salonName: salonName,
+                  workshopName: workshopName,
                   branchName: branchRow?.name || undefined,
                 }),
               });

@@ -74,12 +74,12 @@ export async function POST(req: NextRequest) {
     try {
       const ownerDoc = await db.collection("users").doc(ownerUid).get();
       const ownerData = ownerDoc.data();
-      const salonName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
+      const workshopName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
 
       await sendEstimateReplyEmail({
         customerEmail: estimateData.customerEmail,
         customerName: estimateData.customerName,
-        salonName,
+        workshopName,
         message: message.trim(),
         imageUrls: imageUrls || [],
         vehicleInfo: [estimateData.vehicleYear, estimateData.vehicleMake, estimateData.vehicleModel].filter(Boolean).join(" "),

@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit/js/pdfkit.standalone";
 import { adminDb, adminStorage } from "./firebaseAdmin";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
+import { formatInTimezone } from "./timezone";
 
 interface BookingPDFData {
   id: string;
@@ -23,6 +24,7 @@ interface BookingPDFData {
   duration?: number;
   price?: number;
   branchName?: string;
+  branchTimezone?: string;
   serviceName?: string;
   staffName?: string;
   status?: string;
@@ -74,6 +76,14 @@ function formatDuration(minutes?: number): string {
 }
 
 function formatTimestamp(ts: any): string {
+  return formatTimestampInTimezone(ts, undefined);
+}
+
+/**
+ * Format a timestamp for display, optionally in a specific timezone (e.g. branch timezone).
+ * When timezone is provided, the time is shown in that timezone (e.g. Asia/Colombo for Kaduwela).
+ */
+function formatTimestampInTimezone(ts: any, timezone?: string): string {
   if (!ts) return "N/A";
   try {
     let d: Date | null = null;
@@ -83,8 +93,14 @@ function formatTimestamp(ts: any): string {
       d = ts.toDate();
     } else if (ts._seconds) {
       d = new Date(ts._seconds * 1000);
+    } else if (ts.seconds) {
+      d = new Date(ts.seconds * 1000);
     }
     if (d) {
+      const iso = d.toISOString();
+      if (timezone) {
+        return formatInTimezone(iso, timezone, "d MMM yyyy, h:mm a");
+      }
       return d.toLocaleString("en-AU", {
         day: "numeric",
         month: "short",
@@ -129,23 +145,37 @@ function parseFirebaseStorageUrl(url: string): { bucket: string; path: string } 
     if (u.hostname.includes("firebasestorage.googleapis.com")) {
       const match = u.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
       if (match) {
-        // Handle double-encoding (e.g. %252F from some clients)
+        const bucket = decodeURIComponent(match[1]);
+        // Handle single/double encoding (e.g. %2F or %252F for slashes)
         let path = match[2].replace(/\+/g, " ");
-        try {
-          path = decodeURIComponent(path);
-          if (path.includes("%")) path = decodeURIComponent(path);
-        } catch {
-          path = decodeURIComponent(match[2].replace(/\+/g, " "));
+        for (let i = 0; i < 3; i++) {
+          if (!path.includes("%")) break;
+          try {
+            path = decodeURIComponent(path);
+          } catch {
+            break;
+          }
         }
-        return { bucket: match[1], path };
+        if (!path || path.includes("%")) {
+          try {
+            path = decodeURIComponent(match[2].replace(/\+/g, " "));
+          } catch {
+            path = match[2];
+          }
+        }
+        return { bucket, path };
       }
     }
     // https://storage.googleapis.com/BUCKET/path/to/file
     if (u.hostname.includes("storage.googleapis.com") || u.hostname.includes("googleapis.com")) {
-      const parts = u.pathname.replace(/^\//, "").split("/");
+      const rawPath = u.pathname.replace(/^\//, "");
+      const parts = rawPath.split("/");
       if (parts.length >= 2) {
         const bucket = decodeURIComponent(parts[0]);
-        const path = parts.slice(1).map((p) => decodeURIComponent(p)).join("/");
+        const path = parts
+          .slice(1)
+          .map((p) => decodeURIComponent(p.replace(/\+/g, " ")))
+          .join("/");
         return { bucket, path };
       }
     }
@@ -189,36 +219,62 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
 
   let buf: Buffer | null = null;
+  const parsed = parseFirebaseStorageUrl(url);
 
-  // 1. Try HTTP fetch first (works with Firebase Storage download URLs + token)
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const arr = await res.arrayBuffer();
-      buf = Buffer.from(arr);
-    }
-  } catch {
-    /* fall through */
-  }
-
-  // 2. Fallback: Firebase Admin Storage (no token needed, works when fetch fails)
-  if ((!buf || buf.length === 0)) {
-    const parsed = parseFirebaseStorageUrl(url);
-    if (parsed) {
+  // 1. PREFER Firebase Admin Storage (most reliable server-side, no token expiry)
+  if (parsed) {
+    try {
+      const storage = adminStorage();
+      const bucket = storage.bucket(parsed.bucket);
+      const file = bucket.file(parsed.path);
+      const [downloaded] = await file.download();
+      if (downloaded && downloaded.length > 0) {
+        buf = downloaded;
+      }
+    } catch (storageErr) {
+      // Fallback: try signed URL
       try {
         const storage = adminStorage();
         const bucket = storage.bucket(parsed.bucket);
         const file = bucket.file(parsed.path);
-        const [downloaded] = await file.download();
-        if (downloaded && downloaded.length > 0) {
-          buf = downloaded;
+        const [signedUrl] = await file.getSignedUrl({
+          action: "read",
+          expires: Date.now() + 15 * 60 * 1000, // 15 min
+        });
+        if (signedUrl) {
+          const res = await fetch(signedUrl, {
+            headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
+            cache: "no-store",
+            redirect: "follow",
+          });
+          if (res.ok) {
+            const arr = await res.arrayBuffer();
+            buf = Buffer.from(arr);
+          }
         }
       } catch {
-        /* fall through */
+        /* fall through to HTTP fetch */
       }
+    }
+  }
+
+  // 2. HTTP fetch (for Firebase download URLs with token, or non-Firebase URLs)
+  if (!buf || buf.length === 0) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "BMS-PRO-PDF/1.0",
+          Accept: "image/*,*/*",
+        },
+        cache: "no-store",
+        redirect: "follow",
+      });
+      if (res.ok) {
+        const arr = await res.arrayBuffer();
+        buf = Buffer.from(arr);
+      }
+    } catch {
+      /* fall through */
     }
   }
 
@@ -259,6 +315,20 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     /* ignore */
   }
 
+  // Fetch branch timezone for correct timestamp display (e.g. Asia/Colombo for Kaduwela)
+  let branchTimezone = data.branchTimezone || null;
+  if (!branchTimezone && data.branchId) {
+    try {
+      const branchDoc = await db.collection("branches").doc(data.branchId).get();
+      if (branchDoc.exists) {
+        const bd = branchDoc.data();
+        branchTimezone = bd?.timezone || null;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const booking: BookingPDFData = {
     id: bookingId,
     bookingCode: data.bookingCode,
@@ -280,6 +350,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     duration: data.duration,
     price: data.price,
     branchName: data.branchName,
+    branchTimezone: branchTimezone || undefined,
     serviceName: data.serviceName,
     staffName: data.staffName,
     status: data.status,
@@ -425,7 +496,7 @@ async function buildPDF(
     if (booking.branchName) details.push(["Branch", booking.branchName]);
     if (booking.duration) details.push(["Duration", formatDuration(booking.duration)]);
     if (booking.price !== undefined && booking.price !== null) details.push(["Total Price", `$${Number(booking.price).toFixed(2)}`]);
-    if (booking.completedAt) details.push(["Completed At", formatTimestamp(booking.completedAt)]);
+    if (booking.completedAt) details.push(["Completed At", formatTimestampInTimezone(booking.completedAt, booking.branchTimezone)]);
     if (booking.completedByStaffName) details.push(["Completed By", booking.completedByStaffName]);
 
     y = drawKeyValueTable(doc, details, leftMargin, y, pageWidth);
@@ -557,7 +628,7 @@ async function buildPDF(
 
           if (task.completedByStaffName) {
             doc.fontSize(7).fillColor(COLORS.muted)
-              .text(`— ${task.completedByStaffName}${task.completedAt ? `, ${formatTimestamp(task.completedAt)}` : ""}`,
+              .text(`— ${task.completedByStaffName}${task.completedAt ? `, ${formatTimestampInTimezone(task.completedAt, booking.branchTimezone)}` : ""}`,
                 leftMargin + 36, iy, { width: pageWidth - 80 });
           }
         }
@@ -607,7 +678,7 @@ async function buildPDF(
       }
 
       if (fs.submittedByStaffName) {
-        const stamp = `Submitted by ${fs.submittedByStaffName}${fs.submittedAt ? ` on ${formatTimestamp(fs.submittedAt)}` : ""}`;
+        const stamp = `Submitted by ${fs.submittedByStaffName}${fs.submittedAt ? ` on ${formatTimestampInTimezone(fs.submittedAt, booking.branchTimezone)}` : ""}`;
         doc.fontSize(8).fillColor(COLORS.muted).text(stamp, leftMargin + 14, fsY, { width: pageWidth - 28 });
         fsY += 14;
       }

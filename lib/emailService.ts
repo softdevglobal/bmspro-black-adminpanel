@@ -452,11 +452,15 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
       html: html,
     };
 
-    // Attach PDF for completed bookings
+    // Attach PDF for completed bookings - REQUIRED (email promises the attachment)
     if (data.status === "Completed" && data.bookingId) {
       try {
         const { generateBookingPDF } = await import("./pdfService");
         const { buffer, filename } = await generateBookingPDF(data.bookingId);
+        if (!buffer || buffer.length === 0) {
+          console.error(`[EMAIL] PDF generated but buffer is empty for booking ${data.bookingId}`);
+          return { success: false, error: "PDF generation produced empty file" };
+        }
         msg.attachments = [
           {
             content: buffer.toString("base64"),
@@ -465,9 +469,13 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
             disposition: "attachment",
           },
         ];
-        console.log(`[EMAIL] PDF attachment generated for booking ${data.bookingId}: ${filename}`);
-      } catch (pdfError) {
+        console.log(`[EMAIL] PDF attachment generated for booking ${data.bookingId}: ${filename} (${buffer.length} bytes)`);
+      } catch (pdfError: any) {
         console.error(`[EMAIL] Failed to generate PDF attachment for booking ${data.bookingId}:`, pdfError);
+        return {
+          success: false,
+          error: `PDF generation failed: ${pdfError?.message || String(pdfError)}. The job report could not be attached.`,
+        };
       }
     }
     

@@ -1,5 +1,5 @@
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Firestore } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { Message } from "firebase-admin/messaging";
 
@@ -845,6 +845,38 @@ export async function createOwnerNotification(data: {
   };
 
   return createNotification(notificationData);
+}
+
+/**
+ * Get all branch admin UIDs for a branch.
+ * Branch admins are stored in the users collection with role='branch_admin' and matching branchId.
+ */
+export async function getBranchAdminUids(db: Firestore, branchId: string, ownerUid: string): Promise<string[]> {
+  try {
+    const branchAdminQuery = await db.collection("users")
+      .where("ownerUid", "==", ownerUid)
+      .where("role", "in", ["branch_admin"])
+      .where("branchId", "==", branchId)
+      .get();
+
+    const branchAdminUids = branchAdminQuery.docs.map(doc => doc.id);
+
+    // Also check legacy adminStaffId in branch document (for backward compatibility)
+    if (branchAdminUids.length === 0) {
+      const branchDoc = await db.collection("branches").doc(branchId).get();
+      if (branchDoc.exists) {
+        const branchData = branchDoc.data();
+        if (branchData?.adminStaffId) {
+          return [branchData.adminStaffId];
+        }
+      }
+    }
+
+    return branchAdminUids;
+  } catch (error) {
+    console.error("Error getting branch admins:", error);
+    return [];
+  }
 }
 
 /**

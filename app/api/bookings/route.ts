@@ -6,7 +6,7 @@ import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
-import { createStaffAssignmentNotification, createOwnerNotification } from "@/lib/notifications";
+import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 import { sendBookingRequestReceivedEmail, sendBookingEmail } from "@/lib/emailService";
 
 export const runtime = "nodejs";
@@ -78,39 +78,6 @@ function hasAnyStaffBooking(
     staffName.toLowerCase() === "any"
   ));
   return hasAnyStaffId || hasAnyStaffName;
-}
-
-/**
- * Get all branch admin UIDs for a branch
- * Branch admins are stored in the users collection with role='branch_admin' and matching branchId
- */
-async function getBranchAdminUids(db: Firestore, branchId: string, ownerUid: string): Promise<string[]> {
-  try {
-    // Query users collection for branch admins (support both old and new role names)
-    const branchAdminQuery = await db.collection("users")
-      .where("ownerUid", "==", ownerUid)
-      .where("role", "in", ["branch_admin"])
-      .where("branchId", "==", branchId)
-      .get();
-    
-    const branchAdminUids = branchAdminQuery.docs.map(doc => doc.id);
-    
-    // Also check legacy adminStaffId in branch document (for backward compatibility)
-    if (branchAdminUids.length === 0) {
-      const branchDoc = await db.collection("branches").doc(branchId).get();
-      if (branchDoc.exists) {
-        const branchData = branchDoc.data();
-        if (branchData?.adminStaffId) {
-          return [branchData.adminStaffId];
-        }
-      }
-    }
-    
-    return branchAdminUids;
-  } catch (error) {
-    console.error("Error getting branch admins:", error);
-    return [];
-  }
 }
 
 /**
@@ -1254,7 +1221,40 @@ export async function POST(req: NextRequest) {
           // Don't fail the request if notification sending fails
         }
       } else {
-        console.log(`ℹ️ Booking ${bookingCode}: No Any Staff detected - skipping owner/branch admin notification`);
+        // Notify branch admins for ALL branch bookings (including assigned-staff bookings)
+        try {
+          const branchAdminUids = await getBranchAdminUids(db, String(body.branchId), ownerUid);
+          const serviceList = processedServices && Array.isArray(processedServices) && processedServices.length > 0
+            ? processedServices.map(s => s.name || "Service").join(", ")
+            : serviceName || "Service";
+          for (const branchAdminUid of branchAdminUids) {
+            if (branchAdminUid === ownerUid) continue;
+            await createBranchAdminNotification({
+              bookingId: ref.id,
+              bookingCode: bookingCode,
+              branchAdminUid,
+              ownerUid,
+              clientName: String(body.client),
+              serviceName: serviceName || undefined,
+              services: processedServices?.map((s: any) => ({
+                name: s.name || "Service",
+                staffName: s.staffName || undefined,
+                staffId: s.staffId || undefined,
+              })),
+              branchName: branchName || undefined,
+              branchId: String(body.branchId),
+              bookingDate: String(body.date),
+              bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
+              status: finalStatus,
+              type: "branch_booking_created",
+            });
+          }
+          if (branchAdminUids.length > 0) {
+            console.log(`✅ Booking ${bookingCode}: Notified ${branchAdminUids.length} branch admin(s) for assigned-staff booking`);
+          }
+        } catch (branchAdminNotifError) {
+          console.error("❌ Failed to send branch admin notifications for assigned-staff booking:", branchAdminNotifError);
+        }
       }
       
       return NextResponse.json({ id: ref.id });

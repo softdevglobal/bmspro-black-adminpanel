@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingCode } from "@/lib/bookings";
 import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
 import { shouldBlockSlots } from "@/lib/bookingTypes";
+import { getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -409,6 +410,39 @@ export async function POST(req: NextRequest) {
       });
     } catch (notifError) {
       console.error("Failed to create notification:", notifError);
+    }
+
+    // Create notifications for branch admins (so they receive branch booking alerts on mobile)
+    try {
+      const branchAdminUids = await getBranchAdminUids(db, branchId, ownerUid);
+      const serviceList = serviceDetails.map((s: any) => s.name).join(", ");
+      for (const branchAdminUid of branchAdminUids) {
+        if (branchAdminUid === ownerUid) continue;
+        await createBranchAdminNotification({
+          bookingId: ref.id,
+          bookingCode,
+          branchAdminUid,
+          ownerUid,
+          clientName: customerName,
+          serviceName: serviceList,
+          services: serviceDetails.map((s: any) => ({
+            name: s.name,
+            staffName: "Not Assigned Yet",
+            staffId: undefined,
+          })),
+          branchName: branchName || null,
+          branchId,
+          bookingDate: date,
+          bookingTime: `Drop-off: ${time}, Pick-up: ${pickupTime}`,
+          status: "Pending",
+          type: "booking_engine_new_booking",
+        });
+      }
+      if (branchAdminUids.length > 0) {
+        console.log(`[BOOK-NOW] Notified ${branchAdminUids.length} branch admin(s) for online booking ${bookingCode}`);
+      }
+    } catch (branchAdminNotifError) {
+      console.error("Failed to create branch admin notifications:", branchAdminNotifError);
     }
 
     // Send booking confirmation email to customer

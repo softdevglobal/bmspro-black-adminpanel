@@ -1,7 +1,32 @@
 import PDFDocument from "pdfkit/js/pdfkit.standalone";
+import https from "node:https";
+import http from "node:http";
 import { adminDb, adminStorage } from "./firebaseAdmin";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
 import { formatInTimezone } from "./timezone";
+
+/** Fetch URL via Node.js https/http - more reliable than global fetch in some environments */
+function nodeFetch(url: string): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const protocol = url.startsWith("https") ? https : http;
+    const req = protocol.get(url, { headers: { "User-Agent": "BMS-PRO-PDF/1.0" } }, (res) => {
+      const redirect = res.headers.location;
+      if (redirect && (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308)) {
+        nodeFetch(redirect).then(resolve);
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("error", () => resolve(null));
+    });
+    req.on("error", () => resolve(null));
+    req.setTimeout(15000, () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
 
 interface BookingPDFData {
   id: string;
@@ -227,7 +252,7 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
 
   let buf: Buffer | null = null;
 
-  // 1. TRY HTTP FETCH FIRST - Firebase download URLs with token often work; token may still be valid
+  // 1. TRY HTTP FETCH - Firebase download URLs don't expire; use both fetch and node https
   if (isHttp) {
     try {
       const res = await fetch(url, {
@@ -243,44 +268,59 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
         buf = Buffer.from(arr);
       }
     } catch {
-      /* fall through */
+      /* fall through to nodeFetch */
+    }
+    if ((!buf || buf.length === 0)) {
+      buf = await nodeFetch(url);
     }
   }
 
   // 2. FIREBASE ADMIN STORAGE - No token expiry; works when HTTP fetch fails (expired token)
   const parsed = isHttp ? parseFirebaseStorageUrl(url) : isGs ? parseGsUrl(url) : null;
   if ((!buf || buf.length === 0) && parsed) {
+    const storage = adminStorage();
+    const bucketNamesToTry = [parsed.bucket];
     try {
-      const storage = adminStorage();
-      const bucket = storage.bucket(parsed.bucket);
-      const file = bucket.file(parsed.path);
-      const [downloaded] = await file.download();
-      if (downloaded && downloaded.length > 0) {
-        buf = downloaded;
+      const defaultBucket = storage.bucket();
+      if (defaultBucket?.name && !bucketNamesToTry.includes(defaultBucket.name)) {
+        bucketNamesToTry.push(defaultBucket.name);
       }
     } catch {
-      // Fallback: signed URL
+      /* use only parsed bucket */
+    }
+    for (const bucketName of bucketNamesToTry) {
       try {
-        const storage = adminStorage();
-        const bucket = storage.bucket(parsed.bucket);
+        const bucket = storage.bucket(bucketName);
         const file = bucket.file(parsed.path);
-        const [signedUrl] = await file.getSignedUrl({
-          action: "read",
-          expires: Date.now() + 15 * 60 * 1000,
-        });
-        if (signedUrl) {
-          const res = await fetch(signedUrl, {
-            headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
-            cache: "no-store",
-            redirect: "follow",
-          });
-          if (res.ok) {
-            const arr = await res.arrayBuffer();
-            buf = Buffer.from(arr);
-          }
+        const [downloaded] = await file.download();
+        if (downloaded && downloaded.length > 0) {
+          buf = downloaded;
+          break;
         }
-      } catch {
-        /* fall through */
+      } catch (err) {
+        // Try signed URL as fallback for this bucket
+        try {
+          const bucket = storage.bucket(bucketName);
+          const file = bucket.file(parsed.path);
+          const [signedUrl] = await file.getSignedUrl({
+            action: "read",
+            expires: Date.now() + 15 * 60 * 1000,
+          });
+          if (signedUrl) {
+            const res = await fetch(signedUrl, {
+              headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
+              cache: "no-store",
+              redirect: "follow",
+            });
+            if (res.ok) {
+              const arr = await res.arrayBuffer();
+              buf = Buffer.from(arr);
+              break;
+            }
+          }
+        } catch {
+          /* try next bucket */
+        }
       }
     }
   }
@@ -404,6 +444,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   const fsImage = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
   if (fsImage && typeof fsImage === "string") imageUrls.add(fsImage);
   const imageBuffers = new Map<string, Buffer>();
+  const failedUrls: string[] = [];
   await Promise.all(
     Array.from(imageUrls).map(async (url) => {
       const buf = await fetchImageBuffer(url);
@@ -411,13 +452,18 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
         imageBuffers.set(url, buf);
         imageBuffers.set(normalizeImageUrl(url), buf);
         try {
-          imageBuffers.set(new URL(url).href, buf); // normalized href
+          imageBuffers.set(new URL(url).href, buf);
         } catch {
           /* ignore */
         }
+      } else if (url) {
+        failedUrls.push(url.slice(0, 80) + (url.length > 80 ? "..." : ""));
       }
     })
   );
+  if (failedUrls.length > 0 && process.env.NODE_ENV === "development") {
+    console.warn("[PDF] Failed to fetch images:", failedUrls.length, "URLs. First:", failedUrls[0]);
+  }
 
   const getImageBuffer = (url: string): Buffer | undefined => {
     if (!url || typeof url !== "string") return undefined;

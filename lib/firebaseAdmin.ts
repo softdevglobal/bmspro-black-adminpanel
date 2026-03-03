@@ -59,8 +59,14 @@ export function getAdminApp() {
 
     if (serviceAccount) {
       try {
-        adminApp = initializeApp({ credential: cert(serviceAccount) });
-        console.log("✓ Firebase Admin initialized successfully");
+        const storageBucket = process.env.FIREBASE_STORAGE_BUCKET
+          || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+          || `${serviceAccount.project_id}.firebasestorage.app`;
+        adminApp = initializeApp({
+          credential: cert(serviceAccount),
+          storageBucket,
+        });
+        console.log("✓ Firebase Admin initialized successfully (storageBucket:", storageBucket, ")");
       } catch (error) {
         console.error("✗ Failed to initialize Firebase Admin:", error);
         throw error;

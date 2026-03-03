@@ -199,7 +199,7 @@ function normalizeImageUrl(url: string): string {
  * Convert image buffer to JPEG/PNG for PDFKit compatibility.
  * PDFKit only supports JPEG and PNG; HEIC/WebP from mobile need conversion.
  */
-async function ensurePdfCompatibleImage(buf: Buffer): Promise<Buffer> {
+async function ensurePdfCompatibleImage(buf: Buffer): Promise<Buffer | null> {
   try {
     const sharp = (await import("sharp")).default;
     const meta = await sharp(buf).metadata();
@@ -211,55 +211,24 @@ async function ensurePdfCompatibleImage(buf: Buffer): Promise<Buffer> {
       .jpeg({ quality: 90 })
       .toBuffer();
   } catch {
-    return buf;
+    // If sharp fails (e.g. unsupported format), try returning as-is only for known good formats
+    const isJpeg = buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    const isPng = buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    return isJpeg || isPng ? buf : null;
   }
 }
 
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
-  if (!url || typeof url !== "string" || !url.startsWith("http")) return null;
+  if (!url || typeof url !== "string") return null;
+  // Support http(s) and gs:// URLs
+  const isHttp = url.startsWith("http://") || url.startsWith("https://");
+  const isGs = url.startsWith("gs://");
+  if (!isHttp && !isGs) return null;
 
   let buf: Buffer | null = null;
-  const parsed = parseFirebaseStorageUrl(url);
 
-  // 1. PREFER Firebase Admin Storage (most reliable server-side, no token expiry)
-  if (parsed) {
-    try {
-      const storage = adminStorage();
-      const bucket = storage.bucket(parsed.bucket);
-      const file = bucket.file(parsed.path);
-      const [downloaded] = await file.download();
-      if (downloaded && downloaded.length > 0) {
-        buf = downloaded;
-      }
-    } catch (storageErr) {
-      // Fallback: try signed URL
-      try {
-        const storage = adminStorage();
-        const bucket = storage.bucket(parsed.bucket);
-        const file = bucket.file(parsed.path);
-        const [signedUrl] = await file.getSignedUrl({
-          action: "read",
-          expires: Date.now() + 15 * 60 * 1000, // 15 min
-        });
-        if (signedUrl) {
-          const res = await fetch(signedUrl, {
-            headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
-            cache: "no-store",
-            redirect: "follow",
-          });
-          if (res.ok) {
-            const arr = await res.arrayBuffer();
-            buf = Buffer.from(arr);
-          }
-        }
-      } catch {
-        /* fall through to HTTP fetch */
-      }
-    }
-  }
-
-  // 2. HTTP fetch (for Firebase download URLs with token, or non-Firebase URLs)
-  if (!buf || buf.length === 0) {
+  // 1. TRY HTTP FETCH FIRST - Firebase download URLs with token often work; token may still be valid
+  if (isHttp) {
     try {
       const res = await fetch(url, {
         headers: {
@@ -278,16 +247,62 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
     }
   }
 
-  if (!buf || buf.length === 0) return null;
-
-  // 3. Convert to PDF-compatible format (JPEG/PNG) if needed
-  try {
-    buf = await ensurePdfCompatibleImage(buf);
-  } catch {
-    /* use original buffer */
+  // 2. FIREBASE ADMIN STORAGE - No token expiry; works when HTTP fetch fails (expired token)
+  const parsed = isHttp ? parseFirebaseStorageUrl(url) : isGs ? parseGsUrl(url) : null;
+  if ((!buf || buf.length === 0) && parsed) {
+    try {
+      const storage = adminStorage();
+      const bucket = storage.bucket(parsed.bucket);
+      const file = bucket.file(parsed.path);
+      const [downloaded] = await file.download();
+      if (downloaded && downloaded.length > 0) {
+        buf = downloaded;
+      }
+    } catch {
+      // Fallback: signed URL
+      try {
+        const storage = adminStorage();
+        const bucket = storage.bucket(parsed.bucket);
+        const file = bucket.file(parsed.path);
+        const [signedUrl] = await file.getSignedUrl({
+          action: "read",
+          expires: Date.now() + 15 * 60 * 1000,
+        });
+        if (signedUrl) {
+          const res = await fetch(signedUrl, {
+            headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
+            cache: "no-store",
+            redirect: "follow",
+          });
+          if (res.ok) {
+            const arr = await res.arrayBuffer();
+            buf = Buffer.from(arr);
+          }
+        }
+      } catch {
+        /* fall through */
+      }
+    }
   }
 
-  return buf;
+  if (!buf || buf.length === 0) return null;
+
+  // 3. Convert to PDF-compatible format (JPEG/PNG)
+  const converted = await ensurePdfCompatibleImage(buf);
+  return converted && converted.length > 0 ? converted : null;
+}
+
+/** Parse gs://bucket/path/to/file URLs */
+function parseGsUrl(url: string): { bucket: string; path: string } | null {
+  try {
+    if (!url.startsWith("gs://")) return null;
+    const rest = url.slice(5);
+    const slash = rest.indexOf("/");
+    if (slash === -1) return null;
+    return { bucket: rest.slice(0, slash), path: rest.slice(slash + 1) };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -392,15 +407,27 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   await Promise.all(
     Array.from(imageUrls).map(async (url) => {
       const buf = await fetchImageBuffer(url);
-      if (buf) {
+      if (buf && buf.length > 0) {
         imageBuffers.set(url, buf);
-        imageBuffers.set(normalizeImageUrl(url), buf); // also key by normalized for lookup
+        imageBuffers.set(normalizeImageUrl(url), buf);
+        try {
+          imageBuffers.set(new URL(url).href, buf); // normalized href
+        } catch {
+          /* ignore */
+        }
       }
     })
   );
 
   const getImageBuffer = (url: string): Buffer | undefined => {
-    return imageBuffers.get(url) ?? imageBuffers.get(normalizeImageUrl(url));
+    if (!url || typeof url !== "string") return undefined;
+    const buf = imageBuffers.get(url) ?? imageBuffers.get(normalizeImageUrl(url));
+    if (buf) return buf;
+    try {
+      return imageBuffers.get(new URL(url).href);
+    } catch {
+      return undefined;
+    }
   };
   const pdfBuffer = await buildPDF(booking, imageBuffers, getImageBuffer);
   const code = booking.bookingCode || bookingId.substring(0, 8);
@@ -568,8 +595,8 @@ async function buildPDF(
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
         const taskImageUrl = (task as any).imageUrl || (task as any).image;
-        const hasTaskImage = !!(task.done && taskImageUrl && getImageBuffer(taskImageUrl));
-        const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImage);
+        const hasTaskImageSlot = !!(task.done && taskImageUrl); // Reserve space for image or placeholder
+        const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImageSlot);
         y = ensureSpace(doc, y, cardH);
 
         const cardBg = task.done ? "#f0fdf4" : COLORS.white;
@@ -630,11 +657,12 @@ async function buildPDF(
             doc.fontSize(7).fillColor(COLORS.muted)
               .text(`— ${task.completedByStaffName}${task.completedAt ? `, ${formatTimestampInTimezone(task.completedAt, booking.branchTimezone)}` : ""}`,
                 leftMargin + 36, iy, { width: pageWidth - 80 });
+            iy += 12;
           }
         }
 
         // Task completion image
-        if (hasTaskImage && taskImageUrl) {
+        if (task.done && taskImageUrl) {
           const imgBuf = getImageBuffer(taskImageUrl);
           if (imgBuf && imgBuf.length > 0) {
             try {
@@ -644,7 +672,13 @@ async function buildPDF(
               iy += TASK_IMAGE_SIZE + 4;
             } catch (imgErr) {
               console.warn("[PDF] Task image render failed:", (imgErr as Error)?.message);
+              doc.fontSize(7).fillColor(COLORS.muted).text("[Photo unavailable]", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
+              iy += 14;
             }
+          } else {
+            doc.fontSize(7).fillColor(COLORS.muted).text("Photo:", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
+            doc.fontSize(7).fillColor("#9ca3af").text("[Image could not be loaded]", leftMargin + 30, iy + 14, { width: pageWidth - 60 });
+            iy += 28;
           }
         }
 
@@ -684,7 +718,7 @@ async function buildPDF(
       }
 
       // Overall/final image
-      if (hasFinalImage && fsImageUrl) {
+      if (fsImageUrl) {
         const imgBuf = getImageBuffer(fsImageUrl);
         if (imgBuf && imgBuf.length > 0) {
           try {
@@ -693,7 +727,11 @@ async function buildPDF(
             doc.image(imgBuf, leftMargin + 14, fsY, { fit: [FINAL_IMAGE_SIZE, FINAL_IMAGE_SIZE] });
           } catch (imgErr) {
             console.warn("[PDF] Final submission image render failed:", (imgErr as Error)?.message);
+            doc.fontSize(7).fillColor("#9ca3af").text("[Image could not be loaded]", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
           }
+        } else {
+          doc.fontSize(7).fillColor(COLORS.muted).text("Overall photo:", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
+          doc.fontSize(7).fillColor("#9ca3af").text("[Image could not be loaded]", leftMargin + 14, fsY + 14, { width: pageWidth - 28 });
         }
       }
 

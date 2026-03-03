@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
     if (res.ok) {
       const buf = Buffer.from(await res.arrayBuffer());
       results.http_fetch_success = `got ${buf.length} bytes`;
-      return new NextResponse(buf, {
+      return new NextResponse(new Uint8Array(buf), {
         headers: { "Content-Type": "image/jpeg" },
       });
     }
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       const [buf] = await file.download();
       results.admin_storage = `bucket=${bucketName} path=${path} bytes=${buf?.length || 0}`;
       if (buf && buf.length > 0) {
-        return new NextResponse(buf, {
+        return new NextResponse(new Uint8Array(buf), {
           headers: { "Content-Type": "image/jpeg" },
         });
       }

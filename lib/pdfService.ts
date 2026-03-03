@@ -15,6 +15,10 @@ function nodeFetch(url: string): Promise<Buffer | null> {
         nodeFetch(redirect).then(resolve);
         return;
       }
+      if (res.statusCode && res.statusCode >= 400) {
+        resolve(null);
+        return;
+      }
       const chunks: Buffer[] = [];
       res.on("data", (chunk: Buffer) => chunks.push(chunk));
       res.on("end", () => resolve(Buffer.concat(chunks)));

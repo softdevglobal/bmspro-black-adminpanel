@@ -1,36 +1,8 @@
-import PDFDocument from "pdfkit/js/pdfkit.standalone";
-import https from "node:https";
-import http from "node:http";
-import { adminDb, adminStorage } from "./firebaseAdmin";
+import PDFDocument from "pdfkit";
+import { adminDb } from "./firebaseAdmin";
+import { fetchImageBuffer } from "./fetchImageForPdf";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
 import { formatInTimezone } from "./timezone";
-
-/** Fetch URL via Node.js https/http - more reliable than global fetch in some environments */
-function nodeFetch(url: string): Promise<Buffer | null> {
-  return new Promise((resolve) => {
-    const protocol = url.startsWith("https") ? https : http;
-    const req = protocol.get(url, { headers: { "User-Agent": "BMS-PRO-PDF/1.0" } }, (res) => {
-      const redirect = res.headers.location;
-      if (redirect && (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308)) {
-        nodeFetch(redirect).then(resolve);
-        return;
-      }
-      if (res.statusCode && res.statusCode >= 400) {
-        resolve(null);
-        return;
-      }
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => resolve(Buffer.concat(chunks)));
-      res.on("error", () => resolve(null));
-    });
-    req.on("error", () => resolve(null));
-    req.setTimeout(15000, () => {
-      req.destroy();
-      resolve(null);
-    });
-  });
-}
 
 interface BookingPDFData {
   id: string;
@@ -160,59 +132,8 @@ const COLORS = {
 
 const PAGE_MARGIN = 40;
 const FOOTER_RESERVE = 52;
-const TASK_IMAGE_SIZE = 72;
-const FINAL_IMAGE_SIZE = 160;
-
-/**
- * Parse Firebase Storage URL to get bucket name and file path.
- * Supports: firebasestorage.googleapis.com and storage.googleapis.com formats.
- */
-function parseFirebaseStorageUrl(url: string): { bucket: string; path: string } | null {
-  try {
-    const u = new URL(url);
-    // https://firebasestorage.googleapis.com/v0/b/BUCKET/o/ENCODED_PATH?alt=media&token=...
-    if (u.hostname.includes("firebasestorage.googleapis.com")) {
-      const match = u.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
-      if (match) {
-        const bucket = decodeURIComponent(match[1]);
-        // Handle single/double encoding (e.g. %2F or %252F for slashes)
-        let path = match[2].replace(/\+/g, " ");
-        for (let i = 0; i < 3; i++) {
-          if (!path.includes("%")) break;
-          try {
-            path = decodeURIComponent(path);
-          } catch {
-            break;
-          }
-        }
-        if (!path || path.includes("%")) {
-          try {
-            path = decodeURIComponent(match[2].replace(/\+/g, " "));
-          } catch {
-            path = match[2];
-          }
-        }
-        return { bucket, path };
-      }
-    }
-    // https://storage.googleapis.com/BUCKET/path/to/file
-    if (u.hostname.includes("storage.googleapis.com") || u.hostname.includes("googleapis.com")) {
-      const rawPath = u.pathname.replace(/^\//, "");
-      const parts = rawPath.split("/");
-      if (parts.length >= 2) {
-        const bucket = decodeURIComponent(parts[0]);
-        const path = parts
-          .slice(1)
-          .map((p) => decodeURIComponent(p.replace(/\+/g, " ")))
-          .join("/");
-        return { bucket, path };
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
+const TASK_IMAGE_SIZE = 140;
+const FINAL_IMAGE_SIZE = 240;
 
 /** Normalize URL for Map lookup - strip query params so tokens don't cause mismatches */
 function normalizeImageUrl(url: string): string {
@@ -221,131 +142,6 @@ function normalizeImageUrl(url: string): string {
     return `${u.origin}${u.pathname}`;
   } catch {
     return url;
-  }
-}
-
-/**
- * Convert image buffer to JPEG/PNG for PDFKit compatibility.
- * PDFKit only supports JPEG and PNG; HEIC/WebP from mobile need conversion.
- */
-async function ensurePdfCompatibleImage(buf: Buffer): Promise<Buffer | null> {
-  try {
-    const sharp = (await import("sharp")).default;
-    const meta = await sharp(buf).metadata();
-    const format = (meta.format || "").toLowerCase();
-    if (format === "jpeg" || format === "jpg" || format === "png") {
-      return buf;
-    }
-    return await sharp(buf)
-      .jpeg({ quality: 90 })
-      .toBuffer();
-  } catch {
-    // If sharp fails (e.g. unsupported format), try returning as-is only for known good formats
-    const isJpeg = buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
-    const isPng = buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-    return isJpeg || isPng ? buf : null;
-  }
-}
-
-async function fetchImageBuffer(url: string): Promise<Buffer | null> {
-  if (!url || typeof url !== "string") return null;
-  // Support http(s) and gs:// URLs
-  const isHttp = url.startsWith("http://") || url.startsWith("https://");
-  const isGs = url.startsWith("gs://");
-  if (!isHttp && !isGs) return null;
-
-  let buf: Buffer | null = null;
-
-  // 1. TRY HTTP FETCH - Firebase download URLs don't expire; use both fetch and node https
-  if (isHttp) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "BMS-PRO-PDF/1.0",
-          Accept: "image/*,*/*",
-        },
-        cache: "no-store",
-        redirect: "follow",
-      });
-      if (res.ok) {
-        const arr = await res.arrayBuffer();
-        buf = Buffer.from(arr);
-      }
-    } catch {
-      /* fall through to nodeFetch */
-    }
-    if ((!buf || buf.length === 0)) {
-      buf = await nodeFetch(url);
-    }
-  }
-
-  // 2. FIREBASE ADMIN STORAGE - No token expiry; works when HTTP fetch fails (expired token)
-  const parsed = isHttp ? parseFirebaseStorageUrl(url) : isGs ? parseGsUrl(url) : null;
-  if ((!buf || buf.length === 0) && parsed) {
-    const storage = adminStorage();
-    const bucketNamesToTry = [parsed.bucket];
-    try {
-      const defaultBucket = storage.bucket();
-      if (defaultBucket?.name && !bucketNamesToTry.includes(defaultBucket.name)) {
-        bucketNamesToTry.push(defaultBucket.name);
-      }
-    } catch {
-      /* use only parsed bucket */
-    }
-    for (const bucketName of bucketNamesToTry) {
-      try {
-        const bucket = storage.bucket(bucketName);
-        const file = bucket.file(parsed.path);
-        const [downloaded] = await file.download();
-        if (downloaded && downloaded.length > 0) {
-          buf = downloaded;
-          break;
-        }
-      } catch (err) {
-        // Try signed URL as fallback for this bucket
-        try {
-          const bucket = storage.bucket(bucketName);
-          const file = bucket.file(parsed.path);
-          const [signedUrl] = await file.getSignedUrl({
-            action: "read",
-            expires: Date.now() + 15 * 60 * 1000,
-          });
-          if (signedUrl) {
-            const res = await fetch(signedUrl, {
-              headers: { "User-Agent": "BMS-PRO-PDF/1.0" },
-              cache: "no-store",
-              redirect: "follow",
-            });
-            if (res.ok) {
-              const arr = await res.arrayBuffer();
-              buf = Buffer.from(arr);
-              break;
-            }
-          }
-        } catch {
-          /* try next bucket */
-        }
-      }
-    }
-  }
-
-  if (!buf || buf.length === 0) return null;
-
-  // 3. Convert to PDF-compatible format (JPEG/PNG)
-  const converted = await ensurePdfCompatibleImage(buf);
-  return converted && converted.length > 0 ? converted : null;
-}
-
-/** Parse gs://bucket/path/to/file URLs */
-function parseGsUrl(url: string): { bucket: string; path: string } | null {
-  try {
-    if (!url.startsWith("gs://")) return null;
-    const rest = url.slice(5);
-    const slash = rest.indexOf("/");
-    if (slash === -1) return null;
-    return { bucket: rest.slice(0, slash), path: rest.slice(slash + 1) };
-  } catch {
-    return null;
   }
 }
 
@@ -438,51 +234,74 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   }
 
   // Pre-fetch all images (task-wise and overall)
+  // Collect from root tasks AND from services[].checklist (multi-service bookings)
   const imageUrls = new Set<string>();
-  for (const task of booking.tasks || []) {
-    if (task.done) {
+  const collectTaskImage = (task: any) => {
+    if (task?.done) {
       const url = (task as any).imageUrl || (task as any).image;
-      if (url && typeof url === "string") imageUrls.add(url);
+      if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
+    }
+  };
+  for (const task of booking.tasks || []) {
+    collectTaskImage(task);
+  }
+  for (const svc of booking.services || []) {
+    const checklist = (svc as any).checklist || (svc as any).tasks;
+    if (Array.isArray(checklist)) {
+      for (const item of checklist) collectTaskImage(item);
     }
   }
   const fsImage = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
-  if (fsImage && typeof fsImage === "string") imageUrls.add(fsImage);
+  if (fsImage && typeof fsImage === "string" && fsImage.trim().length > 0) imageUrls.add(fsImage.trim());
+  const DEBUG_PDF = process.env.DEBUG_PDF_IMAGES === "1";
+  if (imageUrls.size === 0) {
+    console.warn("[PDF] No image URLs found in booking", bookingId, "- tasks:", (booking.tasks || []).length, "done:", (booking.tasks || []).filter((t: any) => t.done).length);
+  } else {
+    console.log("[PDF] Fetching", imageUrls.size, "images for booking", bookingId);
+    if (DEBUG_PDF) {
+      const first = Array.from(imageUrls)[0];
+      console.log("[PDF] First URL (truncated):", first?.slice(0, 120) + (first && first.length > 120 ? "..." : ""));
+    }
+  }
   const imageBuffers = new Map<string, Buffer>();
   const failedUrls: string[] = [];
-  await Promise.all(
-    Array.from(imageUrls).map(async (url) => {
-      const buf = await fetchImageBuffer(url);
-      if (buf && buf.length > 0) {
-        imageBuffers.set(url, buf);
-        imageBuffers.set(normalizeImageUrl(url), buf);
-        try {
-          imageBuffers.set(new URL(url).href, buf);
-        } catch {
-          /* ignore */
-        }
-      } else if (url) {
-        failedUrls.push(url.slice(0, 80) + (url.length > 80 ? "..." : ""));
+
+  for (const url of imageUrls) {
+    const buf = await fetchImageBuffer(url);
+    if (buf && buf.length > 0) {
+      imageBuffers.set(url, buf);
+      imageBuffers.set(normalizeImageUrl(url), buf);
+      try {
+        imageBuffers.set(new URL(url).href, buf);
+      } catch {
+        /* ignore */
       }
-    })
-  );
-  if (failedUrls.length > 0 && process.env.NODE_ENV === "development") {
-    console.warn("[PDF] Failed to fetch images:", failedUrls.length, "URLs. First:", failedUrls[0]);
+    } else if (url) {
+      failedUrls.push(url);
+    }
+  }
+  if (failedUrls.length > 0) {
+    const firstFailed = failedUrls[0] || "";
+    console.warn("[PDF] Failed to fetch", failedUrls.length, "images for booking", bookingId);
+    console.warn("[PDF] First failed URL (truncated):", firstFailed.slice(0, 100) + (firstFailed.length > 100 ? "..." : ""));
+    console.warn("[PDF] Test: /api/debug/fetch-pdf-image?url=" + encodeURIComponent(firstFailed));
+    console.warn("[PDF] Enable DEBUG_PDF_IMAGES=1 in .env.local for detailed fetch logs.");
   }
 
   const getImageBuffer = (url: string): Buffer | undefined => {
     if (!url || typeof url !== "string") return undefined;
-    const buf = imageBuffers.get(url) ?? imageBuffers.get(normalizeImageUrl(url));
-    if (buf) return buf;
-    try {
-      return imageBuffers.get(new URL(url).href);
-    } catch {
-      return undefined;
-    }
+    return imageBuffers.get(url) ?? imageBuffers.get(normalizeImageUrl(url)) ?? (() => {
+      try {
+        return imageBuffers.get(new URL(url).href);
+      } catch {
+        return undefined;
+      }
+    })();
   };
-  const pdfBuffer = await buildPDF(booking, imageBuffers, getImageBuffer);
+
+  const pdfBuffer = await buildPDF(booking, getImageBuffer);
   const code = booking.bookingCode || bookingId.substring(0, 8);
   const filename = `Job-Report-${code}.pdf`;
-
   return { buffer: pdfBuffer, filename };
 }
 
@@ -497,7 +316,6 @@ function ensureSpace(doc: PDFKit.PDFDocument, y: number, needed: number): number
 
 async function buildPDF(
   booking: BookingPDFData,
-  imageBuffers: Map<string, Buffer>,
   getImageBuffer: (url: string) => Buffer | undefined
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -743,7 +561,7 @@ async function buildPDF(
       const fs = booking.finalSubmission;
       doc.fontSize(10);
       const descH = fs.description ? doc.heightOfString(fs.description, { width: pageWidth - 28 }) : 0;
-      const hasFinalImage = !!(fsImageUrl && getImageBuffer(fsImageUrl));
+      const hasFinalImage = !!(fsImageUrl && getImageBuffer(fsImageUrl)?.length);
       let cardH = 10 + descH + 8 + (fs.submittedByStaffName ? 14 : 0) + 10;
       if (hasFinalImage) cardH += 12 + FINAL_IMAGE_SIZE + 8; // "Overall photo:" + image + padding
 

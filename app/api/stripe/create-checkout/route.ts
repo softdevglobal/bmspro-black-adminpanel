@@ -5,8 +5,13 @@ import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
 export const runtime = "nodejs";
 
 let _stripe: Stripe;
-const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2025-12-15.clover" }));
-
+const getStripe = () => {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key || key.trim() === "") {
+    throw new Error("Stripe is not configured. Add STRIPE_SECRET_KEY to your .env.local file.");
+  }
+  return _stripe || (_stripe = new Stripe(key, { apiVersion: "2025-12-15.clover" }));
+};
 
 // Default product name for BMS Pro subscriptions
 const PRODUCT_NAME = "BMS Pro Subscription";

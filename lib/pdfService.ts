@@ -19,6 +19,9 @@ interface BookingPDFData {
   mileage?: string | null;         // Staff-recorded when starting job
   mileageRecordedBy?: string | null;
   mileageRecordedByStaffName?: string | null;
+  fuelLevel?: string | null;       // Staff-recorded at vehicle check-in
+  existingDamageNotes?: string | null;  // Staff-recorded at vehicle check-in
+  existingDamageImages?: string[] | null;  // URLs of damage photos
   date: string;
   time: string;
   pickupTime?: string | null;
@@ -199,6 +202,9 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     mileage: data.mileage || null,
     mileageRecordedBy: data.mileageRecordedBy || null,
     mileageRecordedByStaffName: data.mileageRecordedByStaffName || null,
+    fuelLevel: data.fuelLevel || null,
+    existingDamageNotes: data.existingDamageNotes || null,
+    existingDamageImages: Array.isArray(data.existingDamageImages) ? data.existingDamageImages : null,
     date: data.date || "",
     time: data.time || "",
     pickupTime: data.pickupTime,
@@ -253,6 +259,9 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   }
   const fsImage = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
   if (fsImage && typeof fsImage === "string" && fsImage.trim().length > 0) imageUrls.add(fsImage.trim());
+  for (const url of booking.existingDamageImages || []) {
+    if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
+  }
   const DEBUG_PDF = process.env.DEBUG_PDF_IMAGES === "1";
   if (imageUrls.size === 0) {
     console.warn("[PDF] No image URLs found in booking", bookingId, "- tasks:", (booking.tasks || []).length, "done:", (booking.tasks || []).filter((t: any) => t.done).length);
@@ -385,6 +394,8 @@ async function buildPDF(
         : "Mileage (recorded by staff)";
       details.push([mileageLabel, booking.mileage]);
     }
+    if (booking.fuelLevel) details.push(["Fuel Level", booking.fuelLevel]);
+    if (booking.existingDamageNotes) details.push(["Existing Damage", booking.existingDamageNotes]);
     details.push(["Date", booking.date || "N/A"]);
     details.push(["Drop-off Time", booking.time ? formatTime12h(booking.time) : "N/A"]);
     if (booking.pickupTime) details.push(["Pick-up Time", formatTime12h(booking.pickupTime)]);
@@ -441,6 +452,35 @@ async function buildPDF(
         y += 46;
       }
       y += 4;
+    }
+
+    // ─── EXISTING DAMAGE PHOTOS (Vehicle Check-In) ─────────────
+    const damageImages = booking.existingDamageImages || [];
+    if (damageImages.length > 0) {
+      y = ensureSpace(doc, y, 80);
+      y = drawSectionHeader(doc, "Vehicle Check-In – Existing Damage Photos", leftMargin, y, pageWidth);
+      const DAMAGE_IMG_SIZE = 80;
+      const imgsPerRow = Math.floor((pageWidth + 12) / (DAMAGE_IMG_SIZE + 12));
+      let col = 0;
+      for (const url of damageImages) {
+        if (col === 0) y = ensureSpace(doc, y, DAMAGE_IMG_SIZE + 24);
+        const x = leftMargin + col * (DAMAGE_IMG_SIZE + 12);
+        try {
+          const imgBuf = getImageBuffer(url);
+          if (imgBuf && imgBuf.length > 0) {
+            doc.image(imgBuf, x, y, { fit: [DAMAGE_IMG_SIZE, DAMAGE_IMG_SIZE] });
+          }
+        } catch {
+          doc.fontSize(7).fillColor(COLORS.muted).text("[Photo]", x, y + DAMAGE_IMG_SIZE / 2 - 4, { width: DAMAGE_IMG_SIZE });
+        }
+        col++;
+        if (col >= imgsPerRow) {
+          col = 0;
+          y += DAMAGE_IMG_SIZE + 12;
+        }
+      }
+      if (col > 0) y += DAMAGE_IMG_SIZE + 12;
+      y += 8;
     }
 
     // ─── TASK LIST ────────────────────────────────────────────

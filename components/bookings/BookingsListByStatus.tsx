@@ -61,6 +61,9 @@ type Row = {
   vehicleMileage?: string | null;  // Customer-added at booking
   mileage?: string | null;         // Staff-recorded when starting job
   mileageRecordedByStaffName?: string | null;
+  fuelLevel?: string | null;       // Staff-recorded at vehicle check-in
+  existingDamageNotes?: string | null;
+  existingDamageImages?: string[] | null;
   notes?: string | null;
   status?: string | null;
   bookingCode?: string | null;
@@ -189,6 +192,9 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               vehicleMileage: d.vehicleMileage || null,
               mileage: d.mileage || null,
               mileageRecordedByStaffName: d.mileageRecordedByStaffName || null,
+              fuelLevel: d.fuelLevel || null,
+              existingDamageNotes: d.existingDamageNotes || null,
+              existingDamageImages: Array.isArray(d.existingDamageImages) ? d.existingDamageImages : null,
               notes: d.notes || null,
               status: normalizedStatus,
               bookingCode: d.bookingCode || null,
@@ -1246,7 +1252,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             </div>
                           </div>
                           
-                          {/* Details grid */}
+                          {/* Details grid - vehicle info only (no staff-recorded) */}
                           <div className="p-4 pt-3">
                             <div className="grid grid-cols-2 gap-3">
                               {[
@@ -1258,8 +1264,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                 { label: "VIN / Chassis", value: previewRow.vehicleVinChassis, icon: "fa-barcode" },
                                 { label: "Engine No.", value: previewRow.vehicleEngineNumber, icon: "fa-gears" },
                                 { label: "Customer Mileage", value: previewRow.vehicleMileage, icon: "fa-gauge-high" },
-                                { label: "Mileage (recorded by staff)", value: previewRow.mileage, icon: "fa-user-check", sub: previewRow.mileage ? previewRow.mileageRecordedByStaffName : null },
-                              ].map(({ label, value, icon, sub }) => (
+                              ].filter(({ value }) => value).map(({ label, value, icon }) => (
                                 <div key={label} className="flex items-center gap-3 rounded-lg bg-white/70 backdrop-blur-sm py-2.5 px-3 border border-neutral-100">
                                   <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
                                     <i className={`fas ${icon} text-[10px] text-neutral-500`} />
@@ -1267,7 +1272,6 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   <div className="flex-1 min-w-0">
                                     <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wide">{label}</p>
                                     <p className="text-sm font-semibold text-neutral-800 truncate">{value || "N/A"}</p>
-                                    {sub && <p className="text-[10px] text-neutral-500 mt-0.5">by {sub}</p>}
                                   </div>
                                 </div>
                               ))}
@@ -1275,6 +1279,111 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           </div>
                         </div>
                       </div>
+
+                      {/* Vehicle Check-In (Staff Recorded) - separate section */}
+                      {(previewRow.mileage || previewRow.fuelLevel || previewRow.existingDamageNotes || (previewRow.existingDamageImages && previewRow.existingDamageImages.length > 0)) && (
+                        <div className="relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/50 shadow-sm">
+                          <div className="absolute top-0 right-0 w-24 h-24 -translate-y-1/2 translate-x-1/2 rounded-full bg-emerald-100/50 blur-xl" />
+                          <div className="relative p-4">
+                            <div className="flex items-center gap-3 mb-4">
+                              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center border border-emerald-300/50">
+                                <i className="fas fa-clipboard-check text-emerald-600" />
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Vehicle Check-In</p>
+                                <p className="text-sm font-semibold text-neutral-800">Recorded by staff at drop-off</p>
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              {previewRow.mileage && (
+                                <div className="flex items-center gap-3 rounded-lg bg-white/80 py-2.5 px-3 border border-emerald-100">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                    <i className="fas fa-user-check text-[10px] text-emerald-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Mileage</p>
+                                    <p className="text-sm font-semibold text-neutral-800">{previewRow.mileage}</p>
+                                    {previewRow.mileageRecordedByStaffName && (
+                                      <p className="text-[10px] text-neutral-500 mt-0.5">by {previewRow.mileageRecordedByStaffName}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              {previewRow.fuelLevel && (
+                                <div className="flex items-center gap-3 rounded-lg bg-white/80 py-2.5 px-3 border border-emerald-100">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                    <i className="fas fa-gas-pump text-[10px] text-emerald-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Fuel Level</p>
+                                    <p className="text-sm font-semibold text-neutral-800">
+                                      {({ Full: "4/4", "3/4": "3/4", "1/2": "2/4", "1/4": "1/4", Empty: "0/4" } as Record<string, string>)[previewRow.fuelLevel] ?? previewRow.fuelLevel}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                              {previewRow.existingDamageNotes && (
+                                <div className="flex items-start gap-3 rounded-lg bg-white/80 py-2.5 px-3 border border-emerald-100">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center mt-0.5">
+                                    <i className="fas fa-exclamation-triangle text-[10px] text-amber-600" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Existing Damage</p>
+                                    <p className="text-sm font-semibold text-neutral-800">{previewRow.existingDamageNotes}</p>
+                                  </div>
+                                </div>
+                              )}
+                              {/* Damage Photos - always show when in Vehicle Check-In section */}
+                              <div className="rounded-lg bg-white/80 p-3 border border-emerald-100">
+                                <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                  <i className="fas fa-camera text-amber-500" />
+                                  Damage Photos
+                                  {previewRow.existingDamageImages && previewRow.existingDamageImages.length > 0 && (
+                                    <span className="text-neutral-400 font-normal">({previewRow.existingDamageImages.length})</span>
+                                  )}
+                                </p>
+                                {previewRow.existingDamageImages && previewRow.existingDamageImages.length > 0 ? (
+                                  <div className="flex flex-wrap gap-3">
+                                    {previewRow.existingDamageImages.map((url, idx) => (
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => setLightboxImage({ url, title: `Damage photo ${idx + 1}` })}
+                                        className="group relative block w-36 h-36 rounded-lg overflow-hidden border-2 border-neutral-200 hover:border-emerald-400 transition-colors shrink-0 bg-neutral-100 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                                      >
+                                        <img
+                                          src={url}
+                                          alt={`Damage photo ${idx + 1}`}
+                                          className="w-full h-full object-cover"
+                                          loading="lazy"
+                                          referrerPolicy="no-referrer"
+                                          onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = "none";
+                                            const parent = (e.target as HTMLImageElement).parentElement;
+                                            const fallback = parent?.querySelector(".damage-img-fallback");
+                                            if (fallback) (fallback as HTMLElement).style.display = "flex";
+                                          }}
+                                        />
+                                        <div
+                                          className="damage-img-fallback absolute inset-0 hidden items-center justify-center text-neutral-400 text-xs bg-neutral-100"
+                                          style={{ display: "none" }}
+                                        >
+                                          <i className="fas fa-image" />
+                                        </div>
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors">
+                                          <i className="fas fa-expand text-white/0 group-hover:text-white/90 text-xl drop-shadow-lg transition-all" />
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-neutral-400 italic">No photos attached</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       
                       <div className="rounded-xl border border-neutral-200 p-3 bg-neutral-50/50">
                         <div className="flex items-center justify-between">

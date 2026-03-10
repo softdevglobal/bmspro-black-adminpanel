@@ -65,6 +65,7 @@ export type BranchInput = {
         Sunday?: { open?: string; close?: string; closed?: boolean };
       };
   bookingLimitPerDay?: number;
+  capacity?: number;
   manager?: string;
   adminStaffId?: string | null;
   status?: "Active" | "Pending" | "Closed";

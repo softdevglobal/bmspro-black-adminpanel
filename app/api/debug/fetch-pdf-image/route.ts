@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
     }, { status: 400 });
   }
 
-  const buf = await fetchImageBuffer(url);
+  const buf = await fetchImageBuffer(url, { skipSelfRequest: true });
   if (buf && buf.length > 0) {
     const isPng = buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
     const contentType = isPng ? "image/png" : "image/jpeg";

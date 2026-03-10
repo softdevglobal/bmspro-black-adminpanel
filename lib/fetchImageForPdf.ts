@@ -8,6 +8,47 @@ import { adminStorage } from "./firebaseAdmin";
 
 const DEBUG = process.env.DEBUG_PDF_IMAGES === "1";
 
+/** Production app URL - must be set for live site PDF image fetching */
+function getAppBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    `http://127.0.0.1:${process.env.PORT || 3000}`
+  )!;
+}
+
+/** Resolve URLs that may be localhost/relative to production URL (fixes live site vs localhost mismatch) */
+function resolveImageUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  // Already absolute external URL - use as-is
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    // Replace localhost/127.0.0.1 with production URL so server can fetch from live storage
+    const base = getAppBaseUrl();
+    if (
+      base &&
+      !base.includes("localhost") &&
+      !base.includes("127.0.0.1") &&
+      (trimmed.includes("localhost") || trimmed.includes("127.0.0.1"))
+    ) {
+      try {
+        const u = new URL(trimmed);
+        const path = u.pathname + u.search;
+        return `${base}${path.startsWith("/") ? path : "/" + path}`;
+      } catch {
+        /* ignore */
+      }
+    }
+    return trimmed;
+  }
+  // Relative URL - resolve against app base
+  if (trimmed.startsWith("/")) {
+    const base = getAppBaseUrl();
+    return base ? `${base.replace(/\/$/, "")}${trimmed}` : trimmed;
+  }
+  return trimmed;
+}
+
 function nodeFetch(url: string, timeoutMs = 25000): Promise<Buffer | null> {
   return new Promise((resolve) => {
     const protocol = url.startsWith("https") ? https : http;
@@ -68,42 +109,59 @@ function parseStorageUrl(url: string): { bucket: string; path: string } | null {
   return null;
 }
 
-export async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+export interface FetchImageOptions {
+  /** When true, skip self-request fallback (use when called from API route to prevent recursion) */
+  skipSelfRequest?: boolean;
+}
+
+export async function fetchImageBuffer(
+  url: string,
+  options?: FetchImageOptions
+): Promise<Buffer | null> {
   if (!url || typeof url !== "string") return null;
   const trimmed = url.trim();
-  if (!trimmed.startsWith("http")) return null;
+  const resolved = resolveImageUrl(trimmed);
+  if (!resolved.startsWith("http")) return null;
 
   let buf: Buffer | null = null;
   const log = (msg: string) => DEBUG && console.log("[fetchImageForPdf]", msg);
 
-  // 1. Direct HTTP fetch FIRST - Firebase Storage URLs with ?token= are designed for this
-  //    Works in serverless, no Admin SDK needed, token authenticates the request
-  if (!buf || buf.length === 0) {
-    try {
-      const res = await fetch(trimmed, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; BMS-PRO-PDF/1.0)" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(25000),
-      });
-      if (res.ok) {
-        buf = Buffer.from(await res.arrayBuffer());
-        if (buf.length > 0) log(`fetch() ok: ${buf.length} bytes`);
-      } else if (DEBUG) {
-        log(`fetch() failed: ${res.status} ${res.statusText}`);
+  const doFetch = async (targetUrl: string, retries = 2): Promise<Buffer | null> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(targetUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; BMS-PRO-PDF/1.0)",
+            Accept: "image/*,*/*",
+          },
+          cache: "no-store",
+          signal: AbortSignal.timeout(25000),
+        });
+        if (res.ok) {
+          const arr = await res.arrayBuffer();
+          if (arr.byteLength > 0) return Buffer.from(arr);
+        }
+        if (attempt < retries) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      } catch (e) {
+        log(`fetch() attempt ${attempt + 1} error: ${(e as Error)?.message}`);
+        if (attempt < retries) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
       }
-    } catch (e) {
-      log(`fetch() error: ${(e as Error)?.message}`);
     }
-  }
+    return null;
+  };
 
-  // 2. Node https/http fallback (sometimes more reliable than fetch in Node)
+  // 1. Direct HTTP fetch FIRST - Firebase Storage URLs with ?token= are designed for this
+  buf = await doFetch(resolved);
+  if (buf?.length) log(`fetch() ok: ${buf.length} bytes`);
+
+  // 2. Node https/http fallback (sometimes more reliable than fetch in Node/serverless)
   if (!buf || buf.length === 0) {
-    buf = await nodeFetch(trimmed);
+    buf = await nodeFetch(resolved);
     if (buf?.length) log(`nodeFetch ok: ${buf.length} bytes`);
   }
 
-  // 3. Firebase Admin Storage (for when token expired or direct fetch blocked)
-  const parsed = parseStorageUrl(trimmed);
+  // 3. Firebase Admin Storage (for when token expired or direct fetch blocked on production)
+  const parsed = parseStorageUrl(resolved);
   if ((!buf || buf.length === 0) && parsed) {
     try {
       const storage = adminStorage();
@@ -117,9 +175,13 @@ export async function fetchImageBuffer(url: string): Promise<Buffer | null> {
     } catch (e) {
       log(`Admin download error: ${(e as Error)?.message}`);
       if (!buf || buf.length === 0) {
+        const defaultBucketName =
+          process.env.FIREBASE_STORAGE_BUCKET ||
+          process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+          "bmspro-black.firebasestorage.app";
         try {
           const storage = adminStorage();
-          const defaultBucket = storage.bucket();
+          const defaultBucket = storage.bucket(defaultBucketName);
           if (defaultBucket?.name && defaultBucket.name !== parsed.bucket) {
             const file = defaultBucket.file(parsed.path);
             const [downloaded] = await file.download();
@@ -146,13 +208,11 @@ export async function fetchImageBuffer(url: string): Promise<Buffer | null> {
     }
   }
 
-  // 4. Self-request fallback
-  if (!buf || buf.length === 0) {
+  // 4. Self-request fallback (skip when called from API to prevent recursion)
+  if ((!buf || buf.length === 0) && !options?.skipSelfRequest) {
     try {
-      const base = process.env.NEXT_PUBLIC_APP_URL
-        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
-        || `http://127.0.0.1:${process.env.PORT || 3000}`;
-      const apiUrl = `${base}/api/debug/fetch-pdf-image?url=${encodeURIComponent(trimmed)}`;
+      const base = getAppBaseUrl();
+      const apiUrl = `${base}/api/debug/fetch-pdf-image?url=${encodeURIComponent(resolved)}`;
       const res = await fetch(apiUrl, { cache: "no-store", signal: AbortSignal.timeout(25000) });
       if (res.ok) {
         const ct = res.headers.get("content-type") || "";

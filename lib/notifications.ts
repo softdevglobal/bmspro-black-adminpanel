@@ -13,21 +13,25 @@ export type CustomerNotificationType =
 // Staff-facing notification types
 export type StaffNotificationType = 
   | "staff_assignment"      // Staff receives new booking to review
-  | "staff_reassignment";   // Staff receives reassigned booking
+  | "staff_reassignment"    // Staff receives reassigned booking
+  | "additional_issue_accepted";  // Customer accepted additional work - staff can proceed
 
 // Admin-facing notification types
 // NOTE: staff_accepted is NOT sent to admin panel (per business logic).
 // Admins only receive notifications for:
 // 1. New bookings (booking_engine_new_booking, staff_booking_created, booking_needs_assignment)
 // 2. Staff rejections (staff_rejected) - admin needs to reassign or cancel
+// 3. Additional issues (additional_issue_found) - technician found extra work needed
 export type AdminNotificationType = 
-  | "staff_rejected";       // Staff rejected a booking - admin needs to reassign
+  | "staff_rejected"        // Staff rejected a booking - admin needs to reassign
+  | "additional_issue_found"; // Technician reported additional vehicle issue - needs pricing
 
 // Owner-facing notification types (for staff-created bookings, etc.)
 export type OwnerNotificationType =
   | "staff_booking_created"       // Staff created a booking
   | "booking_needs_assignment"    // Booking needs staff assignment
-  | "booking_engine_new_booking"; // New booking from booking engine
+  | "booking_engine_new_booking"  // New booking from booking engine
+  | "additional_issue_found";     // Technician reported additional vehicle issue - needs pricing
 
 export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType | OwnerNotificationType;
 
@@ -706,6 +710,46 @@ export async function createCustomerCancellationNotification(data: {
 }
 
 /**
+ * Create a notification for staff when customer accepts an additional issue quote.
+ * Staff can then proceed with the repair work.
+ */
+export async function createAdditionalIssueAcceptedNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  staffUid: string;
+  staffName?: string;
+  clientName: string;
+  issueTitle: string;
+  price?: number;
+  serviceName?: string;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  ownerUid: string;
+}): Promise<string> {
+  const priceStr = data.price != null ? `$${data.price.toFixed(2)}` : "";
+  const notificationData: Omit<StaffNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "additional_issue_accepted",
+    title: "Customer Accepted Additional Work",
+    message: `${data.clientName} accepted ${data.issueTitle}${priceStr ? ` (${priceStr})` : ""}. You can proceed with the repair.`,
+    status: "Confirmed",
+    ownerUid: data.ownerUid,
+    staffUid: data.staffUid,
+    staffName: data.staffName,
+    clientName: data.clientName,
+    serviceName: data.serviceName,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+    price: data.price,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
  * Get staff-facing notification content
  */
 export function getStaffNotificationContent(
@@ -895,7 +939,7 @@ export async function createBranchAdminNotification(data: {
   bookingDate: string;
   bookingTime: string;
   status?: BookingStatus;
-  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created";
+  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found";
   title?: string;
   message?: string;
 }): Promise<string> {

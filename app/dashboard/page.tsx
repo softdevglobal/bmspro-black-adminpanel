@@ -3106,7 +3106,15 @@ export default function DashboardPage() {
                         <div 
                           onClick={() => {
                             markAsRead(notif.id);
-                            router.push('/bookings/pending');
+                            const status = (notif.status || "").toString();
+                            const bookingId = notif.bookingId || "";
+                            let path = "/bookings/pending";
+                            if (status === "Confirmed") path = "/bookings/confirmed";
+                            else if (status === "Completed") path = "/bookings/completed";
+                            else if (status === "Canceled" || status === "Cancelled") path = "/bookings/cancelled";
+                            else if (status === "AwaitingStaffApproval" || status === "PartiallyApproved") path = "/bookings/awaiting-staff";
+                            else if (status === "StaffRejected") path = "/bookings/staff-rejected";
+                            router.push(bookingId ? `${path}?open=${encodeURIComponent(bookingId)}` : path);
                             setNotificationPanelOpen(false);
                           }}
                           className="cursor-pointer"
@@ -3161,7 +3169,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Panel Footer */}
-            <div className="p-4 bg-white border-t border-neutral-200">
+            <div className="p-4 bg-white border-t border-neutral-200 space-y-2">
               <button 
                 onClick={() => {
                   router.push('/bookings/pending');
@@ -3171,6 +3179,25 @@ export default function DashboardPage() {
               >
                 <i className="fas fa-calendar-check" />
                 View All Booking Requests
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    const token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+                    const res = await fetch("/api/notifications/test", {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${token}` },
+                    });
+                    const data = await res.json();
+                    if (res.ok) alert("Test notification created! It should appear above.");
+                    else alert(data?.error || "Failed");
+                  } catch (e) {
+                    alert("Failed: " + (e as Error)?.message);
+                  }
+                }}
+                className="w-full py-2 text-xs text-neutral-500 hover:text-neutral-700 border border-neutral-200 rounded-lg transition"
+              >
+                Test notification (debug)
               </button>
             </div>
           </div>

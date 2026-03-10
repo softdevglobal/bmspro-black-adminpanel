@@ -46,6 +46,17 @@ type CustomerBookingTask = {
   completedAt?: string | null;
   completedByStaffName?: string | null;
 };
+type CustomerAdditionalIssue = {
+  id: string;
+  issueTitle: string;
+  description: string;
+  recommendedRepair: string;
+  imageUrl?: string | null;
+  price: number | null;
+  status: string;
+  customerResponse?: "accept" | "reject" | null;
+  customerRespondedAt?: string | null;
+};
 type CustomerBooking = {
   id: string;
   bookingCode: string;
@@ -66,6 +77,7 @@ type CustomerBooking = {
     submittedAt?: string | null;
     submittedByStaffName?: string | null;
   } | null;
+  additionalIssues?: CustomerAdditionalIssue[] | null;
 };
 
 export default function BookingEnginePage() {
@@ -190,6 +202,7 @@ export default function BookingEnginePage() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [downloadingBookingId, setDownloadingBookingId] = useState<string | null>(null);
   const [pdfConfirmBooking, setPdfConfirmBooking] = useState<CustomerBooking | null>(null);
+  const [additionalIssueResponding, setAdditionalIssueResponding] = useState<Record<string, boolean>>({});
 
   const getSelectedVehicleStorageKey = useCallback(() => {
     if (!customer?.customerId || !slug) return null;
@@ -497,6 +510,45 @@ export default function BookingEnginePage() {
       return;
     }
     setPdfConfirmBooking(booking);
+  };
+
+  const handleAdditionalIssueResponse = async (bookingId: string, issueId: string, action: "accept" | "reject") => {
+    if (!customer?.customerId) return;
+    const key = `${bookingId}-${issueId}`;
+    setAdditionalIssueResponding((p) => ({ ...p, [key]: true }));
+    try {
+      const res = await fetch(
+        `/api/book-now/customer-bookings/${bookingId}/additional-issues/${issueId}?customerId=${encodeURIComponent(customer.customerId)}`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || "Failed to submit response");
+      }
+      fetchCustomerBookings();
+      // Mark related notification as read
+      const toMark = customerEstimateNotifications
+        .filter((n) => n.type === "additional_issue_quote" && n.bookingId === bookingId && n.issueId === issueId && !n.read)
+        .map((n) => n.id);
+      if (toMark.length > 0) {
+        try {
+          await fetch("/api/book-now/customer-notifications", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ customerId: customer.customerId, notificationIds: toMark }),
+          });
+        } catch {
+          /* ignore */
+        }
+        fetchCustomerNotifications();
+      } else {
+        fetchCustomerNotifications();
+      }
+    } catch (err: any) {
+      alert(err?.message || "Failed to submit response");
+    } finally {
+      setAdditionalIssueResponding((p) => ({ ...p, [key]: false }));
+    }
   };
 
   const fetchCustomerEstimates = useCallback(async () => {
@@ -1220,9 +1272,16 @@ export default function BookingEnginePage() {
                 <i className="fas fa-list-check text-[9px]" />
                 My Bookings
                 {customerBookings.length > 0 && (
-                  <span className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
-                    activeView === "myBookings" ? "bg-neutral-900 text-white" : "bg-neutral-200 text-neutral-700"
-                  }`}>
+                  <span
+                    className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
+                      customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)
+                        ? "bg-amber-500 text-white"
+                        : activeView === "myBookings"
+                          ? "bg-neutral-900 text-white"
+                          : "bg-neutral-200 text-neutral-700"
+                    }`}
+                    title={customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read) ? "Additional work quote to review" : undefined}
+                  >
                     {customerBookings.length}
                   </span>
                 )}
@@ -1579,21 +1638,34 @@ export default function BookingEnginePage() {
         </>
       )}
 
-      {/* ═══════════════════ ESTIMATE REPLY NOTIFICATION BANNER ═══════════════════ */}
-      {customer && customerEstimateUnreadCount > 0 && activeView !== "myEstimates" && (
+      {/* ═══════════════════ NOTIFICATION BANNER (estimates + additional work) ═══════════════════ */}
+      {customer && customerEstimateUnreadCount > 0 && activeView !== "myEstimates" && activeView !== "myBookings" && (
         <div className="relative z-20 bg-amber-50 border-b border-amber-200/80">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <i className="fas fa-file-invoice text-amber-600 text-sm" />
+              <i className="fas fa-bell text-amber-600 text-sm" />
               <span className="text-sm font-medium text-amber-900">
-                You have {customerEstimateUnreadCount} new reply{customerEstimateUnreadCount > 1 ? "s" : ""} to your estimate request{customerEstimateUnreadCount > 1 ? "s" : ""}.
+                {customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)
+                  ? "You have an additional work quote to review."
+                  : `You have ${customerEstimateUnreadCount} new reply${customerEstimateUnreadCount > 1 ? "s" : ""} to your estimate request${customerEstimateUnreadCount > 1 ? "s" : ""}.`}
               </span>
             </div>
             <button
-              onClick={() => { setActiveView("myEstimates"); fetchCustomerEstimates(); fetchCustomerNotifications(); }}
+              onClick={() => {
+                if (customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)) {
+                  setActiveView("myBookings");
+                  fetchCustomerBookings();
+                } else {
+                  setActiveView("myEstimates");
+                  fetchCustomerEstimates();
+                }
+                fetchCustomerNotifications();
+              }}
               className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors"
             >
-              View My Estimates
+              {customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)
+                ? "View My Bookings"
+                : "View My Estimates"}
             </button>
           </div>
         </div>
@@ -2858,6 +2930,65 @@ export default function BookingEnginePage() {
                             <div className="flex items-center gap-2 mt-3 text-[11px] text-neutral-500">
                               <i className="fas fa-location-dot text-[9px] text-neutral-400" />
                               <span className="font-medium">{bk.branchName}</span>
+                            </div>
+                          )}
+
+                          {/* Additional Issues */}
+                          {bk.additionalIssues && bk.additionalIssues.length > 0 && (
+                            <div className="mt-4 rounded-xl border border-amber-200/80 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4">
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="w-6 h-6 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                                  <i className="fas fa-wrench text-amber-600 text-[10px]" />
+                                </div>
+                                <span className="text-[11px] font-bold text-neutral-800">Additional Work Found</span>
+                              </div>
+                              <div className="space-y-3">
+                                {bk.additionalIssues.map((issue) => (
+                                  <div key={issue.id} className="bg-white/80 rounded-lg border border-amber-100 p-3">
+                                    <p className="text-[11px] font-bold text-neutral-900">{issue.issueTitle}</p>
+                                    {issue.description && <p className="text-[10px] text-neutral-600 mt-1">{issue.description}</p>}
+                                    {issue.price != null && (
+                                      <p className="text-[11px] font-bold text-amber-700 mt-1.5">Cost: ${issue.price.toFixed(2)}</p>
+                                    )}
+                                    {issue.status === "approved" && !issue.customerResponse ? (
+                                      <div className="flex gap-2 mt-3">
+                                        <button
+                                          onClick={() => handleAdditionalIssueResponse(bk.id, issue.id, "accept")}
+                                          disabled={additionalIssueResponding[`${bk.id}-${issue.id}`]}
+                                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 transition-all"
+                                        >
+                                          {additionalIssueResponding[`${bk.id}-${issue.id}`] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+                                          Accept
+                                        </button>
+                                        <button
+                                          onClick={() => handleAdditionalIssueResponse(bk.id, issue.id, "reject")}
+                                          disabled={additionalIssueResponding[`${bk.id}-${issue.id}`]}
+                                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-bold bg-neutral-200 text-neutral-700 hover:bg-neutral-300 disabled:opacity-60 transition-all"
+                                        >
+                                          {additionalIssueResponding[`${bk.id}-${issue.id}`] ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-times" />}
+                                          Decline
+                                        </button>
+                                      </div>
+                                    ) : (issue.customerResponse === "accept" || String(issue.customerResponse) === "accepted") ? (
+                                      <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                                        <i className="fas fa-check" /> Accepted
+                                      </span>
+                                    ) : (issue.customerResponse === "reject" || String(issue.customerResponse) === "rejected") ? (
+                                      <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-rose-100 text-rose-700">
+                                        <i className="fas fa-times" /> Declined
+                                      </span>
+                                    ) : issue.status === "rejected" ? (
+                                      <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-neutral-100 text-neutral-600">
+                                        Not approved by workshop
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-100 text-amber-700">
+                                        Awaiting quote
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 

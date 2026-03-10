@@ -1669,6 +1669,150 @@ function generateAdminSignupNotificationEmailHTML(
 }
 
 /**
+ * Send email to customer when admin sets price for an additional issue (quote ready for approval)
+ */
+export async function sendAdditionalIssuePriceSetEmail(data: {
+  to: string;
+  customerName: string;
+  issueTitle: string;
+  price: number;
+  bookingCode?: string | null;
+  workshopName?: string;
+  viewUrl?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const email = data.to?.trim()?.toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { success: false, error: "Invalid email address" };
+  }
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+  try {
+    const viewUrl = data.viewUrl || process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr><td style="padding: 40px 20px;">
+      <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+        <tr>
+          <td style="padding: 0; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);">
+            <div style="padding: 30px; text-align: center;">
+              <div style="font-size: 48px; margin-bottom: 10px;">🔧</div>
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700;">Additional Work Quote Ready</h1>
+              <p style="margin: 10px 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Your mechanic found extra work needed</p>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 30px 40px;">
+            <p style="margin: 0 0 15px; color: #374151; font-size: 16px;">Hello ${data.customerName || "there"},</p>
+            <p style="margin: 0 0 20px; color: #374151; font-size: 16px;">During your service, our technician identified additional work that may be needed. We've prepared a quote for your approval.</p>
+            <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 12px; color: #92400e; font-size: 18px;">${data.issueTitle}</h3>
+              <p style="margin: 0; color: #374151; font-size: 20px; font-weight: 700;">Cost: $${data.price.toFixed(2)}</p>
+              ${data.bookingCode ? `<p style="margin: 8px 0 0; color: #6b7280; font-size: 14px;">Booking: ${data.bookingCode}</p>` : ""}
+            </div>
+            <p style="margin: 0 0 20px; color: #6b7280; font-size: 14px;">Please review and approve or decline this additional work.</p>
+            <a href="${viewUrl}" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600;">View & Approve / Decline</a>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+    const msg = { to: email, from: ADMIN_FROM_EMAIL, subject: `Additional Work Quote: ${data.issueTitle} - $${data.price.toFixed(2)}`, html };
+    await sgMail.send(msg);
+    console.log(`[EMAIL] ✅ Additional issue price-set email sent to ${email}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending additional issue price-set email:`, error);
+    return { success: false, error: error?.message || "Unknown error" };
+  }
+}
+
+/**
+ * Send email to owner/branch admin when technician reports an additional issue
+ */
+export async function sendAdditionalIssueNotificationEmail(data: {
+  to: string;
+  recipientName?: string;
+  staffName: string;
+  issueTitle: string;
+  description?: string;
+  recommendedRepair?: string;
+  partsRequired?: string;
+  labourTimeHours?: number;
+  clientName: string;
+  bookingCode?: string | null;
+  branchName?: string | null;
+  bookingDate?: string | null;
+  bookingTime?: string | null;
+}): Promise<{ success: boolean; error?: string }> {
+  const email = data.to?.trim()?.toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { success: false, error: "Invalid email address" };
+  }
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+  try {
+    const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+    const details: string[] = [];
+    if (data.description) details.push(`<p style="margin: 0 0 8px; color: #4b5563; font-size: 14px;"><strong>Description:</strong> ${data.description}</p>`);
+    if (data.recommendedRepair) details.push(`<p style="margin: 0 0 8px; color: #4b5563; font-size: 14px;"><strong>Recommended Repair:</strong> ${data.recommendedRepair}</p>`);
+    if (data.partsRequired) details.push(`<p style="margin: 0 0 8px; color: #4b5563; font-size: 14px;"><strong>Parts Required:</strong> ${data.partsRequired}</p>`);
+    if (data.labourTimeHours != null) details.push(`<p style="margin: 0 0 8px; color: #4b5563; font-size: 14px;"><strong>Labour Time:</strong> ${data.labourTimeHours} hrs</p>`);
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr><td style="padding: 40px 20px;">
+      <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+        <tr>
+          <td style="padding: 0; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);">
+            <div style="padding: 30px; text-align: center;">
+              <div style="font-size: 48px; margin-bottom: 10px;">⚠️</div>
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700;">Additional Issue Reported</h1>
+              <p style="margin: 10px 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Technician found extra work needed</p>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 30px 40px;">
+            <p style="margin: 0 0 15px; color: #374151; font-size: 16px;">Hello ${data.recipientName || "there"},</p>
+            <p style="margin: 0 0 20px; color: #374151; font-size: 16px;">${data.staffName} has reported an additional issue during the service for <strong>${data.clientName}</strong>${data.bookingCode ? ` (${data.bookingCode})` : ""}.</p>
+            <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 20px; margin-bottom: 20px;">
+              <h3 style="margin: 0 0 12px; color: #92400e; font-size: 18px;">${data.issueTitle}</h3>
+              ${details.join("")}
+            </div>
+            <p style="margin: 0 0 20px; color: #6b7280; font-size: 14px;">${data.branchName ? `Branch: ${data.branchName}` : ""}${data.bookingDate ? ` • ${data.bookingDate}${data.bookingTime ? ` at ${data.bookingTime}` : ""}` : ""}</p>
+            <a href="${loginUrl}" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600;">View Booking & Set Price</a>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+    const msg = { to: email, from: ADMIN_FROM_EMAIL, subject: `⚠️ Additional Issue: ${data.issueTitle} (${data.clientName})`, html };
+    await sgMail.send(msg);
+    console.log(`[EMAIL] ✅ Additional issue notification sent to ${email}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending additional issue email:`, error);
+    return { success: false, error: error?.message || "Unknown error" };
+  }
+}
+
+/**
  * Send admin notification email when a new salon signs up
  */
 export async function sendAdminSignupNotificationEmail(

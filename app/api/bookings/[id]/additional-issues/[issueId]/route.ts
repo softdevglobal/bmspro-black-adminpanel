@@ -1,0 +1,163 @@
+import { NextRequest, NextResponse } from "next/server";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { FieldValue } from "firebase-admin/firestore";
+import { createNotification } from "@/lib/notifications";
+import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
+import { sendAdditionalIssuePriceSetEmail } from "@/lib/emailService";
+
+export const runtime = "nodejs";
+
+/**
+ * PATCH - Owner or branch admin sets price for an additional issue.
+ * Notifies customer when price is set.
+ */
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Promise<{ id: string; issueId: string }> }
+) {
+  try {
+    const authResult = await verifyAdminAuth(req);
+    if (!authResult.success || !authResult.userData) {
+      return NextResponse.json({ error: authResult.error || "Unauthorized" }, { status: authResult.status || 401 });
+    }
+    const userData = authResult.userData;
+
+    const { id, issueId } = await context.params;
+    const body = (await req.json().catch(() => ({}))) as { price?: number; status?: "approved" | "rejected" };
+
+    const status = body.status === "approved" || body.status === "rejected" ? body.status : "approved";
+    const price = status === "rejected" ? null : (typeof body.price === "number" ? body.price : parseFloat(String(body.price ?? "")));
+
+    if (status === "approved" && (typeof price !== "number" || isNaN(price) || price < 0)) {
+      return NextResponse.json({ error: "Valid price is required when approving" }, { status: 400 });
+    }
+
+    const db = adminDb();
+    const bookingRef = db.doc(`bookings/${id}`);
+    const bookingSnap = await bookingRef.get();
+
+    if (!bookingSnap.exists) {
+      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    }
+
+    const bookingData = bookingSnap.data() as any;
+    const ownerUid = bookingData.ownerUid || bookingData.ownerId || "";
+
+    const tenantCheck = await verifyTenantAccess(
+      userData.uid,
+      userData.role,
+      userData.ownerUid,
+      ownerUid
+    );
+    if (!tenantCheck.allowed) {
+      return NextResponse.json({ error: tenantCheck.error || "Access denied" }, { status: 403 });
+    }
+
+    const issues: any[] = Array.isArray(bookingData.additionalIssues) ? bookingData.additionalIssues : [];
+    const issueIndex = issues.findIndex((i) => i.id === issueId);
+    if (issueIndex < 0) {
+      return NextResponse.json({ error: "Additional issue not found" }, { status: 404 });
+    }
+
+    const now = new Date().toISOString();
+    const updatedIssues = [...issues];
+    updatedIssues[issueIndex] = {
+      ...updatedIssues[issueIndex],
+      price: status === "approved" ? price : null,
+      priceSetAt: now,
+      priceSetByUid: userData.uid,
+      priceSetByName: userData.name || "Admin",
+      status,
+    };
+
+    await bookingRef.update({
+      additionalIssues: updatedIssues,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const clientName = bookingData.client || bookingData.clientName || "Customer";
+    const bookingCode = bookingData.bookingCode || null;
+    const issueTitle = updatedIssues[issueIndex].issueTitle || "Additional work";
+
+    // Notify customer only when approved with price (not when rejected)
+    if (status === "approved" && price != null) {
+      const customerEmail = bookingData.clientEmail || bookingData.customerId || "";
+      const customerIdForNotif = bookingData.customerId || bookingData.clientEmail || "";
+
+      // 1. Firestore notification (for mobile app if customer has customerUid)
+      try {
+        await createNotification({
+          bookingId: id,
+          bookingCode: bookingCode || undefined,
+          type: "booking_status_changed" as any,
+          title: "Additional Work Request",
+          message: `${issueTitle}: $${price.toFixed(2)} - Please review and approve.`,
+          status: "Confirmed",
+          ownerUid,
+          customerUid: bookingData.customerUid || undefined,
+          customerEmail: customerEmail || undefined,
+          customerPhone: bookingData.clientPhone || undefined,
+          clientName,
+          branchName: bookingData.branchName || undefined,
+          bookingDate: bookingData.date || undefined,
+          bookingTime: bookingData.time || undefined,
+        } as any);
+      } catch (e) {
+        console.error("Failed to notify customer (Firestore):", e);
+      }
+
+      // 2. Email to customer
+      if (customerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+        try {
+          const ownerDoc = await db.doc(`users/${ownerUid}`).get();
+          const ownerData = ownerDoc.data();
+          const workshopName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+          const slug = ownerData?.slug || "";
+          const viewUrl = slug ? `${baseUrl}/book-now/${slug}` : baseUrl;
+          await sendAdditionalIssuePriceSetEmail({
+            to: customerEmail,
+            customerName: clientName,
+            issueTitle,
+            price,
+            bookingCode: bookingCode || undefined,
+            workshopName,
+            viewUrl,
+          });
+        } catch (e) {
+          console.error("Failed to send customer email:", e);
+        }
+      }
+
+      // 3. Customer panel notification (book-now customers)
+      if (customerIdForNotif) {
+        try {
+          const ownerDoc = await db.doc(`users/${ownerUid}`).get();
+          const ownerData = ownerDoc.data();
+          const workshopName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
+          await db.collection("customer_notifications").add({
+            customerId: customerIdForNotif,
+            type: "additional_issue_quote",
+            bookingId: id,
+            bookingCode: bookingCode || null,
+            issueId,
+            issueTitle,
+            price,
+            title: "Additional Work Quote Ready",
+            message: `${issueTitle}: $${price.toFixed(2)} - Please review and approve or decline.`,
+            read: false,
+            workshopName,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        } catch (e) {
+          console.error("Failed to create customer panel notification:", e);
+        }
+      }
+    }
+
+    return NextResponse.json({ ok: true, issue: updatedIssues[issueIndex] });
+  } catch (e: any) {
+    console.error("Error in PATCH /api/bookings/[id]/additional-issues/[issueId]:", e);
+    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
+  }
+}

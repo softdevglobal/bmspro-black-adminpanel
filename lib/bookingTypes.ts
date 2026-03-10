@@ -304,6 +304,36 @@ export interface BookingTask {
   completedByStaffName?: string | null;
 }
 
+/** Additional issue found during technician inspection - requires owner/admin to set price */
+export interface AdditionalIssue {
+  id: string;
+  issueTitle: string;
+  description: string;
+  recommendedRepair: string;
+  partsRequired: string;
+  labourTimeHours: number;
+  imageUrl?: string | null;        // Photo of the issue (technician uploads)
+  price?: number | null;           // Set by owner/branch admin
+  priceSetAt?: string | null;     // ISO timestamp
+  priceSetByUid?: string | null;
+  priceSetByName?: string | null;
+  status: "pending" | "approved" | "rejected";
+  reportedAt: string;             // ISO timestamp
+  reportedByStaffUid: string;
+  reportedByStaffName: string;
+  serviceId?: string | null;      // Which service this was found during
+  customerResponse?: "accept" | "reject" | null;  // Customer's decision when status is approved
+  customerRespondedAt?: string | null;
+  customerRespondedBy?: string | null;            // customerId/email
+  // Completion (when customer accepted - technician must complete with image + description before booking completion)
+  completionStatus?: "pending" | "completed";
+  completionImageUrl?: string | null;
+  completionNote?: string | null;
+  completedAt?: string | null;
+  completedByStaffUid?: string | null;
+  completedByStaffName?: string | null;
+}
+
 /** Final submission after all tasks are completed */
 export interface BookingFinalSubmission {
   description: string;           // Overall description

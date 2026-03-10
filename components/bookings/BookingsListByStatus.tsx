@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
@@ -85,6 +86,29 @@ type Row = {
     submittedAt?: string | null;
     submittedByStaffName?: string | null;
   } | null;
+  // Additional issues (technician-reported, owner/admin sets price)
+  additionalIssues?: AdditionalIssueRow[] | null;
+};
+
+type AdditionalIssueRow = {
+  id: string;
+  issueTitle: string;
+  description?: string | null;
+  recommendedRepair?: string | null;
+  partsRequired?: string | null;
+  labourTimeHours?: number | null;
+  price?: number | null;
+  priceSetAt?: string | null;
+  priceSetByName?: string | null;
+  status?: "pending" | "approved" | "rejected";
+  reportedAt?: string | null;
+  reportedByStaffName?: string | null;
+  serviceId?: string | null;
+  imageUrl?: string | null;
+  completionStatus?: string | null;
+  completionImageUrl?: string | null;
+  completionNote?: string | null;
+  completedByStaffName?: string | null;
 };
 
 type TaskRow = {
@@ -242,6 +266,27 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               })) : null,
               taskProgress: typeof d.taskProgress === "number" ? d.taskProgress : 0,
               finalSubmission: d.finalSubmission || null,
+              additionalIssues: Array.isArray(d.additionalIssues) ? d.additionalIssues.map((i: any) => ({
+                id: i.id || "",
+                issueTitle: i.issueTitle || "",
+                description: i.description || null,
+                recommendedRepair: i.recommendedRepair || null,
+                partsRequired: i.partsRequired || null,
+                labourTimeHours: i.labourTimeHours ?? null,
+                imageUrl: i.imageUrl || null,
+                price: i.price ?? null,
+                priceSetAt: i.priceSetAt || null,
+                priceSetByName: i.priceSetByName || null,
+                status: i.status || "pending",
+                reportedAt: i.reportedAt || null,
+                reportedByStaffName: i.reportedByStaffName || null,
+                serviceId: i.serviceId || null,
+                customerResponse: i.customerResponse || null,
+                completionStatus: i.completionStatus || null,
+                completionImageUrl: i.completionImageUrl || null,
+                completionNote: i.completionNote || null,
+                completedByStaffName: i.completedByStaffName || null,
+              })) : null,
             });
           }
         });
@@ -283,7 +328,20 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
   return { rows, loading, error };
 }
 
-export default function BookingsListByStatus({ status, title, showStaffColumn = true }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean }) {
+/** Format labour hours as creative minutes display (e.g. 0.5 → "30 min", 1.5 → "90 min") */
+function formatLabourMinutes(hours: number | null | undefined): string | null {
+  if (hours == null) return null;
+  const mins = Math.round(hours * 60);
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+export default function BookingsListByStatus({ status, title, showStaffColumn = true, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; openBookingId?: string }) {
+  const searchParams = useSearchParams();
+  const openFromUrl = searchParams.get("open") || searchParams.get("highlight");
+  const openBookingId = openBookingIdProp ?? openFromUrl ?? undefined;
   const { rows, loading, error } = useBookingsByStatus(status);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
@@ -336,6 +394,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const [mileageEditValue, setMileageEditValue] = useState("");
   const [mileageSaving, setMileageSaving] = useState(false);
 
+  // Additional issue price modal
+  const [issuePriceModal, setIssuePriceModal] = useState<{ bookingId: string; issue: AdditionalIssueRow } | null>(null);
+  const [issuePriceValue, setIssuePriceValue] = useState("");
+  const [issuePriceSaving, setIssuePriceSaving] = useState(false);
+
   // Staff assignment modal state
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
   const [bookingToConfirm, setBookingToConfirm] = useState<Row | null>(null);
@@ -360,6 +423,16 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       setMileageEditValue("");
     }
   }, [previewRow?.id, previewRow?.mileage]);
+
+  // Open preview for a specific booking when openBookingId is in the URL (e.g. from notification click)
+  useEffect(() => {
+    if (!openBookingId || loading || !rows.length) return;
+    const row = rows.find((r) => r.id === openBookingId || String(r.id).startsWith(openBookingId) || openBookingId.startsWith(String(r.id)));
+    if (row) {
+      setPreviewRow(row);
+      setPreviewOpen(true);
+    }
+  }, [openBookingId, loading, rows]);
 
   // Combined effect: Fetch services and staff together to ensure proper filtering
   useEffect(() => {
@@ -1123,6 +1196,57 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     }
   };
 
+  const handleSetIssuePrice = async (action: "approve" | "reject") => {
+    if (!issuePriceModal) return;
+    if (action === "approve") {
+      const price = parseFloat(issuePriceValue);
+      if (isNaN(price) || price < 0) {
+        alert("Please enter a valid price");
+        return;
+      }
+    }
+    try {
+      setIssuePriceSaving(true);
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const body = action === "approve"
+        ? { price: parseFloat(issuePriceValue), status: "approved" as const }
+        : { status: "rejected" as const };
+      const res = await fetch(`/api/bookings/${issuePriceModal.bookingId}/additional-issues/${issuePriceModal.issue.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || (action === "approve" ? "Failed to set price" : "Failed to reject"));
+      }
+      const data = await res.json().catch(() => ({}));
+      const updatedIssue = data?.issue;
+      setPreviewRow((prev) => {
+        if (!prev?.additionalIssues) return prev;
+        const updated = prev.additionalIssues.map((i) =>
+          i.id === issuePriceModal.issue.id
+            ? {
+                ...i,
+                price: updatedIssue?.price ?? i.price,
+                status: (updatedIssue?.status ?? (action === "approve" ? "approved" : "rejected")) as "approved" | "rejected",
+                priceSetByName: user?.displayName || "Admin",
+              }
+            : i
+        );
+        return { ...prev, additionalIssues: updated };
+      });
+      setIssuePriceModal(null);
+      setIssuePriceValue("");
+    } catch (e: any) {
+      alert(e?.message || "Failed");
+    } finally {
+      setIssuePriceSaving(false);
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-white">
       {/* Mobile Sidebar Overlay */}
@@ -1380,6 +1504,132 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   <p className="text-xs text-neutral-400 italic">No photos attached</p>
                                 )}
                               </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Additional Issues (Technician-reported, owner/admin sets price) */}
+                      {previewRow.additionalIssues && previewRow.additionalIssues.length > 0 && (
+                        <div className="relative overflow-hidden rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50/80 via-white to-orange-50/50 shadow-sm">
+                          <div className="absolute top-0 right-0 w-24 h-24 -translate-y-1/2 translate-x-1/2 rounded-full bg-amber-100/50 blur-xl" />
+                          <div className="relative p-4">
+                            <div className="flex items-center gap-3 mb-4">
+                              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center border border-amber-300/50">
+                                <i className="fas fa-exclamation-triangle text-amber-600" />
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Additional Issues Found</p>
+                                <p className="text-sm font-semibold text-neutral-800">Technician-reported – set price to notify customer</p>
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              {previewRow.additionalIssues.map((issue) => {
+                                const isCompleted = (issue.completionStatus || "").toLowerCase() === "completed";
+                                const hasCompletionImage = !!(issue.completionImageUrl && issue.completionImageUrl.trim());
+                                const hasReportImage = !!(issue.imageUrl && issue.imageUrl.trim());
+                                return (
+                                <div
+                                  key={issue.id}
+                                  className={`rounded-xl border p-3 ${
+                                    issue.status === "approved"
+                                      ? "bg-emerald-50/80 border-emerald-200"
+                                      : issue.status === "rejected"
+                                      ? "bg-rose-50/80 border-rose-200"
+                                      : "bg-amber-50/80 border-amber-200"
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-semibold text-neutral-800">{issue.issueTitle}</p>
+                                      {issue.description && (
+                                        <p className="text-sm text-neutral-600 mt-1">{issue.description}</p>
+                                      )}
+                                      {issue.recommendedRepair && (
+                                        <p className="text-xs text-neutral-500 mt-1">Repair: {issue.recommendedRepair}</p>
+                                      )}
+                                      {issue.partsRequired && (
+                                        <p className="text-xs text-neutral-500">Parts: {issue.partsRequired}</p>
+                                      )}
+                                      {formatLabourMinutes(issue.labourTimeHours) && (
+                                        <div className="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200">
+                                          <i className="fas fa-clock text-[10px] text-amber-600" />
+                                          <span className="text-xs font-semibold text-neutral-700">{formatLabourMinutes(issue.labourTimeHours)}</span>
+                                        </div>
+                                      )}
+                                      {issue.reportedByStaffName && (
+                                        <p className="text-[10px] text-neutral-400 mt-1">— {issue.reportedByStaffName}</p>
+                                      )}
+                                      {hasReportImage && (
+                                        <div className="mt-2">
+                                          <img
+                                            src={issue.imageUrl!}
+                                            alt={`Report: ${issue.issueTitle}`}
+                                            className="w-full h-auto max-h-[180px] rounded-lg border border-amber-200 object-cover cursor-pointer hover:opacity-80 hover:shadow transition-all"
+                                            onClick={() => setLightboxImage({ url: issue.imageUrl!, title: `Report: ${issue.issueTitle}` })}
+                                          />
+                                          <p className="text-[10px] text-amber-600 mt-0.5 flex items-center gap-1 cursor-pointer hover:text-amber-700"
+                                            onClick={() => setLightboxImage({ url: issue.imageUrl!, title: `Report: ${issue.issueTitle}` })}
+                                          >
+                                            <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex-shrink-0 text-right">
+                                      {issue.price != null ? (
+                                        <div>
+                                          <p className="font-bold text-emerald-700">${Number(issue.price).toFixed(2)}</p>
+                                          {issue.priceSetByName && (
+                                            <p className="text-[10px] text-neutral-500">by {issue.priceSetByName}</p>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setIssuePriceModal({ bookingId: previewRow.id, issue });
+                                            setIssuePriceValue("");
+                                          }}
+                                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                                        >
+                                          Set Price
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {/* Work completed – show completion image when done */}
+                                  {isCompleted && (hasCompletionImage || issue.completionNote) && (
+                                    <div className="mt-3 pt-3 border-t border-emerald-200/60">
+                                      <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                        <i className="fas fa-check-circle text-emerald-600" />
+                                        Work completed
+                                        {issue.completedByStaffName && (
+                                          <span className="font-normal text-emerald-600/80">by {issue.completedByStaffName}</span>
+                                        )}
+                                      </p>
+                                      {issue.completionNote && (
+                                        <p className="text-sm text-neutral-700 mb-2">{issue.completionNote}</p>
+                                      )}
+                                      {hasCompletionImage && (
+                                        <div>
+                                          <img
+                                            src={issue.completionImageUrl!}
+                                            alt={`Completion for ${issue.issueTitle}`}
+                                            className="w-full h-auto max-h-[240px] rounded-lg border border-emerald-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
+                                            onClick={() => setLightboxImage({ url: issue.completionImageUrl!, title: `Work completed: ${issue.issueTitle}` })}
+                                          />
+                                          <p className="text-[10px] text-emerald-500 mt-1 flex items-center gap-1 cursor-pointer hover:text-emerald-600 transition"
+                                            onClick={() => setLightboxImage({ url: issue.completionImageUrl!, title: `Work completed: ${issue.issueTitle}` })}
+                                          >
+                                            <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );})}
                             </div>
                           </div>
                         </div>
@@ -3065,6 +3315,100 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 <i className="fas fa-external-link-alt text-[10px]" />
                 Open in new tab
               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Set Price / Reject Additional Issue Modal ───────────────── */}
+      {issuePriceModal && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => { setIssuePriceModal(null); setIssuePriceValue(""); }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                  <i className="fas fa-tools text-white text-xl" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Additional Work Request</h3>
+                  <p className="text-amber-100 text-sm">Set price or reject this issue</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Issue details */}
+            <div className="p-6 space-y-4">
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+                <p className="font-semibold text-neutral-800 text-base">{issuePriceModal.issue.issueTitle}</p>
+                {issuePriceModal.issue.description && (
+                  <p className="text-sm text-neutral-600 mt-2">{issuePriceModal.issue.description}</p>
+                )}
+                {issuePriceModal.issue.recommendedRepair && (
+                  <p className="text-xs text-neutral-500 mt-1">Repair: {issuePriceModal.issue.recommendedRepair}</p>
+                )}
+                {issuePriceModal.issue.partsRequired && (
+                  <p className="text-xs text-neutral-500">Parts: {issuePriceModal.issue.partsRequired}</p>
+                )}
+                {formatLabourMinutes(issuePriceModal.issue.labourTimeHours) && (
+                  <div className="inline-flex items-center gap-2 mt-2 px-3 py-1.5 rounded-lg bg-amber-100/80 border border-amber-200">
+                    <i className="fas fa-clock text-amber-600" />
+                    <span className="text-sm font-semibold text-amber-900">{formatLabourMinutes(issuePriceModal.issue.labourTimeHours)}</span>
+                  </div>
+                )}
+                {issuePriceModal.issue.reportedByStaffName && (
+                  <p className="text-xs text-amber-700 mt-2 font-medium">Reported by {issuePriceModal.issue.reportedByStaffName}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-neutral-700 mb-2">Price (when approving)</label>
+                <div className="flex items-center border-2 border-neutral-200 rounded-xl focus-within:ring-2 focus-within:ring-amber-500 focus-within:border-amber-500">
+                  <span className="pl-4 text-base font-medium text-neutral-500">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="150.00"
+                    value={issuePriceValue}
+                    onChange={(e) => setIssuePriceValue(e.target.value)}
+                    className="flex-1 py-3 pr-4 border-0 bg-transparent pl-1 text-base focus:ring-0 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 pb-6 flex flex-col sm:flex-row gap-2">
+              <button
+                type="button"
+                onClick={() => { setIssuePriceModal(null); setIssuePriceValue(""); }}
+                className="flex-1 py-2 rounded-lg border border-neutral-200 text-neutral-700 text-sm font-medium hover:bg-neutral-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetIssuePrice("reject")}
+                disabled={issuePriceSaving}
+                className="flex-1 py-2 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 text-sm font-medium hover:bg-rose-100 disabled:opacity-50 transition-colors"
+              >
+                {issuePriceSaving ? "..." : "Reject"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetIssuePrice("approve")}
+                disabled={issuePriceSaving || !issuePriceValue.trim()}
+                className="flex-1 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md shadow-amber-500/20"
+              >
+                {issuePriceSaving ? "Saving..." : "Approve & Set Price"}
+              </button>
             </div>
           </div>
         </div>

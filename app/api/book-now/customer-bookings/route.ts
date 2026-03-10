@@ -57,6 +57,19 @@ export async function GET(req: NextRequest) {
               submittedByStaffName: d.finalSubmission.submittedByStaffName || null,
             }
           : null,
+        additionalIssues: Array.isArray(d.additionalIssues)
+          ? d.additionalIssues.map((i: any) => ({
+              id: i.id || "",
+              issueTitle: i.issueTitle || "",
+              description: i.description || "",
+              recommendedRepair: i.recommendedRepair || "",
+              imageUrl: i.imageUrl || null,
+              price: typeof i.price === "number" ? i.price : null,
+              status: i.status || "pending",
+              customerResponse: i.customerResponse || null,
+              customerRespondedAt: i.customerRespondedAt || null,
+            }))
+          : null,
       };
     });
 

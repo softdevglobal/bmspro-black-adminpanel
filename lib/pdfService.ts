@@ -49,6 +49,22 @@ interface BookingPDFData {
   tasks?: BookingTask[];
   taskProgress?: number;
   finalSubmission?: BookingFinalSubmission | null;
+  additionalIssues?: Array<{
+    id: string;
+    issueTitle: string;
+    description?: string;
+    recommendedRepair?: string;
+    partsRequired?: string;
+    labourTimeHours?: number;
+    price?: number | null;
+    imageUrl?: string | null;
+    reportedByStaffName?: string;
+    customerResponse?: "accept" | "reject" | null;
+    completionStatus?: "pending" | "completed";
+    completionImageUrl?: string | null;
+    completionNote?: string | null;
+    completedByStaffName?: string | null;
+  }> | null;
   salonName?: string;
 }
 
@@ -222,6 +238,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     tasks: data.tasks || [],
     taskProgress: data.taskProgress,
     finalSubmission: data.finalSubmission || null,
+    additionalIssues: Array.isArray(data.additionalIssues) ? data.additionalIssues : null,
     salonName,
   };
 
@@ -261,6 +278,12 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   if (fsImage && typeof fsImage === "string" && fsImage.trim().length > 0) imageUrls.add(fsImage.trim());
   for (const url of booking.existingDamageImages || []) {
     if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
+  }
+  for (const issue of booking.additionalIssues || []) {
+    const url = (issue as any).imageUrl || (issue as any).image;
+    if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
+    const completionUrl = (issue as any).completionImageUrl || (issue as any).completionImage;
+    if (completionUrl && typeof completionUrl === "string" && completionUrl.trim().length > 0) imageUrls.add(completionUrl.trim());
   }
   const DEBUG_PDF = process.env.DEBUG_PDF_IMAGES === "1";
   if (imageUrls.size === 0) {
@@ -454,35 +477,6 @@ async function buildPDF(
       y += 4;
     }
 
-    // ─── EXISTING DAMAGE PHOTOS (Vehicle Check-In) ─────────────
-    const damageImages = booking.existingDamageImages || [];
-    if (damageImages.length > 0) {
-      y = ensureSpace(doc, y, 80);
-      y = drawSectionHeader(doc, "Vehicle Check-In – Existing Damage Photos", leftMargin, y, pageWidth);
-      const DAMAGE_IMG_SIZE = 80;
-      const imgsPerRow = Math.floor((pageWidth + 12) / (DAMAGE_IMG_SIZE + 12));
-      let col = 0;
-      for (const url of damageImages) {
-        if (col === 0) y = ensureSpace(doc, y, DAMAGE_IMG_SIZE + 24);
-        const x = leftMargin + col * (DAMAGE_IMG_SIZE + 12);
-        try {
-          const imgBuf = getImageBuffer(url);
-          if (imgBuf && imgBuf.length > 0) {
-            doc.image(imgBuf, x, y, { fit: [DAMAGE_IMG_SIZE, DAMAGE_IMG_SIZE] });
-          }
-        } catch {
-          doc.fontSize(7).fillColor(COLORS.muted).text("[Photo]", x, y + DAMAGE_IMG_SIZE / 2 - 4, { width: DAMAGE_IMG_SIZE });
-        }
-        col++;
-        if (col >= imgsPerRow) {
-          col = 0;
-          y += DAMAGE_IMG_SIZE + 12;
-        }
-      }
-      if (col > 0) y += DAMAGE_IMG_SIZE + 12;
-      y += 8;
-    }
-
     // ─── TASK LIST ────────────────────────────────────────────
     const tasks = booking.tasks || [];
     if (tasks.length > 0) {
@@ -646,6 +640,33 @@ async function buildPDF(
       y += cardH + 8;
     }
 
+    // ─── COST SUMMARY (services + additional work = total) ──────
+    const servicesList = booking.services && booking.services.length > 0 ? booking.services : [];
+    const servicesSubtotal = servicesList.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0) || Number(booking.price) || 0;
+    const acceptedAdditionalIssues = (booking.additionalIssues || []).filter(
+      (i: any) => i.status === "approved" && i.price != null && i.customerResponse !== "reject"
+    );
+    const additionalWorkTotal = acceptedAdditionalIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+    const grandTotal = servicesSubtotal + additionalWorkTotal;
+
+    if (servicesSubtotal > 0 || additionalWorkTotal > 0) {
+      y = ensureSpace(doc, y, 80);
+      y = drawSectionHeader(doc, "Cost Summary", leftMargin, y, pageWidth);
+
+      const summaryRows: [string, string][] = [];
+      if (servicesSubtotal > 0) {
+        summaryRows.push(["Services", `$${servicesSubtotal.toFixed(2)}`]);
+      }
+      if (additionalWorkTotal > 0) {
+        summaryRows.push(["Additional Work (accepted)", `$${additionalWorkTotal.toFixed(2)}`]);
+      }
+      if (summaryRows.length > 0) {
+        summaryRows.push(["Total", `$${grandTotal.toFixed(2)}`]);
+        y = drawKeyValueTable(doc, summaryRows, leftMargin, y, pageWidth);
+        y += 8;
+      }
+    }
+
     // ─── NOTES ────────────────────────────────────────────────
     if (booking.notes) {
       doc.fontSize(9);
@@ -654,6 +675,107 @@ async function buildPDF(
       y = drawSectionHeader(doc, "Additional Notes", leftMargin, y, pageWidth);
       doc.fontSize(9).fillColor(COLORS.muted).text(booking.notes, leftMargin + 4, y, { width: pageWidth - 8 });
       y += notesH + 8;
+    }
+
+    // ─── ADDITIONAL ISSUES FOUND (last section) ────────────────
+    const additionalIssues = booking.additionalIssues || [];
+    const ADDITIONAL_IMG_SIZE = 70;
+    if (additionalIssues.length > 0) {
+      y = ensureSpace(doc, y, 60);
+      y = drawSectionHeader(doc, "Additional Issues Found (Technician-Reported)", leftMargin, y, pageWidth);
+
+      for (let i = 0; i < additionalIssues.length; i++) {
+        const issue = additionalIssues[i];
+        const issueImageUrl = (issue as any).imageUrl || (issue as any).image;
+        const hasImage = !!(issueImageUrl && getImageBuffer(issueImageUrl)?.length);
+        let cardH = 44;
+        if (issue.description) {
+          doc.fontSize(8);
+          cardH += doc.heightOfString(issue.description, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) }) + 8;
+        }
+        if (hasImage) cardH = Math.max(cardH, ADDITIONAL_IMG_SIZE + 24);
+        y = ensureSpace(doc, y, cardH);
+
+        doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill("#fef3c7");
+        doc.fontSize(10).fillColor(COLORS.primary)
+          .text(`${i + 1}. ${issue.issueTitle || "Issue"}`, leftMargin + 10, y + 6, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
+
+        const subParts: string[] = [];
+        if (issue.recommendedRepair) subParts.push(`Repair: ${issue.recommendedRepair}`);
+        if (issue.partsRequired) subParts.push(`Parts: ${issue.partsRequired}`);
+        if (issue.labourTimeHours != null) subParts.push(`${issue.labourTimeHours} hrs`);
+        if (issue.price != null && issue.price !== undefined) subParts.push(`$${Number(issue.price).toFixed(2)}`);
+        if (issue.reportedByStaffName) subParts.push(`by ${issue.reportedByStaffName}`);
+
+        let textY = y + 20;
+        if (subParts.length > 0) {
+          doc.fontSize(8).fillColor(COLORS.muted)
+            .text(subParts.join("  |  "), leftMargin + 10, textY, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
+          textY += 14;
+        }
+        if (issue.description) {
+          doc.fontSize(8).fillColor(COLORS.muted)
+            .text(issue.description, leftMargin + 10, textY, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
+          textY += doc.heightOfString(issue.description, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) }) + 8;
+        }
+
+        if (hasImage) {
+          const imgX = leftMargin + pageWidth - ADDITIONAL_IMG_SIZE - 10;
+          const imgY = y + 8;
+          try {
+            const imgBuf = getImageBuffer(issueImageUrl);
+            if (imgBuf && imgBuf.length > 0) {
+              doc.image(imgBuf, imgX, imgY, { fit: [ADDITIONAL_IMG_SIZE, ADDITIONAL_IMG_SIZE] });
+            }
+          } catch {
+            doc.fontSize(7).fillColor(COLORS.muted).text("[Photo]", imgX, imgY + ADDITIONAL_IMG_SIZE / 2 - 4, { width: ADDITIONAL_IMG_SIZE });
+          }
+        }
+
+        y += cardH + 6;
+
+        // Completion (when customer accepted - work done with photo + description)
+        const isCompleted = ((issue as any).completionStatus || "").toLowerCase() === "completed";
+        const completionImgUrl = (issue as any).completionImageUrl || (issue as any).completionImage;
+        const completionNote = (issue as any).completionNote || "";
+        const completedBy = (issue as any).completedByStaffName || "";
+        if (isCompleted && (completionImgUrl || completionNote)) {
+          const COMPLETION_IMG_SIZE = 60;
+          const hasCompletionImg = !!(completionImgUrl && getImageBuffer(completionImgUrl)?.length);
+          let completionH = 20;
+          if (completionNote) {
+            doc.fontSize(8);
+            completionH += doc.heightOfString(completionNote, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) }) + 8;
+          }
+          if (completedBy) completionH += 10;
+          if (hasCompletionImg) completionH = Math.max(completionH, COMPLETION_IMG_SIZE + 24);
+          y = ensureSpace(doc, y, completionH);
+
+          doc.roundedRect(leftMargin, y, pageWidth, completionH, 4).fill("#f0fdf4");
+          doc.fontSize(8).fillColor("#166534").text("Work completed:", leftMargin + 10, y + 6, { width: pageWidth - 80 });
+          let compY = y + 16;
+          if (completionNote) {
+            doc.fontSize(8).fillColor(COLORS.muted).text(completionNote, leftMargin + 10, compY, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) });
+            compY += doc.heightOfString(completionNote, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) }) + 6;
+          }
+          if (completedBy) {
+            doc.fontSize(7).fillColor(COLORS.muted).text(`by ${completedBy}`, leftMargin + 10, compY, { width: pageWidth - 80 });
+          }
+          if (hasCompletionImg) {
+            const imgX = leftMargin + pageWidth - COMPLETION_IMG_SIZE - 10;
+            try {
+              const imgBuf = getImageBuffer(completionImgUrl);
+              if (imgBuf && imgBuf.length > 0) {
+                doc.image(imgBuf, imgX, y + 8, { fit: [COMPLETION_IMG_SIZE, COMPLETION_IMG_SIZE] });
+              }
+            } catch {
+              doc.fontSize(7).fillColor(COLORS.muted).text("[Photo]", imgX, y + 8 + COMPLETION_IMG_SIZE / 2 - 4, { width: COMPLETION_IMG_SIZE });
+            }
+          }
+          y += completionH + 6;
+        }
+      }
+      y += 8;
     }
 
     // ─── FOOTER on every page ─────────────────────────────────

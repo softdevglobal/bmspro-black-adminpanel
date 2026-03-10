@@ -52,6 +52,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const [unreadCount, setUnreadCount] = useState(0);
   const [toastNotifications, setToastNotifications] = useState<any[]>([]);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
+  const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
+  const [isBranchAdmin, setIsBranchAdmin] = useState<boolean>(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
   const previousNotificationIdsRef = useRef<Set<string>>(new Set());
   const previousPendingIdsRef = useRef<Set<string>>(new Set());
@@ -235,6 +237,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           return;
         }
         try {
+          setCurrentUserUid(user.uid);
           setOwnerUid(user.uid);
 
           // Check if user is super admin or branch admin
@@ -253,8 +256,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
           }
 
           setIsSuperAdmin(role === "super_admin");
+          setIsBranchAdmin(role === "branch_admin");
 
-          // For branch admin, use their owner UID for notifications
+          // For branch admin, use their owner UID for owner-scoped notifications
           if (role === "branch_admin" && userData?.ownerUid) {
             setOwnerUid(userData.ownerUid);
           }
@@ -273,6 +277,23 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
     let unsubNotifications: (() => void) | undefined;
     let unsubBookings: (() => void) | undefined;
+    let unsubBookingsWithIssues: (() => void) | undefined;
+    let unsubBookingsWithIssuesId: (() => void) | undefined;
+
+    // Backfill: ensure notifications exist for additional issues awaiting price
+    (async () => {
+      try {
+        const token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+        if (token) {
+          await fetch("/api/notifications/ensure-additional-issues", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    })();
 
     (async () => {
       const { db, auth } = await import("@/lib/firebase");
@@ -307,13 +328,21 @@ export default function NotificationProvider({ children }: NotificationProviderP
         where("targetAdminUid", "==", ownerUid)
       );
 
+      // For branch admins: also listen for branchAdminUid (their own uid) - additional_issue_found etc.
+      const branchAdminQuery = currentUserUid && isBranchAdmin
+        ? query(
+            collection(db, "notifications"),
+            where("branchAdminUid", "==", currentUserUid)
+          )
+        : null;
+
       // Track notifications from all queries to deduplicate
       const allNotificationsMap = new Map<string, Notification>();
-      const queryLoadedFlags = { main: false, targetOwner: false, targetAdmin: false };
+      const queryLoadedFlags = { main: false, targetOwner: false, targetAdmin: false, branchAdmin: !branchAdminQuery };
 
       const processNotifications = async () => {
         // Wait until all queries have loaded once
-        if (!queryLoadedFlags.main || !queryLoadedFlags.targetOwner || !queryLoadedFlags.targetAdmin) {
+        if (!queryLoadedFlags.main || !queryLoadedFlags.targetOwner || !queryLoadedFlags.targetAdmin || !queryLoadedFlags.branchAdmin) {
           return;
         }
 
@@ -349,6 +378,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             const isNewEstimate = notif.type === "new_estimate";
             
             const isStaffRejected = notif.type === "staff_rejected";
+            const isAdditionalIssue = notif.type === "additional_issue_found";
             
             if (isNewBooking) {
               const isPending = !notif.status || 
@@ -359,6 +389,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             }
             
             if (isNewEstimate) return true;
+            if (isAdditionalIssue) return true;
             
             return isStaffRejected;
           });
@@ -415,6 +446,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           // Only show notifications for:
           // 1. New Booking Created (booking_engine_new_booking, staff_booking_created, booking_needs_assignment, booking_request)
           // 2. Staff Rejected a Service (staff_rejected)
+          // 3. Additional Issue Reported (additional_issue_found) - owner/branch admin must set price
           // 
           // DO NOT show notifications for:
           // - Booking confirmation (booking_confirmed)
@@ -429,6 +461,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             data.type === "booking_request";
           
           const isStaffRejectedNotification = data.type === "staff_rejected";
+          const isAdditionalIssueNotification = data.type === "additional_issue_found";
           
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
@@ -438,7 +471,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
           
           const shouldShow = 
             (isNewBookingNotification && isPendingStatus) || 
-            isStaffRejectedNotification;
+            isStaffRejectedNotification ||
+            isAdditionalIssueNotification;
 
           if (!shouldShow) {
             continue;
@@ -467,6 +501,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
         if (queryName === "main") queryLoadedFlags.main = true;
         if (queryName === "targetOwner") queryLoadedFlags.targetOwner = true;
         if (queryName === "targetAdmin") queryLoadedFlags.targetAdmin = true;
+        if (queryName === "branchAdmin") queryLoadedFlags.branchAdmin = true;
 
         // Process all notifications
         await processNotifications();
@@ -532,13 +567,72 @@ export default function NotificationProvider({ children }: NotificationProviderP
         }
       );
 
-      // Store unsubscribe for targetOwner and targetAdmin
+      // Subscribe to branchAdminUid notifications (for branch admins - additional_issue_found etc.)
+      let unsubBranchAdmin: (() => void) | undefined;
+      if (branchAdminQuery) {
+        unsubBranchAdmin = onSnapshot(
+          branchAdminQuery,
+          async (snapshot) => {
+            await processSnapshot(snapshot, "branchAdmin");
+          },
+          (error) => {
+            if (error.code === "permission-denied") {
+              console.warn("Permission denied for branch admin notifications.");
+              queryLoadedFlags.branchAdmin = true;
+              processNotifications();
+              return;
+            }
+            console.error("Error listening to branch admin notifications:", error);
+            queryLoadedFlags.branchAdmin = true;
+            processNotifications();
+          }
+        );
+      }
+
+      // Store unsubscribe for targetOwner, targetAdmin, and branchAdmin
       const originalUnsub = unsubNotifications;
       unsubNotifications = () => {
         originalUnsub?.();
         unsubTargetOwner?.();
         unsubTargetAdmin?.();
+        unsubBranchAdmin?.();
       };
+
+      // Listen for booking updates that add additional issues - trigger immediate notification creation
+      let ensureTimeout: ReturnType<typeof setTimeout> | null = null;
+      const triggerEnsure = () => {
+        if (ensureTimeout) clearTimeout(ensureTimeout);
+        ensureTimeout = setTimeout(() => {
+          ensureTimeout = null;
+          const token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+          if (token) {
+            fetch("/api/notifications/ensure-additional-issues", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+            }).catch(() => {});
+          }
+        }, 300);
+      };
+      const checkSnapshot = (snapshot: any) => {
+        const hasNewPendingIssue = snapshot.docChanges().some((change: any) => {
+          if (change.type !== "modified" && change.type !== "added") return false;
+          const data = change.doc.data() as any;
+          const issues = Array.isArray(data?.additionalIssues) ? data.additionalIssues : [];
+          return issues.some((i: any) => i?.status === "pending");
+        });
+        if (hasNewPendingIssue) triggerEnsure();
+      };
+      const bookingsQueryUid = query(
+        collection(db, "bookings"),
+        where("ownerUid", "==", ownerUid)
+      );
+      unsubBookingsWithIssues = onSnapshot(bookingsQueryUid, checkSnapshot);
+      // Also listen for ownerId (some bookings may use ownerId)
+      const bookingsQueryId = query(
+        collection(db, "bookings"),
+        where("ownerId", "==", ownerUid)
+      );
+      unsubBookingsWithIssuesId = onSnapshot(bookingsQueryId, checkSnapshot);
 
       // Also listen to pending bookings to include them in the notification panel
       const pendingQuery = query(
@@ -595,8 +689,10 @@ export default function NotificationProvider({ children }: NotificationProviderP
     return () => {
       unsubNotifications?.();
       unsubBookings?.();
+      unsubBookingsWithIssues?.();
+      unsubBookingsWithIssuesId?.();
     };
-  }, [ownerUid, isSuperAdmin]);
+  }, [ownerUid, currentUserUid, isBranchAdmin, isSuperAdmin]);
 
   // Mark notification as read
   const markAsRead = async (notifId: string) => {
@@ -804,6 +900,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
     // Only show notifications for:
     // 1. New Booking Created (booking_engine_new_booking, staff_booking_created, booking_needs_assignment, booking_request)
     // 2. Staff Rejected a Service (staff_rejected)
+    // 3. Additional Issue Reported (additional_issue_found) - owner/branch admin must set price
     const validNotifications = notifications.filter((notif) => {
       // Skip dismissed/deleted notifications
       if (dismissedNotificationIds.has(notif.id)) {
@@ -817,6 +914,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
         notif.type === "booking_request";
       
       const isStaffRejectedNotification = notif.type === "staff_rejected";
+      const isAdditionalIssueNotification = notif.type === "additional_issue_found";
       
       // For new booking notifications, only show if booking is still pending
       if (isNewBookingNotification) {
@@ -829,6 +927,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
       
       // Always show staff rejection notifications (admin needs to reassign or cancel)
       if (isStaffRejectedNotification) {
+        return true;
+      }
+      
+      // Always show additional issue notifications (owner/branch admin must set price)
+      if (isAdditionalIssueNotification) {
         return true;
       }
       

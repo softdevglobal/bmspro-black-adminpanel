@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { createNotification, createBranchAdminNotification, getBranchAdminUids } from "@/lib/notifications";
+import { createNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -103,6 +103,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, created });
   } catch (e: any) {
     console.error("Error in ensure-additional-issues:", e);
-    return NextResponse.json({ error: e?.message || "Internal error" }, { status: 500 });
+    // Return 401 for auth errors (expired/invalid token) so client can retry with fresh token
+    const isAuthError = e?.code?.startsWith?.("auth/") || e?.message?.includes?.("id-token");
+    const status = isAuthError ? 401 : 500;
+    return NextResponse.json({ error: e?.message || "Internal error" }, { status });
   }
 }

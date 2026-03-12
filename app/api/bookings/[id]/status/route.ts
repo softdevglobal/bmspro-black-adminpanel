@@ -667,8 +667,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
                 staffName: s.staffName || null,
                 time: s.time || finalBookingTime || null,
                 duration: s.duration || data.duration || null,
+                price: s.price,
               })),
               staffName: finalStaffName,
+              additionalIssues: data.additionalIssues || null,
             }
           );
           console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);

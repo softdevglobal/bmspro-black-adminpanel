@@ -123,6 +123,7 @@ export async function PATCH(
             bookingCode: bookingCode || undefined,
             workshopName,
             viewUrl,
+            imageUrl: updatedIssues[issueIndex].imageUrl || undefined,
           });
         } catch (e) {
           console.error("Failed to send customer email:", e);

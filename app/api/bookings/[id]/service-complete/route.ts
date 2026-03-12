@@ -309,8 +309,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
                 staffName: s.staffName || null,
                 time: s.time || finalBookingTime || null,
                 duration: s.duration || bookingData.duration || null,
+                price: s.price,
               })),
               staffName: staffName,
+              additionalIssues: bookingData.additionalIssues || null,
             }
           );
           console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
@@ -479,6 +481,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             price: bookingData.price,
             serviceName: finalServiceName,
             staffName: staffName,
+            services: bookingData.services?.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || null,
+              time: s.time || finalBookingTime || null,
+              duration: s.duration || bookingData.duration || null,
+              price: s.price,
+            })),
+            additionalIssues: bookingData.additionalIssues || null,
           }
         );
         console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);

@@ -46,10 +46,18 @@ interface BookingEmailData {
     staffName?: string | null;
     time?: string;
     duration?: number;
+    price?: number;
   }>;
   staffName?: string | null;
   ownerUid: string;
   salonName?: string;
+  additionalIssues?: Array<{
+    id?: string;
+    issueTitle?: string;
+    status?: string;
+    price?: number | null;
+    customerResponse?: string | null;
+  }> | null;
 }
 
 /**
@@ -219,12 +227,45 @@ function generateEmailHTML(
     </tr>
   ` : "";
   
-  const priceInfo = data.price !== null && data.price !== undefined ? `
+  // For Completed status: show Services, Additional work (if any), then Total
+  const acceptedAdditionalIssues = (data.additionalIssues || []).filter(
+    (i: any) => i.status === "approved" && i.price != null && i.customerResponse !== "reject" && i.customerResponse !== "rejected"
+  );
+  const additionalWorkTotal = acceptedAdditionalIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+  const servicesListForPrice = data.services && data.services.length > 0 ? data.services : [];
+  const servicesSubtotalFromServices = servicesListForPrice.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0);
+  const totalPrice = data.price != null && data.price !== undefined ? Number(data.price) : 0;
+  const servicesSubtotal = servicesSubtotalFromServices > 0
+    ? servicesSubtotalFromServices
+    : (totalPrice > 0 ? totalPrice - additionalWorkTotal : 0);
+  const hasAdditionalWork = additionalWorkTotal > 0;
+  const showPriceBreakdown = status === "Completed" && totalPrice > 0 && hasAdditionalWork;
+
+  const priceInfo = (data.price !== null && data.price !== undefined) || totalPrice > 0 ? (
+    showPriceBreakdown ? `
+    ${servicesSubtotal > 0 ? `
+    <tr>
+      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Services</td>
+      <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${formatPrice(servicesSubtotal)}</td>
+    </tr>
+    ` : ""}
+    ${hasAdditionalWork ? `
+    <tr>
+      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Additional Work Done</td>
+      <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${formatPrice(additionalWorkTotal)}</td>
+    </tr>
+    ` : ""}
     <tr>
       <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Total Price</td>
-      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(data.price)}</td>
+      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(totalPrice)}</td>
     </tr>
-  ` : "";
+  ` : `
+    <tr>
+      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Total Price</td>
+      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(totalPrice || data.price || 0)}</td>
+    </tr>
+  `
+  ) : "";
   
   const durationInfo = data.duration ? `
     <tr>
@@ -1679,6 +1720,7 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
   bookingCode?: string | null;
   workshopName?: string;
   viewUrl?: string;
+  imageUrl?: string | null;
 }): Promise<{ success: boolean; error?: string }> {
   const email = data.to?.trim()?.toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1715,8 +1757,17 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
               <h3 style="margin: 0 0 12px; color: #92400e; font-size: 18px;">${data.issueTitle}</h3>
               <p style="margin: 0; color: #374151; font-size: 20px; font-weight: 700;">Cost: $${data.price.toFixed(2)}</p>
               ${data.bookingCode ? `<p style="margin: 8px 0 0; color: #6b7280; font-size: 14px;">Booking: ${data.bookingCode}</p>` : ""}
+              ${data.imageUrl && data.imageUrl.trim() ? `<p style="margin: 12px 0 0; color: #6b7280; font-size: 12px; font-weight: 600;">Photo of the issue:</p><a href="${data.imageUrl}" target="_blank" style="display: inline-block; margin-top: 8px;"><img src="${data.imageUrl}" alt="Issue photo" width="240" style="max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #e5e7eb;" /></a>` : ""}
             </div>
-            <p style="margin: 0 0 20px; color: #6b7280; font-size: 14px;">Please review and approve or decline this additional work.</p>
+            <p style="margin: 0 0 12px; color: #6b7280; font-size: 14px;">Please review and approve or decline this additional work.</p>
+            <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin-bottom: 20px; border: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 8px; color: #374151; font-size: 14px; font-weight: 600;">How to accept or reject:</p>
+              <ol style="margin: 0; padding-left: 20px; color: #4b5563; font-size: 14px; line-height: 1.6;">
+                <li>Click the button below to open your booking page.</li>
+                <li>Find the additional work quote (${data.issueTitle}) in your booking details.</li>
+                <li>Click <strong>Accept</strong> (✓) to approve the work, or <strong>Decline</strong> (✗) to reject it.</li>
+              </ol>
+            </div>
             <a href="${viewUrl}" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600;">View & Approve / Decline</a>
           </td>
         </tr>

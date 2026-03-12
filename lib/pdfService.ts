@@ -734,6 +734,21 @@ async function buildPDF(
 
         y += cardH + 6;
 
+        // Rejected (by admin or customer)
+        const issueStatus = (issue as any).status?.toString()?.toLowerCase() ?? "";
+        const customerResponse = (issue as any).customerResponse?.toString()?.toLowerCase() ?? "";
+        const isAdminRejected = issueStatus === "rejected";
+        const isCustomerRejected = issueStatus === "approved" && (customerResponse === "reject" || customerResponse === "rejected");
+        const isRejected = isAdminRejected || isCustomerRejected;
+        if (isRejected) {
+          const rejectH = 18;
+          y = ensureSpace(doc, y, rejectH);
+          doc.roundedRect(leftMargin, y, pageWidth, rejectH, 4).fill("#fef2f2");
+          doc.fontSize(8).fillColor("#b91c1c")
+            .text(isCustomerRejected ? "Customer rejected additional work suggested" : "Additional work not approved", leftMargin + 10, y + 6, { width: pageWidth - 20 });
+          y += rejectH + 6;
+        }
+
         // Completion (when customer accepted - work done with photo + description)
         const isCompleted = ((issue as any).completionStatus || "").toLowerCase() === "completed";
         const completionImgUrl = (issue as any).completionImageUrl || (issue as any).completionImage;

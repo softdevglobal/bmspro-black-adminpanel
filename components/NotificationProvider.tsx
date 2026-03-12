@@ -283,7 +283,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
     // Backfill: ensure notifications exist for additional issues awaiting price
     (async () => {
       try {
-        const token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
+        const { auth } = await import("@/lib/firebase");
+        const user = auth.currentUser;
+        const token = user ? await user.getIdToken() : null;
         if (token) {
           await fetch("/api/notifications/ensure-additional-issues", {
             method: "POST",
@@ -602,14 +604,20 @@ export default function NotificationProvider({ children }: NotificationProviderP
       let ensureTimeout: ReturnType<typeof setTimeout> | null = null;
       const triggerEnsure = () => {
         if (ensureTimeout) clearTimeout(ensureTimeout);
-        ensureTimeout = setTimeout(() => {
+        ensureTimeout = setTimeout(async () => {
           ensureTimeout = null;
-          const token = typeof window !== "undefined" ? localStorage.getItem("idToken") : null;
-          if (token) {
-            fetch("/api/notifications/ensure-additional-issues", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-            }).catch(() => {});
+          try {
+            const { auth } = await import("@/lib/firebase");
+            const user = auth.currentUser;
+            const token = user ? await user.getIdToken() : null;
+            if (token) {
+              await fetch("/api/notifications/ensure-additional-issues", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}` },
+              });
+            }
+          } catch {
+            /* ignore */
           }
         }, 300);
       };

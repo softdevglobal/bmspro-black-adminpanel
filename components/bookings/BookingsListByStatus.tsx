@@ -8,6 +8,7 @@ import type { BookingStatus } from "@/lib/bookingTypes";
 import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bookingTypes";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
+import BookingsExportModal from "./BookingsExportModal";
 
 type ServiceApprovalStatus = "pending" | "accepted" | "rejected" | "needs_assignment";
 type ServiceCompletionStatus = "pending" | "completed";
@@ -338,7 +339,7 @@ function formatLabourMinutes(hours: number | null | undefined): string | null {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-export default function BookingsListByStatus({ status, title, showStaffColumn = true, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; openBookingId?: string }) {
+export default function BookingsListByStatus({ status, title, showStaffColumn = true, showExportButton = false, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; showExportButton?: boolean; openBookingId?: string }) {
   const searchParams = useSearchParams();
   const openFromUrl = searchParams.get("open") || searchParams.get("highlight");
   const openBookingId = openBookingIdProp ?? openFromUrl ?? undefined;
@@ -413,6 +414,9 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   // Reassign modal state (for StaffRejected bookings)
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [bookingToReassign, setBookingToReassign] = useState<Row | null>(null);
+
+  // Export modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   // Sync mileage edit value when preview row changes
   useEffect(() => {
@@ -1290,9 +1294,20 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                       <p className="text-neutral-400 text-xs mt-0.5">Manage your workshop bookings</p>
                     </div>
                   </div>
+                  {showExportButton && (
+                    <button
+                      onClick={() => setExportModalOpen(true)}
+                      className="shrink-0 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-sm font-medium flex items-center gap-2 border border-white/30 transition"
+                    >
+                      <i className="fas fa-file-csv" />
+                      Export CSV
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
+
+            <BookingsExportModal open={exportModalOpen} onClose={() => setExportModalOpen(false)} />
 
             {/* Right-side preview slide-over */}
             <div

@@ -1,10 +1,11 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { toCsv, parseCsv, downloadFile } from "@/lib/csvUtils";
 
 type Customer = {
   id: string;
@@ -59,6 +60,10 @@ export default function CustomersPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [bookingsAgg, setBookingsAgg] = useState<Customer[]>([]);
   const [savedCustomers, setSavedCustomers] = useState<Customer[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
 
   useEffect(() => {
@@ -370,6 +375,175 @@ export default function CustomersPage() {
     } catch {}
   };
 
+  const handleExportCsv = async () => {
+    if (!ownerUid) return;
+    setExporting(true);
+    try {
+      const custQuery = query(collection(db, "customers"), where("ownerUid", "==", ownerUid));
+      const custSnap = await getDocs(custQuery);
+      const bookingsSnap = await getDocs(query(collection(db, "bookings"), where("ownerUid", "==", ownerUid)));
+      const allBookings = bookingsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+
+      type ExportRow = {
+        name: string;
+        email: string;
+        phone: string;
+        visits: string;
+        lastVisit: string;
+        notes: string;
+        status: string;
+        vehicles: string;
+        previousBookings: string;
+      };
+
+      const rows: ExportRow[] = [];
+      for (const c of customers) {
+        let customerId = c.firestoreId;
+        if (!customerId) {
+          const email = (c.email || "").trim().toLowerCase();
+          const phone = (c.phone || "").trim();
+          const name = (c.name || "").trim().toLowerCase();
+          for (const d of custSnap.docs) {
+            const data = d.data();
+            const dEmail = (data.email || "").toString().toLowerCase();
+            const dPhone = (data.phone || data.clientPhone || "").toString().trim();
+            const dName = (data.name || data.client || "").toString().trim().toLowerCase();
+            if ((email && dEmail === email) || (phone && dPhone === phone) || (name && dName === name)) {
+              customerId = d.id;
+              break;
+            }
+          }
+        }
+
+        let vehiclesList: Vehicle[] = [];
+        if (customerId) {
+          const vSnap = await getDocs(collection(db, "customers", customerId, "vehicles"));
+          vehiclesList = vSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              registrationNumber: (data.registrationNumber || data.vehicleNumber || "").toString(),
+              make: data.make,
+              model: data.model,
+              year: data.year,
+              mileage: data.mileage,
+              bodyType: data.bodyType,
+              colour: data.colour,
+              vinChassis: data.vinChassis,
+              engineNumber: data.engineNumber,
+            };
+          });
+        }
+
+        const email = (c.email || "").trim().toLowerCase();
+        const phone = (c.phone || "").trim();
+        const name = (c.name || "").trim().toLowerCase();
+        const custBookings = allBookings
+          .filter((b: any) => {
+            const bEmail = (b.clientEmail || "").toString().trim().toLowerCase();
+            const bPhone = (b.clientPhone || "").toString().trim();
+            const bName = (b.client || "").toString().trim().toLowerCase();
+            return (email && bEmail === email) || (phone && bPhone === phone) || (!email && !phone && name && bName === name);
+          })
+          .sort((a: any, b: any) => {
+            const d = (a.date || "").localeCompare(b.date || "", undefined, { numeric: true });
+            return d !== 0 ? -d : (b.time || "").localeCompare(a.time || "", undefined, { numeric: true });
+          });
+
+        const vehiclesStr = vehiclesList
+          .map(
+            (v) =>
+              [v.registrationNumber, v.make, v.model, v.year, v.bodyType, v.colour, v.mileage, v.vinChassis]
+                .filter(Boolean)
+                .join(" | ")
+          )
+          .join("; ");
+        const bookingsStr = custBookings
+          .map((b: any) => {
+            const svc = Array.isArray(b.services) && b.services[0] ? b.services[0].name : b.serviceName || "Service";
+            return `${b.date || ""} ${b.time || ""} - ${svc} (${b.status || ""})${b.branchName ? ` @ ${b.branchName}` : ""}`;
+          })
+          .join("; ");
+
+        rows.push({
+          name: c.name || "",
+          email: c.email || "",
+          phone: c.phone || "",
+          visits: String(c.visits ?? 0),
+          lastVisit: c.lastVisit || "",
+          notes: c.notes || "",
+          status: c.status || "Active",
+          vehicles: vehiclesStr,
+          previousBookings: bookingsStr,
+        });
+      }
+
+      const columns: { key: keyof ExportRow; header: string }[] = [
+        { key: "name", header: "Name" },
+        { key: "email", header: "Email" },
+        { key: "phone", header: "Phone" },
+        { key: "visits", header: "Visits" },
+        { key: "lastVisit", header: "Last Visit" },
+        { key: "notes", header: "Notes" },
+        { key: "status", header: "Status" },
+        { key: "vehicles", header: "Vehicles (Reg | Make | Model | Year | Body | Colour | Mileage | VIN)" },
+        { key: "previousBookings", header: "Previous Bookings (Date Time - Service (Status) @ Branch)" },
+      ];
+      const csv = toCsv(rows, columns);
+      downloadFile(csv, `customers-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err: any) {
+      console.error("Export failed:", err);
+      alert(err?.message || "Export failed.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportCsv = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !ownerUid) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length === 0) {
+        setImportError("No valid rows found in CSV.");
+        return;
+      }
+      const headers = Object.keys(rows[0] || {});
+      const nameKey = headers.find((h) => /name/i.test(h)) || headers[0];
+      const emailKey = headers.find((h) => /email/i.test(h)) || "email";
+      const phoneKey = headers.find((h) => /phone/i.test(h)) || "phone";
+
+      let imported = 0;
+      for (const row of rows) {
+        const name = String((row as any)[nameKey] ?? "").trim();
+        const email = String((row as any)[emailKey] ?? "").trim();
+        const phone = String((row as any)[phoneKey] ?? "").trim();
+        if (!name && !email && !phone) continue;
+        await addDoc(collection(db, "customers"), {
+          ownerUid,
+          name: name || "Customer",
+          email: email || null,
+          phone: phone || null,
+          client: name || "Customer",
+          clientEmail: email || null,
+          clientPhone: phone || null,
+          status: "Active",
+        });
+        imported++;
+      }
+      setImportError(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      alert(`Imported ${imported} customer(s) successfully.`);
+    } catch (err: any) {
+      setImportError(err?.message || "Import failed.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
@@ -415,12 +589,11 @@ export default function CustomersPage() {
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
               <h2 className="text-2xl font-bold text-neutral-800">Customer Directory</h2>
-              <button onClick={() => openModal()} className="w-full sm:w-auto px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm hover:bg-neutral-800 font-medium shadow-md transition">
-                <i className="fas fa-user-plus mr-2" />
+              <button onClick={() => openModal()} className="w-full sm:w-auto px-4 py-2 bg-neutral-900 text-white rounded-lg text-sm hover:bg-neutral-800 font-medium shadow-md transition flex items-center gap-2">
+                <i className="fas fa-user-plus" />
                 Add Customer
               </button>
             </div>
-
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-4">
                 {customers.map((c) => {
@@ -497,18 +670,66 @@ export default function CustomersPage() {
                 })}
                 {customers.length === 0 && <div className="bg-white rounded-xl border border-neutral-200 p-6 text-neutral-500">No customers yet. Add your first customer.</div>}
               </div>
-              <div className="bg-neutral-900 text-white rounded-xl p-4 border-none h-fit">
-                <h3 className="font-bold mb-4">Customer Quick Stats</h3>
-                <div className="space-y-4">
-                  <div className="bg-white/10 p-3 rounded-lg flex justify-between">
-                    <span>Total Customers</span>
-                    <span className="font-bold">{customers.length}</span>
+              <div className="space-y-6">
+                <div className="bg-neutral-900 text-white rounded-xl p-4 border-none h-fit">
+                  <h3 className="font-bold mb-4">Customer Quick Stats</h3>
+                  <div className="space-y-4">
+                    <div className="bg-white/10 p-3 rounded-lg flex justify-between">
+                      <span>Total Customers</span>
+                      <span className="font-bold">{customers.length}</span>
+                    </div>
+                    <div className="bg-white/10 p-3 rounded-lg flex justify-between">
+                      <span>Active</span>
+                      <span className="font-bold text-green-400">
+                        {customers.filter((c) => c.status !== "Inactive").length}
+                      </span>
+                    </div>
                   </div>
-                  <div className="bg-white/10 p-3 rounded-lg flex justify-between">
-                    <span>Active</span>
-                    <span className="font-bold text-green-400">
-                      {customers.filter((c) => c.status !== "Inactive").length}
-                    </span>
+                </div>
+                <div className="bg-neutral-900 text-white rounded-xl p-4 border-none h-fit">
+                  <h3 className="font-bold mb-1">Import & Export</h3>
+                  <p className="text-xs text-white/60 mb-3">Upload or download customer data as CSV.</p>
+                  {importError && (
+                    <div className="mb-3 p-2 rounded-lg bg-red-500/20 text-red-200 text-xs">{importError}</div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportCsv}
+                    className="hidden"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={importing || !ownerUid}
+                      className="flex-1 bg-white/10 hover:bg-white/20 py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {importing ? (
+                        <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : (
+                        <i className="fas fa-file-import text-[11px]" />
+                      )}
+                      Import
+                    </button>
+                    <button
+                      onClick={handleExportCsv}
+                      disabled={exporting}
+                      className="flex-1 bg-white/10 hover:bg-white/20 py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs font-medium text-white/90 hover:text-white border border-white/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {exporting ? (
+                        <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : (
+                        <i className="fas fa-file-export text-[11px]" />
+                      )}
+                      {exporting ? "Exporting…" : "Export"}
+                    </button>
                   </div>
                 </div>
               </div>

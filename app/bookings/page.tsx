@@ -12,6 +12,8 @@ import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { shouldBlockSlots } from "@/lib/bookingTypes";
 import { getCurrentDateTimeInTimezone } from "@/lib/timezone";
+import BookingsExportButton from "@/components/bookings/BookingsExportButton";
+import BookingsImportButton from "@/components/bookings/BookingsImportButton";
 
 // Wrapper component to handle search params with Suspense
 function BookingsPageContent() {
@@ -2193,6 +2195,20 @@ function BookingsPageContent() {
                       <div className="h-40">
                         <canvas id="statusChart" />
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Full-width Booking Data Export & Import section */}
+                <div className="mt-8 w-full bg-neutral-900 text-white rounded-2xl shadow-sm p-6">
+                  <h3 className="font-bold mb-2">Booking Data Export & Import</h3>
+                  <p className="text-sm text-neutral-400 mb-4">Export bookings to CSV or import from CSV. For export, choose which statuses to include.</p>
+                  <div className="flex gap-4">
+                    <div className="flex-1 min-w-0">
+                      <BookingsExportButton />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <BookingsImportButton />
                     </div>
                   </div>
                 </div>

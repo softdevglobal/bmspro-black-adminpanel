@@ -11,6 +11,7 @@ import { subscribeServicesForOwner } from "@/lib/services";
 import { TIMEZONES } from "@/lib/timezone";
 import dynamic from "next/dynamic";
 import { DEFAULT_CHECK_IN_RADIUS } from "@/lib/geolocation";
+import BranchQRDownload from "@/components/branches/BranchQRDownload";
 
 // Dynamically import the location picker to avoid SSR issues with Google Maps
 const BranchLocationPicker = dynamic(
@@ -718,6 +719,7 @@ export default function BranchesPage() {
                               No location set
                             </span>
                           )}
+                          <BranchQRDownload branchId={b.id} branchName={b.name} />
                           {b.phone && (
                             <span className="inline-flex items-center gap-1.5 text-neutral-400 font-medium">
                               <i className="fas fa-phone text-[10px]" /> {b.phone}

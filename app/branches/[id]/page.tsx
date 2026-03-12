@@ -7,6 +7,8 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { subscribeServicesForOwner } from "@/lib/services";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
+import BranchQRDownload from "@/components/branches/BranchQRDownload";
+import BranchQRDisplay from "@/components/branches/BranchQRDisplay";
 
 type HoursDay = { open?: string; close?: string; closed?: boolean };
 type HoursMap = {
@@ -1068,20 +1070,25 @@ export default function BranchDetailsPage() {
                   </div>
                   {branch && <p className="text-sm text-neutral-400 mt-2 truncate">{branch.address}</p>}
                 </div>
-                {branch?.status && (
-                  <div
-                    className={`shrink-0 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${
-                      branch.status === "Active"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : branch.status === "Pending"
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-rose-100 text-rose-800"
-                    }`}
-                  >
-                    <i className="fas fa-circle" />
-                    {branch.status}
-                  </div>
-                )}
+                <div className="shrink-0 flex items-center gap-2">
+                  {branch && (
+                    <BranchQRDownload branchId={branch.id} branchName={branch.name} className="!bg-white/20 !text-white hover:!bg-white/30 border border-white/30" />
+                  )}
+                  {branch?.status && (
+                    <div
+                      className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${
+                        branch.status === "Active"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : branch.status === "Pending"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-rose-100 text-rose-800"
+                      }`}
+                    >
+                      <i className="fas fa-circle" />
+                      {branch.status}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1158,8 +1165,9 @@ export default function BranchDetailsPage() {
             ) : (
               <>
                 {activeTab === "overview" && (
+                  <>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Contact */}
+                    {/* Contact + QR */}
                     <div className="rounded-2xl border border-neutral-100 shadow-sm overflow-hidden bg-neutral-50">
                       <div className="px-6 py-4 bg-neutral-900 text-white flex items-center gap-2">
                         <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
@@ -1167,28 +1175,34 @@ export default function BranchDetailsPage() {
                         </div>
                         <div className="text-sm font-semibold">Contact</div>
                       </div>
-                      <div className="p-6 text-sm text-neutral-700">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {branch.phone && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
-                              <i className="fas fa-phone text-neutral-600" /> {branch.phone}
-                            </div>
-                          )}
-                          {branch.email && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100 truncate">
-                              <i className="fas fa-envelope text-neutral-600" /> {branch.email}
-                            </div>
-                          )}
-                          {branch.manager && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
-                              <i className="fas fa-user-tie text-neutral-600" /> {branch.manager}
-                            </div>
-                          )}
-                          {typeof branch.bookingLimitPerDay !== "undefined" && branch.bookingLimitPerDay !== null && (
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
-                              <i className="fas fa-calendar-day text-neutral-600" /> Daily booking limit: {String(branch.bookingLimitPerDay)}
-                            </div>
-                          )}
+                      <div className="p-6 flex flex-col sm:flex-row gap-6">
+                        <div className="flex-1 text-sm text-neutral-700">
+                          <div className="flex flex-col gap-2">
+                            {branch.phone && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
+                                <i className="fas fa-phone text-neutral-600" /> {branch.phone}
+                              </div>
+                            )}
+                            {branch.email && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100 truncate">
+                                <i className="fas fa-envelope text-neutral-600" /> {branch.email}
+                              </div>
+                            )}
+                            {branch.manager && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
+                                <i className="fas fa-user-tie text-neutral-600" /> {branch.manager}
+                              </div>
+                            )}
+                            {typeof branch.bookingLimitPerDay !== "undefined" && branch.bookingLimitPerDay !== null && (
+                              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-neutral-100">
+                                <i className="fas fa-calendar-day text-neutral-600" /> Daily booking limit: {String(branch.bookingLimitPerDay)}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="shrink-0 flex flex-col items-center pt-4 border-t sm:pt-0 sm:border-t-0 sm:border-l border-neutral-200 sm:pl-6">
+                          <span className="text-xs text-neutral-500 mb-2">Clock In / Out</span>
+                          <BranchQRDisplay branchId={branch.id} branchName={branch.name} compact />
                         </div>
                       </div>
                     </div>
@@ -1226,6 +1240,7 @@ export default function BranchDetailsPage() {
                       </div>
                     </div>
                   </div>
+                  </>
                 )}
 
                 {activeTab === "overview" && (

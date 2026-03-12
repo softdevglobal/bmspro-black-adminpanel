@@ -136,8 +136,9 @@ export default function AttendancePage() {
 
   // Computed values
   const activeCheckIns = checkIns.filter(c => c.status === "checked_in");
-  const completedCheckIns = checkIns.filter(c => c.status === "checked_out" || c.status === "auto_checked_out");
+  const completedCheckIns = checkIns.filter(c => c.status === "checked_out" || c.status === "auto_checked_out" || c.status === "suspicious_check_out");
   const outsideRadiusCheckIns = checkIns.filter(c => !c.isWithinRadius);
+  const suspiciousCheckOuts = checkIns.filter(c => (c as any).checkOutSuspicious || c.status === "suspicious_check_out");
 
   // Filter check-ins by selected branch
   const filteredCheckIns = selectedBranchId === "all" 
@@ -605,12 +606,35 @@ export default function AttendancePage() {
                                 </div>
                                 
                                 <div>
-                                  <div className="text-neutral-400 uppercase font-semibold mb-1">Clock Out</div>
+                                  <div className="text-neutral-400 uppercase font-semibold mb-1 flex items-center gap-1">
+                                    {(checkIn as any).checkOutSuspicious || checkIn.status === "suspicious_check_out" ? (
+                                      <span className="inline-flex items-center gap-1 text-red-600" title="Suspicious - clocked out outside branch">
+                                        <i className="fas fa-triangle-exclamation" />
+                                        Clock Out
+                                      </span>
+                                    ) : (
+                                      "Clock Out"
+                                    )}
+                                  </div>
                                   {checkIn.checkOutTime ? (
                                     <>
-                                      <div className="text-lg font-bold text-neutral-800">
+                                      <div className={`text-lg font-bold flex items-center gap-2 ${
+                                        (checkIn as any).checkOutSuspicious || checkIn.status === "suspicious_check_out"
+                                          ? "text-red-700"
+                                          : "text-neutral-800"
+                                      }`}>
+                                        {((checkIn as any).checkOutSuspicious || checkIn.status === "suspicious_check_out") && (
+                                          <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100 text-red-600" title="Suspicious">
+                                            <i className="fas fa-triangle-exclamation text-xs" />
+                                          </span>
+                                        )}
                                         {formatTime(checkIn.checkOutTime)}
                                       </div>
+                                      {((checkIn as any).checkOutSuspicious || checkIn.status === "suspicious_check_out") && (
+                                        <div className="text-[10px] text-red-600 mt-1 font-medium">
+                                          Outside branch
+                                        </div>
+                                      )}
                                     </>
                                   ) : (
                                     <div className="text-lg font-medium text-green-600 flex items-center gap-1">

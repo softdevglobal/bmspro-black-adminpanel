@@ -1210,9 +1210,15 @@ export default function TimesheetsPage() {
                                       {day.checkIns.map((checkIn, ciIdx) => {
                                         const breakPeriods = (checkIn as any).breakPeriods || [];
                                         const duration = calculateDuration(checkIn.checkInTime, checkIn.checkOutTime, breakPeriods);
+                                        const isSuspicious = (checkIn as any).checkOutSuspicious || checkIn.status === "suspicious_check_out";
                                         return (
                                           <div key={ciIdx} className="text-xs">
-                                            <div className="font-medium text-neutral-800 flex items-center justify-center gap-1.5 flex-wrap">
+                                            <div className={`font-medium flex items-center justify-center gap-1.5 flex-wrap ${isSuspicious ? "text-red-700" : "text-neutral-800"}`}>
+                                              {isSuspicious && (
+                                                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-red-100 text-red-600" title="Suspicious - clocked out outside branch">
+                                                  <i className="fas fa-triangle-exclamation text-[10px]" />
+                                                </span>
+                                              )}
                                               <span>
                                                 {formatTime(checkIn.checkInTime)}
                                                 {checkIn.checkOutTime ? (
@@ -1224,7 +1230,7 @@ export default function TimesheetsPage() {
                                                   </span>
                                                 )}
                                               </span>
-                                              <span className="font-semibold text-neutral-700">
+                                              <span className={`font-semibold ${isSuspicious ? "text-red-600" : "text-neutral-700"}`}>
                                                 ({formatDuration(duration.hours, duration.minutes)})
                                               </span>
                                             </div>

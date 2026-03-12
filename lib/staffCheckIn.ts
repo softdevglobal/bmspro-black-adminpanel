@@ -43,7 +43,10 @@ export type StaffCheckInRecord = {
   allowedRadius: number; // in meters
   
   // Status
-  status: "checked_in" | "checked_out" | "auto_checked_out";
+  status: "checked_in" | "checked_out" | "auto_checked_out" | "suspicious_check_out";
+  
+  // Suspicious clock-out (staff clocked out outside radius)
+  checkOutSuspicious?: boolean;
   
   // Auto check-out fields (if applicable)
   autoCheckOutReason?: string;
@@ -194,20 +197,24 @@ export async function performStaffCheckIn(
 
 /**
  * Perform staff check-out
+ * @param checkInId - The check-in record ID
+ * @param suspicious - If true, marks clock-out as suspicious (staff outside radius)
  */
 export async function performStaffCheckOut(
-  checkInId: string
+  checkInId: string,
+  suspicious?: boolean
 ): Promise<{ success: boolean; message: string }> {
   try {
     const checkInRef = doc(db, "staff_check_ins", checkInId);
     
     await updateDoc(checkInRef, {
       checkOutTime: serverTimestamp(),
-      status: "checked_out",
+      status: suspicious ? "suspicious_check_out" : "checked_out",
+      checkOutSuspicious: suspicious ?? false,
       updatedAt: serverTimestamp(),
     });
     
-    return { success: true, message: "Successfully checked out" };
+    return { success: true, message: suspicious ? "Checked out (marked as suspicious)" : "Successfully checked out" };
   } catch (error) {
     console.error("Check-out error:", error);
     return { success: false, message: "Failed to check out. Please try again." };

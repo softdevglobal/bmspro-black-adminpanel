@@ -921,7 +921,7 @@ export default function BranchDetailsPage() {
         rows.map((s: any) => ({
           id: String(s.id),
           name: String(s.name || "Service"),
-          icon: String(s.icon || "fa-scissors"),
+          icon: String(s.icon || "fa-screwdriver-wrench"),
           price: typeof s.price === "number" ? s.price : undefined,
           duration: typeof s.duration === "number" ? s.duration : undefined,
           branches: Array.isArray(s.branches) ? s.branches.map(String) : undefined,
@@ -1093,7 +1093,7 @@ export default function BranchDetailsPage() {
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-neutral-500">Services</div>
                   <div className="w-8 h-8 rounded-lg bg-neutral-100 text-neutral-600 flex items-center justify-center">
-                    <i className="fas fa-scissors" />
+                    <i className="fas fa-screwdriver-wrench" />
                   </div>
                 </div>
                 <div className="mt-2 text-2xl font-bold text-neutral-800">{(branch.serviceIds || []).length}</div>
@@ -1135,7 +1135,7 @@ export default function BranchDetailsPage() {
                 { key: "overview", label: "Overview", icon: "fa-compass" },
                 { key: "analytics", label: "Branch Analytics", icon: "fa-chart-pie" },
                 { key: "appointments", label: "Appointments", icon: "fa-calendar-check" },
-                { key: "services", label: `Services (${serviceCount})`, icon: "fa-scissors" },
+                { key: "services", label: `Services (${serviceCount})`, icon: "fa-screwdriver-wrench" },
                 { key: "staff", label: `Staff (${staffCount})`, icon: "fa-users" },
                 { key: "customers", label: "Customers", icon: "fa-user-group" },
                 { key: "schedule", label: "Schedule", icon: "fa-calendar-days" },
@@ -1498,7 +1498,7 @@ export default function BranchDetailsPage() {
                                 ) : (
                                   <div className="absolute inset-0 flex items-center justify-center">
                                     <div className="w-16 h-16 rounded-2xl bg-white/60 backdrop-blur-sm flex items-center justify-center shadow-lg">
-                                      <i className={`fas ${s.icon || "fa-scissors"} text-2xl text-neutral-500`} />
+                                      <i className={`fas ${s.icon || "fa-screwdriver-wrench"} text-2xl text-neutral-500`} />
                                 </div>
                                   </div>
                                 )}

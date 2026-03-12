@@ -127,7 +127,7 @@ export default function ToastNotification({
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {serviceName && (
               <span className="px-2 py-1 bg-neutral-800 text-neutral-300 rounded-md font-medium">
-                <i className="fas fa-scissors mr-1" />
+                <i className="fas fa-screwdriver-wrench mr-1" />
                 {serviceName}
               </span>
             )}

@@ -20,8 +20,7 @@ export default function AwaitingStaffApprovalPage() {
   return (
     <BookingsListByStatus 
       status={["AwaitingStaffApproval", "PartiallyApproved"]} 
-      title="Awaiting Staff Approval" 
-      showExportButton
+      title="Awaiting Staff Approval"
     />
   );
 }

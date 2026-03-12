@@ -19,8 +19,7 @@ export default function StaffRejectedBookingsPage() {
   return (
     <BookingsListByStatus 
       status={["StaffRejected"]} 
-      title="Staff Rejected Bookings" 
-      showExportButton
+      title="Staff Rejected Bookings"
     />
   );
 }

@@ -12,6 +12,7 @@ import { TIMEZONES } from "@/lib/timezone";
 import dynamic from "next/dynamic";
 import { DEFAULT_CHECK_IN_RADIUS } from "@/lib/geolocation";
 import BranchQRDownload from "@/components/branches/BranchQRDownload";
+import BranchQRDisplay from "@/components/branches/BranchQRDisplay";
 
 // Dynamically import the location picker to avoid SSR issues with Google Maps
 const BranchLocationPicker = dynamic(
@@ -1197,6 +1198,11 @@ export default function BranchesPage() {
                       })}
                     </div>
                   </div>
+                </div>
+
+                {/* Clock In / Out QR */}
+                <div className="md:col-span-2 flex justify-center pt-2">
+                  <BranchQRDisplay branchId={previewBranch.id} branchName={previewBranch.name} />
                 </div>
               </div>
 

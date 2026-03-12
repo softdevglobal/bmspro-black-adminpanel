@@ -424,14 +424,39 @@ async function buildPDF(
     if (booking.pickupTime) details.push(["Pick-up Time", formatTime12h(booking.pickupTime)]);
     if (booking.branchName) details.push(["Branch", booking.branchName]);
     if (booking.duration) details.push(["Duration", formatDuration(booking.duration)]);
-    if (booking.price !== undefined && booking.price !== null) details.push(["Total Price", `$${Number(booking.price).toFixed(2)}`]);
+    // Price breakdown: Service Price, Additional Work, Total (when we have additional issues or price)
+    const pdfVisibleIssues = (booking.additionalIssues || []).filter((i: any) => i.status === "approved" && i.price != null);
+    const pdfAcceptedIssues = pdfVisibleIssues.filter(
+      (i: any) => i.status === "approved" && i.price != null && i.customerResponse !== "reject" && i.customerResponse !== "rejected"
+    );
+    const pdfAdditionalTotal = pdfAcceptedIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+    const pdfServicesList = booking.services && booking.services.length > 0 ? booking.services : [];
+    const pdfServicesSubtotal = pdfServicesList.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0) || Number(booking.price) || 0;
+    const pdfGrandTotal = pdfServicesSubtotal + pdfAdditionalTotal || Number(booking.price) || 0;
+    const hasPriceBreakdown = pdfGrandTotal > 0 || pdfVisibleIssues.length > 0;
+    const hasSinglePrice = !hasPriceBreakdown && booking.price !== undefined && booking.price !== null;
+    if (hasPriceBreakdown) {
+      details.push(["Service Price", `$${pdfServicesSubtotal.toFixed(2)}`]);
+      for (const issue of pdfVisibleIssues) {
+        const name = issue.issueTitle || "Issue";
+        const price = issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
+        details.push([`Additional Work: ${name}`, price]);
+      }
+    }
     if (booking.completedAt) details.push(["Completed At", formatTimestampInTimezone(booking.completedAt, booking.branchTimezone)]);
     if (booking.completedByStaffName) details.push(["Completed By", booking.completedByStaffName]);
 
     y = drawKeyValueTable(doc, details, leftMargin, y, pageWidth);
+    if (hasPriceBreakdown) {
+      y = drawProminentTotal(doc, `$${(pdfGrandTotal || Number(booking.price) || 0).toFixed(2)}`, leftMargin, y, pageWidth);
+    } else if (hasSinglePrice) {
+      y = drawProminentTotal(doc, `$${Number(booking.price).toFixed(2)}`, leftMargin, y, pageWidth);
+    }
     y += 8;
 
-    // ─── SERVICES ─────────────────────────────────────────────
+    // ─── SERVICES (start on page 2) ────────────────────────────
+    doc.addPage();
+    y = PAGE_MARGIN;
     const services = booking.services && booking.services.length > 0
       ? booking.services
       : booking.serviceName
@@ -641,31 +666,10 @@ async function buildPDF(
     }
 
     // ─── COST SUMMARY (services + additional work = total) ──────
-    const servicesList = booking.services && booking.services.length > 0 ? booking.services : [];
-    const servicesSubtotal = servicesList.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0) || Number(booking.price) || 0;
-    const acceptedAdditionalIssues = (booking.additionalIssues || []).filter(
-      (i: any) => i.status === "approved" && i.price != null && i.customerResponse !== "reject"
-    );
-    const additionalWorkTotal = acceptedAdditionalIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
-    const grandTotal = servicesSubtotal + additionalWorkTotal;
+    // Exclude admin rejected; customer rejected shown in list but not in total
+    const visibleAdditionalIssues = (booking.additionalIssues || []).filter((i: any) => i.status === "approved" && i.price != null);
 
-    if (servicesSubtotal > 0 || additionalWorkTotal > 0) {
-      y = ensureSpace(doc, y, 80);
-      y = drawSectionHeader(doc, "Cost Summary", leftMargin, y, pageWidth);
-
-      const summaryRows: [string, string][] = [];
-      if (servicesSubtotal > 0) {
-        summaryRows.push(["Services", `$${servicesSubtotal.toFixed(2)}`]);
-      }
-      if (additionalWorkTotal > 0) {
-        summaryRows.push(["Additional Work (accepted)", `$${additionalWorkTotal.toFixed(2)}`]);
-      }
-      if (summaryRows.length > 0) {
-        summaryRows.push(["Total", `$${grandTotal.toFixed(2)}`]);
-        y = drawKeyValueTable(doc, summaryRows, leftMargin, y, pageWidth);
-        y += 8;
-      }
-    }
+    // Cost Summary removed - Total shown only on page 1 (Booking Details)
 
     // ─── NOTES ────────────────────────────────────────────────
     if (booking.notes) {
@@ -677,15 +681,14 @@ async function buildPDF(
       y += notesH + 8;
     }
 
-    // ─── ADDITIONAL ISSUES FOUND (last section) ────────────────
-    const additionalIssues = booking.additionalIssues || [];
+    // ─── ADDITIONAL ISSUES FOUND (exclude admin rejected) ────────
     const ADDITIONAL_IMG_SIZE = 70;
-    if (additionalIssues.length > 0) {
+    if (visibleAdditionalIssues.length > 0) {
       y = ensureSpace(doc, y, 60);
       y = drawSectionHeader(doc, "Additional Issues Found (Technician-Reported)", leftMargin, y, pageWidth);
 
-      for (let i = 0; i < additionalIssues.length; i++) {
-        const issue = additionalIssues[i];
+      for (let i = 0; i < visibleAdditionalIssues.length; i++) {
+        const issue = visibleAdditionalIssues[i];
         const issueImageUrl = (issue as any).imageUrl || (issue as any).image;
         const hasImage = !!(issueImageUrl && getImageBuffer(issueImageUrl)?.length);
         let cardH = 44;
@@ -704,7 +707,6 @@ async function buildPDF(
         if (issue.recommendedRepair) subParts.push(`Repair: ${issue.recommendedRepair}`);
         if (issue.partsRequired) subParts.push(`Parts: ${issue.partsRequired}`);
         if (issue.labourTimeHours != null) subParts.push(`${issue.labourTimeHours} hrs`);
-        if (issue.price != null && issue.price !== undefined) subParts.push(`$${Number(issue.price).toFixed(2)}`);
         if (issue.reportedByStaffName) subParts.push(`by ${issue.reportedByStaffName}`);
 
         let textY = y + 20;
@@ -839,6 +841,21 @@ function drawKeyValueTable(doc: PDFKit.PDFDocument, rows: [string, string][], x:
     y += 20;
   }
   return y;
+}
+
+/** Draw a prominent, larger Total row with creative styling */
+function drawProminentTotal(doc: PDFKit.PDFDocument, totalAmount: string, x: number, y: number, width: number): number {
+  const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
+  const rowHeight = 36;
+  if (y + rowHeight > pageBottom) {
+    doc.addPage();
+    y = PAGE_MARGIN;
+  }
+  doc.roundedRect(x, y, width, rowHeight, 6).fill(COLORS.greenLight);
+  doc.roundedRect(x, y, width, rowHeight, 6).lineWidth(1).stroke(COLORS.green);
+  doc.fontSize(10).fillColor(COLORS.muted).text("TOTAL", x + 14, y + 8, { width: width - 28 });
+  doc.fontSize(18).fillColor(COLORS.green).text(totalAmount, x + 14, y + 18, { width: width - 28, align: "right" });
+  return y + rowHeight + 6;
 }
 
 /**

@@ -14,7 +14,8 @@ export type CustomerNotificationType =
 export type StaffNotificationType = 
   | "staff_assignment"      // Staff receives new booking to review
   | "staff_reassignment"    // Staff receives reassigned booking
-  | "additional_issue_accepted";  // Customer accepted additional work - staff can proceed
+  | "additional_issue_accepted"   // Customer accepted additional work - staff can proceed
+  | "additional_issue_rejected";  // Admin rejected additional work - staff sees it in app
 
 // Admin-facing notification types
 // NOTE: staff_accepted is NOT sent to admin panel (per business logic).
@@ -744,6 +745,43 @@ export async function createAdditionalIssueAcceptedNotification(data: {
     bookingDate: data.bookingDate,
     bookingTime: data.bookingTime,
     price: data.price,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
+ * Notify staff when admin rejects their additional issue.
+ * Staff app will show the issue as rejected via Firestore listener; this notification prompts them to check.
+ */
+export async function createAdditionalIssueRejectedNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  staffUid: string;
+  staffName?: string;
+  clientName: string;
+  issueTitle: string;
+  serviceName?: string;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  ownerUid: string;
+}): Promise<string> {
+  const notificationData: Omit<StaffNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "additional_issue_rejected" as any,
+    title: "Additional Work Not Approved",
+    message: `Your additional work "${data.issueTitle}" for ${data.clientName} was not approved. Check the booking for details.`,
+    status: "Confirmed",
+    ownerUid: data.ownerUid,
+    staffUid: data.staffUid,
+    staffName: data.staffName,
+    clientName: data.clientName,
+    serviceName: data.serviceName,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
   };
 
   return createNotification(notificationData);

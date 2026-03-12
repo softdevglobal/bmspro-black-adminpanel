@@ -1577,7 +1577,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       )}
                                     </div>
                                     <div className="flex-shrink-0 text-right">
-                                      {issue.price != null ? (
+                                      {issue.status === "rejected" ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-200">
+                                          <i className="fas fa-times-circle" /> Rejected
+                                        </span>
+                                      ) : issue.price != null ? (
                                         <div>
                                           <p className="font-bold text-emerald-700">${Number(issue.price).toFixed(2)}</p>
                                           {issue.priceSetByName && (
@@ -3330,22 +3334,26 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
             className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden animate-scale-in"
             onClick={(e) => e.stopPropagation()}
           >
+            {(() => {
+              const isRejected = issuePriceModal.issue.status === "rejected";
+              return (
+              <>
             {/* Header */}
-            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-5">
+            <div className={`px-6 py-5 ${isRejected ? "bg-gradient-to-r from-rose-500 to-red-500" : "bg-gradient-to-r from-amber-500 to-orange-500"}`}>
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-                  <i className="fas fa-tools text-white text-xl" />
+                  <i className={`fas ${isRejected ? "fa-times-circle" : "fa-tools"} text-white text-xl`} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white">Additional Work Request</h3>
-                  <p className="text-amber-100 text-sm">Set price or reject this issue</p>
+                  <p className="text-amber-100 text-sm">{isRejected ? "This issue has been rejected" : "Set price or reject this issue"}</p>
                 </div>
               </div>
             </div>
 
             {/* Issue details */}
             <div className="p-6 space-y-4">
-              <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+              <div className={`rounded-xl border p-4 ${isRejected ? "bg-rose-50 border-rose-200" : "bg-amber-50 border-amber-200"}`}>
                 <p className="font-semibold text-neutral-800 text-base">{issuePriceModal.issue.issueTitle}</p>
                 {issuePriceModal.issue.description && (
                   <p className="text-sm text-neutral-600 mt-2">{issuePriceModal.issue.description}</p>
@@ -3367,6 +3375,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 )}
               </div>
 
+              {!isRejected && (
               <div>
                 <label className="block text-sm font-semibold text-neutral-700 mb-2">Price (when approving)</label>
                 <div className="flex items-center border-2 border-neutral-200 rounded-xl focus-within:ring-2 focus-within:ring-amber-500 focus-within:border-amber-500">
@@ -3382,6 +3391,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   />
                 </div>
               </div>
+              )}
             </div>
 
             {/* Actions */}
@@ -3391,8 +3401,10 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 onClick={() => { setIssuePriceModal(null); setIssuePriceValue(""); }}
                 className="flex-1 py-2 rounded-lg border border-neutral-200 text-neutral-700 text-sm font-medium hover:bg-neutral-50 transition-colors"
               >
-                Cancel
+                {isRejected ? "Close" : "Cancel"}
               </button>
+              {!isRejected && (
+                <>
               <button
                 type="button"
                 onClick={() => handleSetIssuePrice("reject")}
@@ -3409,7 +3421,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               >
                 {issuePriceSaving ? "Saving..." : "Approve & Set Price"}
               </button>
+                </>
+              )}
             </div>
+          </>
+              );
+            })()}
           </div>
         </div>
       )}

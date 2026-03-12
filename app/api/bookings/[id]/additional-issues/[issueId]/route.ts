@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
-import { createNotification } from "@/lib/notifications";
+import { createNotification, createAdditionalIssueRejectedNotification } from "@/lib/notifications";
 import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
 import { sendAdditionalIssuePriceSetEmail } from "@/lib/emailService";
 
@@ -57,6 +57,11 @@ export async function PATCH(
     const issueIndex = issues.findIndex((i) => i.id === issueId);
     if (issueIndex < 0) {
       return NextResponse.json({ error: "Additional issue not found" }, { status: 404 });
+    }
+
+    const existingIssue = issues[issueIndex];
+    if (existingIssue?.status === "rejected") {
+      return NextResponse.json({ error: "This issue has already been rejected. Cannot set price or change status." }, { status: 400 });
     }
 
     const now = new Date().toISOString();
@@ -152,6 +157,30 @@ export async function PATCH(
           });
         } catch (e) {
           console.error("Failed to create customer panel notification:", e);
+        }
+      }
+    }
+
+    // When rejected: notify the staff who reported the issue so they see it in the app
+    if (status === "rejected") {
+      const reportedByStaffUid = updatedIssues[issueIndex].reportedByStaffUid || "";
+      if (reportedByStaffUid) {
+        try {
+          await createAdditionalIssueRejectedNotification({
+            bookingId: id,
+            bookingCode: bookingCode || undefined,
+            staffUid: reportedByStaffUid,
+            staffName: updatedIssues[issueIndex].reportedByStaffName || undefined,
+            clientName,
+            issueTitle,
+            serviceName: bookingData.serviceName || undefined,
+            branchName: bookingData.branchName || undefined,
+            bookingDate: bookingData.date || undefined,
+            bookingTime: bookingData.time || undefined,
+            ownerUid,
+          });
+        } catch (e) {
+          console.error("Failed to notify staff of rejection:", e);
         }
       }
     }

@@ -273,6 +273,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
 
       try {
+        const finalServices = Array.isArray(bookingData.services) ? bookingData.services : [];
         await sendBookingStatusChangeEmail(
           bookingId,
           "Completed",
@@ -288,6 +289,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             price: bookingData.price,
             serviceName: bookingData.serviceName,
             staffName,
+            services: finalServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || null,
+              time: s.time || bookingData.time || null,
+              duration: s.duration || bookingData.duration || null,
+              price: s.price,
+            })),
+            additionalIssues: bookingData.additionalIssues || null,
           }
         );
       } catch (e) {

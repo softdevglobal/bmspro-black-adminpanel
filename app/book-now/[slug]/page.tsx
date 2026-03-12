@@ -52,6 +52,7 @@ type CustomerAdditionalIssue = {
   description: string;
   recommendedRepair: string;
   imageUrl?: string | null;
+  image?: string | null;
   price: number | null;
   status: string;
   customerResponse?: "accept" | "reject" | null;
@@ -414,20 +415,10 @@ export default function BookingEnginePage() {
     });
   };
 
-  const markAllAsRead = () => {
-    const ids = visibleBookings.map((b) => b.id);
-    setReadIds((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => next.add(id));
-      if (customer?.customerId) {
-        localStorage.setItem(`bms_read_notifs_${customer.customerId}`, JSON.stringify([...next]));
-      }
-      return next;
-    });
-  };
-
   const visibleBookings = customerBookings.filter((b) => !dismissedIds.has(b.id));
-  const unreadCount = visibleBookings.filter((b) => !readIds.has(b.id)).length;
+  const bookingUnreadCount = visibleBookings.filter((b) => !readIds.has(b.id)).length;
+  const customerNotifUnreadCount = customerEstimateNotifications.filter((n) => !n.read).length;
+  const unreadCount = bookingUnreadCount + customerNotifUnreadCount;
 
   // Fetch customer bookings via API (server-side, no Firestore permissions needed)
   const fetchBookingsRef = useRef(false);
@@ -588,6 +579,31 @@ export default function BookingEnginePage() {
       console.error("Failed to fetch customer notifications:", err);
     }
   }, [customer?.customerId]);
+
+  const markAllAsRead = useCallback(async () => {
+    const ids = visibleBookings.map((b) => b.id);
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      if (customer?.customerId) {
+        localStorage.setItem(`bms_read_notifs_${customer.customerId}`, JSON.stringify([...next]));
+      }
+      return next;
+    });
+    const toMark = customerEstimateNotifications.filter((n) => !n.read).map((n) => n.id);
+    if (toMark.length > 0 && customer?.customerId) {
+      try {
+        await fetch("/api/book-now/customer-notifications", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customerId: customer.customerId, notificationIds: toMark }),
+        });
+        fetchCustomerNotifications();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [visibleBookings, customer?.customerId, customerEstimateNotifications, fetchCustomerNotifications]);
 
   useEffect(() => {
     if (!customer?.customerId) {
@@ -1219,7 +1235,15 @@ export default function BookingEnginePage() {
             <div className="flex items-center gap-1.5">
               {/* Notification Bell */}
               <button
-                onClick={() => { setShowNotifications((v) => { if (!v) markAllAsRead(); return !v; }); }}
+                onClick={() => {
+                  setShowNotifications((v) => {
+                    if (!v) {
+                      fetchCustomerNotifications();
+                      markAllAsRead();
+                    }
+                    return !v;
+                  });
+                }}
                 className="relative w-9 h-9 rounded-xl bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition-all active:scale-95"
                 title="Notifications"
               >
@@ -1373,7 +1397,7 @@ export default function BookingEnginePage() {
                   <div className="w-8 h-8 rounded-full border-[3px] border-neutral-200 border-t-amber-500 animate-spin" />
                   <p className="text-[11px] text-neutral-400 font-medium">Loading...</p>
                 </div>
-              ) : visibleBookings.length === 0 ? (
+              ) : visibleBookings.length === 0 && customerEstimateNotifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3 text-center px-6">
                   <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center">
                     <i className="fas fa-bell-slash text-lg text-neutral-300" />
@@ -1383,6 +1407,62 @@ export default function BookingEnginePage() {
                 </div>
               ) : (
                 <div className="px-3 py-3 space-y-2.5">
+                  {/* Additional work quote & estimate reply notifications */}
+                  {customerEstimateNotifications.map((n) => {
+                    const isAdditionalQuote = n.type === "additional_issue_quote";
+                    const timeAgo = (() => {
+                      const raw = n.createdAt;
+                      if (!raw) return "";
+                      const updated = new Date(raw);
+                      const diff = Date.now() - updated.getTime();
+                      const mins = Math.floor(diff / 60000);
+                      if (mins < 1) return "Just now";
+                      if (mins < 60) return `${mins}m ago`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h ago`;
+                      const days = Math.floor(hrs / 24);
+                      return `${days}d ago`;
+                    })();
+                    return (
+                      <div
+                        key={n.id}
+                        className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer"
+                        onClick={() => {
+                          setShowNotifications(false);
+                          if (isAdditionalQuote) {
+                            setActiveView("myBookings");
+                            fetchCustomerBookings();
+                            setExpandedBookingId(n.bookingId || null);
+                          } else {
+                            setActiveView("myEstimates");
+                            fetchCustomerEstimates();
+                            fetchCustomerNotifications();
+                          }
+                        }}
+                      >
+                        <div className="h-[3px] bg-amber-400" />
+                        <div className="px-3.5 pt-3 pb-3">
+                          <div className="flex items-start gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                              <i className="fas fa-file-invoice-dollar text-xs text-amber-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-[11px] font-bold text-neutral-900 leading-snug">
+                                {isAdditionalQuote ? "Additional Work Quote Ready" : "Estimate Reply"}
+                              </h4>
+                              <p className="text-[10px] text-neutral-500 leading-relaxed mt-0.5">
+                                {n.message || (isAdditionalQuote ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.` : "You have a new reply to your estimate request.")}
+                              </p>
+                              {n.bookingCode && (
+                                <p className="text-[9px] text-neutral-400 mt-1 font-mono">{n.bookingCode}</p>
+                              )}
+                              {timeAgo && <span className="text-[9px] text-neutral-300 font-medium block mt-1">{timeAgo}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                   {visibleBookings.map((bk) => {
                     const notifMap: Record<string, { iconBg: string; iconColor: string; icon: string; title: string; message: string }> = {
                       Pending: {
@@ -2933,8 +3013,11 @@ export default function BookingEnginePage() {
                             </div>
                           )}
 
-                          {/* Additional Issues */}
-                          {bk.additionalIssues && bk.additionalIssues.length > 0 && (
+                          {/* Additional Issues - only admin-approved (priced) issues shown to customer for approval */}
+                          {bk.additionalIssues && (() => {
+                            const approvedIssues = bk.additionalIssues.filter((i) => i.status === "approved");
+                            if (approvedIssues.length === 0) return null;
+                            return (
                             <div className="mt-4 rounded-xl border border-amber-200/80 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4">
                               <div className="flex items-center gap-2 mb-3">
                                 <div className="w-6 h-6 rounded-lg bg-amber-500/20 flex items-center justify-center">
@@ -2943,10 +3026,23 @@ export default function BookingEnginePage() {
                                 <span className="text-[11px] font-bold text-neutral-800">Additional Work Found</span>
                               </div>
                               <div className="space-y-3">
-                                {bk.additionalIssues.map((issue) => (
+                                {approvedIssues.map((issue) => (
                                   <div key={issue.id} className="bg-white/80 rounded-lg border border-amber-100 p-3">
                                     <p className="text-[11px] font-bold text-neutral-900">{issue.issueTitle}</p>
                                     {issue.description && <p className="text-[10px] text-neutral-600 mt-1">{issue.description}</p>}
+                                    {(issue.imageUrl || issue.image) && (
+                                      <div className="mt-2 rounded-lg overflow-hidden border border-neutral-200/80 shrink-0" style={{ width: 48, height: 56 }}>
+                                        <img
+                                          src={(issue.imageUrl || issue.image) as string}
+                                          alt={issue.issueTitle || "Additional work"}
+                                          width={48}
+                                          height={56}
+                                          className="block w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                          style={{ maxWidth: 48, maxHeight: 56 }}
+                                          onClick={() => setLightboxUrl((issue.imageUrl || issue.image) as string)}
+                                        />
+                                      </div>
+                                    )}
                                     {issue.price != null && (
                                       <p className="text-[11px] font-bold text-amber-700 mt-1.5">Cost: ${issue.price.toFixed(2)}</p>
                                     )}
@@ -2990,7 +3086,8 @@ export default function BookingEnginePage() {
                                 ))}
                               </div>
                             </div>
-                          )}
+                            );
+                          })()}
 
                           {bk.status === "Completed" && (
                             <div className="mt-3">
@@ -3248,7 +3345,7 @@ export default function BookingEnginePage() {
           className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]"
           onClick={() => setLightboxUrl(null)}
         >
-          <div className="relative max-w-2xl w-full max-h-[85vh] animate-[modalPop_0.3s_ease-out]" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-w-md w-full max-h-[70vh] animate-[modalPop_0.3s_ease-out]" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setLightboxUrl(null)}
               className="absolute -top-3 -right-3 z-10 w-8 h-8 rounded-full bg-white shadow-lg flex items-center justify-center text-neutral-600 hover:text-neutral-900 hover:scale-110 transition-all"
@@ -3258,7 +3355,7 @@ export default function BookingEnginePage() {
             <img
               src={lightboxUrl}
               alt="Task completion"
-              className="w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+              className="w-full max-h-[70vh] object-contain rounded-2xl shadow-2xl"
             />
           </div>
         </div>

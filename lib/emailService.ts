@@ -228,7 +228,9 @@ function generateEmailHTML(
   ` : "";
   
   // For Completed status: show Services, Additional work (if any), then Total
-  const acceptedAdditionalIssues = (data.additionalIssues || []).filter(
+  // Exclude admin rejected; show customer rejected in list but not in total
+  const visibleAdditionalIssues = (data.additionalIssues || []).filter((i: any) => i.status === "approved" && i.price != null);
+  const acceptedAdditionalIssues = visibleAdditionalIssues.filter(
     (i: any) => i.status === "approved" && i.price != null && i.customerResponse !== "reject" && i.customerResponse !== "rejected"
   );
   const additionalWorkTotal = acceptedAdditionalIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
@@ -238,25 +240,21 @@ function generateEmailHTML(
   const servicesSubtotal = servicesSubtotalFromServices > 0
     ? servicesSubtotalFromServices
     : (totalPrice > 0 ? totalPrice - additionalWorkTotal : 0);
-  const hasAdditionalWork = additionalWorkTotal > 0;
-  const showPriceBreakdown = status === "Completed" && totalPrice > 0 && hasAdditionalWork;
+  const hasVisibleAdditionalIssues = visibleAdditionalIssues.length > 0;
+  const showPriceBreakdown = status === "Completed" && (totalPrice > 0 || hasVisibleAdditionalIssues);
 
-  const priceInfo = (data.price !== null && data.price !== undefined) || totalPrice > 0 ? (
+  const priceInfo = (data.price !== null && data.price !== undefined) || totalPrice > 0 || hasVisibleAdditionalIssues ? (
     showPriceBreakdown ? `
-    ${servicesSubtotal > 0 ? `
     <tr>
-      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Services</td>
+      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Service Price</td>
       <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${formatPrice(servicesSubtotal)}</td>
     </tr>
-    ` : ""}
-    ${hasAdditionalWork ? `
     <tr>
-      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Additional Work Done</td>
+      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Additional Work</td>
       <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${formatPrice(additionalWorkTotal)}</td>
     </tr>
-    ` : ""}
     <tr>
-      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Total Price</td>
+      <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Total</td>
       <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(totalPrice)}</td>
     </tr>
   ` : `
@@ -387,6 +385,19 @@ function generateEmailHTML(
                   <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid ${color}30;">
                     <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px; font-weight: 500;">Services</p>
                     ${servicesList}
+                  </div>
+                ` : ""}
+                ${status === "Completed" && visibleAdditionalIssues.length > 0 ? `
+                  <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid ${color}30;">
+                    <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px; font-weight: 500;">Additional Work</p>
+                    ${visibleAdditionalIssues.map((i: any) => {
+                      const isAccepted = i.status === "approved" && i.price != null && i.customerResponse !== "reject" && i.customerResponse !== "rejected";
+                      const priceStr = isAccepted && i.price != null ? formatPrice(Number(i.price)) : "Declined";
+                      return `<div style="margin-bottom: 8px; padding: 10px 12px; background: ${isAccepted ? "#ecfdf5" : "#fef2f2"}; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #111827; font-size: 14px;">${(i.issueTitle || "Issue").replace(/</g, "&lt;")}</span>
+                        <span style="color: ${isAccepted ? "#059669" : "#b91c1c"}; font-size: 14px; font-weight: 500;">${isAccepted ? priceStr : "Declined"}</span>
+                      </div>`;
+                    }).join("")}
                   </div>
                 ` : ""}
               </div>
@@ -626,8 +637,16 @@ export async function sendBookingStatusChangeEmail(
       staffName?: string | null;
       time?: string;
       duration?: number;
+      price?: number;
     }>;
     staffName?: string | null;
+    additionalIssues?: Array<{
+      id?: string;
+      issueTitle?: string;
+      status?: string;
+      price?: number | null;
+      customerResponse?: string | null;
+    }> | null;
   }
 ): Promise<void> {
   console.log(`[EMAIL] sendBookingStatusChangeEmail called for booking ${bookingId}`, {

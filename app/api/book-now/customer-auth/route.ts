@@ -61,8 +61,17 @@ export async function POST(req: NextRequest) {
       const doc = snap.docs[0];
       const data = doc.data();
 
+      const storedHash = data?.passwordHash;
+      const salt = data?.salt;
+      if (!storedHash || !salt) {
+        return NextResponse.json(
+          { error: "Invalid credentials. Please use 'Forgot password' to reset your password." },
+          { status: 401 }
+        );
+      }
+
       // Verify password
-      const isValid = verifyPassword(password, data.passwordHash, data.salt);
+      const isValid = verifyPassword(password, storedHash, salt);
       if (!isValid) {
         return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
       }

@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { toCsv, parseCsv, downloadFile } from "@/lib/csvUtils";
 
 type Customer = {
@@ -55,11 +55,15 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewCust, setPreviewCust] = useState<Customer | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [deleteConfirmCustomer, setDeleteConfirmCustomer] = useState<Customer | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState(false);
   const [previewVehicles, setPreviewVehicles] = useState<Vehicle[]>([]);
   const [previewBookings, setPreviewBookings] = useState<PreviewBooking[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [bookingsAgg, setBookingsAgg] = useState<Customer[]>([]);
   const [savedCustomers, setSavedCustomers] = useState<Customer[]>([]);
+  const [deletedCustomerKeys, setDeletedCustomerKeys] = useState<Set<string>>(new Set());
+  const [deletedKeysLoaded, setDeletedKeysLoaded] = useState(false);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -184,15 +188,50 @@ export default function CustomersPage() {
     return () => unsub();
   }, [ownerUid]);
 
-  // Combine both sources
+  // Fetch deleted customer keys (admin-deleted; hide even when they have bookings)
+  // Load with getDoc first to avoid "show then disappear" flash on reload
   useEffect(() => {
+    if (!ownerUid) return;
+    const ref = doc(db, "customer_deletions", ownerUid);
+    getDoc(ref).then(
+      (snap) => {
+        const keys = (snap.data()?.keys as string[] | undefined) || [];
+        setDeletedCustomerKeys(new Set(keys.map((k) => String(k).toLowerCase())));
+        setDeletedKeysLoaded(true);
+      },
+      () => {
+        setDeletedCustomerKeys(new Set());
+        setDeletedKeysLoaded(true);
+      }
+    );
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        const keys = (snap.data()?.keys as string[] | undefined) || [];
+        setDeletedCustomerKeys(new Set(keys.map((k) => String(k).toLowerCase())));
+        setDeletedKeysLoaded(true);
+      },
+      () => {
+        setDeletedCustomerKeys(new Set());
+        setDeletedKeysLoaded(true);
+      }
+    );
+    return () => unsub();
+  }, [ownerUid]);
+
+  // Combine both sources (exclude deleted) - wait for deleted keys to load to avoid flash
+  useEffect(() => {
+    if (!deletedKeysLoaded) return;
     const keyFor = (c: Customer) => (c.email || c.phone || c.name).toString().toLowerCase();
     const map = new Map<string, Customer>();
     for (const c of savedCustomers) {
-      map.set(keyFor(c), { ...c, firestoreId: c.id });
+      const k = keyFor(c);
+      if (deletedCustomerKeys.has(k)) continue;
+      map.set(k, { ...c, firestoreId: c.id });
     }
     for (const b of bookingsAgg) {
       const k = keyFor(b);
+      if (deletedCustomerKeys.has(k)) continue;
       const existing = map.get(k);
       if (!existing) {
         map.set(k, { ...b });
@@ -203,7 +242,7 @@ export default function CustomersPage() {
       }
     }
     setCustomers(Array.from(map.values()));
-  }, [bookingsAgg, savedCustomers]);
+  }, [bookingsAgg, savedCustomers, deletedCustomerKeys, deletedKeysLoaded]);
 
   // Fetch vehicles and bookings when preview opens
   useEffect(() => {
@@ -361,8 +400,46 @@ export default function CustomersPage() {
   };
 
   const removeCustomer = (id: string) => {
-    if (!confirm("Delete this customer?")) return;
-    saveData(customers.filter((c) => c.id !== id));
+    const customer = customers.find((c) => c.id === id);
+    if (customer) setDeleteConfirmCustomer(customer);
+  };
+
+  const confirmDeleteCustomer = async () => {
+    if (!deleteConfirmCustomer || !ownerUid) return;
+    setDeletingCustomer(true);
+    try {
+      const customerId = deleteConfirmCustomer.firestoreId;
+      const customerKey = (deleteConfirmCustomer.email || deleteConfirmCustomer.phone || deleteConfirmCustomer.name || "").toString().toLowerCase();
+      // Delete from Firestore when customer exists in customers collection (has firestoreId)
+      if (customerId) {
+        // Delete vehicles subcollection first
+        const vehiclesRef = collection(db, "customers", customerId, "vehicles");
+        const vehiclesSnap = await getDocs(vehiclesRef);
+        await Promise.all(vehiclesSnap.docs.map((d) => deleteDoc(doc(db, "customers", customerId, "vehicles", d.id))));
+        // Delete customer document (this also removes their login ability from booking engine)
+        await deleteDoc(doc(db, "customers", customerId));
+      }
+      // Persist deleted key so customer stays hidden after reload (even when they have bookings)
+      if (customerKey) {
+        const ref = doc(db, "customer_deletions", ownerUid);
+        const snap = await getDoc(ref);
+        const existing = (snap.data()?.keys as string[] | undefined) || [];
+        if (!existing.includes(customerKey)) {
+          await setDoc(ref, { keys: [...existing, customerKey] }, { merge: true });
+        }
+      }
+      saveData(customers.filter((c) => c.id !== deleteConfirmCustomer.id));
+      setDeleteConfirmCustomer(null);
+      if (previewCust?.id === deleteConfirmCustomer.id || previewCust?.firestoreId === customerId) {
+        setPreviewOpen(false);
+        setPreviewCust(null);
+      }
+    } catch (err: any) {
+      console.error("Failed to delete customer:", err);
+      alert(err?.message || "Failed to delete customer. Please try again.");
+    } finally {
+      setDeletingCustomer(false);
+    }
   };
 
   const resetCustomersData = () => {
@@ -596,6 +673,13 @@ export default function CustomersPage() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-4">
+                {!deletedKeysLoaded ? (
+                  <div className="bg-white rounded-xl border border-neutral-200 p-8 text-center text-neutral-500">
+                    <i className="fas fa-spinner fa-spin text-2xl mb-2" />
+                    <p className="text-sm">Loading customers…</p>
+                  </div>
+                ) : (
+                <>
                 {customers.map((c) => {
                   const inactive = c.status === "Inactive";
                   const borderColor = inactive ? "border-red-400" : "border-green-500";
@@ -669,6 +753,8 @@ export default function CustomersPage() {
                   );
                 })}
                 {customers.length === 0 && <div className="bg-white rounded-xl border border-neutral-200 p-6 text-neutral-500">No customers yet. Add your first customer.</div>}
+                </>
+                )}
               </div>
               <div className="space-y-6">
                 <div className="bg-neutral-900 text-white rounded-xl p-4 border-none h-fit">
@@ -956,8 +1042,8 @@ export default function CustomersPage() {
                     Close
                   </button>
                   <button 
-                    onClick={() => { setPreviewOpen(false); removeCustomer(previewCust.id); }} 
-                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition shadow-lg"
+                    onClick={() => removeCustomer(previewCust.id)} 
+                    className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition shadow-lg"
                   >
                   <i className="fas fa-trash mr-2" />
                     Delete
@@ -967,6 +1053,44 @@ export default function CustomersPage() {
           )}
         </aside>
         </div>
+
+      {/* Delete confirmation modal */}
+      {deleteConfirmCustomer && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteConfirmCustomer(null)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-xl bg-rose-100 flex items-center justify-center">
+                  <i className="fas fa-trash text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-neutral-900">Delete Customer</h3>
+                  <p className="text-sm text-neutral-500">This action cannot be undone.</p>
+                </div>
+              </div>
+              <p className="text-neutral-600 mb-6">
+                Are you sure you want to delete <span className="font-semibold text-neutral-900">{deleteConfirmCustomer.name}</span>? All associated data will be removed.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirmCustomer(null)}
+                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-neutral-200 hover:bg-neutral-300 text-neutral-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteCustomer}
+                  disabled={deletingCustomer}
+                  className="flex-1 px-4 py-2.5 rounded-lg text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white transition disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {deletingCustomer ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50">

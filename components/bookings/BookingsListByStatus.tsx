@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
 import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bookingTypes";
 import Sidebar from "@/components/Sidebar";
@@ -461,9 +461,45 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         const { subscribeServicesForOwner } = await import("@/lib/services");
         const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
 
+        // Fetch staff on approved leave for the booking date (exclude from assignable list - like mobile app)
+        const staffIdsOnLeave = new Set<string>();
+        if (bookingToConfirm.date) {
+          try {
+            const leaveSnap = await getDocs(
+              query(
+                collection(db, "leave_requests"),
+                where("ownerUid", "==", ownerUid),
+                where("status", "==", "approved")
+              )
+            );
+            const bookingDateOnly = new Date(bookingToConfirm.date);
+            bookingDateOnly.setHours(0, 0, 0, 0);
+            for (const docSnap of leaveSnap.docs) {
+              const d = docSnap.data();
+              const staffId = (d.staffId ?? "").toString();
+              if (!staffId) continue;
+              const start = d.startDate;
+              const end = d.endDate ?? start;
+              if (!start || !end) continue;
+              const startDate = start?.toDate ? start.toDate() : new Date(start);
+              const endDate = end?.toDate ? end.toDate() : new Date(end);
+              const startOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+              const endOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+              if (bookingDateOnly >= startOnly && bookingDateOnly <= endOnly) {
+                staffIdsOnLeave.add(staffId);
+              }
+            }
+          } catch {
+            // leave_requests may not exist; ignore
+          }
+        }
+
         // Track loaded data
         let servicesData: any[] = [];
         let staffData: any[] = [];
+
+        const isStaffOnLeave = (s: any) =>
+          staffIdsOnLeave.has(String(s.id)) || staffIdsOnLeave.has(String(s.authUid ?? ""));
 
         const processData = () => {
           if (servicesData.length === 0 || staffData.length === 0) return;
@@ -496,20 +532,28 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
               }
               
-              // Filter by branch association (staff who work at this branch on ANY day)
-              if (bookingToConfirm.branchId) {
+              // Filter by branch and day (staff must work at this branch ON the booking date - like mobile app)
+              if (bookingToConfirm.branchId && bookingToConfirm.date) {
+                const bookingDate = new Date(bookingToConfirm.date);
+                const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                const dayName = daysOfWeek[bookingDate.getDay()];
                 filtered = filtered.filter((s: any) => {
-                  // Check home branch
-                  if (s.branchId === bookingToConfirm.branchId) return true;
-                  // Check if staff has ANY day scheduled at this branch
-                  if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                    return Object.values(s.weeklySchedule).some(
-                      (day: any) => day && day.branchId === bookingToConfirm.branchId
-                    );
+                  if (s.weeklySchedule && typeof s.weeklySchedule === "object") {
+                    const daySchedule = s.weeklySchedule[dayName];
+                    if (daySchedule && daySchedule.branchId) {
+                      return daySchedule.branchId === bookingToConfirm.branchId;
+                    }
+                    if (daySchedule === null || daySchedule === undefined) {
+                      return false; // Staff is off this day
+                    }
                   }
-                  return false;
+                  return s.branchId === bookingToConfirm.branchId;
                 });
+              } else if (bookingToConfirm.branchId) {
+                filtered = filtered.filter((s: any) => s.branchId === bookingToConfirm.branchId);
               }
+              // Exclude staff on approved leave on the booking date
+              filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
               
               staffPerService[serviceKey] = filtered.map((s: any) => ({
                 id: String(s.id),
@@ -538,20 +582,28 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               filtered = filtered.filter((s: any) => qualifiedStaffIds.includes(String(s.id)));
             }
 
-            // Filter by branch association (staff who work at this branch on ANY day)
-            if (bookingToConfirm.branchId) {
+            // Filter by branch and day (staff must work at this branch ON the booking date - like mobile app)
+            if (bookingToConfirm.branchId && bookingToConfirm.date) {
+              const bookingDate = new Date(bookingToConfirm.date);
+              const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+              const dayName = daysOfWeek[bookingDate.getDay()];
               filtered = filtered.filter((s: any) => {
-                // Check home branch
-                if (s.branchId === bookingToConfirm.branchId) return true;
-                // Check if staff has ANY day scheduled at this branch
-                if (s.weeklySchedule && typeof s.weeklySchedule === 'object') {
-                  return Object.values(s.weeklySchedule).some(
-                    (day: any) => day && day.branchId === bookingToConfirm.branchId
-                  );
+                if (s.weeklySchedule && typeof s.weeklySchedule === "object") {
+                  const daySchedule = s.weeklySchedule[dayName];
+                  if (daySchedule && daySchedule.branchId) {
+                    return daySchedule.branchId === bookingToConfirm.branchId;
+                  }
+                  if (daySchedule === null || daySchedule === undefined) {
+                    return false; // Staff is off this day
+                  }
                 }
-                return false;
+                return s.branchId === bookingToConfirm.branchId;
               });
+            } else if (bookingToConfirm.branchId) {
+              filtered = filtered.filter((s: any) => s.branchId === bookingToConfirm.branchId);
             }
+            // Exclude staff on approved leave on the booking date
+            filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
 
             setAvailableStaff(
               filtered.map((s: any) => ({
@@ -614,8 +666,44 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         const { subscribeServicesForOwner } = await import("@/lib/services");
         const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
 
+        // Fetch staff on approved leave for the booking date (exclude from assignable list - like mobile app)
+        const staffIdsOnLeave = new Set<string>();
+        if (bookingToReassign.date) {
+          try {
+            const leaveSnap = await getDocs(
+              query(
+                collection(db, "leave_requests"),
+                where("ownerUid", "==", ownerUid),
+                where("status", "==", "approved")
+              )
+            );
+            const bookingDateOnly = new Date(bookingToReassign.date);
+            bookingDateOnly.setHours(0, 0, 0, 0);
+            for (const docSnap of leaveSnap.docs) {
+              const d = docSnap.data();
+              const staffId = (d.staffId ?? "").toString();
+              if (!staffId) continue;
+              const start = d.startDate;
+              const end = d.endDate ?? start;
+              if (!start || !end) continue;
+              const startDate = start?.toDate ? start.toDate() : new Date(start);
+              const endDate = end?.toDate ? end.toDate() : new Date(end);
+              const startOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+              const endOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+              if (bookingDateOnly >= startOnly && bookingDateOnly <= endOnly) {
+                staffIdsOnLeave.add(staffId);
+              }
+            }
+          } catch {
+            // leave_requests may not exist; ignore
+          }
+        }
+
         let servicesData: any[] = [];
         let staffData: any[] = [];
+
+        const isStaffOnLeave = (s: any) =>
+          staffIdsOnLeave.has(String(s.id)) || staffIdsOnLeave.has(String(s.authUid ?? ""));
 
         const processData = () => {
           if (servicesData.length === 0 || staffData.length === 0) return;
@@ -687,6 +775,8 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   return s.branchId === bookingToReassign.branchId;
                 });
               }
+              // Exclude staff on approved leave on the booking date
+              filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
               
               staffPerService[serviceKey] = filtered.map((s: any) => ({
                 id: String(s.id),
@@ -736,6 +826,8 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 return s.branchId === bookingToReassign.branchId;
               });
             }
+            // Exclude staff on approved leave on the booking date
+            filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
 
             setAvailableStaff(
               filtered.map((s: any) => ({
@@ -2825,7 +2917,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         {availableStaff.length === 0 ? (
                           <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
                             <i className="fas fa-exclamation-triangle mr-2"></i>
-                            No available staff members found for this branch.
+                            No available staff. Staff must work at this branch on the booking date and not be on leave.
                           </div>
                         ) : (
                           <div className="space-y-2 max-h-64 overflow-y-auto">

@@ -977,7 +977,7 @@ export async function createBranchAdminNotification(data: {
   bookingDate: string;
   bookingTime: string;
   status?: BookingStatus;
-  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found";
+  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found" | "additional_issue_customer_accepted";
   title?: string;
   message?: string;
 }): Promise<string> {

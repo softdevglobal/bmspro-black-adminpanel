@@ -1597,23 +1597,50 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                           <i className="fas fa-times-circle" /> Rejected
                                         </span>
                                       ) : issue.price != null ? (
-                                        <div>
+                                        <div className="flex flex-col items-end gap-1">
                                           <p className="font-bold text-emerald-700">${Number(issue.price).toFixed(2)}</p>
                                           {issue.priceSetByName && (
                                             <p className="text-[10px] text-neutral-500">by {issue.priceSetByName}</p>
                                           )}
+                                          {issue.status === "approved" && (() => {
+                                            const cr = (issue.customerResponse || "").toString().toLowerCase();
+                                            if (cr === "accept" || cr === "accepted") {
+                                              return (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                                  <i className="fas fa-check-circle" /> Accepted
+                                                </span>
+                                              );
+                                            }
+                                            if (cr === "reject" || cr === "rejected") {
+                                              return (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                                                  <i className="fas fa-times-circle" /> Customer Rejected
+                                                </span>
+                                              );
+                                            }
+                                            return (
+                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                                <i className="fas fa-clock" /> Awaiting Customer
+                                              </span>
+                                            );
+                                          })()}
                                         </div>
                                       ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setIssuePriceModal({ bookingId: previewRow.id, issue });
-                                            setIssuePriceValue("");
-                                          }}
-                                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
-                                        >
-                                          Set Price
-                                        </button>
+                                        <div className="flex flex-col items-end gap-1">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                            <i className="fas fa-hourglass-half" /> Pending
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setIssuePriceModal({ bookingId: previewRow.id, issue });
+                                              setIssuePriceValue("");
+                                            }}
+                                            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                                          >
+                                            Set Price
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                   </div>

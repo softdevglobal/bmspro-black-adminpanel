@@ -381,6 +381,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             
             const isStaffRejected = notif.type === "staff_rejected";
             const isAdditionalIssue = notif.type === "additional_issue_found";
+            const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
             
             if (isNewBooking) {
               const isPending = !notif.status || 
@@ -392,6 +393,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             
             if (isNewEstimate) return true;
             if (isAdditionalIssue) return true;
+            if (isCustomerAcceptedAdditionalWork) return true;
             
             return isStaffRejected;
           });
@@ -464,6 +466,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           
           const isStaffRejectedNotification = data.type === "staff_rejected";
           const isAdditionalIssueNotification = data.type === "additional_issue_found";
+          const isCustomerAcceptedAdditionalWork = data.type === "additional_issue_customer_accepted";
           
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
@@ -474,7 +477,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
           const shouldShow = 
             (isNewBookingNotification && isPendingStatus) || 
             isStaffRejectedNotification ||
-            isAdditionalIssueNotification;
+            isAdditionalIssueNotification ||
+            isCustomerAcceptedAdditionalWork;
 
           if (!shouldShow) {
             continue;

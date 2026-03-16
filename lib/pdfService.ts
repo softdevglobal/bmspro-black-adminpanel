@@ -153,6 +153,7 @@ const PAGE_MARGIN = 40;
 const FOOTER_RESERVE = 52;
 const TASK_IMAGE_SIZE = 140;
 const FINAL_IMAGE_SIZE = 240;
+const DAMAGE_IMAGE_SIZE = 120;
 
 /** Normalize URL for Map lookup - strip query params so tokens don't cause mismatches */
 function normalizeImageUrl(url: string): string {
@@ -458,6 +459,52 @@ async function buildPDF(
       y = drawProminentTotal(doc, `$${Number(booking.price).toFixed(2)}`, leftMargin, y, pageWidth);
     }
     y += 8;
+
+    // ─── EXISTING DAMAGE (customer reference - images + recorded time) ──────
+    const damageImages = (booking.existingDamageImages || []).filter((u): u is string => !!u && typeof u === "string" && u.trim().length > 0);
+    if (damageImages.length > 0 || booking.existingDamageNotes) {
+      const damageSectionH = 50 + (booking.existingDamageNotes ? 30 : 0) + (damageImages.length > 0 ? 20 + Math.ceil(damageImages.length / 2) * (DAMAGE_IMAGE_SIZE + 30) : 0);
+      y = ensureSpace(doc, y, damageSectionH);
+      y = drawSectionHeader(doc, "Existing Damage (Customer Reference)", leftMargin, y, pageWidth);
+      const recordedTime = booking.date && booking.time
+        ? `${booking.date} at ${formatTime12h(booking.time)}`
+        : booking.date || "—";
+      doc.fontSize(8).fillColor(COLORS.muted)
+        .text(`Recorded at drop-off: ${recordedTime}`, leftMargin, y, { width: pageWidth });
+      y += 14;
+      if (booking.existingDamageNotes) {
+        doc.fontSize(9).fillColor(COLORS.primary)
+          .text(booking.existingDamageNotes, leftMargin, y, { width: pageWidth });
+        y += doc.heightOfString(booking.existingDamageNotes, { width: pageWidth }) + 10;
+      }
+      if (damageImages.length > 0) {
+        doc.fontSize(8).fillColor(COLORS.muted).text("Photos:", leftMargin, y, { width: pageWidth });
+        y += 14;
+        const imagesPerRow = 2;
+        const imgWidth = (pageWidth - 20) / imagesPerRow;
+        for (let i = 0; i < damageImages.length; i++) {
+          const col = i % imagesPerRow;
+          const row = Math.floor(i / imagesPerRow);
+          const imgX = leftMargin + col * (imgWidth + 10);
+          const imgY = y + row * (DAMAGE_IMAGE_SIZE + 24);
+          const imgBuf = getImageBuffer(damageImages[i]);
+          if (imgBuf && imgBuf.length > 0) {
+            try {
+              doc.image(imgBuf, imgX, imgY, { fit: [DAMAGE_IMAGE_SIZE, DAMAGE_IMAGE_SIZE] });
+              doc.fontSize(7).fillColor(COLORS.muted)
+                .text(`Photo ${i + 1}`, imgX, imgY + DAMAGE_IMAGE_SIZE + 4, { width: DAMAGE_IMAGE_SIZE });
+            } catch (imgErr) {
+              doc.fontSize(7).fillColor("#9ca3af").text(`[Photo ${i + 1} unavailable]`, imgX, imgY + 4, { width: DAMAGE_IMAGE_SIZE });
+            }
+          } else {
+            doc.roundedRect(imgX, imgY, DAMAGE_IMAGE_SIZE, DAMAGE_IMAGE_SIZE, 4).fill(COLORS.background).stroke(COLORS.border);
+            doc.fontSize(7).fillColor("#9ca3af").text(`[Photo ${i + 1}]`, imgX, imgY + DAMAGE_IMAGE_SIZE / 2 - 6, { width: DAMAGE_IMAGE_SIZE, align: "center" });
+          }
+        }
+        y += Math.ceil(damageImages.length / imagesPerRow) * (DAMAGE_IMAGE_SIZE + 28);
+      }
+      y += 12;
+    }
 
     // ─── SERVICES (start on page 2) ────────────────────────────
     doc.addPage();

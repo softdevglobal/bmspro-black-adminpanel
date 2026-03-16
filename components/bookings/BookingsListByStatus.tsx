@@ -102,6 +102,7 @@ type AdditionalIssueRow = {
   priceSetAt?: string | null;
   priceSetByName?: string | null;
   status?: "pending" | "approved" | "rejected";
+  customerResponse?: "accept" | "reject" | null;
   reportedAt?: string | null;
   reportedByStaffName?: string | null;
   serviceId?: string | null;

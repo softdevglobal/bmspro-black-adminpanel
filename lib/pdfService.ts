@@ -425,19 +425,24 @@ async function buildPDF(
     if (booking.branchName) details.push(["Branch", booking.branchName]);
     if (booking.duration) details.push(["Duration", formatDuration(booking.duration)]);
     // Price breakdown: Service Price, Additional Work, Total (when we have additional issues or price)
-    const pdfVisibleIssues = (booking.additionalIssues || []).filter((i: any) => i.status === "approved" && i.price != null);
-    const pdfAcceptedIssues = pdfVisibleIssues.filter(
-      (i: any) => i.status === "approved" && i.price != null && i.customerResponse !== "reject" && i.customerResponse !== "rejected"
+    // Only include completed additional work (✔) - undone items (X) are not relevant to the final bill
+    const pdfBillableIssues = (booking.additionalIssues || []).filter(
+      (i: any) =>
+        i.status === "approved" &&
+        i.price != null &&
+        i.customerResponse !== "reject" &&
+        i.customerResponse !== "rejected" &&
+        ((i.completionStatus || "").toLowerCase() === "completed")
     );
-    const pdfAdditionalTotal = pdfAcceptedIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+    const pdfAdditionalTotal = pdfBillableIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
     const pdfServicesList = booking.services && booking.services.length > 0 ? booking.services : [];
     const pdfServicesSubtotal = pdfServicesList.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0) || Number(booking.price) || 0;
     const pdfGrandTotal = pdfServicesSubtotal + pdfAdditionalTotal || Number(booking.price) || 0;
-    const hasPriceBreakdown = pdfGrandTotal > 0 || pdfVisibleIssues.length > 0;
+    const hasPriceBreakdown = pdfGrandTotal > 0 || pdfBillableIssues.length > 0;
     const hasSinglePrice = !hasPriceBreakdown && booking.price !== undefined && booking.price !== null;
     if (hasPriceBreakdown) {
       details.push(["Service Price", `$${pdfServicesSubtotal.toFixed(2)}`]);
-      for (const issue of pdfVisibleIssues) {
+      for (const issue of pdfBillableIssues) {
         const name = issue.issueTitle || "Issue";
         const price = issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
         details.push([`Additional Work: ${name}`, price]);
@@ -665,9 +670,13 @@ async function buildPDF(
       y += cardH + 8;
     }
 
-    // ─── COST SUMMARY (services + additional work = total) ──────
-    // Exclude admin rejected; customer rejected shown in list but not in total
-    const visibleAdditionalIssues = (booking.additionalIssues || []).filter((i: any) => i.status === "approved" && i.price != null);
+    // ─── ADDITIONAL ISSUES FOUND (only completed work - exclude undone items from bill) ──────
+    const visibleAdditionalIssues = (booking.additionalIssues || []).filter(
+      (i: any) =>
+        i.status === "approved" &&
+        i.price != null &&
+        ((i.completionStatus || "").toLowerCase() === "completed")
+    );
 
     // Cost Summary removed - Total shown only on page 1 (Booking Details)
 

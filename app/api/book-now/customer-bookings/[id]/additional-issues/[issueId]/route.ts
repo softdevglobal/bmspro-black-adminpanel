@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import {
   createAdditionalIssueAcceptedNotification,
+  createAdditionalIssueCustomerRejectedNotification,
   createNotification,
   createBranchAdminNotification,
   getBranchAdminUids,
@@ -13,7 +14,7 @@ export const runtime = "nodejs";
 /**
  * PATCH - Customer accepts or rejects an additional issue quote.
  * Secured by customerId (must match booking's customerId or clientEmail).
- * When customer accepts, notifies: staff (reporter + assigned), owner, and branch admin.
+ * When customer accepts or rejects, notifies: staff (reporter + assigned), owner, and branch admin.
  */
 export async function PATCH(
   req: NextRequest,
@@ -80,29 +81,27 @@ export async function PATCH(
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // When customer accepts, notify staff (reporter + assigned), owner, and branch admin
+    // When customer accepts or rejects, notify staff (reporter + assigned), owner, and branch admin
+    const clientName = bookingData.client || bookingData.clientName || "Customer";
+    const bookingCode = bookingData.bookingCode || undefined;
+    const ownerUid = (bookingData.ownerUid || bookingData.ownerId || "").toString();
+    const branchId = (bookingData.branchId || "").toString();
+    const issueTitle = issue.issueTitle || "Additional work";
+    const priceStr = issue.price != null ? `$${issue.price.toFixed(2)}` : "";
+
+    // Collect staff to notify (reporter + assigned)
+    const reportedByStaffUid = issue.reportedByStaffUid || issue.reportedByStaffId;
+    const staffUidsToNotify = new Set<string>();
+    if (reportedByStaffUid) staffUidsToNotify.add(reportedByStaffUid);
+    const services = Array.isArray(bookingData.services) ? bookingData.services : [];
+    for (const svc of services) {
+      const staffAuthUid = (svc.staffAuthUid || svc.staffId || "").toString();
+      if (staffAuthUid) staffUidsToNotify.add(staffAuthUid);
+    }
+    if (bookingData.staffAuthUid) staffUidsToNotify.add(String(bookingData.staffAuthUid));
+    if (bookingData.staffId) staffUidsToNotify.add(String(bookingData.staffId));
+
     if (action === "accept") {
-      const clientName = bookingData.client || bookingData.clientName || "Customer";
-      const bookingCode = bookingData.bookingCode || undefined;
-      const ownerUid = (bookingData.ownerUid || bookingData.ownerId || "").toString();
-      const branchId = (bookingData.branchId || "").toString();
-      const issueTitle = issue.issueTitle || "Additional work";
-      const priceStr = issue.price != null ? `$${issue.price.toFixed(2)}` : "";
-
-      // 1. Notify staff who reported the issue
-      const reportedByStaffUid = issue.reportedByStaffUid || issue.reportedByStaffId;
-      const staffUidsToNotify = new Set<string>();
-      if (reportedByStaffUid) staffUidsToNotify.add(reportedByStaffUid);
-
-      // 2. Also notify staff assigned to the booking (in case different from reporter)
-      const services = Array.isArray(bookingData.services) ? bookingData.services : [];
-      for (const svc of services) {
-        const staffAuthUid = (svc.staffAuthUid || svc.staffId || "").toString();
-        if (staffAuthUid) staffUidsToNotify.add(staffAuthUid);
-      }
-      if (bookingData.staffAuthUid) staffUidsToNotify.add(String(bookingData.staffAuthUid));
-      if (bookingData.staffId) staffUidsToNotify.add(String(bookingData.staffId));
-
       for (const staffUid of staffUidsToNotify) {
         try {
           await createAdditionalIssueAcceptedNotification({
@@ -171,6 +170,75 @@ export async function PATCH(
           }
         } catch (e) {
           console.error("Failed to notify branch admin of customer acceptance:", e);
+        }
+      }
+    } else if (action === "reject") {
+      // Customer rejected: notify staff, owner, and branch admin
+      for (const staffUid of staffUidsToNotify) {
+        try {
+          await createAdditionalIssueCustomerRejectedNotification({
+            bookingId: id,
+            bookingCode,
+            staffUid,
+            staffName: issue.reportedByStaffName || undefined,
+            clientName,
+            issueTitle,
+            serviceName: bookingData.serviceName || undefined,
+            branchName: bookingData.branchName || undefined,
+            bookingDate: bookingData.date || undefined,
+            bookingTime: bookingData.time || undefined,
+            ownerUid,
+          });
+        } catch (e) {
+          console.error(`Failed to notify staff ${staffUid} of customer rejection:`, e);
+        }
+      }
+
+      if (ownerUid) {
+        try {
+          await createNotification({
+            bookingId: id,
+            bookingCode,
+            type: "additional_issue_customer_rejected" as any,
+            title: "Customer Declined Additional Work",
+            message: `${clientName} declined ${issueTitle}${priceStr ? ` (${priceStr})` : ""}.`,
+            status: "Confirmed",
+            ownerUid,
+            targetOwnerUid: ownerUid,
+            clientName,
+            serviceName: bookingData.serviceName || undefined,
+            branchName: bookingData.branchName || undefined,
+            bookingDate: bookingData.date || undefined,
+            bookingTime: bookingData.time || undefined,
+          } as any);
+        } catch (e) {
+          console.error("Failed to notify owner of customer rejection:", e);
+        }
+      }
+
+      if (branchId && ownerUid) {
+        try {
+          const branchAdminUids = await getBranchAdminUids(db, branchId, ownerUid);
+          for (const branchAdminUid of branchAdminUids) {
+            await createBranchAdminNotification({
+              bookingId: id,
+              bookingCode,
+              branchAdminUid,
+              ownerUid,
+              clientName,
+              serviceName: bookingData.serviceName || undefined,
+              branchName: bookingData.branchName || undefined,
+              branchId,
+              bookingDate: bookingData.date || "",
+              bookingTime: bookingData.time || "",
+              status: "Confirmed",
+              type: "additional_issue_customer_rejected" as any,
+              title: "Customer Declined Additional Work",
+              message: `${clientName} declined ${issueTitle}${priceStr ? ` (${priceStr})` : ""}.`,
+            });
+          }
+        } catch (e) {
+          console.error("Failed to notify branch admin of customer rejection:", e);
         }
       }
     }

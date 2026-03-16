@@ -382,6 +382,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             const isStaffRejected = notif.type === "staff_rejected";
             const isAdditionalIssue = notif.type === "additional_issue_found";
             const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
+            const isCustomerRejectedAdditionalWork = notif.type === "additional_issue_customer_rejected";
             
             if (isNewBooking) {
               const isPending = !notif.status || 
@@ -394,6 +395,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             if (isNewEstimate) return true;
             if (isAdditionalIssue) return true;
             if (isCustomerAcceptedAdditionalWork) return true;
+            if (isCustomerRejectedAdditionalWork) return true;
             
             return isStaffRejected;
           });
@@ -467,6 +469,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           const isStaffRejectedNotification = data.type === "staff_rejected";
           const isAdditionalIssueNotification = data.type === "additional_issue_found";
           const isCustomerAcceptedAdditionalWork = data.type === "additional_issue_customer_accepted";
+          const isCustomerRejectedAdditionalWork = data.type === "additional_issue_customer_rejected";
           
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
@@ -478,7 +481,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
             (isNewBookingNotification && isPendingStatus) || 
             isStaffRejectedNotification ||
             isAdditionalIssueNotification ||
-            isCustomerAcceptedAdditionalWork;
+            isCustomerAcceptedAdditionalWork ||
+            isCustomerRejectedAdditionalWork;
 
           if (!shouldShow) {
             continue;
@@ -913,6 +917,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
     // 1. New Booking Created (booking_engine_new_booking, staff_booking_created, booking_needs_assignment, booking_request)
     // 2. Staff Rejected a Service (staff_rejected)
     // 3. Additional Issue Reported (additional_issue_found) - owner/branch admin must set price
+    // 4. Customer accepted/rejected additional work (additional_issue_customer_accepted, additional_issue_customer_rejected)
     const validNotifications = notifications.filter((notif) => {
       // Skip dismissed/deleted notifications
       if (dismissedNotificationIds.has(notif.id)) {
@@ -927,6 +932,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
       
       const isStaffRejectedNotification = notif.type === "staff_rejected";
       const isAdditionalIssueNotification = notif.type === "additional_issue_found";
+      const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
+      const isCustomerRejectedAdditionalWork = notif.type === "additional_issue_customer_rejected";
       
       // For new booking notifications, only show if booking is still pending
       if (isNewBookingNotification) {
@@ -944,6 +951,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
       
       // Always show additional issue notifications (owner/branch admin must set price)
       if (isAdditionalIssueNotification) {
+        return true;
+      }
+      
+      // Always show customer response to additional work (accepted or rejected)
+      if (isCustomerAcceptedAdditionalWork || isCustomerRejectedAdditionalWork) {
         return true;
       }
       

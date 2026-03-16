@@ -15,7 +15,8 @@ export type StaffNotificationType =
   | "staff_assignment"      // Staff receives new booking to review
   | "staff_reassignment"    // Staff receives reassigned booking
   | "additional_issue_accepted"   // Customer accepted additional work - staff can proceed
-  | "additional_issue_rejected";  // Admin rejected additional work - staff sees it in app
+  | "additional_issue_rejected"   // Admin rejected additional work - staff sees it in app
+  | "additional_issue_customer_rejected";  // Customer declined additional work - staff sees it in app
 
 // Admin-facing notification types
 // NOTE: staff_accepted is NOT sent to admin panel (per business logic).
@@ -788,6 +789,42 @@ export async function createAdditionalIssueRejectedNotification(data: {
 }
 
 /**
+ * Notify staff when customer declines their additional issue quote.
+ */
+export async function createAdditionalIssueCustomerRejectedNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  staffUid: string;
+  staffName?: string;
+  clientName: string;
+  issueTitle: string;
+  serviceName?: string;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+  ownerUid: string;
+}): Promise<string> {
+  const notificationData: Omit<StaffNotification, "id" | "createdAt" | "read"> = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "additional_issue_customer_rejected" as any,
+    title: "Customer Declined Additional Work",
+    message: `${data.clientName} declined ${data.issueTitle}. Check the booking for details.`,
+    status: "Confirmed",
+    ownerUid: data.ownerUid,
+    staffUid: data.staffUid,
+    staffName: data.staffName,
+    clientName: data.clientName,
+    serviceName: data.serviceName,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+  };
+
+  return createNotification(notificationData);
+}
+
+/**
  * Get staff-facing notification content
  */
 export function getStaffNotificationContent(
@@ -977,7 +1014,7 @@ export async function createBranchAdminNotification(data: {
   bookingDate: string;
   bookingTime: string;
   status?: BookingStatus;
-  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found" | "additional_issue_customer_accepted";
+  type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found" | "additional_issue_customer_accepted" | "additional_issue_customer_rejected";
   title?: string;
   message?: string;
 }): Promise<string> {

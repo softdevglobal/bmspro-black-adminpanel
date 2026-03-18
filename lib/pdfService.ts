@@ -49,6 +49,7 @@ interface BookingPDFData {
   tasks?: BookingTask[];
   taskProgress?: number;
   finalSubmission?: BookingFinalSubmission | null;
+  finalSubmissionsByService?: Record<string, BookingFinalSubmission> | null;
   additionalIssues?: Array<{
     id: string;
     issueTitle: string;
@@ -239,6 +240,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     tasks: data.tasks || [],
     taskProgress: data.taskProgress,
     finalSubmission: data.finalSubmission || null,
+    finalSubmissionsByService: data.finalSubmissionsByService && typeof data.finalSubmissionsByService === "object" ? data.finalSubmissionsByService : null,
     additionalIssues: Array.isArray(data.additionalIssues) ? data.additionalIssues : null,
     salonName,
   };
@@ -277,6 +279,13 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   }
   const fsImage = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
   if (fsImage && typeof fsImage === "string" && fsImage.trim().length > 0) imageUrls.add(fsImage.trim());
+  const byService = booking.finalSubmissionsByService as Record<string, { imageUrl?: string; image?: string }> | undefined;
+  if (byService && typeof byService === "object") {
+    for (const sub of Object.values(byService)) {
+      const url = sub?.imageUrl || sub?.image;
+      if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
+    }
+  }
   for (const url of booking.existingDamageImages || []) {
     if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
   }
@@ -442,7 +451,21 @@ async function buildPDF(
     const hasPriceBreakdown = pdfGrandTotal > 0 || pdfBillableIssues.length > 0;
     const hasSinglePrice = !hasPriceBreakdown && booking.price !== undefined && booking.price !== null;
     if (hasPriceBreakdown) {
-      details.push(["Service Price", `$${pdfServicesSubtotal.toFixed(2)}`]);
+      // Service-wise price breakdown when multiple services
+      if (pdfServicesList.length > 1) {
+        for (const svc of pdfServicesList) {
+          const svcName = svc.name || "Service";
+          const staffName = svc.staffName || "—";
+          const price = Number(svc.price) || 0;
+          details.push([`${svcName} (Staff: ${staffName})`, `$${price.toFixed(2)}`]);
+        }
+      } else if (pdfServicesList.length === 1) {
+        const svc = pdfServicesList[0];
+        const staffName = svc.staffName ? ` (Staff: ${svc.staffName})` : "";
+        details.push([`Service${staffName}`, `$${(Number(svc.price) || 0).toFixed(2)}`]);
+      } else {
+        details.push(["Service Price", `$${pdfServicesSubtotal.toFixed(2)}`]);
+      }
       for (const issue of pdfBillableIssues) {
         const name = issue.issueTitle || "Issue";
         const price = issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
@@ -450,7 +473,12 @@ async function buildPDF(
       }
     }
     if (booking.completedAt) details.push(["Completed At", formatTimestampInTimezone(booking.completedAt, booking.branchTimezone)]);
-    if (booking.completedByStaffName) details.push(["Completed By", booking.completedByStaffName]);
+    if (booking.completedByStaffName || (pdfServicesList.length > 1 && pdfServicesList.some((s: any) => s.completedByStaffName))) {
+      const completedBy = pdfServicesList.length > 1
+        ? [...new Set(pdfServicesList.map((s: any) => s.completedByStaffName).filter(Boolean))].join(", ") || booking.completedByStaffName
+        : booking.completedByStaffName;
+      if (completedBy) details.push(["Completed By", completedBy]);
+    }
 
     y = drawKeyValueTable(doc, details, leftMargin, y, pageWidth);
     if (hasPriceBreakdown) {
@@ -515,15 +543,38 @@ async function buildPDF(
         ? [{ name: booking.serviceName, staffName: booking.staffName, duration: booking.duration, price: booking.price }]
         : [];
 
+    const isCollaborativeBooking = services.length > 1;
+
     if (services.length > 0) {
       y = ensureSpace(doc, y, 70);
-      y = drawSectionHeader(doc, "Services", leftMargin, y, pageWidth);
+      const servicesTitle = isCollaborativeBooking 
+        ? `Services (${services.length} services – Collaborative Booking)` 
+        : "Services";
+      y = drawSectionHeader(doc, servicesTitle, leftMargin, y, pageWidth);
+
+      // For collaborative bookings, show a staff assignment summary
+      if (isCollaborativeBooking) {
+        const uniqueStaff = new Set<string>();
+        for (const svc of services) {
+          if (svc.staffName) uniqueStaff.add(svc.staffName);
+        }
+        if (uniqueStaff.size > 1) {
+          y = ensureSpace(doc, y, 28);
+          doc.roundedRect(leftMargin, y, pageWidth, 22, 4).fill(COLORS.blueLight);
+          doc.fontSize(8).fillColor(COLORS.blue)
+            .text(`Assigned Staff: ${Array.from(uniqueStaff).join(", ")}`, leftMargin + 10, y + 6, { width: pageWidth - 20 });
+          y += 28;
+        }
+      }
 
       for (let i = 0; i < services.length; i++) {
         const svc = services[i];
-        y = ensureSpace(doc, y, 48);
+        const completedByName = (svc as any).completedByStaffName || "";
+        const hasCompletedBy = completedByName && completedByName !== svc.staffName;
+        const cardH = hasCompletedBy ? 52 : 40;
+        y = ensureSpace(doc, y, cardH + 6);
 
-        doc.roundedRect(leftMargin, y, pageWidth, 40, 4).fill(COLORS.background);
+        doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill(COLORS.background);
         doc.fontSize(10).fillColor(COLORS.primary)
           .text(`${i + 1}. ${svc.name || "Service"}`, leftMargin + 10, y + 7, { width: pageWidth - 80 });
 
@@ -538,6 +589,11 @@ async function buildPDF(
             .text(subParts.join("  |  "), leftMargin + 10, y + 24, { width: pageWidth - 80 });
         }
 
+        if (hasCompletedBy) {
+          doc.fontSize(7).fillColor(COLORS.green)
+            .text(`Completed by: ${completedByName}`, leftMargin + 10, y + 38, { width: pageWidth - 80 });
+        }
+
         const isServiceDone = (svc as any).completionStatus === "completed";
         if (isServiceDone) {
           const badgeX = leftMargin + pageWidth - 66;
@@ -549,30 +605,88 @@ async function buildPDF(
           });
         }
 
-        y += 46;
+        y += cardH + 6;
       }
       y += 4;
     }
 
-    // ─── TASK LIST ────────────────────────────────────────────
+    // ─── TASK LIST (grouped by service for collaborative bookings) ────────────────────────────────────────────
     const tasks = booking.tasks || [];
     if (tasks.length > 0) {
-      y = ensureSpace(doc, y, 60);
-      const doneCount = tasks.filter(t => t.done).length;
-      y = drawSectionHeader(doc, `Tasks (${doneCount}/${tasks.length} completed)`, leftMargin, y, pageWidth);
+      const servicesForTasks = booking.services && booking.services.length > 0 ? booking.services : [];
+      const isMultiService = servicesForTasks.length > 1;
 
-      // Progress bar
-      const progressPct = booking.taskProgress || (tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0);
-      doc.roundedRect(leftMargin, y, pageWidth, 7, 3).fill(COLORS.border);
-      if (progressPct > 0) {
-        const barWidth = Math.max(7, (pageWidth * progressPct) / 100);
-        doc.roundedRect(leftMargin, y, barWidth, 7, 3).fill(doneCount === tasks.length ? COLORS.green : COLORS.amber);
+      // Group tasks by serviceId
+      const tasksByService = new Map<string, typeof tasks>();
+      const serviceOrder: string[] = [];
+      for (const svc of servicesForTasks) {
+        const sid = String((svc as any)?.id ?? "");
+        if (sid && !tasksByService.has(sid)) {
+          tasksByService.set(sid, []);
+          serviceOrder.push(sid);
+        }
       }
-      doc.fontSize(8).fillColor(COLORS.muted).text(`${progressPct}%`, leftMargin + pageWidth + 4, y - 1);
-      y += 16;
+      if (serviceOrder.length === 0 && tasks.length > 0) {
+        serviceOrder.push("_single");
+        tasksByService.set("_single", []);
+      }
+      const unassignedTasks: typeof tasks = [];
+      for (const task of tasks) {
+        const sid = (task as any).serviceId ? String((task as any).serviceId) : "";
+        if (sid && tasksByService.has(sid)) {
+          tasksByService.get(sid)!.push(task);
+        } else {
+          unassignedTasks.push(task);
+        }
+      }
+      if (unassignedTasks.length > 0 && serviceOrder.length > 0) {
+        tasksByService.set(serviceOrder[0], [...(tasksByService.get(serviceOrder[0]) || []), ...unassignedTasks]);
+      } else if (unassignedTasks.length > 0) {
+        tasksByService.set("_other", unassignedTasks);
+        serviceOrder.push("_other");
+      }
 
-      for (let i = 0; i < tasks.length; i++) {
-        const task = tasks[i];
+      const doneCount = tasks.filter(t => t.done).length;
+      const progressPct = booking.taskProgress || (tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0);
+
+      for (const sid of serviceOrder) {
+        const serviceTasks = tasksByService.get(sid) || [];
+        if (serviceTasks.length === 0) continue;
+
+        const svc = servicesForTasks.find((s: any) => String(s?.id) === sid);
+        const svcName = (svc as any)?.name || "Service";
+        const staffName = (svc as any)?.staffName || "";
+        const sectionTitle = isMultiService && staffName
+          ? `Tasks: ${svcName} (Staff: ${staffName})`
+          : isMultiService
+            ? `Tasks: ${svcName}`
+            : `Tasks (${doneCount}/${tasks.length} completed)`;
+
+        y = ensureSpace(doc, y, 60);
+        y = drawSectionHeader(doc, sectionTitle, leftMargin, y, pageWidth);
+
+        if (!isMultiService || serviceOrder.length === 1) {
+          doc.roundedRect(leftMargin, y, pageWidth, 7, 3).fill(COLORS.border);
+          if (progressPct > 0) {
+            const barWidth = Math.max(7, (pageWidth * progressPct) / 100);
+            doc.roundedRect(leftMargin, y, barWidth, 7, 3).fill(doneCount === tasks.length ? COLORS.green : COLORS.amber);
+          }
+          doc.fontSize(8).fillColor(COLORS.muted).text(`${progressPct}%`, leftMargin + pageWidth + 4, y - 1);
+          y += 16;
+        } else {
+          const svcDone = serviceTasks.filter(t => t.done).length;
+          const svcPct = serviceTasks.length > 0 ? Math.round((svcDone / serviceTasks.length) * 100) : 0;
+          doc.roundedRect(leftMargin, y, pageWidth, 7, 3).fill(COLORS.border);
+          if (svcPct > 0) {
+            const barWidth = Math.max(7, (pageWidth * svcPct) / 100);
+            doc.roundedRect(leftMargin, y, barWidth, 7, 3).fill(svcDone === serviceTasks.length ? COLORS.green : COLORS.amber);
+          }
+          doc.fontSize(8).fillColor(COLORS.muted).text(`${svcDone}/${serviceTasks.length} (${svcPct}%)`, leftMargin + pageWidth + 4, y - 1);
+          y += 16;
+        }
+
+      for (let i = 0; i < serviceTasks.length; i++) {
+        const task = serviceTasks[i];
         const taskImageUrl = (task as any).imageUrl || (task as any).image;
         const hasTaskImageSlot = !!(task.done && taskImageUrl); // Reserve space for image or placeholder
         const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImageSlot);
@@ -663,21 +777,36 @@ async function buildPDF(
 
         y += cardH + 4;
       }
-      y += 4;
+        y += 4;
+      }
     }
 
-    // ─── FINAL SUBMISSION ─────────────────────────────────────
-    const fsImageUrl = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
-    if (booking.finalSubmission && (booking.finalSubmission.description || fsImageUrl)) {
-      const fs = booking.finalSubmission;
+    // ─── FINAL SUBMISSION (per-service for collaborative, single for legacy) ─────────────────────────────────────
+    const byService = booking.finalSubmissionsByService as Record<string, BookingFinalSubmission> | undefined;
+    const finalSubsToRender: Array<{ serviceName?: string; fs: BookingFinalSubmission }> = [];
+    if (byService && typeof byService === "object" && Object.keys(byService).length > 0) {
+      const services = booking.services || [];
+      for (const [sid, sub] of Object.entries(byService)) {
+        if (!sub || typeof sub !== "object") continue;
+        const svc = Array.isArray(services) ? services.find((s: any) => String(s?.id) === String(sid)) : null;
+        finalSubsToRender.push({ serviceName: (svc as any)?.name || "Service", fs: sub });
+      }
+    }
+    if (finalSubsToRender.length === 0 && booking.finalSubmission) {
+      finalSubsToRender.push({ fs: booking.finalSubmission });
+    }
+    for (const { serviceName, fs } of finalSubsToRender) {
+      const fsImageUrl = (fs as any)?.imageUrl || (fs as any)?.image;
+      if (!fs.description && !fsImageUrl) continue;
       doc.fontSize(10);
       const descH = fs.description ? doc.heightOfString(fs.description, { width: pageWidth - 28 }) : 0;
       const hasFinalImage = !!(fsImageUrl && getImageBuffer(fsImageUrl)?.length);
       let cardH = 10 + descH + 8 + (fs.submittedByStaffName ? 14 : 0) + 10;
-      if (hasFinalImage) cardH += 12 + FINAL_IMAGE_SIZE + 8; // "Overall photo:" + image + padding
+      if (hasFinalImage) cardH += 12 + FINAL_IMAGE_SIZE + 8;
 
       y = ensureSpace(doc, y, cardH + 30);
-      y = drawSectionHeader(doc, "Final Submission", leftMargin, y, pageWidth);
+      const sectionTitle = serviceName ? `Final Submission: ${serviceName}` : "Final Submission";
+      y = drawSectionHeader(doc, sectionTitle, leftMargin, y, pageWidth);
 
       doc.roundedRect(leftMargin, y, pageWidth, cardH, 5)
         .lineWidth(0.5)
@@ -696,7 +825,6 @@ async function buildPDF(
         fsY += 14;
       }
 
-      // Overall/final image
       if (fsImageUrl) {
         const imgBuf = getImageBuffer(fsImageUrl);
         if (imgBuf && imgBuf.length > 0) {
@@ -717,11 +845,15 @@ async function buildPDF(
       y += cardH + 8;
     }
 
-    // ─── ADDITIONAL ISSUES FOUND (only completed work - exclude undone items from bill) ──────
-    const visibleAdditionalIssues = (booking.additionalIssues || []).filter(
+    // ─── ADDITIONAL ISSUES FOUND (show all for comprehensive report) ──────
+    const allAdditionalIssues = (booking.additionalIssues || []).filter(
+      (i: any) => i.status === "approved" && i.price != null
+    );
+    // For billing: only completed, customer-accepted items
+    const visibleAdditionalIssues = allAdditionalIssues.filter(
       (i: any) =>
-        i.status === "approved" &&
-        i.price != null &&
+        i.customerResponse !== "reject" &&
+        i.customerResponse !== "rejected" &&
         ((i.completionStatus || "").toLowerCase() === "completed")
     );
 
@@ -737,16 +869,44 @@ async function buildPDF(
       y += notesH + 8;
     }
 
-    // ─── ADDITIONAL ISSUES FOUND (exclude admin rejected) ────────
+    // ─── ADDITIONAL ISSUES FOUND (comprehensive - show all with status) ────────
     const ADDITIONAL_IMG_SIZE = 70;
-    if (visibleAdditionalIssues.length > 0) {
+    if (allAdditionalIssues.length > 0) {
       y = ensureSpace(doc, y, 60);
-      y = drawSectionHeader(doc, "Additional Issues Found (Technician-Reported)", leftMargin, y, pageWidth);
+      const completedIssueCount = allAdditionalIssues.filter((i: any) => ((i.completionStatus || "").toLowerCase() === "completed")).length;
+      const issuesSectionTitle = allAdditionalIssues.length > 0
+        ? `Additional Work (${completedIssueCount}/${allAdditionalIssues.length} completed)`
+        : "Additional Work";
+      y = drawSectionHeader(doc, issuesSectionTitle, leftMargin, y, pageWidth);
 
-      for (let i = 0; i < visibleAdditionalIssues.length; i++) {
-        const issue = visibleAdditionalIssues[i];
+      for (let i = 0; i < allAdditionalIssues.length; i++) {
+        const issue = allAdditionalIssues[i];
         const issueImageUrl = (issue as any).imageUrl || (issue as any).image;
         const hasImage = !!(issueImageUrl && getImageBuffer(issueImageUrl)?.length);
+
+        // Determine status label and colors
+        const customerResponse = (issue as any).customerResponse?.toString()?.toLowerCase() ?? "";
+        const issueCompleted = ((issue as any).completionStatus || "").toLowerCase() === "completed";
+        const isCustomerRejected = customerResponse === "reject" || customerResponse === "rejected";
+        const isCustomerAccepted = customerResponse === "accept" || customerResponse === "accepted";
+        
+        let statusLabel = "Pending";
+        let statusColor: string = COLORS.amber;
+        let cardBg = "#fef3c7";
+        if (issueCompleted) {
+          statusLabel = "COMPLETED";
+          statusColor = COLORS.green;
+          cardBg = "#f0fdf4";
+        } else if (isCustomerRejected) {
+          statusLabel = "CUSTOMER REJECTED";
+          statusColor = "#b91c1c";
+          cardBg = "#fef2f2";
+        } else if (isCustomerAccepted) {
+          statusLabel = "ACCEPTED";
+          statusColor = COLORS.blue;
+          cardBg = COLORS.blueLight;
+        }
+
         let cardH = 44;
         if (issue.description) {
           doc.fontSize(8);
@@ -755,15 +915,25 @@ async function buildPDF(
         if (hasImage) cardH = Math.max(cardH, ADDITIONAL_IMG_SIZE + 24);
         y = ensureSpace(doc, y, cardH);
 
-        doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill("#fef3c7");
+        doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill(cardBg);
         doc.fontSize(10).fillColor(COLORS.primary)
           .text(`${i + 1}. ${issue.issueTitle || "Issue"}`, leftMargin + 10, y + 6, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
+
+        // Status badge
+        const badgeX = leftMargin + pageWidth - 80;
+        doc.roundedRect(badgeX, y + 5, 68, 14, 3).fill(issueCompleted ? COLORS.greenLight : (isCustomerRejected ? "#fecaca" : COLORS.blueLight));
+        doc.fontSize(6).fillColor(statusColor).text(statusLabel, badgeX + 3, y + 9, {
+          width: 62,
+          align: "center",
+          lineBreak: false,
+        });
 
         const subParts: string[] = [];
         if (issue.recommendedRepair) subParts.push(`Repair: ${issue.recommendedRepair}`);
         if (issue.partsRequired) subParts.push(`Parts: ${issue.partsRequired}`);
         if (issue.labourTimeHours != null) subParts.push(`${issue.labourTimeHours} hrs`);
-        if (issue.reportedByStaffName) subParts.push(`by ${issue.reportedByStaffName}`);
+        if (issue.reportedByStaffName) subParts.push(`Reported by: ${issue.reportedByStaffName}`);
+        if (issue.price != null) subParts.push(`$${Number(issue.price).toFixed(2)}`);
 
         let textY = y + 20;
         if (subParts.length > 0) {
@@ -792,27 +962,11 @@ async function buildPDF(
 
         y += cardH + 6;
 
-        // Rejected (by admin or customer)
-        const issueStatus = (issue as any).status?.toString()?.toLowerCase() ?? "";
-        const customerResponse = (issue as any).customerResponse?.toString()?.toLowerCase() ?? "";
-        const isAdminRejected = issueStatus === "rejected";
-        const isCustomerRejected = issueStatus === "approved" && (customerResponse === "reject" || customerResponse === "rejected");
-        const isRejected = isAdminRejected || isCustomerRejected;
-        if (isRejected) {
-          const rejectH = 18;
-          y = ensureSpace(doc, y, rejectH);
-          doc.roundedRect(leftMargin, y, pageWidth, rejectH, 4).fill("#fef2f2");
-          doc.fontSize(8).fillColor("#b91c1c")
-            .text(isCustomerRejected ? "Customer rejected additional work suggested" : "Additional work not approved", leftMargin + 10, y + 6, { width: pageWidth - 20 });
-          y += rejectH + 6;
-        }
-
-        // Completion (when customer accepted - work done with photo + description)
-        const isCompleted = ((issue as any).completionStatus || "").toLowerCase() === "completed";
+        // Completion details (when work was done with photo + description)
         const completionImgUrl = (issue as any).completionImageUrl || (issue as any).completionImage;
         const completionNote = (issue as any).completionNote || "";
         const completedBy = (issue as any).completedByStaffName || "";
-        if (isCompleted && (completionImgUrl || completionNote)) {
+        if (issueCompleted && (completionImgUrl || completionNote)) {
           const COMPLETION_IMG_SIZE = 60;
           const hasCompletionImg = !!(completionImgUrl && getImageBuffer(completionImgUrl)?.length);
           let completionH = 20;

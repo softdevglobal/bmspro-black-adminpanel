@@ -2138,7 +2138,7 @@ export default function DashboardPage() {
               return b.services?.some((s: any) => s.staffId === calStaffFilter || s.staffAuthUid === calStaffFilter);
             });
 
-            // Flatten to blocks: multi-service bookings become one block per service (with its own time)
+            // One block per booking: multi-service bookings show as single card with total duration
             const toBlocks = (): {
               id: string;
               bookingId: string;
@@ -2158,33 +2158,36 @@ export default function DashboardPage() {
               const blocks: any[] = [];
               filtered.forEach(b => {
                 if (Array.isArray(b.services) && b.services.length > 0) {
-                  b.services.forEach((svc: any, idx: number) => {
-                    const t = svc.time || b.time || "09:00";
-                    const dur = Number(svc.duration) || 60;
-                    blocks.push({
-                      id: `${b.id}-${idx}`,
-                      bookingId: b.id,
-                      date: b.dateKey || normalizeDateKey(b.date),
-                      time: t,
-                      duration: dur,
-                      client: b.client,
-                      clientPhone: b.clientPhone || "",
-                      clientEmail: b.clientEmail || "",
-                      vehicleNumber: b.vehicleNumber || "",
-                      vehicleMake: b.vehicleMake || "",
-                      vehicleModel: b.vehicleModel || "",
-                      notes: b.notes || "",
-                      serviceName: svc.name || b.serviceName || "Service",
-                      servicesText: Array.isArray(b.services) && b.services.length > 0
-                        ? b.services.map((x: any) => x?.name).filter(Boolean).join(", ")
-                        : (svc.name || b.serviceName || "Service"),
-                      staffName: svc.staffName || b.staffName || "",
-                      staffId: svc.staffId || svc.staffAuthUid || b.staffId || "",
-                      branchName: b.branchName || "",
-                      pickupTime: b.pickupTime || "",
-                      price: svc.price ?? b.price ?? 0,
-                      status: b.status || "Pending",
-                    });
+                  // Single block with total duration (e.g. 60+180=240 mins)
+                  const totalDuration = Number(b.duration) > 0
+                    ? Number(b.duration)
+                    : b.services.reduce((sum: number, s: any) => sum + (Number(s.duration) || 60), 0);
+                  const firstSvc = b.services[0];
+                  const time = firstSvc?.time || b.time || "09:00";
+                  const serviceNames = [...new Set(b.services.map((x: any) => x?.name).filter(Boolean))].join(", ");
+                  const staffNames = [...new Set(b.services.map((x: any) => x?.staffName || x?.staff).filter(Boolean))].join(", ");
+                  blocks.push({
+                    id: b.id,
+                    bookingId: b.id,
+                    date: b.dateKey || normalizeDateKey(b.date),
+                    time,
+                    duration: totalDuration,
+                    client: b.client,
+                    clientPhone: b.clientPhone || "",
+                    clientEmail: b.clientEmail || "",
+                    vehicleNumber: b.vehicleNumber || "",
+                    vehicleMake: b.vehicleMake || "",
+                    vehicleModel: b.vehicleModel || "",
+                    notes: b.notes || "",
+                    serviceName: serviceNames || b.serviceName || "Service",
+                    servicesText: serviceNames || b.serviceName || "Service",
+                    staffName: staffNames || b.staffName || "",
+                    staffId: b.staffId || firstSvc?.staffId || firstSvc?.staffAuthUid || "",
+                    branchName: b.branchName || "",
+                    pickupTime: b.pickupTime || "",
+                    price: b.price ?? 0,
+                    status: b.status || "Pending",
+                    services: b.services.map((s: any) => ({ name: s?.name || "Service", price: Number(s?.price) || 0 })),
                   });
                 } else {
                   blocks.push({
@@ -2208,6 +2211,7 @@ export default function DashboardPage() {
                     pickupTime: b.pickupTime || "",
                     price: b.price || 0,
                     status: b.status || "Pending",
+                    services: [{ name: b.serviceName || "Service", price: Number(b.price) || 0 }],
                   });
                 }
               });
@@ -2529,6 +2533,7 @@ export default function DashboardPage() {
                                 vehicleModel: bk.vehicleModel,
                                 notes: bk.notes,
                                 price: Number(bk.price || 0),
+                                services: bk.services || [{ name: bk.serviceName || "Service", price: Number(bk.price) || 0 }],
                               };
 
                               const showTooltip = (e: React.MouseEvent) => {
@@ -2626,7 +2631,24 @@ export default function DashboardPage() {
                               {[d.vehicleMake, d.vehicleModel].filter(Boolean).join(" ")}
                             </p>
                           ))}
-                          <p className="text-sm font-bold pt-1 border-t border-slate-200 text-neutral-900">${d.price.toLocaleString()}</p>
+                          <div className="pt-1 border-t border-slate-200">
+                            {d.services?.length > 1 ? (
+                              <>
+                                {d.services.map((svc: { name: string; price: number }, i: number) => (
+                                  <div key={i} className="flex justify-between items-center text-xs py-0.5">
+                                    <span className="text-slate-700">{svc.name}</span>
+                                    <span className="font-semibold text-neutral-900">${(svc.price || 0).toLocaleString()}</span>
+                                  </div>
+                                ))}
+                                <div className="flex justify-between items-center text-sm font-bold pt-1 mt-0.5 text-neutral-900">
+                                  <span>Total</span>
+                                  <span>${d.price.toLocaleString()}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <p className="text-sm font-bold text-neutral-900">${d.price.toLocaleString()}</p>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-600 pt-1">Click to open full booking</p>
                         </div>
                       );

@@ -82,11 +82,159 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const bookingData = bookingSnap.data() as any;
     const currentStatus = normalizeBookingStatus(bookingData.status);
 
-    // Verify booking is in "Confirmed" status (only confirmed bookings can be completed)
-    if (currentStatus !== "Confirmed") {
+    // Allow "Confirmed" and "Completed" statuses
+    // The Flutter app may mark the booking as Completed in Firestore before calling this API
+    // In that case, we still need to send notifications and emails
+    if (currentStatus !== "Confirmed" && currentStatus !== "Completed") {
       return NextResponse.json({ 
-        error: `Cannot complete service. Booking status is "${currentStatus}". Only confirmed bookings can be marked as completed.` 
+        error: `Cannot complete service. Booking status is "${currentStatus}". Only confirmed or completed bookings are accepted.` 
       }, { status: 400, headers: corsHeaders });
+    }
+
+    // If booking is already Completed (set by the Flutter app via Firestore), handle notifications/emails
+    if (currentStatus === "Completed") {
+      const clientName = bookingData.client || bookingData.clientName || "Customer";
+      const finalBookingDate = bookingData.date || null;
+      const finalBookingTime = bookingData.time || null;
+      const hasMultipleServices = bookingData.services && Array.isArray(bookingData.services) && bookingData.services.length > 0;
+      const updatedServices = hasMultipleServices ? bookingData.services : [];
+
+      // Create activity log if not already created
+      try {
+        const existingActivity = await db.collection("bookingActivities")
+          .where("bookingId", "==", id)
+          .where("activityType", "==", "booking_completed")
+          .limit(1)
+          .get();
+        
+        if (existingActivity.empty) {
+          const serviceNames = hasMultipleServices 
+            ? updatedServices.map((s: any) => s.name || "Service").join(", ")
+            : bookingData.serviceName || "Service";
+          
+          await db.collection("bookingActivities").add({
+            ownerUid: ownerUid,
+            bookingId: id,
+            bookingCode: bookingData.bookingCode || null,
+            activityType: "booking_completed",
+            clientName: clientName,
+            serviceName: serviceNames,
+            branchName: bookingData.branchName || null,
+            staffName: staffName,
+            staffUid: staffUid,
+            price: bookingData.price || null,
+            date: finalBookingDate,
+            time: finalBookingTime,
+            previousStatus: "Confirmed",
+            newStatus: "Completed",
+            allServicesCompleted: true,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (e) {
+        console.error("Failed to create activity log for already-completed booking:", e);
+      }
+
+      // Send notification to customer (check if not already sent)
+      try {
+        const existingNotification = await db.collection("notifications")
+          .where("bookingId", "==", id)
+          .where("status", "==", "Completed")
+          .limit(1)
+          .get();
+        
+        if (existingNotification.empty) {
+          const notificationContent = getNotificationContent(
+            "Completed",
+            bookingData.bookingCode,
+            staffName,
+            bookingData.serviceName,
+            finalBookingDate,
+            finalBookingTime,
+            hasMultipleServices ? updatedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || "Staff"
+            })) : undefined
+          );
+          
+          const notificationData: any = {
+            bookingId: id,
+            type: notificationContent.type,
+            title: notificationContent.title,
+            message: notificationContent.message,
+            status: "Completed",
+            ownerUid: ownerUid,
+          };
+          
+          if (bookingData.customerUid) notificationData.customerUid = bookingData.customerUid;
+          if (bookingData.clientEmail) notificationData.customerEmail = bookingData.clientEmail;
+          if (bookingData.clientPhone) notificationData.customerPhone = bookingData.clientPhone;
+          if (bookingData.bookingCode) notificationData.bookingCode = bookingData.bookingCode;
+          if (staffName) notificationData.staffName = staffName;
+          if (bookingData.serviceName) notificationData.serviceName = bookingData.serviceName;
+          if (bookingData.branchName) notificationData.branchName = bookingData.branchName;
+          if (finalBookingDate) notificationData.bookingDate = finalBookingDate;
+          if (finalBookingTime) notificationData.bookingTime = finalBookingTime;
+          if (hasMultipleServices) {
+            notificationData.services = updatedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || "Staff"
+            }));
+          }
+          
+          await createNotification(notificationData);
+          console.log("Sent booking completion notification for already-completed booking");
+        }
+      } catch (e) {
+        console.error("Failed to send notification for already-completed booking:", e);
+      }
+
+      // Send completion email
+      try {
+        await sendBookingStatusChangeEmail(
+          id,
+          "Completed",
+          bookingData.clientEmail,
+          clientName,
+          ownerUid,
+          {
+            bookingCode: bookingData.bookingCode,
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+            duration: bookingData.duration,
+            price: bookingData.price,
+            serviceName: bookingData.serviceName,
+            services: hasMultipleServices ? updatedServices.map((s: any) => ({
+              name: s.name || "Service",
+              staffName: s.staffName || null,
+              time: s.time || finalBookingTime || null,
+              duration: s.duration || bookingData.duration || null,
+              price: s.price,
+            })) : undefined,
+            staffName: staffName,
+            additionalIssues: bookingData.additionalIssues || null,
+          }
+        );
+        console.log(`[EMAIL] Completion email sent for already-completed booking ${id}`);
+      } catch (emailError) {
+        console.error(`[EMAIL] Failed to send completion email for already-completed booking ${id}:`, emailError);
+      }
+
+      const completedCount = hasMultipleServices ? updatedServices.filter((s: any) => s.completionStatus === "completed").length : 1;
+      const totalCount = hasMultipleServices ? updatedServices.length : 1;
+
+      return NextResponse.json({ 
+        ok: true, 
+        status: "Completed",
+        bookingCompleted: true,
+        message: "Booking is completed. Customer has been notified.",
+        progress: {
+          completed: completedCount,
+          total: totalCount,
+          percentage: 100
+        }
+      }, { headers: corsHeaders });
     }
 
     // Check if this is a multi-service booking or single-service booking
@@ -133,9 +281,23 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         }
         
         if (targetService.completionStatus === "completed") {
+          // App may have already marked it (e.g. final report). Return success.
+          const allCompleted = areAllServicesCompleted(services);
+          const completedCount = services.filter((s: any) => s.completionStatus === "completed").length;
+          const totalCount = services.length;
           return NextResponse.json({ 
-            error: "This service is already marked as completed" 
-          }, { status: 400, headers: corsHeaders });
+            ok: true, 
+            status: allCompleted ? "Completed" : "Confirmed",
+            bookingCompleted: allCompleted,
+            message: allCompleted 
+              ? "Booking is completed. Customer has been notified."
+              : `Service already completed. (${completedCount}/${totalCount} services done)`,
+            progress: {
+              completed: completedCount,
+              total: totalCount,
+              percentage: Math.round((completedCount / totalCount) * 100)
+            }
+          }, { headers: corsHeaders });
         }
         
         servicesToComplete = [targetService];
@@ -143,10 +305,25 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         // Complete all services assigned to this staff that are not yet completed
         servicesToComplete = staffServices.filter(s => s.completionStatus !== "completed");
         
+        // App may have already marked services via Firestore (e.g. final report submission)
+        // In that case, return success with bookingCompleted based on current state
         if (servicesToComplete.length === 0) {
+          const allCompleted = areAllServicesCompleted(services);
+          const completedCount = services.filter((s: any) => s.completionStatus === "completed").length;
+          const totalCount = services.length;
           return NextResponse.json({ 
-            error: "All your assigned services are already completed" 
-          }, { status: 400, headers: corsHeaders });
+            ok: true, 
+            status: allCompleted ? "Completed" : "Confirmed",
+            bookingCompleted: allCompleted,
+            message: allCompleted 
+              ? "Booking is completed. Customer has been notified."
+              : `Your service(s) already completed. (${completedCount}/${totalCount} services done)`,
+            progress: {
+              completed: completedCount,
+              total: totalCount,
+              percentage: Math.round((completedCount / totalCount) * 100)
+            }
+          }, { headers: corsHeaders });
         }
       }
 

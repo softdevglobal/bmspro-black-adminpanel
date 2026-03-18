@@ -1934,6 +1934,31 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         const totalCount = previewRow.tasks.length;
                         const pct = previewRow.taskProgress || 0;
                         const isComplete = pct === 100;
+                        const serviceTaskGroups = (() => {
+                          const groups = new Map<string, { label: string; tasks: typeof previewRow.tasks }>();
+                          for (const task of previewRow.tasks) {
+                            const taskServiceId = task.serviceId ? String(task.serviceId) : "";
+                            const taskServiceName = task.serviceName ? String(task.serviceName) : "";
+                            let matchedServiceName = taskServiceName || "General";
+
+                            if (previewRow.services && previewRow.services.length > 0) {
+                              const matchedService = previewRow.services.find((svc) => {
+                                const svcId = String(svc.id || svc.serviceId || "");
+                                const svcName = String(svc.name || "");
+                                return (taskServiceId && svcId && taskServiceId === svcId) ||
+                                  (taskServiceName && svcName && taskServiceName === svcName);
+                              });
+                              if (matchedService?.name) matchedServiceName = String(matchedService.name);
+                            }
+
+                            const key = taskServiceId || matchedServiceName;
+                            if (!groups.has(key)) {
+                              groups.set(key, { label: matchedServiceName, tasks: [] as typeof previewRow.tasks });
+                            }
+                            groups.get(key)!.tasks.push(task);
+                          }
+                          return Array.from(groups.values());
+                        })();
                         return (
                         <div className="space-y-3">
                           {/* Creative progress widget */}
@@ -2018,73 +2043,94 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             </div>
                           </div>
 
-                          {/* Task list */}
+                          {/* Task list (service-wise groups) */}
                           <div className="space-y-3">
-                            {previewRow.tasks.map((task, idx) => (
-                              <div key={task.id || idx} className={`rounded-xl border p-4 transition-all ${
-                                task.done
-                                  ? "bg-emerald-50/50 border-emerald-200"
-                                  : "bg-white border-neutral-200"
-                              }`}>
-                                <div className="flex items-start gap-3">
-                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                    task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                            {serviceTaskGroups.map((group, groupIdx) => {
+                              const groupDone = group.tasks.filter((t) => t.done).length;
+                              const groupTotal = group.tasks.length;
+                              const groupComplete = groupTotal > 0 && groupDone === groupTotal;
+                              return (
+                                <div key={`${group.label}-${groupIdx}`} className="rounded-xl border border-neutral-200 bg-white overflow-hidden">
+                                  <div className={`px-3 py-2 border-b flex items-center justify-between ${
+                                    groupComplete ? "bg-emerald-50 border-emerald-200" : "bg-neutral-50 border-neutral-200"
                                   }`}>
-                                    {task.done ? (
-                                      <i className="fas fa-check text-[10px]" />
-                                    ) : (
-                                      <span className="text-[10px] font-bold">{idx + 1}</span>
-                                    )}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between">
-                                      <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
-                                        {task.name}
-                                      </p>
-                                      {task.done && (
-                                        <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
-                                      )}
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <i className={`fas fa-spa text-[11px] ${groupComplete ? "text-emerald-600" : "text-neutral-500"}`} />
+                                      <h5 className={`text-xs font-bold truncate ${groupComplete ? "text-emerald-700" : "text-neutral-800"}`} title={group.label}>
+                                        {group.label}
+                                      </h5>
                                     </div>
-                                    {task.description && (
-                                      <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
-                                    )}
-                                    {task.serviceName && (
-                                      <p className="text-[11px] text-neutral-400 mt-1">
-                                        <i className="fas fa-magic mr-1 text-[9px]" />{task.serviceName}
-                                      </p>
-                                    )}
-                                    {/* Staff note */}
-                                    {task.staffNote && (
-                                      <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
-                                        <p className="text-xs text-blue-700">
-                                          <i className="fas fa-comment-alt mr-1" />
-                                          {task.staffNote}
-                                        </p>
-                                        {task.completedByStaffName && (
-                                          <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
-                                        )}
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                      groupComplete ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+                                    }`}>
+                                      {groupDone}/{groupTotal}
+                                    </span>
+                                  </div>
+                                  <div className="p-3 space-y-3">
+                                    {group.tasks.map((task, idx) => (
+                                      <div key={task.id || `${groupIdx}-${idx}`} className={`rounded-xl border p-3 transition-all ${
+                                        task.done
+                                          ? "bg-emerald-50/50 border-emerald-200"
+                                          : "bg-white border-neutral-200"
+                                      }`}>
+                                        <div className="flex items-start gap-3">
+                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                            task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                          }`}>
+                                            {task.done ? (
+                                              <i className="fas fa-check text-[10px]" />
+                                            ) : (
+                                              <span className="text-[10px] font-bold">{idx + 1}</span>
+                                            )}
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between">
+                                              <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
+                                                {task.name}
+                                              </p>
+                                              {task.done && (
+                                                <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
+                                              )}
+                                            </div>
+                                            {task.description && (
+                                              <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
+                                            )}
+                                            {/* Staff note */}
+                                            {task.staffNote && (
+                                              <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
+                                                <p className="text-xs text-blue-700">
+                                                  <i className="fas fa-comment-alt mr-1" />
+                                                  {task.staffNote}
+                                                </p>
+                                                {task.completedByStaffName && (
+                                                  <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                                )}
+                                              </div>
+                                            )}
+                                            {/* Task image */}
+                                            {task.imageUrl && (
+                                              <div className="mt-2">
+                                                <img
+                                                  src={task.imageUrl}
+                                                  alt={task.name}
+                                                  className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
+                                                  onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                                />
+                                                <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
+                                                  onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                                >
+                                                  <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                                </p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
                                       </div>
-                                    )}
-                                    {/* Task image */}
-                                    {task.imageUrl && (
-                                      <div className="mt-2">
-                                        <img
-                                          src={task.imageUrl}
-                                          alt={task.name}
-                                          className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
-                                          onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
-                                        />
-                                        <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
-                                          onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
-                                        >
-                                          <i className="fas fa-expand text-[9px]" /> Click to view full size
-                                        </p>
-                                      </div>
-                                    )}
+                                    ))}
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
 
                           {/* Final Submission */}
@@ -2316,7 +2362,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           {r.services.map((svc, idx) => (
                             <div key={idx} className="flex items-center gap-2 py-1 px-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
                               <i className="fas fa-spa text-[10px] text-neutral-500" />
-                              <span className="text-xs font-semibold text-neutral-700 truncate">{svc.name || "Service"}</span>
+                              <span
+                                className="text-xs font-semibold text-neutral-700 truncate whitespace-nowrap inline-block w-[170px]"
+                                title={svc.name || "Service"}
+                              >
+                                {svc.name || "Service"}
+                              </span>
                               {showStaffColumn && (svc.staffName ? <span className="ml-auto text-[10px] text-purple-600 font-medium truncate"><i className="far fa-user text-[8px] mr-0.5" />{svc.staffName}</span> : <span className="ml-auto text-[10px] text-amber-600 font-medium"><i className="fas fa-user-plus text-[8px] mr-0.5" />Unassigned</span>)}
                             </div>
                           ))}
@@ -2324,7 +2375,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                       ) : r.serviceName && (
                         <div className="mt-3 flex items-center gap-2 py-1 px-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
                           <i className="fas fa-spa text-[10px] text-neutral-500" />
-                          <span className="text-xs font-semibold text-neutral-700">{r.serviceName}</span>
+                          <span
+                            className="text-xs font-semibold text-neutral-700 truncate whitespace-nowrap inline-block w-[170px]"
+                            title={r.serviceName}
+                          >
+                            {r.serviceName}
+                          </span>
                           {showStaffColumn && r.staffName && !["Any Available", "Any Staff", "Not Assigned Yet"].includes(String(r.staffName)) && (
                             <span className="ml-auto text-[10px] text-purple-600 font-medium"><i className="far fa-user text-[8px] mr-0.5" />{r.staffName}</span>
                           )}
@@ -2449,16 +2505,16 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
             {/* ═══ DESKTOP TABLE VIEW ═══ */}
             <div className="hidden md:block bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
               <div className="relative overflow-x-auto">
-                <table className="min-w-[900px] w-full text-left text-sm text-neutral-600">
+                <table className="min-w-[820px] w-full text-left text-sm text-neutral-600">
                   <thead className="bg-neutral-50/90 backdrop-blur text-neutral-800 font-semibold border-b border-neutral-100 sticky top-0 z-10">
                   <tr>
-                    <th className="p-4 pl-6">Client &amp; Service</th>
-                    <th className="p-4">Date &amp; Time</th>
-                    <th className="p-4 min-w-[150px]">Vehicle</th>
-                    <th className="p-4">Branch</th>
-                    {showStaffColumn && <th className="p-4 min-w-[100px]">Staff</th>}
-                    <th className="p-4 text-right pr-6">Price</th>
-                    <th className="p-4 text-right pr-6">Actions</th>
+                    <th className="p-3 pl-4">Client &amp; Service</th>
+                    <th className="p-3">Date &amp; Time</th>
+                    <th className="p-3 min-w-[120px]">Vehicle</th>
+                    <th className="p-3">Branch</th>
+                    {showStaffColumn && <th className="p-3 min-w-[90px]">Staff</th>}
+                    <th className="p-3 text-right pr-4">Price</th>
+                    <th className="p-3 text-right pr-4">Actions</th>
                   </tr>
                   </thead>
                   <tbody>
@@ -2490,7 +2546,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                       const statusLabel = getStatusLabel(normalizeBookingStatus(r.status));
                       return (
                       <tr key={r.id} className="hover:bg-neutral-50 transition">
-                        <td className="p-4 pl-6 align-middle">
+                        <td className="p-3 pl-4 align-middle">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 flex-shrink-0 bg-neutral-900 text-white flex items-center justify-center text-sm font-bold shadow-sm" style={{ borderRadius: "50%" }}>
                               {initials || <i className="fas fa-user" />}
@@ -2526,14 +2582,33 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       needs_assignment: { bg: "bg-purple-100", text: "text-purple-700", icon: "fa-user-plus", label: "Not Assigned Yet" },
                                     };
                                     const approvalBadge = tableBadgeMap[approvalStatus] || tableBadgeMap.pending;
+                                    const serviceKey = String(svc.id || svc.serviceId || svc.name || "");
+                                    const serviceTasks = (r.tasks || []).filter((t) => {
+                                      if (!t) return false;
+                                      if (t.serviceId && serviceKey) return String(t.serviceId) === serviceKey;
+                                      if (t.serviceName && svc.name) return String(t.serviceName) === String(svc.name);
+                                      return false;
+                                    });
+                                    const serviceDone = serviceTasks.filter((t) => t.done).length;
+                                    const serviceTotal = serviceTasks.length;
                                     
                                     return (
                                       <div key={idx} className="flex items-center justify-between py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
-                                        <div className="flex items-center gap-2 min-w-0">
-                                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
+                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm w-[150px] min-w-0">
                                             <i className="fas fa-spa text-[10px] text-neutral-600" />
-                                            <span className="text-xs font-semibold text-neutral-800">{svc.name || "Service"}</span>
+                                            <span
+                                              className="text-xs font-semibold text-neutral-800 truncate whitespace-nowrap"
+                                              title={svc.name || "Service"}
+                                            >
+                                              {svc.name || "Service"}
+                                            </span>
                                           </span>
+                                          {serviceTotal > 0 && (
+                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                              {serviceDone}/{serviceTotal}
+                                            </span>
+                                          )}
                                         </div>
                                         {/* Show approval status badge for multi-service bookings or pending with needs_assignment */}
                                         {(r.status === "AwaitingStaffApproval" || r.status === "PartiallyApproved" || r.status === "StaffRejected" || r.status === "Pending") && (
@@ -2548,66 +2623,27 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                 </>
                               ) : (
                                 <div className="flex items-center gap-2 py-1 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
-                                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm">
+                                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white border border-neutral-200 shadow-sm w-[150px] min-w-0">
                                     <i className="fas fa-spa text-[10px] text-neutral-600" />
-                                    <span className="text-xs font-semibold text-neutral-800">{r.serviceName || "Service"}</span>
+                                    <span
+                                      className="text-xs font-semibold text-neutral-800 truncate whitespace-nowrap"
+                                      title={r.serviceName || "Service"}
+                                    >
+                                      {r.serviceName || "Service"}
+                                    </span>
                                   </span>
+                                  {r.tasks && r.tasks.length > 0 && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0">
+                                      {r.tasks.filter((t) => t.done).length}/{r.tasks.length}
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>
-                            {/* Task progress mini bar - only show after confirmation */}
-                            {r.status !== "Pending" && r.status !== "AwaitingStaffApproval" && r.status !== "PartiallyApproved" && r.status !== "StaffRejected" && r.tasks && r.tasks.length > 0 && (() => {
-                              const done = r.tasks.filter(t => t.done).length;
-                              const total = r.tasks.length;
-                              const pct = r.taskProgress || 0;
-                              const isComplete = pct === 100;
-                              return (
-                              <div className="mt-1.5 px-2">
-                                <div className="flex items-center gap-1.5">
-                                  {/* Segmented mini dots */}
-                                  <div className="flex-1 flex items-center gap-0.5">
-                                    {r.tasks.map((task, ti) => (
-                                      <div key={task.id || ti} className="flex-1">
-                                        <div className={`h-1.5 rounded-full transition-all duration-500 ${
-                                          task.done
-                                            ? isComplete
-                                              ? "bg-emerald-500"
-                                              : "bg-amber-500"
-                                            : "bg-neutral-200"
-                                        }`} />
-                                      </div>
-                                    ))}
-                                  </div>
-                                  {/* Mini circular gauge */}
-                                  <div className="relative w-5 h-5 shrink-0">
-                                    <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
-                                      <circle cx="10" cy="10" r="7" fill="none" stroke="#f5f5f5" strokeWidth="2" />
-                                      <circle
-                                        cx="10" cy="10" r="7" fill="none"
-                                        stroke={isComplete ? "#10b981" : pct > 50 ? "#f59e0b" : "#3b82f6"}
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeDasharray={`${pct * 0.44} 44`}
-                                        className="transition-all duration-700 ease-out"
-                                      />
-                                    </svg>
-                                    {isComplete && (
-                                      <span className="absolute inset-0 flex items-center justify-center">
-                                        <i className="fas fa-check text-emerald-500 text-[5px]" />
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className={`text-[9px] font-bold shrink-0 ${isComplete ? "text-emerald-600" : "text-neutral-500"}`}>
-                                    {done}/{total}
-                                  </span>
-                                </div>
-                              </div>
-                              );
-                            })()}
                             </div>
                           </div>
                         </td>
-                        <td className="p-4 align-middle">
+                        <td className="p-3 align-middle">
                           <div className="flex flex-col gap-1 font-medium text-neutral-700 text-sm whitespace-nowrap">
                             <i className="far fa-calendar text-neutral-400 text-[11px]" />
                             {(() => { try { return new Date(r.date + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); } catch { return r.date; } })()}
@@ -2626,7 +2662,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           </div>
                         </td>
                         <td className="p-3 align-middle">
-                          <div className="min-w-[130px] max-w-[160px] rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-2">
+                          <div className="min-w-[110px] max-w-[140px] rounded-lg bg-neutral-50 border border-neutral-100 px-2 py-1.5">
                             {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
                               <div className="space-y-1.5 text-[11px]">
                                 <div className="flex items-baseline gap-1.5">
@@ -2647,31 +2683,35 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             )}
                           </div>
                         </td>
-                        <td className="p-4 align-middle">{r.branchName || "-"}</td>
+                        <td className="p-3 align-middle">{r.branchName || "-"}</td>
                         {showStaffColumn && (
-                        <td className="p-4 align-middle">
+                        <td className="p-3 align-middle">
                           {(() => {
                             const staffNames = r.services && r.services.length > 0
                               ? [...new Set(r.services.map(s => s.staffName).filter(Boolean).filter(n => !["Any Available", "Any Staff", "Not Assigned Yet"].includes(String(n))))]
                               : (r.staffName && !["Any Available", "Any Staff", "Not Assigned Yet"].includes(String(r.staffName))) ? [r.staffName] : [];
                             return staffNames.length > 0 ? (
-                              <span className="inline-flex items-center gap-1 text-sm font-medium text-neutral-700" title={staffNames.join(", ")}>
-                                <i className="fas fa-user text-neutral-400 text-[10px]" />
-                                {staffNames.join(", ")}
-                              </span>
+                              <div className="max-w-[120px] space-y-0.5" title={staffNames.join(", ")}>
+                                {staffNames.map((name, idx) => (
+                                  <div key={`${r.id}-staff-${idx}`} className="flex items-center gap-1 text-xs font-medium text-neutral-700 truncate">
+                                    <i className="fas fa-user text-neutral-400 text-[9px] shrink-0" />
+                                    <span className="truncate">{String(name)}</span>
+                                  </div>
+                                ))}
+                              </div>
                             ) : (
                               <span className="text-neutral-400 text-sm">—</span>
                             );
                           })()}
                         </td>
                         )}
-                        <td className="p-4 align-middle text-right pr-6">
+                        <td className="p-3 align-middle text-right pr-4">
                           <span className="inline-flex items-center gap-1 font-bold text-neutral-800">
                             <i className="fas fa-dollar-sign text-neutral-400" />
                             {r.price}
                           </span>
                         </td>
-                        <td className="p-4 align-middle text-right pr-6">
+                        <td className="p-3 align-middle text-right pr-4">
                           <div className="inline-flex items-center gap-2 justify-end bg-neutral-100/60 rounded-full px-2 py-1">
                             {/* Status Badge */}
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
@@ -2782,33 +2822,33 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
 
           {/* Modal */}
           <div 
-            className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden z-10"
+            className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in overflow-hidden max-h-[90vh] flex flex-col z-10"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="bg-gradient-to-r from-emerald-500 to-green-600 p-5">
+            <div className="bg-gradient-to-r from-emerald-500 to-green-600 p-4 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                  <i className="fas fa-user-plus text-white text-xl"></i>
+                <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                  <i className="fas fa-user-plus text-white text-base"></i>
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-white">Assign Staff Member</h3>
-                  <p className="text-white/80 text-sm">Select a staff member to confirm booking</p>
+                  <p className="text-white/80 text-xs">Select a staff member to confirm booking</p>
                 </div>
               </div>
             </div>
 
             {/* Content */}
-            <div className="p-6">
+            <div className="p-4 overflow-y-auto flex-1">
               {/* Booking Details */}
-              <div className="mb-6 p-4 bg-neutral-50 rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-bold">
+              <div className="mb-4 p-3 bg-neutral-50 rounded-lg">
+                <div className="flex items-center gap-2.5 mb-2.5">
+                  <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-xs font-bold">
                     {(bookingToConfirm.client || "?").split(" ").map(s => s[0]).slice(0,2).join("")}
                   </div>
                   <div>
-                    <p className="font-semibold text-neutral-900">{bookingToConfirm.client}</p>
-                    <p className="text-xs text-neutral-500">{bookingToConfirm.serviceName || "Service"}</p>
+                    <p className="font-semibold text-sm text-neutral-900">{bookingToConfirm.client}</p>
+                    <p className="text-[11px] text-neutral-500 truncate max-w-[210px]">{bookingToConfirm.serviceName || "Service"}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-xs text-neutral-600">
@@ -2817,7 +2857,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   {bookingToConfirm.branchName && <span><i className="fas fa-store mr-1"></i>{bookingToConfirm.branchName}</span>}
                 </div>
                 {bookingToConfirm.notes && bookingToConfirm.notes.trim() && (
-                  <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="mt-2.5 p-2.5 bg-amber-50 rounded-lg border border-amber-200">
                     <div className="flex items-start gap-2">
                       <i className="fas fa-sticky-note text-amber-600 mt-0.5"></i>
                       <div className="flex-1">
@@ -2840,7 +2880,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   <>
                     {/* Multiple Services - Show staff selection for each */}
                     {Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0 ? (
-                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                      <div className="space-y-3 max-h-72 overflow-y-auto">
                         {bookingToConfirm.services
                           .map((service) => {
                             const serviceKey = String(service.id || service.serviceId || service.name);
@@ -2848,10 +2888,10 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             const selectedStaff = selectedStaffPerService[serviceKey];
                             
                             return (
-                              <div key={serviceKey} className="border-2 border-purple-200 rounded-xl p-4 bg-purple-50/50">
-                                <div className="mb-3 flex items-center gap-2">
+                              <div key={serviceKey} className="border-2 border-purple-200 rounded-xl p-3 bg-purple-50/50">
+                                <div className="mb-2 flex items-center gap-2">
                                   <i className="fas fa-spa text-purple-600"></i>
-                                  <h4 className="font-bold text-neutral-800">{service.name}</h4>
+                                  <h4 className="font-bold text-neutral-800 text-sm truncate max-w-[190px]" title={service.name}>{service.name}</h4>
                                   <span className="text-xs text-neutral-500 ml-auto">{service.duration} min</span>
                                 </div>
                                 
@@ -2861,7 +2901,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                     No qualified staff available for this service
                                   </div>
                                 ) : (
-                                  <div className="space-y-2">
+                                  <div className="space-y-1.5">
                                     {serviceStaff.map((staff) => (
                                       <button
                                         key={staff.id}
@@ -2872,14 +2912,14 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                             [serviceKey]: staff.id
                                           }));
                                         }}
-                                        className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
+                                        className={`w-full text-left p-1.5 rounded-lg border-2 transition-all ${
                                           selectedStaff === staff.id
                                             ? "border-emerald-500 bg-emerald-50 shadow-sm"
                                             : "border-neutral-200 hover:border-emerald-300 hover:bg-white"
                                         }`}
                                       >
                                         <div className="flex items-center gap-2">
-                                          <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
+                                          <div className={`w-7 h-7 rounded-full overflow-hidden flex-shrink-0 border-2 ${
                                             selectedStaff === staff.id ? "border-emerald-500" : "border-neutral-200"
                                           }`}>
                                             <img
@@ -2889,7 +2929,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                             />
                                           </div>
                                           <div className="flex-1">
-                                            <p className={`font-semibold text-sm ${
+                                            <p className={`font-semibold text-xs ${
                                               selectedStaff === staff.id ? "text-emerald-900" : "text-neutral-800"
                                             }`}>
                                               {staff.name}
@@ -2969,7 +3009,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
             </div>
 
             {/* Footer */}
-            <div className="bg-neutral-50 px-6 py-4 flex gap-3 justify-end border-t border-neutral-200">
+            <div className="bg-neutral-50 px-4 py-3 flex gap-2.5 justify-end border-t border-neutral-200 shrink-0">
               <button
                 onClick={(e) => {
                   e.stopPropagation();

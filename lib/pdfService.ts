@@ -469,7 +469,7 @@ async function buildPDF(
       for (const issue of pdfBillableIssues) {
         const name = issue.issueTitle || "Issue";
         const price = issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
-        details.push([`Additional Work: ${name}`, price]);
+        details.push([`Customer accepted additional work: ${name}`, price]);
       }
     }
     if (booking.completedAt) details.push(["Completed At", formatTimestampInTimezone(booking.completedAt, booking.branchTimezone)]);
@@ -845,7 +845,8 @@ async function buildPDF(
       y += cardH + 8;
     }
 
-    // ─── ADDITIONAL ISSUES FOUND (show all for comprehensive report) ──────
+    // ─── ADDITIONAL ISSUES FOUND ──────
+    // Show: approved by admin (customer accepted OR customer rejected). Exclude admin/owner rejected (status === "rejected").
     const allAdditionalIssues = (booking.additionalIssues || []).filter(
       (i: any) => i.status === "approved" && i.price != null
     );
@@ -875,8 +876,8 @@ async function buildPDF(
       y = ensureSpace(doc, y, 60);
       const completedIssueCount = allAdditionalIssues.filter((i: any) => ((i.completionStatus || "").toLowerCase() === "completed")).length;
       const issuesSectionTitle = allAdditionalIssues.length > 0
-        ? `Additional Work (${completedIssueCount}/${allAdditionalIssues.length} completed)`
-        : "Additional Work";
+        ? `Additional Issues Found (Technician-Reported) – ${completedIssueCount}/${allAdditionalIssues.length} customer accepted & completed`
+        : "Additional Issues Found";
       y = drawSectionHeader(doc, issuesSectionTitle, leftMargin, y, pageWidth);
 
       for (let i = 0; i < allAdditionalIssues.length; i++) {
@@ -893,39 +894,42 @@ async function buildPDF(
         let statusLabel = "Pending";
         let statusColor: string = COLORS.amber;
         let cardBg = "#fef3c7";
-        if (issueCompleted) {
-          statusLabel = "COMPLETED";
+        if (issueCompleted && isCustomerAccepted) {
+          statusLabel = "Customer accepted additional work";
           statusColor = COLORS.green;
           cardBg = "#f0fdf4";
         } else if (isCustomerRejected) {
-          statusLabel = "CUSTOMER REJECTED";
+          statusLabel = "Customer rejected additional work";
           statusColor = "#b91c1c";
           cardBg = "#fef2f2";
         } else if (isCustomerAccepted) {
-          statusLabel = "ACCEPTED";
+          statusLabel = "Accepted (pending completion)";
           statusColor = COLORS.blue;
           cardBg = COLORS.blueLight;
         }
 
+        const badgeW = 110;
+        const contentWidth = pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : badgeW + 20);
         let cardH = 44;
         if (issue.description) {
           doc.fontSize(8);
-          cardH += doc.heightOfString(issue.description, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) }) + 8;
+          cardH += doc.heightOfString(issue.description, { width: contentWidth }) + 8;
         }
         if (hasImage) cardH = Math.max(cardH, ADDITIONAL_IMG_SIZE + 24);
         y = ensureSpace(doc, y, cardH);
 
+        const badgeX = leftMargin + pageWidth - badgeW - 10;
+
         doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill(cardBg);
         doc.fontSize(10).fillColor(COLORS.primary)
-          .text(`${i + 1}. ${issue.issueTitle || "Issue"}`, leftMargin + 10, y + 6, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
+          .text(`${i + 1}. ${issue.issueTitle || "Issue"}`, leftMargin + 10, y + 6, { width: contentWidth });
 
-        // Status badge
-        const badgeX = leftMargin + pageWidth - 80;
-        doc.roundedRect(badgeX, y + 5, 68, 14, 3).fill(issueCompleted ? COLORS.greenLight : (isCustomerRejected ? "#fecaca" : COLORS.blueLight));
-        doc.fontSize(6).fillColor(statusColor).text(statusLabel, badgeX + 3, y + 9, {
-          width: 62,
+        // Status badge (wider for longer labels like "Customer accepted/rejected additional work")
+        doc.roundedRect(badgeX, y + 5, badgeW, 14, 3).fill(issueCompleted ? COLORS.greenLight : (isCustomerRejected ? "#fecaca" : COLORS.blueLight));
+        doc.fontSize(5).fillColor(statusColor).text(statusLabel, badgeX + 3, y + 8, {
+          width: badgeW - 6,
           align: "center",
-          lineBreak: false,
+          lineBreak: true,
         });
 
         const subParts: string[] = [];
@@ -938,13 +942,13 @@ async function buildPDF(
         let textY = y + 20;
         if (subParts.length > 0) {
           doc.fontSize(8).fillColor(COLORS.muted)
-            .text(subParts.join("  |  "), leftMargin + 10, textY, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
+            .text(subParts.join("  |  "), leftMargin + 10, textY, { width: contentWidth });
           textY += 14;
         }
         if (issue.description) {
           doc.fontSize(8).fillColor(COLORS.muted)
-            .text(issue.description, leftMargin + 10, textY, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) });
-          textY += doc.heightOfString(issue.description, { width: pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : 80) }) + 8;
+            .text(issue.description, leftMargin + 10, textY, { width: contentWidth });
+          textY += doc.heightOfString(issue.description, { width: contentWidth }) + 8;
         }
 
         if (hasImage) {
@@ -979,7 +983,7 @@ async function buildPDF(
           y = ensureSpace(doc, y, completionH);
 
           doc.roundedRect(leftMargin, y, pageWidth, completionH, 4).fill("#f0fdf4");
-          doc.fontSize(8).fillColor("#166534").text("Work completed:", leftMargin + 10, y + 6, { width: pageWidth - 80 });
+          doc.fontSize(8).fillColor("#166534").text("Customer accepted additional work:", leftMargin + 10, y + 6, { width: pageWidth - 80 });
           let compY = y + 16;
           if (completionNote) {
             doc.fontSize(8).fillColor(COLORS.muted).text(completionNote, leftMargin + 10, compY, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) });
@@ -1007,7 +1011,10 @@ async function buildPDF(
 
     // ─── FOOTER on every page ─────────────────────────────────
     const pageCount = doc.bufferedPageRange().count;
-    const footerText = `Generated on ${new Date().toLocaleString("en-AU")} | ${booking.salonName || "BMS PRO BLACK"} | Powered by BMS PRO`;
+    const generatedAt = booking.branchTimezone
+      ? formatInTimezone(new Date().toISOString(), booking.branchTimezone, "d/MM/yyyy, h:mm:ss a")
+      : new Date().toLocaleString("en-AU");
+    const footerText = `Generated on ${generatedAt} | ${booking.salonName || "BMS PRO BLACK"} | Powered by BMS PRO`;
     for (let i = 0; i < pageCount; i++) {
       doc.switchToPage(i);
       const footerY = doc.page.height - 52;

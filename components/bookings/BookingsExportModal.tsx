@@ -17,7 +17,6 @@ const EXPORT_CATEGORIES: Array<{ id: string; label: string; statuses: BookingSta
 import { toCsv, downloadFile } from "@/lib/csvUtils";
 
 type ExportRow = {
-  id: string;
   bookingCode: string;
   client: string;
   clientEmail: string;
@@ -109,7 +108,6 @@ export default function BookingsExportModal({
         const duration = b.duration ?? firstSvc?.duration ?? 0;
 
         rows.push({
-          id: d.id,
           bookingCode: b.bookingCode || "—",
           client: String(b.client || ""),
           clientEmail: String(b.clientEmail || ""),
@@ -129,7 +127,6 @@ export default function BookingsExportModal({
       });
 
       const columns: { key: keyof ExportRow; header: string }[] = [
-        { key: "id", header: "Booking ID" },
         { key: "bookingCode", header: "Booking Code" },
         { key: "client", header: "Client" },
         { key: "clientEmail", header: "Email" },

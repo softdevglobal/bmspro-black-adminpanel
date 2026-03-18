@@ -1,8 +1,37 @@
 import PDFDocument from "pdfkit";
+import { PDFDocument as PDFLibDocument } from "pdf-lib";
 import { adminDb } from "./firebaseAdmin";
 import { fetchImageBuffer } from "./fetchImageForPdf";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
 import { formatInTimezone } from "./timezone";
+
+/** Remove trailing pages that only contain footer/minimal content */
+async function removeBlankTrailingPages(pdfBuffer: Buffer): Promise<Buffer> {
+  try {
+    const srcDoc = await PDFLibDocument.load(pdfBuffer);
+    let pageCount = srcDoc.getPageCount();
+    const getObjectContentSize = (obj: any): number => {
+      if (!obj) return 0;
+      if (typeof obj.getContentsSize === "function") return obj.getContentsSize();
+      if (typeof obj.size === "function" && typeof obj.lookup === "function") {
+        let total = 0;
+        for (let i = 0; i < obj.size(); i++) total += getObjectContentSize(obj.lookup(i));
+        return total;
+      }
+      return 0;
+    };
+    while (pageCount > 1) {
+      const lastPage = srcDoc.getPage(pageCount - 1);
+      const contentSize = getObjectContentSize(lastPage.node.Contents());
+      if (contentSize > 350) break;
+      srcDoc.removePage(pageCount - 1);
+      pageCount = srcDoc.getPageCount();
+    }
+    return Buffer.from(await srcDoc.save());
+  } catch {
+    return pdfBuffer;
+  }
+}
 
 interface BookingPDFData {
   id: string;
@@ -15,13 +44,13 @@ interface BookingPDFData {
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
   vehicleEngineNumber?: string | null;
-  vehicleMileage?: string | null;  // Customer-added at booking
-  mileage?: string | null;         // Staff-recorded when starting job
+  vehicleMileage?: string | null;
+  mileage?: string | null;
   mileageRecordedBy?: string | null;
   mileageRecordedByStaffName?: string | null;
-  fuelLevel?: string | null;       // Staff-recorded at vehicle check-in
-  existingDamageNotes?: string | null;  // Staff-recorded at vehicle check-in
-  existingDamageImages?: string[] | null;  // URLs of damage photos
+  fuelLevel?: string | null;
+  existingDamageNotes?: string | null;
+  existingDamageImages?: string[] | null;
   date: string;
   time: string;
   pickupTime?: string | null;
@@ -96,14 +125,6 @@ function formatDuration(minutes?: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-function formatTimestamp(ts: any): string {
-  return formatTimestampInTimezone(ts, undefined);
-}
-
-/**
- * Format a timestamp for display, optionally in a specific timezone (e.g. branch timezone).
- * When timezone is provided, the time is shown in that timezone (e.g. Asia/Colombo for Kaduwela).
- */
 function formatTimestampInTimezone(ts: any, timezone?: string): string {
   if (!ts) return "N/A";
   try {
@@ -136,27 +157,41 @@ function formatTimestampInTimezone(ts: any, timezone?: string): string {
   return String(ts);
 }
 
-const COLORS = {
-  primary: "#1a1a1a" as const,
-  accent: "#4f46e5" as const,
-  green: "#059669" as const,
-  greenLight: "#d1fae5" as const,
-  amber: "#d97706" as const,
-  blueLight: "#dbeafe" as const,
-  blue: "#2563eb" as const,
-  muted: "#6b7280" as const,
-  border: "#e5e7eb" as const,
-  background: "#f9fafb" as const,
-  white: "#ffffff" as const,
-};
+// ─── MECHANICS THEME COLORS ──────────────────────────────────────
+const C = {
+  steel: "#2d3436",
+  darkSteel: "#1e272e",
+  charcoal: "#0a0a0a",
+  orange: "#e17055",
+  orangeLight: "#fab1a0",
+  orangeBg: "#fff5f2",
+  yellow: "#fdcb6e",
+  yellowDark: "#e2b04a",
+  yellowBg: "#fef9ed",
+  green: "#00b894",
+  greenDark: "#00a381",
+  greenBg: "#eafaf6",
+  greenLight: "#d4f5ed",
+  blue: "#0984e3",
+  blueBg: "#e8f4fd",
+  blueLight: "#dfe6e9",
+  red: "#d63031",
+  redBg: "#ffeaea",
+  muted: "#636e72",
+  mutedLight: "#b2bec3",
+  border: "#dfe6e9",
+  bgLight: "#f5f6fa",
+  bgCard: "#fafafa",
+  white: "#ffffff",
+} as const;
 
-const PAGE_MARGIN = 40;
-const FOOTER_RESERVE = 52;
-const TASK_IMAGE_SIZE = 140;
-const FINAL_IMAGE_SIZE = 240;
-const DAMAGE_IMAGE_SIZE = 120;
+const PAGE_MARGIN = 36;
+const FOOTER_RESERVE = 36;
+const CONTENT_WIDTH_CALC = (doc: PDFKit.PDFDocument) => doc.page.width - PAGE_MARGIN * 2;
+const TASK_IMAGE_SIZE = 80;
+const FINAL_IMAGE_SIZE = 130;
+const DAMAGE_IMAGE_SIZE = 75;
 
-/** Normalize URL for Map lookup - strip query params so tokens don't cause mismatches */
 function normalizeImageUrl(url: string): string {
   try {
     const u = new URL(url);
@@ -166,10 +201,13 @@ function normalizeImageUrl(url: string): string {
   }
 }
 
-/**
- * Generate a comprehensive job task PDF for a booking.
- * Returns a Buffer containing the PDF data.
- */
+/** Truncate long text to prevent PDFKit from auto-adding pages on overflow */
+function truncateText(s: string | null | undefined, maxLen: number): string {
+  if (!s || typeof s !== "string") return "";
+  if (s.length <= maxLen) return s;
+  return s.slice(0, maxLen - 3) + "...";
+}
+
 export async function generateBookingPDF(bookingId: string): Promise<{ buffer: Buffer; filename: string }> {
   const db = adminDb();
   const bookingSnap = await db.collection("bookings").doc(bookingId).get();
@@ -191,7 +229,6 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     /* ignore */
   }
 
-  // Fetch branch timezone for correct timestamp display (e.g. Asia/Colombo for Kaduwela)
   let branchTimezone = data.branchTimezone || null;
   if (!branchTimezone && data.branchId) {
     try {
@@ -245,7 +282,6 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     salonName,
   };
 
-  // Resolve mileageRecordedByStaffName from uid if not already set
   if (booking.mileage && data.mileageRecordedBy && !booking.mileageRecordedByStaffName) {
     try {
       const staffDoc = await db.doc(`users/${data.mileageRecordedBy}`).get();
@@ -259,8 +295,6 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     }
   }
 
-  // Pre-fetch all images (task-wise and overall)
-  // Collect from root tasks AND from services[].checklist (multi-service bookings)
   const imageUrls = new Set<string>();
   const collectTaskImage = (task: any) => {
     if (task?.done) {
@@ -279,9 +313,9 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   }
   const fsImage = (booking.finalSubmission as any)?.imageUrl || (booking.finalSubmission as any)?.image;
   if (fsImage && typeof fsImage === "string" && fsImage.trim().length > 0) imageUrls.add(fsImage.trim());
-  const byService = booking.finalSubmissionsByService as Record<string, { imageUrl?: string; image?: string }> | undefined;
-  if (byService && typeof byService === "object") {
-    for (const sub of Object.values(byService)) {
+  const byServiceImgs = booking.finalSubmissionsByService as Record<string, { imageUrl?: string; image?: string }> | undefined;
+  if (byServiceImgs && typeof byServiceImgs === "object") {
+    for (const sub of Object.values(byServiceImgs)) {
       const url = sub?.imageUrl || sub?.image;
       if (url && typeof url === "string" && url.trim().length > 0) imageUrls.add(url.trim());
     }
@@ -341,20 +375,224 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     })();
   };
 
-  const pdfBuffer = await buildPDF(booking, getImageBuffer);
+  let pdfBuffer = await buildPDF(booking, getImageBuffer);
+  pdfBuffer = await removeBlankTrailingPages(pdfBuffer);
   const code = booking.bookingCode || bookingId.substring(0, 8);
   const filename = `Job-Report-${code}.pdf`;
   return { buffer: pdfBuffer, filename };
 }
 
+// ─── DRAWING HELPERS (Mechanics-themed decorative elements) ──────
+
+function drawGear(doc: PDFKit.PDFDocument, cx: number, cy: number, outerR: number, innerR: number, teeth: number, color: string) {
+  doc.save();
+  const toothDepth = outerR - innerR;
+  const toothWidth = (2 * Math.PI) / (teeth * 2);
+
+  doc.translate(cx, cy);
+  doc.moveTo(innerR * Math.cos(0), innerR * Math.sin(0));
+
+  for (let i = 0; i < teeth; i++) {
+    const angle1 = (i * 2 * Math.PI) / teeth;
+    const angle2 = angle1 + toothWidth * 0.3;
+    const angle3 = angle1 + toothWidth;
+    const angle4 = angle1 + toothWidth * 1.7;
+    const angle5 = ((i + 1) * 2 * Math.PI) / teeth;
+
+    doc.lineTo(innerR * Math.cos(angle1), innerR * Math.sin(angle1));
+    doc.lineTo((innerR + toothDepth) * Math.cos(angle2), (innerR + toothDepth) * Math.sin(angle2));
+    doc.lineTo((innerR + toothDepth) * Math.cos(angle3), (innerR + toothDepth) * Math.sin(angle3));
+    doc.lineTo(innerR * Math.cos(angle4), innerR * Math.sin(angle4));
+    doc.lineTo(innerR * Math.cos(angle5), innerR * Math.sin(angle5));
+  }
+
+  doc.closePath();
+  doc.lineWidth(1).fillOpacity(0.08).fill(color);
+  doc.restore();
+
+  doc.save();
+  doc.translate(cx, cy);
+  doc.circle(0, 0, innerR * 0.4).fillOpacity(0.05).fill(color);
+  doc.restore();
+
+  doc.fillOpacity(1);
+}
+
+function drawWrenchIcon(doc: PDFKit.PDFDocument, x: number, y: number, size: number, color: string) {
+  doc.save();
+  const s = size / 20;
+  doc.translate(x, y);
+  doc.scale(s, s);
+
+  doc.path("M4.5 17.5L2.5 19.5L0.5 17.5L2.5 15.5L10 8C9.2 6 9.5 3.7 11 2.2C12.8 0.4 15.5 0.1 17.5 1.2L14 4.7L14.7 7.3L17.3 8L20.8 4.5C21.9 6.5 21.6 9.2 19.8 11C18.3 12.5 16 12.8 14 12L6.5 19.5L4.5 17.5Z")
+    .fillOpacity(0.12).fill(color);
+
+  doc.restore();
+  doc.fillOpacity(1);
+}
+
+function drawDashedLine(doc: PDFKit.PDFDocument, x1: number, y1: number, x2: number, _y2: number, color: string) {
+  doc.save();
+  doc.strokeColor(color).lineWidth(0.5).dash(4, { space: 3 });
+  doc.moveTo(x1, y1).lineTo(x2, _y2).stroke();
+  doc.undash();
+  doc.restore();
+}
+
+/** Blueprint-style corner bracket (mechanics drawing) */
+function drawBlueprintCorner(doc: PDFKit.PDFDocument, x: number, y: number, size: number, color: string) {
+  doc.save();
+  doc.strokeColor(color).lineWidth(1).dash(3, { space: 2 });
+  doc.moveTo(x, y).lineTo(x + size, y).stroke();
+  doc.moveTo(x, y).lineTo(x, y + size).stroke();
+  doc.undash();
+  doc.restore();
+}
+
+/** Nut/bolt head shape (hex outline) */
+function drawNutIcon(doc: PDFKit.PDFDocument, cx: number, cy: number, r: number, color: string) {
+  doc.save();
+  doc.translate(cx, cy);
+  const sides = 6;
+  for (let i = 0; i < sides; i++) {
+    const a1 = (i * 2 * Math.PI) / sides - Math.PI / 2;
+    const a2 = ((i + 1) * 2 * Math.PI) / sides - Math.PI / 2;
+    const x1 = r * Math.cos(a1), y1 = r * Math.sin(a1);
+    const x2 = r * Math.cos(a2), y2 = r * Math.sin(a2);
+    if (i === 0) doc.moveTo(x1, y1);
+    doc.lineTo(x2, y2);
+  }
+  doc.closePath().lineWidth(0.8).stroke(color);
+  doc.restore();
+}
+
+function drawCheckboxIcon(doc: PDFKit.PDFDocument, x: number, y: number, checked: boolean) {
+  if (checked) {
+    doc.roundedRect(x, y, 12, 12, 2.5).fill(C.green);
+    doc.fontSize(8).fillColor(C.white).text("\u2713", x + 2, y + 1.5, { width: 8, align: "center", lineBreak: false });
+  } else {
+    doc.roundedRect(x, y, 12, 12, 2.5).lineWidth(1).stroke(C.mutedLight);
+  }
+}
+
+// ─── LAYOUT HELPERS ──────────────────────────────────────────────
+
+function getPageBottom(doc: PDFKit.PDFDocument): number {
+  return doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
+}
+
 function ensureSpace(doc: PDFKit.PDFDocument, y: number, needed: number): number {
-  const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
-  if (y + needed > pageBottom) {
+  const pageBottom = getPageBottom(doc);
+  const usableHeight = pageBottom - PAGE_MARGIN;
+  const cappedNeeded = Math.min(needed, usableHeight);
+
+  if (y < PAGE_MARGIN + 20) return y;
+
+  if (y + cappedNeeded > pageBottom) {
     doc.addPage();
-    return PAGE_MARGIN;
+    return PAGE_MARGIN + 4;
   }
   return y;
 }
+
+function drawSectionTitle(doc: PDFKit.PDFDocument, title: string, x: number, y: number, pageWidth: number): number {
+  y = ensureSpace(doc, y, 24);
+
+  drawNutIcon(doc, x + 10, y + 10, 6, C.orange);
+  doc.roundedRect(x + 22, y + 2, 3, 12, 1.5).fill(C.orange);
+
+  doc.fontSize(9.5).fillColor(C.darkSteel).text(title.toUpperCase(), x + 32, y + 1, { width: pageWidth - 36, characterSpacing: 0.6 });
+
+  const lineY = y + 18;
+  drawDashedLine(doc, x, lineY, x + pageWidth, lineY, C.mutedLight);
+
+  return y + 22;
+}
+
+function startDecoratedSectionPage(
+  doc: PDFKit.PDFDocument,
+  title: string,
+  x: number,
+  pageWidth: number
+): number {
+  doc.addPage();
+  const y = PAGE_MARGIN + 8;
+  drawBlueprintCorner(doc, x, y, 24, C.orange);
+  drawBlueprintCorner(doc, x + pageWidth - 24, y, 24, C.orange);
+  drawGear(doc, x + pageWidth / 2, y + 13, 18, 12, 8, C.orange);
+  drawNutIcon(doc, x + 28, y + 13, 8, C.orange);
+  drawNutIcon(doc, x + pageWidth - 28, y + 13, 8, C.orange);
+  doc.fontSize(10).fillColor(C.darkSteel)
+    .text(title.toUpperCase(), x, y + 6, {
+      width: pageWidth,
+      align: "center",
+      characterSpacing: 1.4,
+    });
+  drawDashedLine(doc, x, y + 30, x + pageWidth, y + 30, C.mutedLight);
+  return y + 40;
+}
+
+function drawKeyValueRows(doc: PDFKit.PDFDocument, rows: [string, string][], x: number, y: number, pageWidth: number): number {
+  const labelCol = pageWidth * 0.40;
+  const valueCol = pageWidth - labelCol;
+
+  for (let i = 0; i < rows.length; i++) {
+    y = ensureSpace(doc, y, 22);
+    const [label, value] = rows[i];
+    const rowH = 22;
+    const bg = i % 2 === 0 ? C.bgLight : C.white;
+
+    doc.rect(x, y, pageWidth, rowH).fill(bg);
+    doc.rect(x, y, 2, rowH).fill(i % 2 === 0 ? C.orangeLight : C.blueLight);
+
+    doc.fontSize(7.8).fillColor(C.muted).text(label, x + 10, y + 6, { width: labelCol - 16, lineBreak: false });
+    doc.fontSize(8.6).fillColor(C.darkSteel).text(value, x + labelCol, y + 6, { width: valueCol - 8, align: "right", lineBreak: false });
+
+    y += rowH;
+  }
+  return y;
+}
+
+function drawTotalBanner(doc: PDFKit.PDFDocument, totalAmount: string, x: number, y: number, pageWidth: number): number {
+  y = ensureSpace(doc, y, 32);
+  const h = 28;
+
+  doc.save();
+  doc.roundedRect(x, y, pageWidth, h, 5).fill(C.darkSteel);
+
+  drawGear(doc, x + pageWidth - 24, y + h / 2, 14, 9, 8, C.white);
+
+  doc.fontSize(7.5).fillColor(C.mutedLight).text("TOTAL AMOUNT", x + 12, y + 5, { width: pageWidth - 24 });
+  doc.fontSize(16).fillColor(C.white).text(totalAmount, x + 12, y + 3, { width: pageWidth - 28, align: "right" });
+  doc.restore();
+
+  doc.fillOpacity(1);
+  return y + h + 4;
+}
+
+function measureTaskCard(doc: PDFKit.PDFDocument, task: BookingTask, pageWidth: number, hasTaskImage?: boolean): number {
+  let h = task.serviceName ? 32 : 24;
+
+  if (task.description) {
+    doc.fontSize(7.5);
+    h += doc.heightOfString(truncateText(task.description, 400), { width: pageWidth - 60 }) + 4;
+  }
+
+  if (task.staffNote) {
+    doc.fontSize(7.5);
+    const noteH = doc.heightOfString(truncateText(task.staffNote, 400), { width: pageWidth - 80 });
+    h += noteH + 18;
+    if (task.completedByStaffName) h += 10;
+  }
+
+  if (hasTaskImage) {
+    h += 12 + TASK_IMAGE_SIZE + 4;
+  }
+
+  return Math.max(h, 28) + 6;
+}
+
+// ─── MAIN BUILD ──────────────────────────────────────────────────
 
 async function buildPDF(
   booking: BookingPDFData,
@@ -363,7 +601,7 @@ async function buildPDF(
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
-      margin: 40,
+      margin: PAGE_MARGIN,
       bufferPages: true,
       info: {
         Title: `Job Report - ${booking.bookingCode || booking.id}`,
@@ -377,37 +615,59 @@ async function buildPDF(
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const pageWidth = doc.page.width - 80;
-    const leftMargin = 40;
+    const pageWidth = CONTENT_WIDTH_CALC(doc);
+    const lm = PAGE_MARGIN;
 
-    // ─── HEADER ───────────────────────────────────────────────
-    doc.rect(0, 0, doc.page.width, 90).fill(COLORS.primary);
+    // ═══════════════════════════════════════════════════════════════
+    // HEADER — Dark industrial banner with gear decorations
+    // ═══════════════════════════════════════════════════════════════
+    const headerH = 72;
+    doc.rect(0, 0, doc.page.width, headerH).fill(C.charcoal);
+    doc.rect(0, headerH - 2, doc.page.width, 2).fill(C.orange);
 
-    doc.fontSize(20).fill(COLORS.white)
-      .text(booking.salonName || "BMS PRO BLACK", leftMargin, 20, { width: pageWidth });
+    drawGear(doc, doc.page.width - 50, 36, 30, 20, 9, C.white);
+    drawGear(doc, doc.page.width - 90, 18, 16, 11, 7, C.orange);
 
-    doc.fontSize(10).fillColor("#9ca3af")
-      .text("JOB TASK REPORT", leftMargin, 48, { width: pageWidth });
+    drawWrenchIcon(doc, lm, 14, 22, C.orange);
+
+    doc.fontSize(18).fillColor(C.white)
+      .text((booking.salonName || "BMS PRO BLACK").toUpperCase(), lm + 28, 14, { width: pageWidth - 120, characterSpacing: 1 });
+
+    doc.fontSize(8).fillColor(C.orangeLight)
+      .text("JOB TASK REPORT", lm + 28, 36, { width: pageWidth - 120, characterSpacing: 1.5 });
 
     const codeText = booking.bookingCode || booking.id.substring(0, 8);
-    doc.fontSize(10).fillColor(COLORS.white)
-      .text(codeText, leftMargin, 65, { width: pageWidth, align: "right" });
+    doc.fontSize(8).fillColor(C.mutedLight)
+      .text(`# ${codeText}`, lm, 52, { width: pageWidth, align: "right" });
 
-    let y = 105;
+    let y = headerH + 8;
 
-    // ─── STATUS BANNER ────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // STATUS BANNER
+    // ═══════════════════════════════════════════════════════════════
     const isCompleted = booking.status === "Completed";
-    const bannerColor = isCompleted ? COLORS.green : COLORS.accent;
-    const bannerBg = isCompleted ? COLORS.greenLight : COLORS.blueLight;
-    const statusText = isCompleted ? "BOOKING COMPLETED - READY TO PICK UP" : `Status: ${booking.status || "Unknown"}`;
+    const bannerBg = isCompleted ? C.greenBg : C.yellowBg;
+    const bannerColor = isCompleted ? C.greenDark : C.yellowDark;
+    const bannerAccent = isCompleted ? C.green : C.yellow;
+    const statusText = isCompleted ? "BOOKING COMPLETED \u2014 READY TO PICK UP" : `STATUS: ${(booking.status || "Unknown").toUpperCase()}`;
 
-    doc.roundedRect(leftMargin, y, pageWidth, 30, 5).fill(bannerBg);
-    doc.fontSize(11).fillColor(bannerColor)
-      .text(statusText, leftMargin + 12, y + 9, { width: pageWidth - 24 });
-    y += 42;
+    doc.roundedRect(lm, y, pageWidth, 22, 4).fill(bannerBg);
+    doc.roundedRect(lm, y, 3, 22, 1.5).fill(bannerAccent);
 
-    // ─── BOOKING DETAILS ──────────────────────────────────────
-    y = drawSectionHeader(doc, "Booking Details", leftMargin, y, pageWidth);
+    if (isCompleted) {
+      drawCheckboxIcon(doc, lm + 8, y + 5, true);
+      doc.fontSize(8.5).fillColor(bannerColor)
+        .text(statusText, lm + 24, y + 6, { width: pageWidth - 36, characterSpacing: 0.3 });
+    } else {
+      doc.fontSize(8.5).fillColor(bannerColor)
+        .text(statusText, lm + 10, y + 6, { width: pageWidth - 20, characterSpacing: 0.3 });
+    }
+    y += 30;
+
+    // ═══════════════════════════════════════════════════════════════
+    // BOOKING DETAILS
+    // ═══════════════════════════════════════════════════════════════
+    y = drawSectionTitle(doc, "Booking Details", lm, y, pageWidth);
 
     const details: [string, string][] = [
       ["Booking Code", booking.bookingCode || "N/A"],
@@ -418,12 +678,12 @@ async function buildPDF(
     if (booking.vehicleNumber) details.push(["Registration", booking.vehicleNumber]);
     if (booking.vehicleBodyType) details.push(["Body Type", booking.vehicleBodyType]);
     if (booking.vehicleColour) details.push(["Colour", booking.vehicleColour]);
-    if (booking.vehicleVinChassis) details.push(["VIN/Chassis", booking.vehicleVinChassis]);
+    if (booking.vehicleVinChassis) details.push(["VIN / Chassis", booking.vehicleVinChassis]);
     if (booking.vehicleEngineNumber) details.push(["Engine Number", booking.vehicleEngineNumber]);
     if (booking.vehicleMileage) details.push(["Customer Mileage", booking.vehicleMileage]);
     if (booking.mileage) {
       const mileageLabel = booking.mileageRecordedByStaffName
-        ? `Mileage (recorded by staff: ${booking.mileageRecordedByStaffName})`
+        ? `Mileage (staff: ${booking.mileageRecordedByStaffName})`
         : "Mileage (recorded by staff)";
       details.push([mileageLabel, booking.mileage]);
     }
@@ -434,8 +694,7 @@ async function buildPDF(
     if (booking.pickupTime) details.push(["Pick-up Time", formatTime12h(booking.pickupTime)]);
     if (booking.branchName) details.push(["Branch", booking.branchName]);
     if (booking.duration) details.push(["Duration", formatDuration(booking.duration)]);
-    // Price breakdown: Service Price, Additional Work, Total (when we have additional issues or price)
-    // Only include completed additional work (✔) - undone items (X) are not relevant to the final bill
+
     const pdfBillableIssues = (booking.additionalIssues || []).filter(
       (i: any) =>
         i.status === "approved" &&
@@ -451,11 +710,10 @@ async function buildPDF(
     const hasPriceBreakdown = pdfGrandTotal > 0 || pdfBillableIssues.length > 0;
     const hasSinglePrice = !hasPriceBreakdown && booking.price !== undefined && booking.price !== null;
     if (hasPriceBreakdown) {
-      // Service-wise price breakdown when multiple services
       if (pdfServicesList.length > 1) {
         for (const svc of pdfServicesList) {
           const svcName = svc.name || "Service";
-          const staffName = svc.staffName || "—";
+          const staffName = svc.staffName || "\u2014";
           const price = Number(svc.price) || 0;
           details.push([`${svcName} (Staff: ${staffName})`, `$${price.toFixed(2)}`]);
         }
@@ -469,7 +727,7 @@ async function buildPDF(
       for (const issue of pdfBillableIssues) {
         const name = issue.issueTitle || "Issue";
         const price = issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
-        details.push([`Customer accepted additional work: ${name}`, price]);
+        details.push([`Additional: ${name}`, price]);
       }
     }
     if (booking.completedAt) details.push(["Completed At", formatTimestampInTimezone(booking.completedAt, booking.branchTimezone)]);
@@ -480,63 +738,76 @@ async function buildPDF(
       if (completedBy) details.push(["Completed By", completedBy]);
     }
 
-    y = drawKeyValueTable(doc, details, leftMargin, y, pageWidth);
-    if (hasPriceBreakdown) {
-      y = drawProminentTotal(doc, `$${(pdfGrandTotal || Number(booking.price) || 0).toFixed(2)}`, leftMargin, y, pageWidth);
-    } else if (hasSinglePrice) {
-      y = drawProminentTotal(doc, `$${Number(booking.price).toFixed(2)}`, leftMargin, y, pageWidth);
-    }
-    y += 8;
+    y = drawKeyValueRows(doc, details, lm, y, pageWidth);
 
-    // ─── EXISTING DAMAGE (customer reference - images + recorded time) ──────
+    if (hasPriceBreakdown) {
+      y = drawTotalBanner(doc, `$${(pdfGrandTotal || Number(booking.price) || 0).toFixed(2)}`, lm, y + 2, pageWidth);
+    } else if (hasSinglePrice) {
+      y = drawTotalBanner(doc, `$${Number(booking.price).toFixed(2)}`, lm, y + 2, pageWidth);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // EXISTING DAMAGE SECTION
+    // ═══════════════════════════════════════════════════════════════
     const damageImages = (booking.existingDamageImages || []).filter((u): u is string => !!u && typeof u === "string" && u.trim().length > 0);
     if (damageImages.length > 0 || booking.existingDamageNotes) {
-      const damageSectionH = 50 + (booking.existingDamageNotes ? 30 : 0) + (damageImages.length > 0 ? 20 + Math.ceil(damageImages.length / 2) * (DAMAGE_IMAGE_SIZE + 30) : 0);
-      y = ensureSpace(doc, y, damageSectionH);
-      y = drawSectionHeader(doc, "Existing Damage (Customer Reference)", leftMargin, y, pageWidth);
+      y = startDecoratedSectionPage(doc, "Vehicle Check-In Record", lm, pageWidth);
+      y = drawSectionTitle(doc, "Existing Damage (Vehicle Check-in)", lm, y, pageWidth);
+
       const recordedTime = booking.date && booking.time
         ? `${booking.date} at ${formatTime12h(booking.time)}`
-        : booking.date || "—";
-      doc.fontSize(8).fillColor(COLORS.muted)
-        .text(`Recorded at drop-off: ${recordedTime}`, leftMargin, y, { width: pageWidth });
-      y += 14;
+        : booking.date || "\u2014";
+      doc.fontSize(7).fillColor(C.muted)
+        .text(`Recorded at drop-off: ${recordedTime}`, lm, y, { width: pageWidth });
+      y += 10;
+
       if (booking.existingDamageNotes) {
-        doc.fontSize(9).fillColor(COLORS.primary)
-          .text(booking.existingDamageNotes, leftMargin, y, { width: pageWidth });
-        y += doc.heightOfString(booking.existingDamageNotes, { width: pageWidth }) + 10;
+        const damageNotes = truncateText(booking.existingDamageNotes, 500);
+        doc.fontSize(8).fillColor(C.darkSteel)
+          .text(damageNotes, lm + 4, y, { width: pageWidth - 8 });
+        y += doc.heightOfString(damageNotes, { width: pageWidth - 8 }) + 6;
       }
+
       if (damageImages.length > 0) {
-        doc.fontSize(8).fillColor(COLORS.muted).text("Photos:", leftMargin, y, { width: pageWidth });
-        y += 14;
-        const imagesPerRow = 2;
-        const imgWidth = (pageWidth - 20) / imagesPerRow;
+        const imagesPerRow = 4;
+        const gap = 8;
+        const imgW = (pageWidth - gap * (imagesPerRow - 1)) / imagesPerRow;
+        const imgDisplaySize = Math.min(DAMAGE_IMAGE_SIZE, imgW);
+
         for (let i = 0; i < damageImages.length; i++) {
           const col = i % imagesPerRow;
-          const row = Math.floor(i / imagesPerRow);
-          const imgX = leftMargin + col * (imgWidth + 10);
-          const imgY = y + row * (DAMAGE_IMAGE_SIZE + 24);
+          if (col === 0 && i > 0) {
+            y += imgDisplaySize + 14;
+          }
+          if (col === 0) {
+            y = ensureSpace(doc, y, imgDisplaySize + 14);
+          }
+          const imgX = lm + col * (imgW + gap);
           const imgBuf = getImageBuffer(damageImages[i]);
           if (imgBuf && imgBuf.length > 0) {
             try {
-              doc.image(imgBuf, imgX, imgY, { fit: [DAMAGE_IMAGE_SIZE, DAMAGE_IMAGE_SIZE] });
-              doc.fontSize(7).fillColor(COLORS.muted)
-                .text(`Photo ${i + 1}`, imgX, imgY + DAMAGE_IMAGE_SIZE + 4, { width: DAMAGE_IMAGE_SIZE });
-            } catch (imgErr) {
-              doc.fontSize(7).fillColor("#9ca3af").text(`[Photo ${i + 1} unavailable]`, imgX, imgY + 4, { width: DAMAGE_IMAGE_SIZE });
+              doc.save();
+              doc.roundedRect(imgX, y, imgDisplaySize, imgDisplaySize, 3).clip();
+              doc.image(imgBuf, imgX, y, { fit: [imgDisplaySize, imgDisplaySize], align: "center", valign: "center" });
+              doc.restore();
+              doc.roundedRect(imgX, y, imgDisplaySize, imgDisplaySize, 3).lineWidth(0.5).stroke(C.border);
+            } catch {
+              doc.fontSize(6).fillColor(C.mutedLight).text(`[${i + 1}]`, imgX, y + 4, { width: imgDisplaySize });
             }
           } else {
-            doc.roundedRect(imgX, imgY, DAMAGE_IMAGE_SIZE, DAMAGE_IMAGE_SIZE, 4).fill(COLORS.background).stroke(COLORS.border);
-            doc.fontSize(7).fillColor("#9ca3af").text(`[Photo ${i + 1}]`, imgX, imgY + DAMAGE_IMAGE_SIZE / 2 - 6, { width: DAMAGE_IMAGE_SIZE, align: "center" });
+            doc.roundedRect(imgX, y, imgDisplaySize, imgDisplaySize, 3).fill(C.bgLight);
+            doc.roundedRect(imgX, y, imgDisplaySize, imgDisplaySize, 3).lineWidth(0.5).stroke(C.border);
+            doc.fontSize(6).fillColor(C.mutedLight).text(`[${i + 1}]`, imgX, y + imgDisplaySize / 2 - 4, { width: imgDisplaySize, align: "center" });
           }
         }
-        y += Math.ceil(damageImages.length / imagesPerRow) * (DAMAGE_IMAGE_SIZE + 28);
+        y += imgDisplaySize + 16;
       }
-      y += 12;
+      y += 4;
     }
 
-    // ─── SERVICES (start on page 2) ────────────────────────────
-    doc.addPage();
-    y = PAGE_MARGIN;
+    // ═══════════════════════════════════════════════════════════════
+    // SERVICES (no forced new page — flows naturally)
+    // ═══════════════════════════════════════════════════════════════
     const services = booking.services && booking.services.length > 0
       ? booking.services
       : booking.serviceName
@@ -546,24 +817,24 @@ async function buildPDF(
     const isCollaborativeBooking = services.length > 1;
 
     if (services.length > 0) {
-      y = ensureSpace(doc, y, 70);
-      const servicesTitle = isCollaborativeBooking 
-        ? `Services (${services.length} services – Collaborative Booking)` 
+      y = startDecoratedSectionPage(doc, "Services & Staff Allocation", lm, pageWidth);
+      const servicesTitle = isCollaborativeBooking
+        ? `Services (${services.length} \u2014 Collaborative)`
         : "Services";
-      y = drawSectionHeader(doc, servicesTitle, leftMargin, y, pageWidth);
+      y = drawSectionTitle(doc, servicesTitle, lm, y, pageWidth);
 
-      // For collaborative bookings, show a staff assignment summary
       if (isCollaborativeBooking) {
         const uniqueStaff = new Set<string>();
         for (const svc of services) {
           if (svc.staffName) uniqueStaff.add(svc.staffName);
         }
         if (uniqueStaff.size > 1) {
-          y = ensureSpace(doc, y, 28);
-          doc.roundedRect(leftMargin, y, pageWidth, 22, 4).fill(COLORS.blueLight);
-          doc.fontSize(8).fillColor(COLORS.blue)
-            .text(`Assigned Staff: ${Array.from(uniqueStaff).join(", ")}`, leftMargin + 10, y + 6, { width: pageWidth - 20 });
-          y += 28;
+          y = ensureSpace(doc, y, 18);
+          doc.roundedRect(lm, y, pageWidth, 16, 3).fill(C.blueBg);
+          doc.roundedRect(lm, y, 2, 16, 1).fill(C.blue);
+          doc.fontSize(7).fillColor(C.blue)
+            .text(`Team: ${Array.from(uniqueStaff).join("  \u2022  ")}`, lm + 10, y + 4, { width: pageWidth - 20 });
+          y += 20;
         }
       }
 
@@ -571,52 +842,63 @@ async function buildPDF(
         const svc = services[i];
         const completedByName = (svc as any).completedByStaffName || "";
         const hasCompletedBy = completedByName && completedByName !== svc.staffName;
-        const cardH = hasCompletedBy ? 52 : 40;
-        y = ensureSpace(doc, y, cardH + 6);
+        const cardH = hasCompletedBy ? 42 : 32;
+        y = ensureSpace(doc, y, cardH + 4);
 
-        doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill(COLORS.background);
-        doc.fontSize(10).fillColor(COLORS.primary)
-          .text(`${i + 1}. ${svc.name || "Service"}`, leftMargin + 10, y + 7, { width: pageWidth - 80 });
+        doc.roundedRect(lm, y, pageWidth, cardH, 4).fill(C.bgCard);
+        doc.roundedRect(lm, y, pageWidth, cardH, 4).lineWidth(0.5).stroke(C.border);
+        doc.roundedRect(lm, y, 3, cardH, 1.5).fill(C.orange);
+
+        doc.save();
+        doc.circle(lm + 18, y + 11, 8).fill(C.orangeBg);
+        doc.fontSize(7.5).fillColor(C.orange).text(`${i + 1}`, lm + 13, y + 8, { width: 10, align: "center" });
+        doc.restore();
+
+        doc.fontSize(9).fillColor(C.darkSteel)
+          .text(svc.name || "Service", lm + 32, y + 5, { width: pageWidth - 100 });
 
         const subParts: string[] = [];
         if (svc.staffName) subParts.push(`Staff: ${svc.staffName}`);
-        if (svc.time) subParts.push(`Time: ${formatTime12h(svc.time)}`);
+        if (svc.time) subParts.push(formatTime12h(svc.time));
         if (svc.duration) subParts.push(formatDuration(svc.duration));
         if (svc.price !== undefined && svc.price !== null) subParts.push(`$${Number(svc.price).toFixed(2)}`);
 
         if (subParts.length > 0) {
-          doc.fontSize(8).fillColor(COLORS.muted)
-            .text(subParts.join("  |  "), leftMargin + 10, y + 24, { width: pageWidth - 80 });
+          doc.fontSize(7).fillColor(C.muted)
+            .text(subParts.join("  \u2022  "), lm + 32, y + 18, { width: pageWidth - 100 });
         }
 
         if (hasCompletedBy) {
-          doc.fontSize(7).fillColor(COLORS.green)
-            .text(`Completed by: ${completedByName}`, leftMargin + 10, y + 38, { width: pageWidth - 80 });
+          doc.fontSize(6.5).fillColor(C.green)
+            .text(`\u2713 Completed by: ${completedByName}`, lm + 32, y + 30, { width: pageWidth - 100 });
         }
 
         const isServiceDone = (svc as any).completionStatus === "completed";
         if (isServiceDone) {
-          const badgeX = leftMargin + pageWidth - 66;
-          doc.roundedRect(badgeX, y + 6, 54, 14, 3).fill(COLORS.greenLight);
-          doc.fontSize(7).fillColor(COLORS.green).text("COMPLETED", badgeX + 3, y + 10, {
-            width: 48,
+          const badgeW = 52;
+          const badgeX = lm + pageWidth - badgeW - 8;
+          doc.roundedRect(badgeX, y + 5, badgeW, 14, 3).fill(C.greenBg);
+          doc.fontSize(6).fillColor(C.greenDark).text("COMPLETED", badgeX + 3, y + 9, {
+            width: badgeW - 6,
             align: "center",
             lineBreak: false,
           });
         }
 
-        y += cardH + 6;
+        y += cardH + 3;
       }
       y += 4;
     }
 
-    // ─── TASK LIST (grouped by service for collaborative bookings) ────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // TASK LIST (grouped by service)
+    // ═══════════════════════════════════════════════════════════════
     const tasks = booking.tasks || [];
     if (tasks.length > 0) {
+      y = startDecoratedSectionPage(doc, "Task Checklist", lm, pageWidth);
       const servicesForTasks = booking.services && booking.services.length > 0 ? booking.services : [];
       const isMultiService = servicesForTasks.length > 1;
 
-      // Group tasks by serviceId
       const tasksByService = new Map<string, typeof tasks>();
       const serviceOrder: string[] = [];
       for (const svc of servicesForTasks) {
@@ -657,446 +939,410 @@ async function buildPDF(
         const svcName = (svc as any)?.name || "Service";
         const staffName = (svc as any)?.staffName || "";
         const sectionTitle = isMultiService && staffName
-          ? `Tasks: ${svcName} (Staff: ${staffName})`
+          ? `Tasks: ${svcName} (${staffName})`
           : isMultiService
             ? `Tasks: ${svcName}`
             : `Tasks (${doneCount}/${tasks.length} completed)`;
 
-        y = ensureSpace(doc, y, 60);
-        y = drawSectionHeader(doc, sectionTitle, leftMargin, y, pageWidth);
+        y = ensureSpace(doc, y, 40);
+        y = drawSectionTitle(doc, sectionTitle, lm, y, pageWidth);
 
+        // Progress bar
+        const barH = 6;
+        let currentPct: number;
+        let currentDone: number;
+        let currentTotal: number;
         if (!isMultiService || serviceOrder.length === 1) {
-          doc.roundedRect(leftMargin, y, pageWidth, 7, 3).fill(COLORS.border);
-          if (progressPct > 0) {
-            const barWidth = Math.max(7, (pageWidth * progressPct) / 100);
-            doc.roundedRect(leftMargin, y, barWidth, 7, 3).fill(doneCount === tasks.length ? COLORS.green : COLORS.amber);
-          }
-          doc.fontSize(8).fillColor(COLORS.muted).text(`${progressPct}%`, leftMargin + pageWidth + 4, y - 1);
-          y += 16;
+          currentPct = progressPct;
+          currentDone = doneCount;
+          currentTotal = tasks.length;
         } else {
           const svcDone = serviceTasks.filter(t => t.done).length;
-          const svcPct = serviceTasks.length > 0 ? Math.round((svcDone / serviceTasks.length) * 100) : 0;
-          doc.roundedRect(leftMargin, y, pageWidth, 7, 3).fill(COLORS.border);
-          if (svcPct > 0) {
-            const barWidth = Math.max(7, (pageWidth * svcPct) / 100);
-            doc.roundedRect(leftMargin, y, barWidth, 7, 3).fill(svcDone === serviceTasks.length ? COLORS.green : COLORS.amber);
+          currentPct = serviceTasks.length > 0 ? Math.round((svcDone / serviceTasks.length) * 100) : 0;
+          currentDone = svcDone;
+          currentTotal = serviceTasks.length;
+        }
+
+        doc.roundedRect(lm, y, pageWidth - 46, barH, 3).fill(C.bgLight);
+        if (currentPct > 0) {
+          const barW = Math.max(6, ((pageWidth - 46) * currentPct) / 100);
+          const barColor = currentDone === currentTotal ? C.green : C.orange;
+          doc.roundedRect(lm, y, barW, barH, 3).fill(barColor);
+        }
+        doc.fontSize(6.5).fillColor(C.muted)
+          .text(`${currentDone}/${currentTotal} (${currentPct}%)`, lm + pageWidth - 44, y - 1, { width: 42, align: "right" });
+        y += barH + 8;
+
+        // Task cards
+        for (let i = 0; i < serviceTasks.length; i++) {
+          const task = serviceTasks[i];
+          const taskImageUrl = (task as any).imageUrl || (task as any).image;
+          const hasTaskImageSlot = !!(task.done && taskImageUrl);
+          const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImageSlot);
+          y = ensureSpace(doc, y, cardH);
+
+          const cardBg = task.done ? "#f0fdf4" : C.white;
+          const cardBorder = task.done ? C.green : C.border;
+
+          doc.roundedRect(lm, y, pageWidth, cardH, 4)
+            .lineWidth(0.5)
+            .fillAndStroke(cardBg, cardBorder);
+
+          doc.roundedRect(lm, y, 3, cardH, 1.5).fill(task.done ? C.green : C.mutedLight);
+
+          drawCheckboxIcon(doc, lm + 10, y + 5, task.done);
+          if (!task.done) {
+            doc.fontSize(6).fillColor(C.muted).text(`${i + 1}`, lm + 13, y + 8, { width: 8, align: "center" });
           }
-          doc.fontSize(8).fillColor(COLORS.muted).text(`${svcDone}/${serviceTasks.length} (${svcPct}%)`, leftMargin + pageWidth + 4, y - 1);
-          y += 16;
-        }
 
-      for (let i = 0; i < serviceTasks.length; i++) {
-        const task = serviceTasks[i];
-        const taskImageUrl = (task as any).imageUrl || (task as any).image;
-        const hasTaskImageSlot = !!(task.done && taskImageUrl); // Reserve space for image or placeholder
-        const cardH = measureTaskCard(doc, task, pageWidth, hasTaskImageSlot);
-        y = ensureSpace(doc, y, cardH);
+          doc.fontSize(8.5).fillColor(C.darkSteel)
+            .text(task.name || `Task ${i + 1}`, lm + 30, y + 6, { width: pageWidth - 86 });
 
-        const cardBg = task.done ? "#f0fdf4" : COLORS.white;
-        const cardBorder = task.done ? COLORS.green : COLORS.border;
-
-        doc.roundedRect(leftMargin, y, pageWidth, cardH, 5)
-          .lineWidth(0.5)
-          .fillAndStroke(cardBg, cardBorder);
-
-        // Status circle
-        const cx = leftMargin + 16;
-        const cy = y + 13;
-        if (task.done) {
-          doc.circle(cx, cy, 6).fill(COLORS.green);
-          doc.fontSize(8).fillColor(COLORS.white).text("✓", cx - 4, cy - 4, { width: 8, align: "center" });
-        } else {
-          doc.circle(cx, cy, 6).lineWidth(1).stroke(COLORS.border);
-          doc.fontSize(7).fillColor(COLORS.muted).text(`${i + 1}`, cx - 4, cy - 3.5, { width: 8, align: "center" });
-        }
-
-        // Task name
-        doc.fontSize(10).fillColor(COLORS.primary)
-          .text(task.name || `Task ${i + 1}`, leftMargin + 30, y + 8, { width: pageWidth - 90 });
-
-        // Service tag
-        if (task.serviceName) {
-          doc.fontSize(7).fillColor(COLORS.muted)
-            .text(task.serviceName, leftMargin + 30, y + 22, { width: pageWidth - 90 });
-        }
-
-        // Done badge
-        if (task.done) {
-          const bx = leftMargin + pageWidth - 46;
-          doc.roundedRect(bx, y + 7, 34, 12, 3).fill(COLORS.greenLight);
-          doc.fontSize(6).fillColor(COLORS.green).text("DONE", bx + 3, y + 10, { width: 28, align: "center" });
-        }
-
-        let iy = y + (task.serviceName ? 34 : 24);
-
-        // Task description
-        if (task.description) {
-          doc.fontSize(8).fillColor(COLORS.muted)
-            .text(task.description, leftMargin + 30, iy, { width: pageWidth - 60 });
-          doc.fontSize(8);
-          iy += doc.heightOfString(task.description, { width: pageWidth - 60 }) + 4;
-        }
-
-        // Staff note
-        if (task.staffNote) {
-          doc.fontSize(8);
-          const noteH = doc.heightOfString(task.staffNote, { width: pageWidth - 80 });
-          doc.roundedRect(leftMargin + 30, iy, pageWidth - 60, noteH + 16, 4).fill(COLORS.blueLight);
-          doc.fontSize(7).fillColor(COLORS.blue).text("Staff Note:", leftMargin + 36, iy + 3, { width: pageWidth - 80 });
-          doc.fontSize(8).fillColor("#1e40af").text(task.staffNote, leftMargin + 36, iy + 13, { width: pageWidth - 80 });
-          iy += noteH + 20;
-
-          if (task.completedByStaffName) {
-            doc.fontSize(7).fillColor(COLORS.muted)
-              .text(`— ${task.completedByStaffName}${task.completedAt ? `, ${formatTimestampInTimezone(task.completedAt, booking.branchTimezone)}` : ""}`,
-                leftMargin + 36, iy, { width: pageWidth - 80 });
-            iy += 12;
+          if (task.serviceName) {
+            doc.fontSize(6.5).fillColor(C.muted)
+              .text(task.serviceName, lm + 30, y + 18, { width: pageWidth - 86 });
           }
-        }
 
-        // Task completion image
-        if (task.done && taskImageUrl) {
-          const imgBuf = getImageBuffer(taskImageUrl);
-          if (imgBuf && imgBuf.length > 0) {
-            try {
-              doc.fontSize(7).fillColor(COLORS.muted).text("Photo:", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
-              iy += 12;
-              doc.image(imgBuf, leftMargin + 30, iy, { fit: [TASK_IMAGE_SIZE, TASK_IMAGE_SIZE] });
-              iy += TASK_IMAGE_SIZE + 4;
-            } catch (imgErr) {
-              console.warn("[PDF] Task image render failed:", (imgErr as Error)?.message);
-              doc.fontSize(7).fillColor(COLORS.muted).text("[Photo unavailable]", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
-              iy += 14;
+          if (task.done) {
+            const bx = lm + pageWidth - 40;
+            doc.roundedRect(bx, y + 5, 30, 12, 3).fill(C.greenBg);
+            doc.fontSize(5.5).fillColor(C.greenDark).text("DONE", bx + 3, y + 8, { width: 24, align: "center" });
+          }
+
+          let iy = y + (task.serviceName ? 28 : 20);
+
+          if (task.description) {
+            const desc = truncateText(task.description, 400);
+            doc.fontSize(7.5).fillColor(C.muted)
+              .text(desc, lm + 30, iy, { width: pageWidth - 60 });
+            doc.fontSize(7.5);
+            iy += doc.heightOfString(desc, { width: pageWidth - 60 }) + 4;
+          }
+
+          if (task.staffNote) {
+          const noteText = truncateText(task.staffNote, 400);
+            doc.fontSize(7.5);
+          const noteH = doc.heightOfString(noteText, { width: pageWidth - 80 });
+            doc.roundedRect(lm + 30, iy, pageWidth - 60, noteH + 14, 3).fill(C.blueBg);
+            doc.roundedRect(lm + 30, iy, 2, noteH + 14, 1).fill(C.blue);
+            doc.fontSize(6.5).fillColor(C.blue).text("Staff Note:", lm + 38, iy + 3, { width: pageWidth - 86 });
+          doc.fontSize(7.5).fillColor(C.darkSteel).text(noteText, lm + 38, iy + 11, { width: pageWidth - 86 });
+            iy += noteH + 16;
+
+            if (task.completedByStaffName) {
+              doc.fontSize(6.5).fillColor(C.muted)
+                .text(`\u2014 ${task.completedByStaffName}${task.completedAt ? `, ${formatTimestampInTimezone(task.completedAt, booking.branchTimezone)}` : ""}`,
+                  lm + 38, iy, { width: pageWidth - 86 });
+              iy += 10;
             }
-          } else {
-            doc.fontSize(7).fillColor(COLORS.muted).text("Photo:", leftMargin + 30, iy + 4, { width: pageWidth - 60 });
-            doc.fontSize(7).fillColor("#9ca3af").text("[Image could not be loaded]", leftMargin + 30, iy + 14, { width: pageWidth - 60 });
-            iy += 28;
           }
-        }
 
-        y += cardH + 4;
-      }
+          if (task.done && taskImageUrl) {
+            const imgBuf = getImageBuffer(taskImageUrl);
+            if (imgBuf && imgBuf.length > 0) {
+              try {
+                doc.fontSize(6.5).fillColor(C.muted).text("Photo:", lm + 30, iy + 2, { width: pageWidth - 60 });
+                iy += 10;
+                doc.save();
+                doc.roundedRect(lm + 30, iy, TASK_IMAGE_SIZE, TASK_IMAGE_SIZE, 3).clip();
+                doc.image(imgBuf, lm + 30, iy, { fit: [TASK_IMAGE_SIZE, TASK_IMAGE_SIZE], align: "center", valign: "center" });
+                doc.restore();
+                doc.roundedRect(lm + 30, iy, TASK_IMAGE_SIZE, TASK_IMAGE_SIZE, 3).lineWidth(0.5).stroke(C.border);
+              } catch (imgErr) {
+                console.warn("[PDF] Task image render failed:", (imgErr as Error)?.message);
+                doc.fontSize(6.5).fillColor(C.mutedLight).text("[Photo unavailable]", lm + 30, iy + 2, { width: pageWidth - 60 });
+              }
+            } else {
+              doc.fontSize(6.5).fillColor(C.mutedLight).text("[Image could not be loaded]", lm + 30, iy + 2, { width: pageWidth - 60 });
+            }
+          }
+
+          y += cardH + 3;
+        }
         y += 4;
       }
     }
 
-    // ─── FINAL SUBMISSION (per-service for collaborative, single for legacy) ─────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════════
+    // FINAL SUBMISSION (per-service or single)
+    // ═══════════════════════════════════════════════════════════════
     const byService = booking.finalSubmissionsByService as Record<string, BookingFinalSubmission> | undefined;
     const finalSubsToRender: Array<{ serviceName?: string; fs: BookingFinalSubmission }> = [];
     if (byService && typeof byService === "object" && Object.keys(byService).length > 0) {
-      const services = booking.services || [];
+      const svcs = booking.services || [];
       for (const [sid, sub] of Object.entries(byService)) {
         if (!sub || typeof sub !== "object") continue;
-        const svc = Array.isArray(services) ? services.find((s: any) => String(s?.id) === String(sid)) : null;
+        const svc = Array.isArray(svcs) ? svcs.find((s: any) => String(s?.id) === String(sid)) : null;
         finalSubsToRender.push({ serviceName: (svc as any)?.name || "Service", fs: sub });
       }
     }
     if (finalSubsToRender.length === 0 && booking.finalSubmission) {
       finalSubsToRender.push({ fs: booking.finalSubmission });
     }
+
+    if (finalSubsToRender.length > 0) {
+      y = startDecoratedSectionPage(doc, "Final Submission", lm, pageWidth);
+    }
     for (const { serviceName, fs } of finalSubsToRender) {
       const fsImageUrl = (fs as any)?.imageUrl || (fs as any)?.image;
       if (!fs.description && !fsImageUrl) continue;
-      doc.fontSize(10);
-      const descH = fs.description ? doc.heightOfString(fs.description, { width: pageWidth - 28 }) : 0;
+
+      const finalDesc = truncateText(fs.description, 500);
+      doc.fontSize(8.5);
+      const descH = finalDesc ? doc.heightOfString(finalDesc, { width: pageWidth - 28 }) : 0;
       const hasFinalImage = !!(fsImageUrl && getImageBuffer(fsImageUrl)?.length);
-      let cardH = 10 + descH + 8 + (fs.submittedByStaffName ? 14 : 0) + 10;
-      if (hasFinalImage) cardH += 12 + FINAL_IMAGE_SIZE + 8;
+      let cardH = 8 + descH + 6 + (fs.submittedByStaffName ? 12 : 0) + 8;
+      if (hasFinalImage) cardH += 10 + FINAL_IMAGE_SIZE + 6;
 
-      y = ensureSpace(doc, y, cardH + 30);
+      y = ensureSpace(doc, y, Math.min(cardH + 24, 200));
       const sectionTitle = serviceName ? `Final Submission: ${serviceName}` : "Final Submission";
-      y = drawSectionHeader(doc, sectionTitle, leftMargin, y, pageWidth);
+      y = drawSectionTitle(doc, sectionTitle, lm, y, pageWidth);
 
-      doc.roundedRect(leftMargin, y, pageWidth, cardH, 5)
-        .lineWidth(0.5)
-        .fillAndStroke("#eef2ff", "#c7d2fe");
+      doc.roundedRect(lm, y, pageWidth, cardH, 4).fill(C.orangeBg);
+      doc.roundedRect(lm, y, pageWidth, cardH, 4).lineWidth(0.5).stroke(C.orangeLight);
+      doc.roundedRect(lm, y, 3, cardH, 1.5).fill(C.orange);
 
-      let fsY = y + 10;
-      if (fs.description) {
-        doc.fontSize(10).fillColor("#312e81")
-          .text(fs.description, leftMargin + 14, fsY, { width: pageWidth - 28 });
-        fsY += descH + 8;
+      let fsY = y + 8;
+      if (finalDesc) {
+        doc.fontSize(8.5).fillColor(C.darkSteel)
+          .text(finalDesc, lm + 12, fsY, { width: pageWidth - 28 });
+        fsY += descH + 6;
       }
 
       if (fs.submittedByStaffName) {
         const stamp = `Submitted by ${fs.submittedByStaffName}${fs.submittedAt ? ` on ${formatTimestampInTimezone(fs.submittedAt, booking.branchTimezone)}` : ""}`;
-        doc.fontSize(8).fillColor(COLORS.muted).text(stamp, leftMargin + 14, fsY, { width: pageWidth - 28 });
-        fsY += 14;
+        doc.fontSize(6.5).fillColor(C.muted).text(stamp, lm + 12, fsY, { width: pageWidth - 28 });
+        fsY += 12;
       }
 
       if (fsImageUrl) {
         const imgBuf = getImageBuffer(fsImageUrl);
         if (imgBuf && imgBuf.length > 0) {
           try {
-            doc.fontSize(7).fillColor(COLORS.muted).text("Overall photo:", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
-            fsY += 12;
-            doc.image(imgBuf, leftMargin + 14, fsY, { fit: [FINAL_IMAGE_SIZE, FINAL_IMAGE_SIZE] });
+            fsY = ensureSpace(doc, fsY, FINAL_IMAGE_SIZE + 14);
+            doc.fontSize(6.5).fillColor(C.muted).text("Final photo:", lm + 12, fsY + 2, { width: pageWidth - 28 });
+            fsY += 10;
+            doc.save();
+            doc.roundedRect(lm + 12, fsY, FINAL_IMAGE_SIZE, FINAL_IMAGE_SIZE, 4).clip();
+            doc.image(imgBuf, lm + 12, fsY, { fit: [FINAL_IMAGE_SIZE, FINAL_IMAGE_SIZE], align: "center", valign: "center" });
+            doc.restore();
+            doc.roundedRect(lm + 12, fsY, FINAL_IMAGE_SIZE, FINAL_IMAGE_SIZE, 4).lineWidth(0.5).stroke(C.orangeLight);
           } catch (imgErr) {
             console.warn("[PDF] Final submission image render failed:", (imgErr as Error)?.message);
-            doc.fontSize(7).fillColor("#9ca3af").text("[Image could not be loaded]", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
+            doc.fontSize(6.5).fillColor(C.mutedLight).text("[Image could not be loaded]", lm + 12, fsY + 2, { width: pageWidth - 28 });
           }
         } else {
-          doc.fontSize(7).fillColor(COLORS.muted).text("Overall photo:", leftMargin + 14, fsY + 4, { width: pageWidth - 28 });
-          doc.fontSize(7).fillColor("#9ca3af").text("[Image could not be loaded]", leftMargin + 14, fsY + 14, { width: pageWidth - 28 });
+          doc.fontSize(6.5).fillColor(C.mutedLight).text("[Image could not be loaded]", lm + 12, fsY + 2, { width: pageWidth - 28 });
         }
       }
 
-      y += cardH + 8;
+      y += cardH + 6;
     }
 
-    // ─── ADDITIONAL ISSUES FOUND ──────
-    // Show: approved by admin (customer accepted OR customer rejected). Exclude admin/owner rejected (status === "rejected").
+    // ═══════════════════════════════════════════════════════════════
+    // ADDITIONAL ISSUES
+    // ═══════════════════════════════════════════════════════════════
+    const ADDITIONAL_IMG_SIZE = 50;
     const allAdditionalIssues = (booking.additionalIssues || []).filter(
       (i: any) => i.status === "approved" && i.price != null
     );
-    // For billing: only completed, customer-accepted items
-    const visibleAdditionalIssues = allAdditionalIssues.filter(
-      (i: any) =>
-        i.customerResponse !== "reject" &&
-        i.customerResponse !== "rejected" &&
-        ((i.completionStatus || "").toLowerCase() === "completed")
-    );
 
-    // Cost Summary removed - Total shown only on page 1 (Booking Details)
-
-    // ─── NOTES ────────────────────────────────────────────────
-    if (booking.notes) {
-      doc.fontSize(9);
-      const notesH = doc.heightOfString(booking.notes, { width: pageWidth - 8 });
-      y = ensureSpace(doc, y, notesH + 36);
-      y = drawSectionHeader(doc, "Additional Notes", leftMargin, y, pageWidth);
-      doc.fontSize(9).fillColor(COLORS.muted).text(booking.notes, leftMargin + 4, y, { width: pageWidth - 8 });
-      y += notesH + 8;
-    }
-
-    // ─── ADDITIONAL ISSUES FOUND (comprehensive - show all with status) ────────
-    const ADDITIONAL_IMG_SIZE = 70;
     if (allAdditionalIssues.length > 0) {
-      y = ensureSpace(doc, y, 60);
+      y = startDecoratedSectionPage(doc, "Additional Issues", lm, pageWidth);
       const completedIssueCount = allAdditionalIssues.filter((i: any) => ((i.completionStatus || "").toLowerCase() === "completed")).length;
-      const issuesSectionTitle = allAdditionalIssues.length > 0
-        ? `Additional Issues Found (Technician-Reported) – ${completedIssueCount}/${allAdditionalIssues.length} customer accepted & completed`
-        : "Additional Issues Found";
-      y = drawSectionHeader(doc, issuesSectionTitle, leftMargin, y, pageWidth);
+      const issuesSectionTitle = `Additional Issues \u2014 ${completedIssueCount}/${allAdditionalIssues.length} completed`;
+      y = drawSectionTitle(doc, issuesSectionTitle, lm, y, pageWidth);
 
       for (let i = 0; i < allAdditionalIssues.length; i++) {
         const issue = allAdditionalIssues[i];
         const issueImageUrl = (issue as any).imageUrl || (issue as any).image;
         const hasImage = !!(issueImageUrl && getImageBuffer(issueImageUrl)?.length);
 
-        // Determine status label and colors
         const customerResponse = (issue as any).customerResponse?.toString()?.toLowerCase() ?? "";
         const issueCompleted = ((issue as any).completionStatus || "").toLowerCase() === "completed";
         const isCustomerRejected = customerResponse === "reject" || customerResponse === "rejected";
         const isCustomerAccepted = customerResponse === "accept" || customerResponse === "accepted";
-        
+
         let statusLabel = "Pending";
-        let statusColor: string = COLORS.amber;
-        let cardBg = "#fef3c7";
+        let statusColor = C.yellowDark;
+        let cardBg = C.yellowBg;
+        let accentColor = C.yellow;
         if (issueCompleted && isCustomerAccepted) {
-          statusLabel = "Customer accepted additional work";
-          statusColor = COLORS.green;
-          cardBg = "#f0fdf4";
+          statusLabel = "Accepted";
+          statusColor = C.greenDark;
+          cardBg = C.greenBg;
+          accentColor = C.green;
         } else if (isCustomerRejected) {
-          statusLabel = "Customer rejected additional work";
-          statusColor = "#b91c1c";
-          cardBg = "#fef2f2";
+          statusLabel = "Rejected";
+          statusColor = C.red;
+          cardBg = C.redBg;
+          accentColor = C.red;
         } else if (isCustomerAccepted) {
-          statusLabel = "Accepted (pending completion)";
-          statusColor = COLORS.blue;
-          cardBg = COLORS.blueLight;
+          statusLabel = "In progress";
+          statusColor = C.blue;
+          cardBg = C.blueBg;
+          accentColor = C.blue;
         }
 
-        const badgeW = 110;
-        const contentWidth = pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 90 : badgeW + 20);
-        let cardH = 44;
+        const badgeW = 60;
+        const contentWidth = pageWidth - (hasImage ? ADDITIONAL_IMG_SIZE + 70 : badgeW + 18);
+        let cardH = 36;
         if (issue.description) {
-          doc.fontSize(8);
-          cardH += doc.heightOfString(issue.description, { width: contentWidth }) + 8;
+          doc.fontSize(7);
+          cardH += doc.heightOfString(truncateText(issue.description, 400), { width: contentWidth }) + 6;
         }
-        if (hasImage) cardH = Math.max(cardH, ADDITIONAL_IMG_SIZE + 24);
-        y = ensureSpace(doc, y, cardH);
+        if (hasImage) cardH = Math.max(cardH, ADDITIONAL_IMG_SIZE + 20);
+        y = ensureSpace(doc, y, cardH + 4);
 
-        const badgeX = leftMargin + pageWidth - badgeW - 10;
+        doc.roundedRect(lm, y, pageWidth, cardH, 4).fill(cardBg);
+        doc.roundedRect(lm, y, pageWidth, cardH, 4).lineWidth(0.5).stroke(C.border);
+        doc.roundedRect(lm, y, 3, cardH, 1.5).fill(accentColor);
 
-        doc.roundedRect(leftMargin, y, pageWidth, cardH, 4).fill(cardBg);
-        doc.fontSize(10).fillColor(COLORS.primary)
-          .text(`${i + 1}. ${issue.issueTitle || "Issue"}`, leftMargin + 10, y + 6, { width: contentWidth });
+        doc.fontSize(8.5).fillColor(C.darkSteel)
+          .text(`${i + 1}. ${issue.issueTitle || "Issue"}`, lm + 10, y + 5, { width: contentWidth });
 
-        // Status badge (wider for longer labels like "Customer accepted/rejected additional work")
-        doc.roundedRect(badgeX, y + 5, badgeW, 14, 3).fill(issueCompleted ? COLORS.greenLight : (isCustomerRejected ? "#fecaca" : COLORS.blueLight));
-        doc.fontSize(5).fillColor(statusColor).text(statusLabel, badgeX + 3, y + 8, {
+        const badgeX = lm + pageWidth - badgeW - 8;
+        doc.roundedRect(badgeX, y + 4, badgeW, 12, 3).fill(issueCompleted ? C.greenLight : (isCustomerRejected ? "#fecaca" : C.blueBg));
+        doc.fontSize(5.5).fillColor(statusColor).text(statusLabel, badgeX + 3, y + 7, {
           width: badgeW - 6,
           align: "center",
-          lineBreak: true,
+          lineBreak: false,
         });
 
         const subParts: string[] = [];
         if (issue.recommendedRepair) subParts.push(`Repair: ${issue.recommendedRepair}`);
         if (issue.partsRequired) subParts.push(`Parts: ${issue.partsRequired}`);
-        if (issue.labourTimeHours != null) subParts.push(`${issue.labourTimeHours} hrs`);
-        if (issue.reportedByStaffName) subParts.push(`Reported by: ${issue.reportedByStaffName}`);
+        if (issue.labourTimeHours != null) subParts.push(`${issue.labourTimeHours}h`);
+        if (issue.reportedByStaffName) subParts.push(`By: ${issue.reportedByStaffName}`);
         if (issue.price != null) subParts.push(`$${Number(issue.price).toFixed(2)}`);
 
-        let textY = y + 20;
+        let textY = y + 18;
         if (subParts.length > 0) {
-          doc.fontSize(8).fillColor(COLORS.muted)
-            .text(subParts.join("  |  "), leftMargin + 10, textY, { width: contentWidth });
-          textY += 14;
+          doc.fontSize(6.5).fillColor(C.muted)
+            .text(subParts.join("  \u2022  "), lm + 10, textY, { width: contentWidth });
+          textY += 10;
         }
         if (issue.description) {
-          doc.fontSize(8).fillColor(COLORS.muted)
-            .text(issue.description, leftMargin + 10, textY, { width: contentWidth });
-          textY += doc.heightOfString(issue.description, { width: contentWidth }) + 8;
+          const desc = truncateText(issue.description, 400);
+          doc.fontSize(7).fillColor(C.muted)
+            .text(desc, lm + 10, textY, { width: contentWidth });
+          textY += doc.heightOfString(desc, { width: contentWidth }) + 6;
         }
 
         if (hasImage) {
-          const imgX = leftMargin + pageWidth - ADDITIONAL_IMG_SIZE - 10;
-          const imgY = y + 8;
+          const imgX = lm + pageWidth - ADDITIONAL_IMG_SIZE - 10;
+          const imgY = y + 6;
           try {
             const imgBuf = getImageBuffer(issueImageUrl);
             if (imgBuf && imgBuf.length > 0) {
-              doc.image(imgBuf, imgX, imgY, { fit: [ADDITIONAL_IMG_SIZE, ADDITIONAL_IMG_SIZE] });
+              doc.save();
+              doc.roundedRect(imgX, imgY, ADDITIONAL_IMG_SIZE, ADDITIONAL_IMG_SIZE, 3).clip();
+              doc.image(imgBuf, imgX, imgY, { fit: [ADDITIONAL_IMG_SIZE, ADDITIONAL_IMG_SIZE], align: "center", valign: "center" });
+              doc.restore();
+              doc.roundedRect(imgX, imgY, ADDITIONAL_IMG_SIZE, ADDITIONAL_IMG_SIZE, 3).lineWidth(0.5).stroke(C.border);
             }
           } catch {
-            doc.fontSize(7).fillColor(COLORS.muted).text("[Photo]", imgX, imgY + ADDITIONAL_IMG_SIZE / 2 - 4, { width: ADDITIONAL_IMG_SIZE });
+            doc.fontSize(6).fillColor(C.mutedLight).text("[Photo]", imgX, imgY + ADDITIONAL_IMG_SIZE / 2 - 3, { width: ADDITIONAL_IMG_SIZE });
           }
         }
 
-        y += cardH + 6;
+        y += cardH + 4;
 
-        // Completion details (when work was done with photo + description)
+        // Completion details
         const completionImgUrl = (issue as any).completionImageUrl || (issue as any).completionImage;
         const completionNote = (issue as any).completionNote || "";
         const completedBy = (issue as any).completedByStaffName || "";
         if (issueCompleted && (completionImgUrl || completionNote)) {
-          const COMPLETION_IMG_SIZE = 60;
+          const COMPLETION_IMG_SIZE = 40;
           const hasCompletionImg = !!(completionImgUrl && getImageBuffer(completionImgUrl)?.length);
-          let completionH = 20;
+          const compNote = truncateText(completionNote, 400);
+          const compNoteWidth = pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 60 : 30);
+          let completionH = 16;
           if (completionNote) {
-            doc.fontSize(8);
-            completionH += doc.heightOfString(completionNote, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) }) + 8;
+            doc.fontSize(7);
+            completionH += doc.heightOfString(compNote, { width: compNoteWidth }) + 6;
           }
           if (completedBy) completionH += 10;
-          if (hasCompletionImg) completionH = Math.max(completionH, COMPLETION_IMG_SIZE + 24);
+          if (hasCompletionImg) completionH = Math.max(completionH, COMPLETION_IMG_SIZE + 18);
           y = ensureSpace(doc, y, completionH);
 
-          doc.roundedRect(leftMargin, y, pageWidth, completionH, 4).fill("#f0fdf4");
-          doc.fontSize(8).fillColor("#166534").text("Customer accepted additional work:", leftMargin + 10, y + 6, { width: pageWidth - 80 });
-          let compY = y + 16;
+          doc.roundedRect(lm, y, pageWidth, completionH, 4).fill(C.greenBg);
+          doc.roundedRect(lm, y, 3, completionH, 1.5).fill(C.green);
+
+          doc.fontSize(6.5).fillColor(C.greenDark).text("\u2713 Work completed:", lm + 10, y + 4, { width: pageWidth - 60 });
+          let compY = y + 14;
           if (completionNote) {
-            doc.fontSize(8).fillColor(COLORS.muted).text(completionNote, leftMargin + 10, compY, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) });
-            compY += doc.heightOfString(completionNote, { width: pageWidth - (hasCompletionImg ? COMPLETION_IMG_SIZE + 80 : 40) }) + 6;
+            doc.fontSize(7).fillColor(C.muted).text(compNote, lm + 10, compY, { width: compNoteWidth });
+            compY += doc.heightOfString(compNote, { width: compNoteWidth }) + 4;
           }
           if (completedBy) {
-            doc.fontSize(7).fillColor(COLORS.muted).text(`by ${completedBy}`, leftMargin + 10, compY, { width: pageWidth - 80 });
+            doc.fontSize(6.5).fillColor(C.muted).text(`by ${completedBy}`, lm + 10, compY, { width: pageWidth - 60 });
           }
           if (hasCompletionImg) {
-            const imgX = leftMargin + pageWidth - COMPLETION_IMG_SIZE - 10;
+            const imgX = lm + pageWidth - COMPLETION_IMG_SIZE - 10;
             try {
               const imgBuf = getImageBuffer(completionImgUrl);
               if (imgBuf && imgBuf.length > 0) {
-                doc.image(imgBuf, imgX, y + 8, { fit: [COMPLETION_IMG_SIZE, COMPLETION_IMG_SIZE] });
+                doc.save();
+                doc.roundedRect(imgX, y + 6, COMPLETION_IMG_SIZE, COMPLETION_IMG_SIZE, 3).clip();
+                doc.image(imgBuf, imgX, y + 6, { fit: [COMPLETION_IMG_SIZE, COMPLETION_IMG_SIZE], align: "center", valign: "center" });
+                doc.restore();
+                doc.roundedRect(imgX, y + 6, COMPLETION_IMG_SIZE, COMPLETION_IMG_SIZE, 3).lineWidth(0.5).stroke(C.green);
               }
             } catch {
-              doc.fontSize(7).fillColor(COLORS.muted).text("[Photo]", imgX, y + 8 + COMPLETION_IMG_SIZE / 2 - 4, { width: COMPLETION_IMG_SIZE });
+              doc.fontSize(6).fillColor(C.mutedLight).text("[Photo]", imgX, y + 6 + COMPLETION_IMG_SIZE / 2 - 3, { width: COMPLETION_IMG_SIZE });
             }
           }
-          y += completionH + 6;
+          y += completionH + 4;
         }
       }
-      y += 8;
+      y += 4;
     }
 
-    // ─── FOOTER on every page ─────────────────────────────────
-    const pageCount = doc.bufferedPageRange().count;
+    // ═══════════════════════════════════════════════════════════════
+    // NOTES
+    // ═══════════════════════════════════════════════════════════════
+    if (booking.notes) {
+      const notesText = truncateText(booking.notes, 600);
+      doc.fontSize(8);
+      const notesH = doc.heightOfString(notesText, { width: pageWidth - 16 });
+      y = startDecoratedSectionPage(doc, "Additional Notes", lm, pageWidth);
+      y = drawSectionTitle(doc, "Additional Notes", lm, y, pageWidth);
+
+      doc.roundedRect(lm, y, pageWidth, notesH + 12, 4).fill(C.bgLight);
+      doc.roundedRect(lm, y, 2, notesH + 12, 1).fill(C.muted);
+      doc.fontSize(7.5).fillColor(C.darkSteel).text(notesText, lm + 10, y + 6, { width: pageWidth - 20 });
+      y += notesH + 16;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FOOTER on every page — industrial style
+    // ═══════════════════════════════════════════════════════════════
+    const totalPages = doc.bufferedPageRange().count;
     const generatedAt = booking.branchTimezone
       ? formatInTimezone(new Date().toISOString(), booking.branchTimezone, "d/MM/yyyy, h:mm:ss a")
       : new Date().toLocaleString("en-AU");
-    const footerText = `Generated on ${generatedAt} | ${booking.salonName || "BMS PRO BLACK"} | Powered by BMS PRO`;
-    for (let i = 0; i < pageCount; i++) {
+
+    for (let i = 0; i < totalPages; i++) {
       doc.switchToPage(i);
-      const footerY = doc.page.height - 52;
-      doc.fontSize(7).fillColor(COLORS.muted)
-        .text(footerText, leftMargin, footerY, {
-          width: pageWidth,
-          align: "center",
-          lineBreak: false,
-        });
+      const footerY = doc.page.height - FOOTER_RESERVE;
+
+      drawDashedLine(doc, lm, footerY, lm + pageWidth, footerY, C.mutedLight);
+
+      drawGear(doc, lm + 8, footerY + 14, 6, 4, 6, C.muted);
+
+      doc.fontSize(6).fillColor(C.muted)
+        .text(
+          `Generated ${generatedAt}  \u2022  ${booking.salonName || "BMS PRO BLACK"}  \u2022  Powered by BMS PRO`,
+          lm + 18,
+          footerY + 10,
+          { width: pageWidth - 56, lineBreak: false }
+        );
+
+      doc.fontSize(6).fillColor(C.muted)
+        .text(`Page ${i + 1}`, lm, footerY + 10, { width: pageWidth, align: "right" });
     }
 
     doc.end();
   });
-}
-
-function drawSectionHeader(doc: PDFKit.PDFDocument, title: string, x: number, y: number, width: number): number {
-  // Never start a section title at the page footer boundary.
-  const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
-  if (y + 24 > pageBottom) {
-    doc.addPage();
-    y = PAGE_MARGIN;
-  }
-  doc.roundedRect(x, y, 4, 16, 2).fill(COLORS.accent);
-  doc.fontSize(12).fillColor(COLORS.primary).text(title, x + 12, y + 1, { width: width - 16 });
-  return y + 24;
-}
-
-function drawKeyValueTable(doc: PDFKit.PDFDocument, rows: [string, string][], x: number, y: number, width: number): number {
-  const colWidth = width / 2;
-  for (let i = 0; i < rows.length; i++) {
-    const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
-    if (y + 20 > pageBottom) {
-      doc.addPage();
-      y = PAGE_MARGIN;
-    }
-    const [label, value] = rows[i];
-    const rowBg = i % 2 === 0 ? COLORS.background : COLORS.white;
-    doc.rect(x, y, width, 20).fill(rowBg);
-    doc.fontSize(8).fillColor(COLORS.muted).text(label, x + 10, y + 5, { width: colWidth - 20 });
-    doc.fontSize(8).fillColor(COLORS.primary).text(value, x + colWidth, y + 5, { width: colWidth - 10, align: "right" });
-    y += 20;
-  }
-  return y;
-}
-
-/** Draw a prominent, larger Total row with creative styling */
-function drawProminentTotal(doc: PDFKit.PDFDocument, totalAmount: string, x: number, y: number, width: number): number {
-  const pageBottom = doc.page.height - PAGE_MARGIN - FOOTER_RESERVE;
-  const rowHeight = 36;
-  if (y + rowHeight > pageBottom) {
-    doc.addPage();
-    y = PAGE_MARGIN;
-  }
-  doc.roundedRect(x, y, width, rowHeight, 6).fill(COLORS.greenLight);
-  doc.roundedRect(x, y, width, rowHeight, 6).lineWidth(1).stroke(COLORS.green);
-  doc.fontSize(10).fillColor(COLORS.muted).text("TOTAL", x + 14, y + 8, { width: width - 28 });
-  doc.fontSize(18).fillColor(COLORS.green).text(totalAmount, x + 14, y + 18, { width: width - 28, align: "right" });
-  return y + rowHeight + 6;
-}
-
-/**
- * Precisely measure the height a task card will occupy in the PDF.
- * Includes image height when hasTaskImage is true.
- */
-function measureTaskCard(doc: PDFKit.PDFDocument, task: BookingTask, pageWidth: number, hasTaskImage?: boolean): number {
-  let h = task.serviceName ? 38 : 28;
-
-  if (task.description) {
-    doc.fontSize(8);
-    h += doc.heightOfString(task.description, { width: pageWidth - 60 }) + 4;
-  }
-
-  if (task.staffNote) {
-    doc.fontSize(8);
-    const noteH = doc.heightOfString(task.staffNote, { width: pageWidth - 80 });
-    h += noteH + 20;
-    if (task.completedByStaffName) h += 12;
-  }
-
-  if (hasTaskImage) {
-    h += 12 + TASK_IMAGE_SIZE + 4; // "Photo:" label + image + padding
-  }
-
-  return Math.max(h, 32) + 6; // +6 for inner padding
 }

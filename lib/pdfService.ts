@@ -1164,9 +1164,9 @@ async function buildPDF(
         const isCustomerAccepted = customerResponse === "accept" || customerResponse === "accepted";
 
         let statusLabel = "Pending";
-        let statusColor = C.yellowDark;
-        let cardBg = C.yellowBg;
-        let accentColor = C.yellow;
+        let statusColor: string = C.yellowDark;
+        let cardBg: string = C.yellowBg;
+        let accentColor: string = C.yellow;
         if (issueCompleted && isCustomerAccepted) {
           statusLabel = "Accepted";
           statusColor = C.greenDark;

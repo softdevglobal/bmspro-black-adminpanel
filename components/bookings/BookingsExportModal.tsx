@@ -126,6 +126,7 @@ export default function BookingsExportModal({
         });
       });
 
+      // Human-readable booking codes only — do not add Firestore document IDs as a column.
       const columns: { key: keyof ExportRow; header: string }[] = [
         { key: "bookingCode", header: "Booking Code" },
         { key: "client", header: "Client" },

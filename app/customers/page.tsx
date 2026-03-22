@@ -470,6 +470,7 @@ export default function CustomersPage() {
         notes: string;
         status: string;
         vehicles: string;
+        bookingCodes: string;
         previousBookings: string;
       };
 
@@ -535,10 +536,17 @@ export default function CustomersPage() {
                 .join(" | ")
           )
           .join("; ");
+        const bookingCodesStr = custBookings
+          .map((b: any) => String(b.bookingCode || "").trim())
+          .filter(Boolean)
+          .join("; ");
+
         const bookingsStr = custBookings
           .map((b: any) => {
             const svc = Array.isArray(b.services) && b.services[0] ? b.services[0].name : b.serviceName || "Service";
-            return `${b.date || ""} ${b.time || ""} - ${svc} (${b.status || ""})${b.branchName ? ` @ ${b.branchName}` : ""}`;
+            const code = String(b.bookingCode || "").trim();
+            const codePrefix = code ? `[${code}] ` : "";
+            return `${codePrefix}${b.date || ""} ${b.time || ""} - ${svc} (${b.status || ""})${b.branchName ? ` @ ${b.branchName}` : ""}`;
           })
           .join("; ");
 
@@ -551,6 +559,7 @@ export default function CustomersPage() {
           notes: c.notes || "",
           status: c.status || "Active",
           vehicles: vehiclesStr,
+          bookingCodes: bookingCodesStr,
           previousBookings: bookingsStr,
         });
       }
@@ -564,7 +573,11 @@ export default function CustomersPage() {
         { key: "notes", header: "Notes" },
         { key: "status", header: "Status" },
         { key: "vehicles", header: "Vehicles (Reg | Make | Model | Year | Body | Colour | Mileage | VIN)" },
-        { key: "previousBookings", header: "Previous Bookings (Date Time - Service (Status) @ Branch)" },
+        { key: "bookingCodes", header: "Booking Codes (all visits)" },
+        {
+          key: "previousBookings",
+          header: "Previous Bookings ([Code] Date Time - Service (Status) @ Branch)",
+        },
       ];
       const csv = toCsv(rows, columns);
       downloadFile(csv, `customers-export-${new Date().toISOString().slice(0, 10)}.csv`);

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
+    "@sparticuz/chromium": "^143.0.4",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "firebase": "^11.10.0",

@@ -4,7 +4,7 @@ import path from "path";
 const nextConfig: NextConfig = {
   /* config options here */
   // Prevent bundling pdfkit so it can load font files (Helvetica.afm etc.) from node_modules
-  serverExternalPackages: ["pdfkit"],
+  serverExternalPackages: ["pdfkit", "puppeteer-core", "@sparticuz/chromium"],
   // Security: Limit RSC payload size to prevent DoS attacks (CVE-2025-55184)
   experimental: {
     serverActions: {

@@ -1785,8 +1785,19 @@ async function buildHTML(
   `;
 }
 
-/** System Chrome/Chromium — full `puppeteer` bundle is avoided (heavy postinstall). */
-function resolveChromiumExecutable(): string {
+/** Vercel, AWS Lambda, Netlify, etc. — no system Chrome; use bundled serverless Chromium. */
+function isServerlessPdfEnvironment(): boolean {
+  const awsExec = process.env.AWS_EXECUTION_ENV || "";
+  return (
+    process.env.VERCEL === "1" ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    awsExec.startsWith("AWS_Lambda") ||
+    !!process.env.NETLIFY
+  );
+}
+
+/** Local/Docker: resolve Chrome/Chromium on disk (not used on Vercel — see `launchBrowserForPdf`). */
+function resolveChromiumExecutableSync(): string {
   const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
 
@@ -1832,17 +1843,41 @@ function resolveChromiumExecutable(): string {
   );
 }
 
+async function launchBrowserForPdf() {
+  const fromEnv = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_PATH;
+  if (fromEnv && existsSync(fromEnv)) {
+    return puppeteer.launch({
+      headless: true,
+      executablePath: fromEnv,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--font-render-hinting=none"],
+    });
+  }
+
+  if (isServerlessPdfEnvironment()) {
+    const chromium = (await import("@sparticuz/chromium")).default;
+    const executablePath = await chromium.executablePath();
+    return puppeteer.launch({
+      args: puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
+      defaultViewport: { width: 1280, height: 720, deviceScaleFactor: 1 },
+      executablePath,
+      headless: "shell",
+    });
+  }
+
+  return puppeteer.launch({
+    headless: true,
+    executablePath: resolveChromiumExecutableSync(),
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--font-render-hinting=none"],
+  });
+}
+
 async function buildPDF(
   booking: BookingPDFData,
   getImageBuffer: (url: string) => Buffer | undefined
 ): Promise<Buffer> {
   const html = await buildHTML(booking, getImageBuffer);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: resolveChromiumExecutable(),
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--font-render-hinting=none"],
-  });
+  const browser = await launchBrowserForPdf();
 
   try {
     const page = await browser.newPage();

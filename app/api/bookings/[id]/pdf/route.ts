@@ -3,6 +3,8 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { generateBookingPDF } from "@/lib/pdfService";
 
 export const runtime = "nodejs";
+/** Allow time for Chromium + PDF render on Vercel (raise on Pro if needed). */
+export const maxDuration = 60;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { generateBookingPDF } from "@/lib/pdfService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function GET(
   req: NextRequest,

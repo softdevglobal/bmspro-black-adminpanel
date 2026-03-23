@@ -114,6 +114,14 @@ export async function POST(req: NextRequest) {
       updateData.trial_end = trialEnd;
     }
 
+    // If subscription is active (paid immediately, post-trial), clear trial/suspension flags
+    if (sub.status === "active" && !isTrialing) {
+      updateData.trial_end = null;
+      updateData.grace_until = null;
+      updateData.suspendedReason = null;
+      updateData.suspendedAt = null;
+    }
+
     // Add metadata from session
     if (session.metadata?.planId) {
       updateData.planId = session.metadata.planId;

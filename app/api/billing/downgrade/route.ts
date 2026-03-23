@@ -63,6 +63,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate downgrade eligibility: current usage must not exceed target plan limits
+    const targetBranchLimit = newPlanData.branches ?? -1;
+    const targetStaffLimit = newPlanData.staff ?? -1;
+    if (targetBranchLimit !== -1 || targetStaffLimit !== -1) {
+      const [branchSnap, staffSnap] = await Promise.all([
+        db.collection("branches").where("ownerUid", "==", userId).get(),
+        db.collection("users").where("ownerUid", "==", userId).get(),
+      ]);
+      const branchCount = branchSnap.size;
+      const staffCount = staffSnap.docs.filter(
+        (d) => ["workshop_staff", "branch_admin"].includes((d.data().role || "").toString())
+      ).length;
+
+      const branchesExceeded = targetBranchLimit !== -1 && branchCount > targetBranchLimit;
+      const staffExceeded = targetStaffLimit !== -1 && staffCount > targetStaffLimit;
+
+      if (branchesExceeded || staffExceeded) {
+        const parts: string[] = [];
+        if (branchesExceeded) {
+          parts.push(`branches (${branchCount} current vs ${targetBranchLimit} allowed)`);
+        }
+        if (staffExceeded) {
+          parts.push(`staff (${staffCount} current vs ${targetStaffLimit} allowed)`);
+        }
+        return NextResponse.json(
+          {
+            error: `Cannot downgrade: your current usage exceeds the plan limits. ${parts.join(" and ")}. Please reduce your usage or contact admin@bmspros.com.au for assistance.`,
+            code: "LIMITS_EXCEEDED",
+            branchCount,
+            staffCount,
+            branchLimit: targetBranchLimit,
+            staffLimit: targetStaffLimit,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Get user's current subscription
     const userDoc = await db.collection("users").doc(userId).get();
     if (!userDoc.exists) {
@@ -84,12 +122,25 @@ export async function POST(req: NextRequest) {
 
     // Get current subscription from Stripe
     const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
-    const currentPriceId = (subscription as any).items.data[0]?.price?.id;
-    const currentPeriodEnd = (subscription as any).current_period_end;
+    const sub = subscription as any;
+    const firstItem = sub.items?.data?.[0];
+    const currentPriceId = firstItem?.price?.id;
+    // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+    const currentPeriodEnd = firstItem?.current_period_end || sub.current_period_end;
+    const currentPeriodStart = firstItem?.current_period_start || sub.current_period_start;
+
+    console.log(`[BILLING DOWNGRADE] Subscription item current_period_end: ${currentPeriodEnd}, current_period_start: ${currentPeriodStart}`);
 
     if (!currentPriceId) {
       return NextResponse.json(
         { error: "Subscription price not found" },
+        { status: 400 }
+      );
+    }
+
+    if (!currentPeriodEnd) {
+      return NextResponse.json(
+        { error: "Cannot determine current billing period" },
         { status: 400 }
       );
     }
@@ -118,48 +169,74 @@ export async function POST(req: NextRequest) {
     // Check if subscription already has a schedule
     let scheduleId = userData_db.stripeScheduleId;
 
+    // Also check if the subscription has a schedule attached in Stripe
+    const stripeAttachedScheduleId = sub.schedule 
+      ? (typeof sub.schedule === "string" ? sub.schedule : sub.schedule.id) 
+      : null;
+
+    if (!scheduleId && stripeAttachedScheduleId) {
+      console.log(`[BILLING DOWNGRADE] Found schedule ${stripeAttachedScheduleId} attached to subscription (not in Firestore)`);
+      scheduleId = stripeAttachedScheduleId;
+    }
+
     if (scheduleId) {
       try {
-        // Try to update existing schedule
         const schedule = await getStripe().subscriptionSchedules.retrieve(scheduleId);
         
-        await getStripe().subscriptionSchedules.update(scheduleId, {
-          phases: [
-            {
-              items: [{ price: currentPriceId, quantity: 1 }],
-              start_date: (subscription as any).current_period_start,
-              end_date: currentPeriodEnd,
+        if (schedule.status === "active" || schedule.status === "not_started") {
+          console.log(`[BILLING DOWNGRADE] Updating existing schedule ${scheduleId}`);
+          await getStripe().subscriptionSchedules.update(scheduleId, {
+            phases: [
+              {
+                items: [{ price: currentPriceId, quantity: 1 }],
+                start_date: currentPeriodStart,
+                end_date: currentPeriodEnd,
+              },
+              {
+                items: [{ price: newPrice.id, quantity: 1 }],
+                start_date: currentPeriodEnd,
+              },
+            ],
+            end_behavior: "release",
+            metadata: {
+              ...schedule.metadata,
+              downgraded_at: new Date().toISOString(),
+              new_plan_id: newPlanId,
             },
-            {
-              items: [{ price: newPrice.id, quantity: 1 }],
-              start_date: currentPeriodEnd,
-            },
-          ],
-          metadata: {
-            ...schedule.metadata,
-            downgraded_at: new Date().toISOString(),
-            new_plan_id: newPlanId,
-          },
-        });
+          });
+        } else {
+          console.log(`[BILLING DOWNGRADE] Schedule ${scheduleId} status is ${schedule.status}, releasing and creating new`);
+          try {
+            await getStripe().subscriptionSchedules.release(scheduleId);
+          } catch (releaseErr) {
+            console.log("[BILLING DOWNGRADE] Could not release schedule (may already be released):", releaseErr);
+          }
+          scheduleId = null;
+        }
       } catch (e) {
-        // Schedule doesn't exist or is invalid, create new one
+        console.error("[BILLING DOWNGRADE] Error updating existing schedule:", e);
+        try {
+          await getStripe().subscriptionSchedules.release(scheduleId);
+          console.log(`[BILLING DOWNGRADE] Released stale schedule ${scheduleId}`);
+        } catch (releaseErr) {
+          console.log("[BILLING DOWNGRADE] Could not release stale schedule:", releaseErr);
+        }
         scheduleId = null;
       }
     }
     
     if (!scheduleId) {
-      // Create new schedule from the subscription
+      console.log(`[BILLING DOWNGRADE] Creating new schedule from subscription ${subscriptionId}`);
       const schedule = await getStripe().subscriptionSchedules.create({
         from_subscription: subscriptionId,
       });
 
-      // Update the schedule with phases
       await getStripe().subscriptionSchedules.update(schedule.id, {
         end_behavior: "release",
         phases: [
           {
             items: [{ price: currentPriceId, quantity: 1 }],
-            start_date: (subscription as any).current_period_start,
+            start_date: currentPeriodStart,
             end_date: currentPeriodEnd,
           },
           {
@@ -178,12 +255,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Update Firestore - store scheduled downgrade info including future limits
-    const updateData: any = {
+    const effectiveDate = currentPeriodEnd 
+      ? new Date(Math.floor(Number(currentPeriodEnd)) * 1000) 
+      : new Date();
+
+    const updateData: Record<string, any> = {
       stripeScheduleId: scheduleId,
       downgradeScheduled: true,
       downgradePlanId: newPlanId,
       downgradePriceId: newPrice.id,
-      downgradeEffectiveDate: new Date(currentPeriodEnd * 1000),
+      downgradeEffectiveDate: effectiveDate,
       downgradePlanKey: newPlanData.plan_key || newPlanId,
       downgradePlanName: newPlanData.name,
       downgradePlanPrice: newPlanData.priceLabel || `AU$${newPlanData.price}/mo`,
@@ -201,14 +282,14 @@ export async function POST(req: NextRequest) {
       await db.collection("owners").doc(userId).update(updateData);
     }
 
-    console.log(`[BILLING] User ${userId} scheduled downgrade to plan ${newPlanId} at ${new Date(currentPeriodEnd * 1000).toISOString()}`);
+    console.log(`[BILLING] User ${userId} scheduled downgrade to plan ${newPlanId} at ${effectiveDate.toISOString()}`);
 
     return NextResponse.json({
       success: true,
       message: "Downgrade scheduled. Plan will change at the end of your current billing cycle.",
       schedule: {
         id: scheduleId,
-        effectiveDate: new Date(currentPeriodEnd * 1000).toISOString(),
+        effectiveDate: effectiveDate.toISOString(),
         newPlan: newPlanData.name,
       },
     });

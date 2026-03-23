@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
 
 export const runtime = "nodejs";
+
+let _stripe: Stripe;
+const getStripe = () => {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key || key.trim() === "") {
+    throw new Error("Stripe is not configured. Add STRIPE_SECRET_KEY to your .env.local file.");
+  }
+  return _stripe || (_stripe = new Stripe(key, { apiVersion: "2025-12-15.clover" }));
+};
 
 /**
  * GET /api/billing/status
@@ -59,25 +69,86 @@ export async function GET(req: NextRequest) {
     const formatDate = (date: any) => {
       if (!date) return null;
       const d = date.toDate ? date.toDate() : new Date(date);
+      if (isNaN(d.getTime())) return null;
       return d.toISOString();
     };
 
+    // Try to get next billing date from Firestore first
+    let nextBillingDate = formatDate(userData_db.currentPeriodEnd);
+    let trialEndsAt = formatDate(userData_db.trial_end || userData_db.trialEnd);
+
+    // If has Stripe subscription, always try to sync from Stripe for accuracy
+    if (userData_db.stripeSubscriptionId) {
+      try {
+        const subscription = await getStripe().subscriptions.retrieve(userData_db.stripeSubscriptionId);
+        const sub = subscription as any;
+        // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+        const firstItem = sub.items?.data?.[0];
+        const stripePeriodEnd = firstItem?.current_period_end || sub.current_period_end;
+        const stripePeriodStart = firstItem?.current_period_start || sub.current_period_start;
+
+        if (stripePeriodEnd) {
+          const periodEnd = new Date(Math.floor(Number(stripePeriodEnd)) * 1000);
+          nextBillingDate = periodEnd.toISOString();
+
+          const updateFields: Record<string, any> = {
+            currentPeriodEnd: periodEnd,
+          };
+          if (stripePeriodStart) {
+            updateFields.currentPeriodStart = new Date(Math.floor(Number(stripePeriodStart)) * 1000);
+          }
+          db.collection("users").doc(userId).update(updateFields).catch((err: any) => {
+            console.error("[BILLING STATUS] Error saving period dates back to Firestore:", err);
+          });
+        }
+
+        if (sub.trial_end) {
+          trialEndsAt = new Date(Math.floor(Number(sub.trial_end)) * 1000).toISOString();
+        }
+      } catch (stripeError: any) {
+        console.error("[BILLING STATUS] Error fetching subscription from Stripe:", stripeError.message);
+      }
+    }
+
+    // Fetch branch and staff counts for downgrade eligibility
+    let branchCount = 0;
+    let staffCount = 0;
+    const role = (userData_db.role || "").toString();
+    if (role === "workshop_owner") {
+      try {
+        const [branchSnap, staffSnap] = await Promise.all([
+          db.collection("branches").where("ownerUid", "==", userId).get(),
+          db.collection("users").where("ownerUid", "==", userId).get(),
+        ]);
+        branchCount = branchSnap.size;
+        staffCount = staffSnap.docs.filter(
+          (d) => ["workshop_staff", "branch_admin"].includes((d.data().role || "").toString())
+        ).length;
+      } catch (usageErr: any) {
+        console.error("[BILLING STATUS] Error fetching usage counts:", usageErr.message);
+      }
+    }
+
     const response = {
       plan: userData_db.plan || userData_db.planName || "Unknown",
+      planId: userData_db.planId || null,
       plan_key: userData_db.plan_key || null,
+      price: userData_db.price || null,
       billing_status: billingStatus,
-      next_billing_date: formatDate(userData_db.currentPeriodEnd),
+      next_billing_date: nextBillingDate,
       payment_required: paymentRequired,
       downgrade_scheduled: userData_db.downgradeScheduled || false,
       downgrade_effective_date: formatDate(userData_db.downgradeEffectiveDate),
       downgrade_plan_name: userData_db.downgradePlanName || null,
-      trial_ends_at: formatDate(userData_db.trial_end || userData_db.trialEnd),
+      trial_ends_at: trialEndsAt,
       grace_until: formatDate(userData_db.grace_until),
       grace_expired: graceExpired,
       cancel_at_period_end: userData_db.cancelAtPeriodEnd || false,
-      cancellation_date: formatDate(userData_db.currentPeriodEnd),
+      cancellation_date: formatDate(userData_db.currentPeriodEnd) || nextBillingDate,
       stripe_customer_id: userData_db.stripeCustomerId || null,
       stripe_subscription_id: userData_db.stripeSubscriptionId || null,
+      branch_count: branchCount,
+      staff_count: staffCount,
     };
 
     return NextResponse.json({

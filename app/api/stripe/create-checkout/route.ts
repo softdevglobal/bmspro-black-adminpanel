@@ -105,6 +105,23 @@ export async function POST(req: NextRequest) {
     // Get trial days from plan (0 or undefined = no trial)
     const trialDays = planData.trialDays ? parseInt(planData.trialDays, 10) : 0;
     
+    // Check if user has already used their trial period
+    // If so, skip trial and go straight to paid subscription
+    const hasUsedTrial = !!(
+      userData?.trial_end || 
+      userData?.hasFreeTrial || 
+      userData?.accountStatus === "trial_expired" ||
+      userData?.billing_status === "trialing" ||
+      userData?.subscriptionStatus === "trialing" ||
+      userData?.subscriptionStatus === "expired"
+    );
+    
+    const effectiveTrialDays = hasUsedTrial ? 0 : trialDays;
+    
+    if (hasUsedTrial && trialDays > 0) {
+      console.log(`[CREATE CHECKOUT] User ${userId} has already used trial, skipping trial period`);
+    }
+    
     // Build subscription_data with optional trial period
     const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
       metadata: {
@@ -115,9 +132,9 @@ export async function POST(req: NextRequest) {
       },
     };
     
-    // Only add trial period if trialDays > 0
-    if (trialDays > 0) {
-      subscriptionData.trial_period_days = trialDays;
+    // Only add trial period if user hasn't used their trial yet
+    if (effectiveTrialDays > 0) {
+      subscriptionData.trial_period_days = effectiveTrialDays;
     }
 
     // Build line_items - use price_data to create price inline (no need for Stripe Price ID)
@@ -154,7 +171,7 @@ export async function POST(req: NextRequest) {
         firebaseUid: userId,
         planId: planId,
         planName: planData.name,
-        trialDays: trialDays.toString(),
+        trialDays: effectiveTrialDays.toString(),
         price: planData.price.toString(),
       },
       subscription_data: subscriptionData,

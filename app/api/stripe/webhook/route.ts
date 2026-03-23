@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
@@ -192,33 +193,46 @@ async function handleCheckoutCompleted(
   // Get subscription details from Stripe
   const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
   const sub = subscription as any;
-  const priceId = sub.items?.data[0]?.price?.id;
+  const firstItem = sub.items?.data?.[0];
+  const priceId = firstItem?.price?.id;
+  // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+  const subPeriodStart = firstItem?.current_period_start || sub.current_period_start;
+  const subPeriodEnd = firstItem?.current_period_end || sub.current_period_end;
   
   // Check if subscription has a trial period (trial_end exists and is in the future)
   const now = Math.floor(Date.now() / 1000);
   const hasTrialEnd = sub.trial_end && sub.trial_end > now;
   const isTrialing = sub.status === "trialing" || hasTrialEnd;
+  const isActive = sub.status === "active";
   
-  console.log("[WEBHOOK] Subscription status:", sub.status, "trial_end:", sub.trial_end, "isTrialing:", isTrialing);
+  console.log("[WEBHOOK] Subscription status:", sub.status, "trial_end:", sub.trial_end, "isTrialing:", isTrialing, "isActive:", isActive);
+  console.log("[WEBHOOK] Period start:", subPeriodStart, "Period end:", subPeriodEnd);
 
   const updateData: any = {
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscriptionId,
     stripePriceId: priceId,
     subscriptionStatus: sub.status,
-    billing_status: isTrialing ? "trialing" : "pending", // Will become active when invoice paid
-    // Activate account for trialing users (they can access dashboard during trial)
-    accountStatus: isTrialing ? "active" : "pending_payment",
-    status: isTrialing ? "Trial" : "Pending Payment",
-    currentPeriodStart: new Date(sub.current_period_start * 1000),
-    currentPeriodEnd: new Date(sub.current_period_end * 1000),
+    billing_status: isTrialing ? "trialing" : (isActive ? "active" : "pending"),
+    accountStatus: isTrialing || isActive ? "active" : "pending_payment",
+    status: isTrialing ? "Trial" : (isActive ? "Active" : "Pending Payment"),
+    currentPeriodStart: subPeriodStart ? new Date(Math.floor(Number(subPeriodStart)) * 1000) : new Date(),
+    currentPeriodEnd: subPeriodEnd ? new Date(Math.floor(Number(subPeriodEnd)) * 1000) : new Date(),
     cancelAtPeriodEnd: sub.cancel_at_period_end || false,
     updatedAt: new Date(),
   };
 
+  // If subscription is active (paid immediately), clear any trial/suspension flags
+  if (isActive) {
+    updateData.trial_end = null;
+    updateData.grace_until = null;
+    updateData.suspendedReason = null;
+    updateData.suspendedAt = null;
+  }
+
   // Set trial end if subscription has trial period
   if (sub.trial_end) {
-    updateData.trial_end = new Date(sub.trial_end * 1000);
+    updateData.trial_end = new Date(Math.floor(Number(sub.trial_end)) * 1000);
   }
 
   // Get plan details from subscription_plans if priceId matches
@@ -283,14 +297,18 @@ async function handlePaymentSucceeded(
   // Get subscription to get current price
   const subscription = await getStripe().subscriptions.retrieve(inv.subscription as string);
   const sub = subscription as any;
-  const priceId = sub.items?.data[0]?.price?.id;
+  const payFirstItem = sub.items?.data?.[0];
+  const priceId = payFirstItem?.price?.id;
+  // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+  const payPeriodStart = payFirstItem?.current_period_start || sub.current_period_start;
+  const payPeriodEnd = payFirstItem?.current_period_end || sub.current_period_end;
 
   const updateData: any = {
     billing_status: "active",
     subscriptionStatus: sub.status,
     stripePriceId: priceId,
-    currentPeriodStart: new Date(sub.current_period_start * 1000),
-    currentPeriodEnd: new Date(sub.current_period_end * 1000),
+    currentPeriodStart: payPeriodStart ? new Date(Math.floor(Number(payPeriodStart)) * 1000) : new Date(),
+    currentPeriodEnd: payPeriodEnd ? new Date(Math.floor(Number(payPeriodEnd)) * 1000) : new Date(),
     last_invoice_id: inv.id,
     lastPaymentDate: new Date(),
     lastPaymentAmount: inv.amount_paid / 100, // Convert from cents
@@ -300,6 +318,39 @@ async function handlePaymentSucceeded(
     suspendedAt: null,
     updatedAt: new Date(),
   };
+
+  // Sync plan limits from subscription_plans (ensures accurate plan/price after upgrade/downgrade)
+  if (priceId) {
+    const plansByPrice = await db.collection("subscription_plans").where("stripePriceId", "==", priceId).limit(1).get();
+    if (!plansByPrice.empty) {
+      const planDoc = plansByPrice.docs[0];
+      const planData = planDoc.data();
+      updateData.planId = planDoc.id;
+      updateData.plan = planData.name || "";
+      updateData.plan_key = planData.plan_key || planDoc.id;
+      updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
+      updateData.branchLimit = planData.branches ?? -1;
+      updateData.staffLimit = planData.staff ?? -1;
+    } else {
+      try {
+        const price = await getStripe().prices.retrieve(priceId);
+        const meta = (price as any).metadata;
+        const planId = meta?.planId;
+        if (planId) {
+          const planDoc = await db.collection("subscription_plans").doc(planId).get();
+          if (planDoc.exists) {
+            const planData = planDoc.data()!;
+            updateData.planId = planId;
+            updateData.plan = planData.name || "";
+            updateData.plan_key = planData.plan_key || planId;
+            updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
+            updateData.branchLimit = planData.branches ?? -1;
+            updateData.staffLimit = planData.staff ?? -1;
+          }
+        }
+      } catch {}
+    }
+  }
 
   // Clear trial_end if trial ended
   if (sub.status === "active" && sub.trial_end) {
@@ -393,26 +444,87 @@ async function updateUserSubscription(
   subscription: Stripe.Subscription
 ) {
   const sub = subscription as any;
+  const updItem = sub.items?.data?.[0];
+  const priceId = updItem?.price?.id;
+  // In Stripe API 2025-12-15.clover, current_period_end/start moved to subscription item level
+  const updPeriodStart = updItem?.current_period_start || sub.current_period_start;
+  const updPeriodEnd = updItem?.current_period_end || sub.current_period_end;
   const updateData: any = {
     stripeSubscriptionId: sub.id,
-    stripePriceId: sub.items?.data[0]?.price?.id || null,
+    stripePriceId: priceId || null,
     subscriptionStatus: sub.status,
-    currentPeriodStart: new Date(sub.current_period_start * 1000),
-    currentPeriodEnd: new Date(sub.current_period_end * 1000),
+    currentPeriodStart: updPeriodStart ? new Date(Math.floor(Number(updPeriodStart)) * 1000) : new Date(),
+    currentPeriodEnd: updPeriodEnd ? new Date(Math.floor(Number(updPeriodEnd)) * 1000) : new Date(),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     updatedAt: new Date(),
   };
 
   // Update trial_end if exists
   if (sub.trial_end) {
-    updateData.trial_end = new Date(sub.trial_end * 1000);
+    updateData.trial_end = new Date(Math.floor(Number(sub.trial_end)) * 1000);
+  }
+
+  // Sync plan limits when price changes (upgrade, downgrade phase, etc.)
+  if (priceId) {
+    let planId: string | null = null;
+    let planData: FirebaseFirestore.DocumentData | null = null;
+
+    const plansByPrice = await db
+      .collection("subscription_plans")
+      .where("stripePriceId", "==", priceId)
+      .limit(1)
+      .get();
+
+    if (!plansByPrice.empty) {
+      const doc = plansByPrice.docs[0];
+      planId = doc.id;
+      planData = doc.data();
+    } else {
+      try {
+        const price = await getStripe().prices.retrieve(priceId);
+        const meta = (price as any).metadata;
+        planId = meta?.planId || null;
+        if (planId) {
+          const planDoc = await db.collection("subscription_plans").doc(planId).get();
+          if (planDoc.exists) {
+            planData = planDoc.data()!;
+          }
+        }
+      } catch (priceErr: any) {
+        console.warn("[WEBHOOK] Could not retrieve price for plan sync:", priceErr?.message);
+      }
+    }
+
+    if (planId && planData) {
+      updateData.planId = planId;
+      updateData.plan = planData.name || "";
+      updateData.plan_key = planData.plan_key || planId;
+      updateData.price = planData.priceLabel || `AU$${planData.price}/mo`;
+      updateData.branchLimit = planData.branches ?? -1;
+      updateData.staffLimit = planData.staff ?? -1;
+      // Clear downgrade scheduling fields when plan actually changed
+      const userDoc = await db.collection("users").doc(userId).get();
+      const userData = userDoc.data();
+      const planChanged = userData?.planId !== planId;
+      if (planChanged) {
+        updateData.stripeScheduleId = FieldValue.delete();
+        updateData.downgradeScheduled = false;
+        updateData.downgradePlanId = FieldValue.delete();
+        updateData.downgradePriceId = FieldValue.delete();
+        updateData.downgradeEffectiveDate = FieldValue.delete();
+        updateData.downgradePlanKey = FieldValue.delete();
+        updateData.downgradePlanName = FieldValue.delete();
+        updateData.downgradePlanPrice = FieldValue.delete();
+        updateData.downgradeBranchLimit = FieldValue.delete();
+        updateData.downgradeStaffLimit = FieldValue.delete();
+      }
+      console.log(`[WEBHOOK] Synced plan limits for user ${userId}: ${planData.name} (${planData.branches} branches, ${planData.staff} staff)`);
+    }
   }
 
   // Update billing_status based on subscription status
   // BUT: Don't change from past_due to active unless invoice was paid
-  // The invoice.payment_succeeded event will handle that
   if (sub.status === "active" || sub.status === "trialing") {
-    // Only update if not currently past_due (let payment_succeeded handle that)
     const userDoc = await db.collection("users").doc(userId).get();
     const currentBillingStatus = userDoc.data()?.billing_status;
     
@@ -423,12 +535,10 @@ async function updateUserSubscription(
       updateData.suspendedAt = null;
     }
   } else if (sub.status === "past_due" || sub.status === "unpaid") {
-    // Don't override if already past_due with grace period
     const userDoc = await db.collection("users").doc(userId).get();
     const currentBillingStatus = userDoc.data()?.billing_status;
     
     if (currentBillingStatus !== "past_due") {
-      // Set grace period if not already set
       const graceUntil = new Date();
       graceUntil.setDate(graceUntil.getDate() + GRACE_DAYS);
       updateData.billing_status = "past_due";

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { fetchCurrentUser } from "@/lib/authClient";
 import PaymentRequiredModal from "./PaymentRequiredModal";
 import OwnerAccountInactiveModal from "./OwnerAccountInactiveModal";
@@ -132,14 +133,31 @@ export default function AuthGuard({ children }: AuthGuardProps) {
               const isSuccessPage = pathname?.includes("/subscription/success");
               
               if (!isPaymentExemptPage && !isSuccessPage) {
-                const trialDays = meData.trialDays || 0;
+                let trialDays = meData.trialDays || 0;
+                
+                // If trialDays not set on user, fetch from subscription plan
+                if (!trialDays && meData.planId) {
+                  try {
+                    const planDoc = await getDoc(doc(db, "subscription_plans", meData.planId));
+                    if (planDoc.exists()) {
+                      const planData = planDoc.data();
+                      trialDays = planData.trialDays ? parseInt(String(planData.trialDays), 10) : 0;
+                    }
+                  } catch (e) {
+                    console.error("[AuthGuard] Error fetching plan:", e);
+                  }
+                }
+                
+                // If trial has expired by date, treat as trial_expired even if DB not updated yet
+                const effectiveAccountStatus = trialExpired ? "trial_expired" : accountStatus;
+                
                 setPaymentInfo({
                   required: true,
                   planName: meData.plan || undefined,
                   planPrice: meData.price || undefined,
                   planId: meData.planId || undefined,
                   trialDays: trialDays,
-                  accountStatus: accountStatus,
+                  accountStatus: effectiveAccountStatus,
                 });
               } else {
                 setPaymentInfo({ required: false });
@@ -149,10 +167,79 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             }
             setOwnerBlocked({ blocked: false, reason: "" });
           } else if (userRole === "branch_admin" && meData.ownerUid) {
-            // For branch admins, we check the owner status via a simple approach
-            // The /api/auth/me already returns ownerUid; we trust the server data
+            // For branch admins: Check the OWNER's account status
+            console.log("[AuthGuard] Branch admin - checking owner account status");
             setPaymentInfo({ required: false });
-            setOwnerBlocked({ blocked: false, reason: "" });
+            
+            const ownerUid = meData.ownerUid;
+            try {
+              const ownerDoc = await getDoc(doc(db, "users", ownerUid));
+              if (ownerDoc.exists()) {
+                const ownerData = ownerDoc.data();
+                const ownerAccountStatus = ownerData?.accountStatus || "active";
+                const ownerSubscriptionStatus = ownerData?.subscriptionStatus || "active";
+                const ownerName = ownerData?.displayName || ownerData?.name || ownerData?.email || "Workshop Owner";
+                
+                // Check if owner is in card-free trial or active trial with Stripe
+                const ownerIsCardFreeTrial = ownerAccountStatus === "active_trial" && !ownerData?.stripeSubscriptionId;
+                const ownerIsActiveTrialing = ownerSubscriptionStatus === "trialing" && ownerData?.stripeSubscriptionId;
+                
+                // Check trial expiry for owner
+                let ownerTrialExpired = false;
+                if ((ownerIsCardFreeTrial || ownerIsActiveTrialing) && ownerData?.trial_end) {
+                  const trialEnd = ownerData.trial_end.toDate ? ownerData.trial_end.toDate() : new Date(ownerData.trial_end);
+                  ownerTrialExpired = new Date() > trialEnd;
+                }
+                
+                if (ownerIsCardFreeTrial && !ownerTrialExpired) {
+                  console.log("[AuthGuard] Owner is in card-free trial period - allowing branch admin access");
+                  setOwnerBlocked({ blocked: false, reason: "" });
+                  setAuthorized(true);
+                  setLoading(false);
+                  return;
+                }
+                
+                const ownerAccountInactive = 
+                  ownerAccountStatus === "suspended" ||
+                  ownerAccountStatus === "cancelled" ||
+                  ownerAccountStatus === "trial_expired" ||
+                  ownerSubscriptionStatus === "past_due" ||
+                  ownerSubscriptionStatus === "unpaid" ||
+                  ownerSubscriptionStatus === "canceled" ||
+                  ownerSubscriptionStatus === "cancelled" ||
+                  (ownerTrialExpired && !ownerData?.stripeSubscriptionId);
+                
+                if (ownerAccountInactive) {
+                  let reason = "The workshop's subscription is currently inactive.";
+                  
+                  if (ownerAccountStatus === "suspended") {
+                    reason = "The workshop's account has been suspended due to payment issues.";
+                  } else if (ownerAccountStatus === "cancelled" || ownerSubscriptionStatus === "canceled" || ownerSubscriptionStatus === "cancelled") {
+                    reason = "The workshop's subscription has been cancelled.";
+                  } else if (ownerSubscriptionStatus === "past_due") {
+                    reason = "The workshop's subscription payment is past due.";
+                  } else if (ownerSubscriptionStatus === "unpaid") {
+                    reason = "The workshop's subscription payment has failed.";
+                  } else if (ownerTrialExpired) {
+                    reason = "The workshop's free trial has expired.";
+                  }
+                  
+                  console.log("[AuthGuard] Owner account inactive - blocking branch admin. Reason:", reason);
+                  setOwnerBlocked({
+                    blocked: true,
+                    reason,
+                    ownerName,
+                  });
+                } else {
+                  setOwnerBlocked({ blocked: false, reason: "" });
+                }
+              } else {
+                setOwnerBlocked({ blocked: false, reason: "" });
+              }
+            } catch (e) {
+              console.error("[AuthGuard] Error fetching owner data:", e);
+              setOwnerBlocked({ blocked: false, reason: "" });
+            }
           } else {
             setPaymentInfo({ required: false });
             setOwnerBlocked({ blocked: false, reason: "" });

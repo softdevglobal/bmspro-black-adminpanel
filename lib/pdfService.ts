@@ -53,6 +53,7 @@ interface BookingPDFData {
   mileage?: string | null;
   mileageRecordedBy?: string | null;
   mileageRecordedByStaffName?: string | null;
+  mileageRecordedAt?: any;
   fuelLevel?: string | null;
   existingDamageNotes?: string | null;
   existingDamageImages?: string[] | null;
@@ -231,6 +232,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     mileage: data.mileage || null,
     mileageRecordedBy: data.mileageRecordedBy || null,
     mileageRecordedByStaffName: data.mileageRecordedByStaffName || null,
+    mileageRecordedAt: data.mileageRecordedAt ?? null,
     fuelLevel: data.fuelLevel || null,
     existingDamageNotes: data.existingDamageNotes || null,
     existingDamageImages: Array.isArray(data.existingDamageImages) ? data.existingDamageImages : null,
@@ -259,7 +261,13 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     salonName,
   };
 
-  if (booking.mileage && data.mileageRecordedBy && !booking.mileageRecordedByStaffName) {
+  const hasVehicleCheckInData =
+    Boolean(booking.mileage) ||
+    Boolean(booking.fuelLevel) ||
+    Boolean(String(booking.existingDamageNotes || "").trim()) ||
+    (Array.isArray(booking.existingDamageImages) && booking.existingDamageImages.length > 0);
+
+  if (hasVehicleCheckInData && data.mileageRecordedBy && !booking.mileageRecordedByStaffName) {
     try {
       const staffDoc = await db.doc(`users/${data.mileageRecordedBy}`).get();
       if (staffDoc.exists) {
@@ -449,6 +457,19 @@ async function buildHTML(
   );
 
   const pdfGrandTotal = pdfServicesSubtotal + pdfAdditionalTotal || Number(booking.price) || 0;
+
+  const hasVehicleCheckIn =
+    Boolean(booking.mileage) ||
+    Boolean(booking.fuelLevel) ||
+    Boolean(String(booking.existingDamageNotes || "").trim()) ||
+    (Array.isArray(booking.existingDamageImages) && booking.existingDamageImages.length > 0);
+
+  const vehicleCheckInBy = (booking.mileageRecordedByStaffName || "").trim();
+  const vehicleCheckInAtFormatted = booking.mileageRecordedAt
+    ? formatTimestampInTimezone(booking.mileageRecordedAt, booking.branchTimezone)
+    : "";
+  const vehicleCheckInAtOk =
+    Boolean(vehicleCheckInAtFormatted) && vehicleCheckInAtFormatted !== "N/A";
 
   const hasPriceBreakdown = pdfGrandTotal > 0 || pdfBillableIssues.length > 0;
   const hasSinglePrice = !hasPriceBreakdown && booking.price !== undefined && booking.price !== null;
@@ -1235,7 +1256,7 @@ async function buildHTML(
   }
 
   @media print {
-    body { background: #fff; }
+    body { background: #fff; min-height: auto; }
     .card, .task-card, .sub-card { box-shadow: none; }
   }
 
@@ -1256,6 +1277,12 @@ async function buildHTML(
   .section-label {
     page-break-after: avoid;
     break-after: avoid;
+  }
+
+  /* First section may break across pages to avoid empty space on page 1 */
+  .report-body > section:first-child .card {
+    page-break-inside: auto;
+    break-inside: auto;
   }
       </style>
     </head>
@@ -1279,7 +1306,7 @@ async function buildHTML(
       <main class="report-body">
 
         <!-- ── BOOKING DETAILS ── -->
-        <section class="keep-together">
+        <section>
           <div class="section-label">
             <div class="section-label-dot"></div>
             <h2>Booking Details</h2>
@@ -1367,6 +1394,18 @@ async function buildHTML(
                 <div class="detail-label">Recorded Mileage</div>
                 <div class="detail-value warn">${safeStr(booking.mileage)}</div>
               </div>` : ""}
+              ${hasVehicleCheckIn && (vehicleCheckInBy || vehicleCheckInAtOk) ? `
+              ${vehicleCheckInBy ? `
+              <div class="detail-cell">
+                <div class="detail-label">Check-In Recorded By</div>
+                <div class="detail-value">${safeStr(vehicleCheckInBy)}</div>
+              </div>` : ""}
+              ${vehicleCheckInAtOk ? `
+              <div class="detail-cell">
+                <div class="detail-label">Check-In Recorded At</div>
+                <div class="detail-value">${safeStr(vehicleCheckInAtFormatted)}</div>
+              </div>` : ""}
+              ` : ""}
               ${booking.date ? `
               <div class="detail-cell">
                 <div class="detail-label">Date</div>
@@ -1451,7 +1490,8 @@ async function buildHTML(
             <div class="damage-inner">
               <div class="damage-info">
                 <div class="damage-pill">⚠ ${safeStr(booking.existingDamageNotes)}</div>
-                <div class="damage-ts">Recorded at drop-off: ${safeStr(booking.date)} at ${safeStr(booking.time)}</div>
+                ${vehicleCheckInBy ? `<div class="damage-ts">Recorded by: ${safeStr(vehicleCheckInBy)}</div>` : ""}
+                <div class="damage-ts">Recorded at: ${vehicleCheckInAtOk ? safeStr(vehicleCheckInAtFormatted) : `${safeStr(booking.date)} at ${safeStr(booking.time)}`}</div>
                 <div class="damage-desc">Pre-existing damage documented at vehicle drop-off. Customer has been informed; no liability assigned for listed damage.</div>
               </div>
               ${damageImageSrcs.map((src, index) => `

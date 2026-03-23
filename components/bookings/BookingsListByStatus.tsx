@@ -10,6 +10,20 @@ import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 import BookingsExportModal from "./BookingsExportModal";
 
+/** Firestore may store mileageRecordedAt as an ISO string or a Timestamp. */
+function parseMileageRecordedAt(value: unknown): Date | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof value === "object" && value !== null && typeof (value as { toDate?: () => Date }).toDate === "function") {
+    const d = (value as { toDate: () => Date }).toDate();
+    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+  }
+  return null;
+}
+
 type ServiceApprovalStatus = "pending" | "accepted" | "rejected" | "needs_assignment";
 type ServiceCompletionStatus = "pending" | "completed";
 
@@ -63,6 +77,7 @@ type Row = {
   vehicleMileage?: string | null;  // Customer-added at booking
   mileage?: string | null;         // Staff-recorded when starting job
   mileageRecordedByStaffName?: string | null;
+  mileageRecordedAt?: string | null; // ISO string (normalized from Firestore)
   fuelLevel?: string | null;       // Staff-recorded at vehicle check-in
   existingDamageNotes?: string | null;
   existingDamageImages?: string[] | null;
@@ -218,6 +233,10 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               vehicleMileage: d.vehicleMileage || null,
               mileage: d.mileage || null,
               mileageRecordedByStaffName: d.mileageRecordedByStaffName || null,
+              mileageRecordedAt: (() => {
+                const dt = parseMileageRecordedAt(d.mileageRecordedAt);
+                return dt ? dt.toISOString() : null;
+              })(),
               fuelLevel: d.fuelLevel || null,
               existingDamageNotes: d.existingDamageNotes || null,
               existingDamageImages: Array.isArray(d.existingDamageImages) ? d.existingDamageImages : null,
@@ -1521,9 +1540,38 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center border border-emerald-300/50">
                                 <i className="fas fa-clipboard-check text-emerald-600" />
                               </div>
-                              <div>
+                              <div className="min-w-0 flex-1">
                                 <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Vehicle Check-In</p>
-                                <p className="text-sm font-semibold text-neutral-800">Recorded by staff at drop-off</p>
+                                {(() => {
+                                  const by = previewRow.mileageRecordedByStaffName?.trim();
+                                  const at = previewRow.mileageRecordedAt
+                                    ? parseMileageRecordedAt(previewRow.mileageRecordedAt)
+                                    : null;
+                                  const atLabel =
+                                    at &&
+                                    at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+                                  if (by && atLabel) {
+                                    return (
+                                      <p className="text-sm text-neutral-700 mt-0.5">
+                                        Recorded by <span className="font-semibold text-neutral-900">{by}</span>
+                                        <span className="text-neutral-400 font-normal"> · </span>
+                                        <span className="font-normal">{atLabel}</span>
+                                      </p>
+                                    );
+                                  }
+                                  if (by) {
+                                    return (
+                                      <p className="text-sm text-neutral-700 mt-0.5">
+                                        Recorded by <span className="font-semibold text-neutral-900">{by}</span>
+                                      </p>
+                                    );
+                                  }
+                                  return (
+                                    <p className="text-sm text-neutral-600 mt-0.5">
+                                      Staff check-in at drop-off (who recorded is not on file).
+                                    </p>
+                                  );
+                                })()}
                               </div>
                             </div>
                             <div className="space-y-3">
@@ -1535,9 +1583,6 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   <div className="flex-1 min-w-0">
                                     <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Mileage</p>
                                     <p className="text-sm font-semibold text-neutral-800">{previewRow.mileage}</p>
-                                    {previewRow.mileageRecordedByStaffName && (
-                                      <p className="text-[10px] text-neutral-500 mt-0.5">by {previewRow.mileageRecordedByStaffName}</p>
-                                    )}
                                   </div>
                                 </div>
                               )}

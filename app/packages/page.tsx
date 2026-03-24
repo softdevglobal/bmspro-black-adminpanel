@@ -13,16 +13,18 @@ type SubscriptionPlan = {
   name: string;
   price: number;
   priceLabel: string;
+  branches: number;
+  staff: number;
   features: string[];
   popular?: boolean;
   color: string;
   image?: string;
-  icon?: string; // Keep for backward compatibility
+  icon?: string;
   active?: boolean;
-  hidden?: boolean; // Hidden packages are not shown in subscription page for upgrade/downgrade
-  stripePriceId?: string; // Stripe Price ID for payment processing
-  trialDays?: number; // Free trial period in days (0 = no trial)
-  plan_key?: string; // Internal plan identifier (e.g., SOLO, TEAM5)
+  hidden?: boolean;
+  stripePriceId?: string;
+  trialDays?: number;
+  plan_key?: string;
 };
 
 export default function PackagesPage() {
@@ -51,15 +53,19 @@ export default function PackagesPage() {
     name: "",
     price: "",
     priceLabel: "",
+    branches: "1",
+    staff: "1",
+    unlimitedBranches: false,
+    unlimitedStaff: false,
     features: "",
     popular: false,
     color: "blue",
     image: "",
     active: true,
-    hidden: false, // Hidden packages are not shown in subscription page for upgrade/downgrade
+    hidden: false,
     stripePriceId: "",
-    trialDays: "0", // Free trial period in days
-    plan_key: "", // Internal plan identifier
+    trialDays: "0",
+    plan_key: "",
   });
 
   useEffect(() => {
@@ -207,6 +213,10 @@ export default function PackagesPage() {
       name: "",
       price: "",
       priceLabel: "",
+      branches: "1",
+      staff: "1",
+      unlimitedBranches: false,
+      unlimitedStaff: false,
       features: "",
       popular: false,
       color: "blue",
@@ -224,10 +234,16 @@ export default function PackagesPage() {
   };
 
   const openEditPackage = (pkg: SubscriptionPlan) => {
+    const isUnlimitedBranches = pkg.branches === -1;
+    const isUnlimitedStaff = pkg.staff === -1;
     setFormData({
       name: pkg.name,
       price: pkg.price.toString(),
       priceLabel: pkg.priceLabel,
+      branches: isUnlimitedBranches ? "1" : pkg.branches.toString(),
+      staff: isUnlimitedStaff ? "1" : pkg.staff.toString(),
+      unlimitedBranches: isUnlimitedBranches,
+      unlimitedStaff: isUnlimitedStaff,
       features: pkg.features.join("\n"),
       popular: pkg.popular || false,
       color: pkg.color,
@@ -297,8 +313,8 @@ export default function PackagesPage() {
         name: formData.name.trim(),
         price: parseFloat(formData.price),
         priceLabel: formData.priceLabel.trim(),
-        branches: -1,
-        staff: -1,
+        branches: formData.unlimitedBranches ? -1 : parseInt(formData.branches, 10),
+        staff: formData.unlimitedStaff ? -1 : parseInt(formData.staff, 10),
         features: featuresArray,
         popular: formData.popular,
         color: formData.color,
@@ -473,7 +489,8 @@ export default function PackagesPage() {
                           <h3 className="text-xl font-bold text-neutral-900 mb-1">{plan.name}</h3>
                           <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>{plan.priceLabel}</p>
                           <p className="text-sm text-neutral-500">
-                            {plan.features.length} {plan.features.length === 1 ? "Feature" : "Features"}
+                            {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} {" \u2022 "}
+                            {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
                           </p>
                         </div>
                       </div>
@@ -596,8 +613,13 @@ export default function PackagesPage() {
                               </div>
                               <div className="flex items-center justify-center gap-3 text-sm text-neutral-500">
                                 <span className="flex items-center gap-1">
-                                  <i className="fas fa-list-check text-xs" />
-                                  {plan.features.length} {plan.features.length === 1 ? "Feature" : "Features"}
+                                  <i className="fas fa-building text-xs" />
+                                  {plan.branches === -1 ? "Unlimited" : plan.branches} {plan.branches === 1 ? "Branch" : "Branches"}
+                                </span>
+                                <span className="w-1 h-1 bg-neutral-300 rounded-full" />
+                                <span className="flex items-center gap-1">
+                                  <i className="fas fa-users text-xs" />
+                                  {plan.staff === -1 ? "Unlimited" : plan.staff} Staff
                                 </span>
                               </div>
                             </div>
@@ -837,6 +859,100 @@ export default function PackagesPage() {
                                       className="w-full px-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
                                       placeholder="AU$99/mo"
                                     />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Section: Plan Limits */}
+                            <div>
+                              <div className="flex items-center gap-2.5 mb-4">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center">
+                                  <i className="fas fa-sliders text-[10px] text-white" />
+                                </div>
+                                <h4 className="text-xs font-bold text-neutral-800 uppercase tracking-widest">Plan Limits</h4>
+                              </div>
+                              <div className="bg-neutral-50 rounded-2xl border border-neutral-200 p-5 space-y-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                      Branches
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                        <i className="fas fa-building text-neutral-400 text-sm" />
+                                      </div>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={formData.unlimitedBranches ? "unlimited" : formData.branches}
+                                        onChange={(e) => {
+                                          if (!formData.unlimitedBranches) {
+                                            const value = e.target.value.replace(/[^0-9]/g, '');
+                                            setFormData({ ...formData, branches: value });
+                                          }
+                                        }}
+                                        disabled={formData.unlimitedBranches}
+                                        className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium disabled:bg-neutral-100 disabled:cursor-not-allowed"
+                                        placeholder="1"
+                                      />
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer mt-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={formData.unlimitedBranches}
+                                        onChange={(e) => {
+                                          setFormData({
+                                            ...formData,
+                                            unlimitedBranches: e.target.checked,
+                                            branches: e.target.checked ? "1" : formData.branches,
+                                          });
+                                        }}
+                                        className="w-4 h-4 text-neutral-900 rounded focus:ring-neutral-900 border-neutral-300"
+                                      />
+                                      <span className="text-xs text-neutral-600">Unlimited Branches</span>
+                                    </label>
+                                  </div>
+                                  <div>
+                                    <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                      Staff
+                                    </label>
+                                    <div className="relative">
+                                      <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                        <i className="fas fa-users text-neutral-400 text-sm" />
+                                      </div>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={formData.unlimitedStaff ? "unlimited" : formData.staff}
+                                        onChange={(e) => {
+                                          if (!formData.unlimitedStaff) {
+                                            const value = e.target.value.replace(/[^0-9]/g, '');
+                                            setFormData({ ...formData, staff: value });
+                                          }
+                                        }}
+                                        disabled={formData.unlimitedStaff}
+                                        className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium disabled:bg-neutral-100 disabled:cursor-not-allowed"
+                                        placeholder="1"
+                                      />
+                                    </div>
+                                    <label className="flex items-center gap-2 cursor-pointer mt-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={formData.unlimitedStaff}
+                                        onChange={(e) => {
+                                          setFormData({
+                                            ...formData,
+                                            unlimitedStaff: e.target.checked,
+                                            staff: e.target.checked ? "1" : formData.staff,
+                                          });
+                                        }}
+                                        className="w-4 h-4 text-neutral-900 rounded focus:ring-neutral-900 border-neutral-300"
+                                      />
+                                      <span className="text-xs text-neutral-600">Unlimited Staff</span>
+                                    </label>
                                   </div>
                                 </div>
                               </div>
@@ -1181,6 +1297,17 @@ export default function PackagesPage() {
                                   </h3>
                                   <div className={`text-3xl font-extrabold bg-gradient-to-r ${selectedColor.gradient} bg-clip-text text-transparent`}>
                                     {formData.priceLabel || "AU$0/mo"}
+                                  </div>
+                                  <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-500 mt-2">
+                                    <span className="flex items-center gap-1">
+                                      <i className="fas fa-building text-[9px]" />
+                                      {formData.unlimitedBranches ? "Unlimited" : (formData.branches || "1")} {!formData.unlimitedBranches && formData.branches === "1" ? "Branch" : "Branches"}
+                                    </span>
+                                    <span className="w-1 h-1 bg-neutral-300 rounded-full" />
+                                    <span className="flex items-center gap-1">
+                                      <i className="fas fa-users text-[9px]" />
+                                      {formData.unlimitedStaff ? "Unlimited" : (formData.staff || "1")} Staff
+                                    </span>
                                   </div>
                                   {formData.trialDays && parseInt(formData.trialDays) > 0 && (
                                     <p className="text-[10px] text-emerald-600 font-semibold mt-2 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full inline-flex items-center gap-1">

@@ -458,6 +458,15 @@ async function buildHTML(
 
   const pdfGrandTotal = pdfServicesSubtotal + pdfAdditionalTotal || Number(booking.price) || 0;
 
+  const completedByFromServices = [
+    ...new Set(
+      (booking.services || []).map((s: any) => s.completedByStaffName).filter(Boolean)
+    ),
+  ] as string[];
+  const jobReportCompletedByLine =
+    (completedByFromServices.length > 0 ? completedByFromServices.join(", ") : "") ||
+    (booking.completedByStaffName || "");
+
   const hasVehicleCheckIn =
     Boolean(booking.mileage) ||
     Boolean(booking.fuelLevel) ||
@@ -1416,15 +1425,11 @@ async function buildHTML(
                 <div class="detail-label">Completed At</div>
                 <div class="detail-value">${safeStr(formatTimestampInTimezone(booking.completedAt, booking.branchTimezone))}</div>
               </div>` : ""}
-              ${(booking.completedByStaffName || (booking.services && booking.services.some(s => s.completedByStaffName))) ? `
+              ${jobReportCompletedByLine ? `
               <div class="detail-cell">
                 <div class="detail-label">Completed By</div>
                 <div class="detail-value">
-                  ${safeStr(
-                    booking.services && booking.services.length > 1
-                      ? [...new Set(booking.services.map(s => s.completedByStaffName).filter(Boolean))].join(", ") || booking.completedByStaffName
-                      : booking.completedByStaffName
-                  )}
+                  ${safeStr(jobReportCompletedByLine)}
                 </div>
               </div>` : ""}
             </div>
@@ -1450,7 +1455,7 @@ async function buildHTML(
               </div>
             </div>
 
-            ${booking.completedByStaffName ? `
+            ${jobReportCompletedByLine ? `
             <div class="completed-by-row">
               <span class="cb-label">Completed by</span>
               ${(booking.services || [])
@@ -1460,7 +1465,11 @@ async function buildHTML(
                     <div class="staff-avatar">${safeStr(s.completedByStaffName!.charAt(0) + (s.completedByStaffName!.length > 1 ? s.completedByStaffName!.charAt(1) : ""))}</div>
                     ${safeStr(s.completedByStaffName)}
                   </div>
-                `).join("")}
+                `).join("") || `
+                  <div class="staff-pill">
+                    <div class="staff-avatar">${safeStr(jobReportCompletedByLine.charAt(0) + (jobReportCompletedByLine.length > 1 ? jobReportCompletedByLine.charAt(1) : ""))}</div>
+                    ${safeStr(jobReportCompletedByLine)}
+                  </div>`}
             </div>` : ""}
           </div>
         </section>

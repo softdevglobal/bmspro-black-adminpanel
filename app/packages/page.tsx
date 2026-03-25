@@ -1008,24 +1008,6 @@ export default function PackagesPage() {
                                   </div>
                                 </div>
 
-                                {/* Stripe Price ID */}
-                                <div>
-                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-                                    Stripe Price ID
-                                  </label>
-                                  <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
-                                      <i className="fab fa-stripe-s text-neutral-400 text-sm" />
-                                    </div>
-                                    <input
-                                      type="text"
-                                      value={formData.stripePriceId}
-                                      onChange={(e) => setFormData({ ...formData, stripePriceId: e.target.value })}
-                                      className="w-full pl-10 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-mono font-medium"
-                                      placeholder="price_1234..."
-                                    />
-                                  </div>
-                                </div>
                               </div>
                             </div>
 

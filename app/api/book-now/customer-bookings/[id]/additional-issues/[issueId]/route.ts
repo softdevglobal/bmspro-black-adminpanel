@@ -42,6 +42,13 @@ export async function PATCH(
     }
 
     const bookingData = bookingSnap.data() as any;
+    const bookingStatus = (bookingData.status || "").toString().toLowerCase();
+    if (bookingStatus === "completed") {
+      return NextResponse.json(
+        { error: "Booking is already completed. Additional work can no longer be accepted or declined." },
+        { status: 400 }
+      );
+    }
     const bookingCustomerId = (bookingData.customerId || "").toString().trim().toLowerCase();
     const bookingEmail = (bookingData.clientEmail || "").toString().trim().toLowerCase();
     const providedId = customerId.trim().toLowerCase();
@@ -60,6 +67,13 @@ export async function PATCH(
     }
 
     const issue = issues[issueIndex];
+    const issueCompletionStatus = (issue.completionStatus || "").toString().toLowerCase();
+    if (issueCompletionStatus === "completed") {
+      return NextResponse.json(
+        { error: "This additional work item is already completed and can no longer be responded to." },
+        { status: 400 }
+      );
+    }
     if (issue.status !== "approved") {
       return NextResponse.json({ error: "This issue is not awaiting your response." }, { status: 400 });
     }

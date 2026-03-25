@@ -505,6 +505,14 @@ export default function BookingEnginePage() {
 
   const handleAdditionalIssueResponse = async (bookingId: string, issueId: string, action: "accept" | "reject") => {
     if (!customer?.customerId) return;
+    const booking = customerBookings.find((b) => b.id === bookingId);
+    const issue = booking?.additionalIssues?.find((i) => i.id === issueId);
+    const bookingCompleted = (booking?.status || "").toLowerCase() === "completed";
+    const issueCompleted = String(issue?.completionStatus || "").toLowerCase() === "completed";
+    if (bookingCompleted || issueCompleted) {
+      alert("This additional work can no longer be accepted or declined because the job is completed.");
+      return;
+    }
     const key = `${bookingId}-${issueId}`;
     setAdditionalIssueResponding((p) => ({ ...p, [key]: true }));
     try {
@@ -3026,7 +3034,10 @@ export default function BookingEnginePage() {
                                 <span className="text-[11px] font-bold text-neutral-800">Additional Work Found</span>
                               </div>
                               <div className="space-y-3">
-                                {approvedIssues.map((issue) => (
+                                {approvedIssues.map((issue) => {
+                                  const bookingCompleted = String(bk.status || "").toLowerCase() === "completed";
+                                  const issueCompleted = String(issue.completionStatus || "").toLowerCase() === "completed";
+                                  return (
                                   <div key={issue.id} className="bg-white/80 rounded-lg border border-amber-100 p-3">
                                     <p className="text-[11px] font-bold text-neutral-900">{issue.issueTitle}</p>
                                     {issue.description && <p className="text-[10px] text-neutral-600 mt-1">{issue.description}</p>}
@@ -3046,7 +3057,7 @@ export default function BookingEnginePage() {
                                     {issue.price != null && (
                                       <p className="text-[11px] font-bold text-amber-700 mt-1.5">Cost: ${issue.price.toFixed(2)}</p>
                                     )}
-                                    {issue.status === "approved" && !issue.customerResponse ? (
+                                    {issue.status === "approved" && !issue.customerResponse && !bookingCompleted && !issueCompleted ? (
                                       <div className="flex gap-2 mt-3">
                                         <button
                                           onClick={() => handleAdditionalIssueResponse(bk.id, issue.id, "accept")}
@@ -3065,6 +3076,10 @@ export default function BookingEnginePage() {
                                           Decline
                                         </button>
                                       </div>
+                                    ) : (bookingCompleted || issueCompleted) ? (
+                                      <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-neutral-100 text-neutral-700">
+                                        <i className="fas fa-lock" /> Response locked after completion
+                                      </span>
                                     ) : (issue.customerResponse === "accept" || String(issue.customerResponse) === "accepted") ? (
                                       <span className="inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-700">
                                         <i className="fas fa-check" /> Accepted
@@ -3083,7 +3098,7 @@ export default function BookingEnginePage() {
                                       </span>
                                     )}
                                   </div>
-                                ))}
+                                );})}
                               </div>
                             </div>
                             );

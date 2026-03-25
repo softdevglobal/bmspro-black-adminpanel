@@ -305,6 +305,23 @@ function BookingsPageContent() {
           alert("This booking has been cancelled and cannot be updated.");
           return;
         }
+
+        // Prevent completing bookings while tasks remain incomplete.
+        if (booking && newStatus === "Completed") {
+          const tasks = Array.isArray(booking.tasks) ? booking.tasks : [];
+          if (tasks.length > 0) {
+            const completedTasks = tasks.filter((t: any) => {
+              if (!t || typeof t !== "object") return false;
+              if (t.done === true) return true;
+              const status = String(t.status || t.completionStatus || "").toLowerCase();
+              return status === "completed" || status === "done";
+            }).length;
+            if (completedTasks < tasks.length) {
+              alert(`Complete all tasks first (${completedTasks}/${tasks.length} done).`);
+              return;
+            }
+          }
+        }
         
         // If confirming, check if staff assignment is needed
         if (newStatus === "Confirmed" && booking) {

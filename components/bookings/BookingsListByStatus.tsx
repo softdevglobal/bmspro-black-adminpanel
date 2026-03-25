@@ -1679,6 +1679,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             <div className="space-y-3">
                               {previewRow.additionalIssues.map((issue) => {
                                 const isCompleted = (issue.completionStatus || "").toLowerCase() === "completed";
+                                const bookingCompleted = String(previewRow.status || "").toLowerCase() === "completed";
                                 const hasCompletionImage = !!(issue.completionImageUrl && issue.completionImageUrl.trim());
                                 const hasReportImage = !!(issue.imageUrl && issue.imageUrl.trim());
                                 return (
@@ -1768,16 +1769,22 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                                             <i className="fas fa-hourglass-half" /> Pending
                                           </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setIssuePriceModal({ bookingId: previewRow.id, issue });
-                                              setIssuePriceValue("");
-                                            }}
-                                            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
-                                          >
-                                            Set Price
-                                          </button>
+                                          {!isCompleted && !bookingCompleted ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setIssuePriceModal({ bookingId: previewRow.id, issue });
+                                                setIssuePriceValue("");
+                                              }}
+                                              className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                                            >
+                                              Set Price
+                                            </button>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-neutral-100 text-neutral-600 border border-neutral-200">
+                                              <i className="fas fa-lock" /> Locked after completion
+                                            </span>
+                                          )}
                                         </div>
                                       )}
                                     </div>

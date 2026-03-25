@@ -31,6 +31,26 @@ function getActivityType(status: string): string {
   return "booking_updated";
 }
 
+function getTaskCompletionSummary(data: any): { total: number; completed: number; incomplete: number } {
+  const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+  if (tasks.length === 0) {
+    return { total: 0, completed: 0, incomplete: 0 };
+  }
+
+  const completed = tasks.filter((task: any) => {
+    if (!task || typeof task !== "object") return false;
+    if (task.done === true) return true;
+    const status = (task.status || task.completionStatus || "").toString().toLowerCase();
+    return status === "completed" || status === "done";
+  }).length;
+
+  return {
+    total: tasks.length,
+    completed,
+    incomplete: Math.max(tasks.length - completed, 0),
+  };
+}
+
 export const runtime = "nodejs";
 
 export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -161,6 +181,25 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     
     // For admin reassigning after rejection: StaffRejected -> AwaitingStaffApproval
     const isAdminReassigning = currentStatus === "StaffRejected" && requestedStatus === "AwaitingStaffApproval";
+
+    // Hard guard: booking cannot be completed until all tasks are done.
+    // This protects both web admin and mobile clients even if UI checks are bypassed.
+    if (actualNextStatus === "Completed" && currentStatus !== "Completed") {
+      const taskSummary = getTaskCompletionSummary(data);
+      if (taskSummary.total > 0 && taskSummary.incomplete > 0) {
+        return NextResponse.json(
+          {
+            error: "Cannot complete booking until all tasks are marked done.",
+            details: {
+              completedTasks: taskSummary.completed,
+              totalTasks: taskSummary.total,
+              remainingTasks: taskSummary.incomplete,
+            },
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     // Allow same-status updates when only services are being updated (for staff assignment)
     // Check if we're only updating services without changing status

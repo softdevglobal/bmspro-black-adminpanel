@@ -9,10 +9,12 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "fire
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService, type ChecklistItem, normalizeChecklist } from "@/lib/services";
+import { subscribeDefaultServices } from "@/lib/defaultServices";
 
 type Service = {
   id: string;
   name: string;
+  description?: string;
   price: number;
   duration: number;
   icon?: string;
@@ -21,6 +23,13 @@ type Service = {
   staffIds: string[];
   branches: string[];
   checklist?: ChecklistItem[];
+  sourceTemplateId?: string;
+};
+
+type DefaultTemplate = {
+  id: string;
+  name: string;
+  checklist: ChecklistItem[];
 };
 
 type Staff = { id: string; name: string; role: string; branch: string; status: "Active" | "Suspended"; avatar: string };
@@ -34,6 +43,8 @@ export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [defaultTemplates, setDefaultTemplates] = useState<DefaultTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
 
   // modal/form
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -43,6 +54,7 @@ export default function ServicesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Service | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [price, setPrice] = useState<number | "">("");
   const [duration, setDuration] = useState<number | "">("");
   const [imageUrl, setImageUrl] = useState("");
@@ -112,6 +124,7 @@ export default function ServicesPage() {
         rows.map((r) => ({
           id: String(r.id),
           name: String(r.name || ""),
+          description: r.description ? String(r.description) : undefined,
           price: Number(r.price || 0),
           duration: Number(r.duration || 0),
           icon: String(r.icon || ""),
@@ -120,6 +133,16 @@ export default function ServicesPage() {
           branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
           staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
           checklist: normalizeChecklist((r as any).checklist),
+          sourceTemplateId: r.sourceTemplateId ? String(r.sourceTemplateId) : undefined,
+        }))
+      );
+    });
+    const unsubDefaults = subscribeDefaultServices((rows) => {
+      setDefaultTemplates(
+        rows.map((r) => ({
+          id: String(r.id),
+          name: String(r.name || ""),
+          checklist: normalizeChecklist(r.checklist as any[]),
         }))
       );
     });
@@ -127,6 +150,7 @@ export default function ServicesPage() {
       unsubBranches();
       unsubStaff();
       unsubServices();
+      unsubDefaults();
     };
   }, [ownerUid]);
 
@@ -140,7 +164,9 @@ export default function ServicesPage() {
 
   const openModal = () => {
     setEditingServiceId(null);
+    setSelectedTemplateId("");
     setName("");
+    setDescription("");
     setPrice("");
     setDuration("");
     setImageUrl("");
@@ -163,9 +189,24 @@ export default function ServicesPage() {
     setImagePreview(null);
   };
 
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    if (!templateId) {
+      setName("");
+      setChecklist([]);
+      return;
+    }
+    const tpl = defaultTemplates.find((t) => t.id === templateId);
+    if (tpl) {
+      setName(tpl.name);
+      setChecklist(tpl.checklist.map((c) => ({ ...c })));
+    }
+  };
+
   const openEdit = (svc: Service) => {
     setEditingServiceId(svc.id);
     setName(svc.name);
+    setDescription(svc.description || "");
     setPrice(svc.price);
     setDuration(svc.duration);
     setImageUrl(svc.imageUrl || "");
@@ -260,6 +301,7 @@ export default function ServicesPage() {
       if (editingServiceId) {
         await updateService(editingServiceId, {
           name: name.trim(),
+          description: description.trim(),
           price: Number(price),
           duration: Number(duration),
           imageUrl: finalImageUrl || "",
@@ -270,6 +312,7 @@ export default function ServicesPage() {
       } else {
         await createServiceForOwner(ownerUid, {
           name: name.trim(),
+          description: description.trim(),
           price: Number(price),
           duration: Number(duration),
           imageUrl: finalImageUrl || "",
@@ -435,6 +478,9 @@ export default function ServicesPage() {
                         {/* Service name overlay on image */}
                         <div className="absolute bottom-0 left-0 right-0 p-5 z-10">
                           <h3 className="font-black text-xl text-white line-clamp-2 tracking-tight leading-tight drop-shadow-lg">{s.name}</h3>
+                          {s.description && (
+                            <p className="text-xs text-white/70 mt-1 line-clamp-1 drop-shadow">{s.description}</p>
+                          )}
                         </div>
                       </div>
 
@@ -470,6 +516,12 @@ export default function ServicesPage() {
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-amber-500/10 text-amber-400 px-2.5 py-1.5 rounded-lg border border-amber-500/10">
                               <i className="fas fa-clipboard-check text-[9px]" />
                               {s.checklist.length} Tasks
+                            </span>
+                          )}
+                          {s.sourceTemplateId && (
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-violet-500/10 text-violet-400 px-2.5 py-1.5 rounded-lg border border-violet-500/10">
+                              <i className="fas fa-layer-group text-[9px]" />
+                              From Template
                             </span>
                           )}
                         </div>
@@ -564,6 +616,32 @@ export default function ServicesPage() {
             </div>
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto custom-scrollbar">
               <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
+                {/* Template Selector — only when creating new */}
+                {!editingServiceId && defaultTemplates.length > 0 && (
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-amber-200">
+                    <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 flex items-center gap-2">
+                      <i className="fas fa-layer-group text-amber-500" />
+                      Start from a Template
+                    </h4>
+                    <p className="text-[10px] text-amber-700 mb-2">
+                      <i className="fas fa-info-circle mr-1" />
+                      Select a template to pre-fill the name and todo list, or start from scratch.
+                    </p>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => handleTemplateSelect(e.target.value)}
+                      className="w-full border border-amber-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white font-medium"
+                    >
+                      <option value="">— Start from scratch —</option>
+                      {defaultTemplates.map((tpl) => (
+                        <option key={tpl.id} value={tpl.id}>
+                          {tpl.name} {tpl.checklist.length > 0 ? `(${tpl.checklist.length} tasks)` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {/* Basic Service Information */}
                 <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200">
                   <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -574,6 +652,16 @@ export default function ServicesPage() {
                     <div>
                       <label className="block text-xs font-bold text-neutral-600 mb-1">Service Name</label>
                       <input value={name} onChange={(e) => setName(e.target.value)} required className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="e.g. Full Vehicle Service" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-600 mb-1">Description</label>
+                      <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        rows={3}
+                        className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none resize-none"
+                        placeholder="Describe what this service includes..."
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                       <div>
@@ -946,6 +1034,17 @@ export default function ServicesPage() {
                 </div>
 
                 <div className="p-5 space-y-5">
+                  {/* Description */}
+                  {previewService.description && (
+                    <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
+                      <h3 className="text-sm font-bold text-neutral-800 mb-2 flex items-center gap-2">
+                        <i className="fas fa-align-left text-neutral-600" />
+                        Description
+                      </h3>
+                      <p className="text-sm text-neutral-600 whitespace-pre-wrap">{previewService.description}</p>
+                    </div>
+                  )}
+
                   {/* Price and Duration */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">

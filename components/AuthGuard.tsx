@@ -15,7 +15,7 @@ interface AuthGuardProps {
 }
 
 // Pages that super_admin is allowed to access
-const SUPER_ADMIN_ALLOWED_PAGES = ["/admin-dashboard", "/tenants", "/login", "/", "/packages", "/super-admin-audit-logs"];
+const SUPER_ADMIN_ALLOWED_PAGES = ["/admin-dashboard", "/tenants", "/login", "/", "/packages", "/admin-services", "/super-admin-audit-logs"];
 
 // Pages that don't require payment check (allow access even if pending payment)
 const PAYMENT_EXEMPT_PAGES = ["/subscription", "/login", "/reset-password"];

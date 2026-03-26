@@ -288,6 +288,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "super_admin" && (
+          <Link href="/admin-services" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname?.startsWith("/admin-services") ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-layer-group w-5" />
+            <span>Services</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
           <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-shield-halved w-5" />
             <span>Audit Logs</span>

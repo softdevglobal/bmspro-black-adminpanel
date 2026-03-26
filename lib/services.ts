@@ -37,6 +37,7 @@ export const normalizeChecklist = (raw: any[]): ChecklistItem[] =>
 
 export type ServiceInput = {
   name: string;
+  description?: string;
   price: number;
   duration: number; // minutes
   icon?: string;
@@ -46,6 +47,7 @@ export type ServiceInput = {
   staffIds: string[]; // staff ids
   checklist?: ChecklistItem[]; // structured service checklist/todo items
   completionImageUrl?: string; // upcoming: overall service completion photo
+  sourceTemplateId?: string; // ID of default_service template this was cloned from
 };
 
 /**

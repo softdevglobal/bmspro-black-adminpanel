@@ -306,7 +306,8 @@ function BookingsPageContent() {
           return;
         }
 
-        // Prevent completing bookings while tasks remain incomplete.
+        // Check for incomplete tasks before completing — show styled modal
+        let forceComplete = false;
         if (booking && newStatus === "Completed") {
           const tasks = Array.isArray(booking.tasks) ? booking.tasks : [];
           if (tasks.length > 0) {
@@ -317,8 +318,38 @@ function BookingsPageContent() {
               return status === "completed" || status === "done";
             }).length;
             if (completedTasks < tasks.length) {
-              alert(`Complete all tasks first (${completedTasks}/${tasks.length} done).`);
-              return;
+              const confirmed = await new Promise<boolean>((resolve) => {
+                const overlay = document.createElement("div");
+                overlay.style.cssText = "position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px)";
+                overlay.innerHTML = `
+                  <div style="background:#fff;border-radius:1rem;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);max-width:28rem;width:calc(100% - 2rem);overflow:hidden;animation:scaleIn .2s ease-out">
+                    <div style="background:linear-gradient(to right,#f97316,#f59e0b);padding:1rem 1.5rem;display:flex;align-items:center;gap:0.75rem">
+                      <div style="width:2.5rem;height:2.5rem;border-radius:0.75rem;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center">
+                        <i class="fas fa-exclamation-triangle" style="color:#fff"></i>
+                      </div>
+                      <h3 style="color:#fff;font-weight:600;font-size:1rem;margin:0">Incomplete Tasks</h3>
+                    </div>
+                    <div style="padding:1.25rem 1.5rem">
+                      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding:0.75rem;background:#fff7ed;border-radius:0.75rem;border:1px solid #fed7aa">
+                        <div style="font-size:1.5rem;font-weight:700;color:#ea580c">${completedTasks}/${tasks.length}</div>
+                        <div style="font-size:0.875rem;color:#c2410c">tasks completed by staff</div>
+                      </div>
+                      <p style="color:#525252;font-size:0.875rem;line-height:1.6;margin:0">Staff has not completed all assigned tasks. Are you sure the staff failed to complete the remaining tasks and you want to mark this service as complete?</p>
+                    </div>
+                    <div style="padding:0 1.5rem 1.25rem;display:flex;align-items:center;justify-content:flex-end;gap:0.75rem">
+                      <button id="fc-cancel" style="padding:0.5rem 1rem;border-radius:9999px;font-size:0.875rem;font-weight:600;background:#f5f5f5;color:#404040;border:none;cursor:pointer">Cancel</button>
+                      <button id="fc-confirm" style="padding:0.5rem 1.25rem;border-radius:9999px;font-size:0.875rem;font-weight:600;background:linear-gradient(to right,#f97316,#f59e0b);color:#fff;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:0.5rem;box-shadow:0 1px 2px rgba(0,0,0,0.1)">
+                        <i class="fas fa-check" style="font-size:0.7rem"></i> Yes, Complete
+                      </button>
+                    </div>
+                  </div>`;
+                document.body.appendChild(overlay);
+                overlay.querySelector("#fc-cancel")!.addEventListener("click", () => { overlay.remove(); resolve(false); });
+                overlay.querySelector("#fc-confirm")!.addEventListener("click", () => { overlay.remove(); resolve(true); });
+                overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+              });
+              if (!confirmed) return;
+              forceComplete = true;
             }
           }
         }
@@ -368,7 +399,7 @@ function BookingsPageContent() {
               "Content-Type": "application/json",
               ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
-            body: JSON.stringify({ status: newStatus }),
+            body: JSON.stringify({ status: newStatus, ...(forceComplete ? { forceComplete: true } : {}) }),
           });
           
           const json = await res.json().catch(() => ({})) as any;

@@ -182,11 +182,11 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // For admin reassigning after rejection: StaffRejected -> AwaitingStaffApproval
     const isAdminReassigning = currentStatus === "StaffRejected" && requestedStatus === "AwaitingStaffApproval";
 
-    // Hard guard: booking cannot be completed until all tasks are done.
-    // This protects both web admin and mobile clients even if UI checks are bypassed.
+    // Guard: booking cannot be completed until all tasks are done,
+    // unless the owner explicitly confirmed that staff failed (forceComplete=true).
     if (actualNextStatus === "Completed" && currentStatus !== "Completed") {
       const taskSummary = getTaskCompletionSummary(data);
-      if (taskSummary.total > 0 && taskSummary.incomplete > 0) {
+      if (taskSummary.total > 0 && taskSummary.incomplete > 0 && !body.forceComplete) {
         return NextResponse.json(
           {
             error: "Cannot complete booking until all tasks are marked done.",

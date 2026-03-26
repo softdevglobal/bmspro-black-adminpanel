@@ -174,7 +174,7 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
   return { id: bookingId };
 }
 
-export async function updateBookingStatus(bookingId: string, nextStatus: BookingStatus): Promise<void> {
+export async function updateBookingStatus(bookingId: string, nextStatus: BookingStatus, options?: { forceComplete?: boolean }): Promise<void> {
   // Get fresh token with robust fallback
   let token: string | null = null;
   try {
@@ -205,7 +205,7 @@ export async function updateBookingStatus(bookingId: string, nextStatus: Booking
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ status: nextStatus }),
+    body: JSON.stringify({ status: nextStatus, ...(options?.forceComplete ? { forceComplete: true } : {}) }),
   });
   const json = (await res.json().catch(() => ({}))) as any;
   if (!res.ok && !json?.devNoop) {

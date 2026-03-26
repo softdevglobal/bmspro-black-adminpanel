@@ -1212,6 +1212,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         alert("This booking has been cancelled and cannot be updated.");
         return;
       }
+
+      // Check for incomplete tasks before completing — show styled modal
+      if (action === "Complete" && row) {
+        const tasks = Array.isArray(row.tasks) ? row.tasks : [];
+        if (tasks.length > 0) {
+          const completedTasks = tasks.filter((t) => t.done).length;
+          if (completedTasks < tasks.length) {
+            setForceCompleteConfirm({ rowId, completedTasks, totalTasks: tasks.length });
+            return;
+          }
+        }
+      }
+
       setUpdatingState((prev) => ({ ...prev, [rowId]: action }));
       const next: BookingStatus =
         action === "Confirm" ? "Confirmed" :
@@ -1238,6 +1251,30 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
 
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
   const [pdfConfirmBookingId, setPdfConfirmBookingId] = useState<string | null>(null);
+
+  const [forceCompleteConfirm, setForceCompleteConfirm] = useState<{
+    rowId: string;
+    completedTasks: number;
+    totalTasks: number;
+  } | null>(null);
+
+  const handleForceComplete = async () => {
+    if (!forceCompleteConfirm) return;
+    const { rowId } = forceCompleteConfirm;
+    setForceCompleteConfirm(null);
+    try {
+      setUpdatingState((prev) => ({ ...prev, [rowId]: "Complete" }));
+      await updateBookingStatus(rowId, "Completed", { forceComplete: true });
+    } catch (e: any) {
+      alert(e?.message || "Failed to update status");
+    } finally {
+      setUpdatingState((prev) => {
+        const next = { ...prev };
+        delete next[rowId];
+        return next;
+      });
+    }
+  };
 
   const handleDownloadPDF = (bookingId: string) => {
     setPdfConfirmBookingId(bookingId);
@@ -3460,6 +3497,46 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                     <span>Reassign Booking</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Force Complete Confirmation Modal ─────────────────────── */}
+      {forceCompleteConfirm && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-scale-in">
+            <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-6 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                <i className="fas fa-exclamation-triangle text-white" />
+              </div>
+              <h3 className="text-white font-semibold">Incomplete Tasks</h3>
+            </div>
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-3 mb-4 p-3 bg-orange-50 rounded-xl border border-orange-100">
+                <div className="text-2xl font-bold text-orange-600">
+                  {forceCompleteConfirm.completedTasks}/{forceCompleteConfirm.totalTasks}
+                </div>
+                <div className="text-sm text-orange-700">tasks completed by staff</div>
+              </div>
+              <p className="text-neutral-600 text-sm leading-relaxed">
+                Staff has not completed all assigned tasks. Are you sure the staff failed to complete the remaining tasks and you want to mark this service as complete?
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setForceCompleteConfirm(null)}
+                className="px-4 py-2 rounded-full text-sm font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleForceComplete}
+                className="px-5 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-sm transition inline-flex items-center gap-2"
+              >
+                <i className="fas fa-check text-xs" />
+                Yes, Complete
               </button>
             </div>
           </div>

@@ -982,6 +982,13 @@ async function buildHTML(
     border-radius: var(--radius-sm);
   }
 
+  .task-card-noimage {
+  /* Tighten padding when there's no photo at the bottom */
+  padding-bottom: 4px;
+  align-self: start;
+}
+
+
   .task-card-top {
     display: flex;
     align-items: center;
@@ -1505,7 +1512,7 @@ async function buildHTML(
               </div>
               ${damageImageSrcs.map((src, index) => `
                 <div style="
-                  width: 220px;
+                  width: 200px;
                   height: 180px;
                   background: var(--surface3);
                   border: 1px solid var(--border);
@@ -1654,26 +1661,27 @@ async function buildHTML(
                     const taskImg = typeof imageUrl === "string" ? imageUrl : imageUrl?.imageUrl;
                     const taskImgSrc = taskImg ? (taskImageMap.get(taskImg) || "") : "";
 
-                    return `
-                    <div class="task-card">
-                      <div class="task-card-top">
-                        <div class="task-name">${safeStr(task.name || "Task")}</div>
-                        <div class="task-done">${task.done ? "Done" : "Pending"}</div>
-                      </div>
-                      ${task.description ? `<div class="task-desc">${safeStr(task.description)}</div>` : ""}
-                      ${task.staffNote ? `
-                        <div class="staff-note">
-                          <div class="note-label">Staff Note</div>
-                          <div class="note-text">${safeStr(task.staffNote)}</div>
-                          <div class="note-meta">
-                            — ${safeStr(task.completedByStaffName || "Staff")}
-                            ${task.completedAt ? `, ${safeStr(formatTimestampInTimezone(task.completedAt, booking.branchTimezone))}` : ""}
-                          </div>
-                        </div>` : ""}
-                      ${task.done && taskImgSrc
-                        ? `<div class="task-photo-wrap"><img class="task-photo" src="${taskImgSrc}" alt="Task photo"></div>`
-                        : `<div class="photo-placeholder">No Photo Attached</div>`}
-                    </div>`;
+                  return `
+<div class="task-card ${!taskImgSrc ? 'task-card-noimage' : ''}">
+  <div class="task-card-top">
+    <div class="task-name">${safeStr(task.name || "Task")}</div>
+    <div class="task-done ${task.done ? 'status-done' : 'status-pending'}">${task.done ? "Done" : "Pending"}</div>
+  </div>
+  ${task.description ? `<div class="task-desc">${safeStr(task.description)}</div>` : ""}
+  ${task.staffNote ? `
+    <div class="staff-note">
+      <div class="note-label">Staff Note</div>
+      <div class="note-text">${safeStr(task.staffNote)}</div>
+      <div class="note-meta">
+        — ${safeStr(task.completedByStaffName || "Staff")}
+        ${task.completedAt ? `, ${safeStr(formatTimestampInTimezone(task.completedAt, booking.branchTimezone))}` : ""}
+      </div>
+    </div>` : ""}
+  ${task.done && taskImgSrc ? `
+    <div class="task-photo-wrap">
+      <img class="task-photo" src="${taskImgSrc}" alt="Task photo">
+    </div>` : ""}
+</div>`;
                   }).join("")}
                 </div>
               </div>`;
@@ -1800,20 +1808,20 @@ async function buildHTML(
                   const description = (fs as any)?.description || (fs as any)?.note || "";
 
                   return `
-                  <div class="sub-card">
-                    <div class="sub-card-header">
-                      <div>
-                        <div class="sub-service-name">${safeStr(serviceName || "Final Submission")}</div>
-                        ${(submittedBy || submittedAt) ? `
-                        <div class="sub-by">${safeStr(submittedBy)}${submittedBy && submittedAt ? " · " : ""}${safeStr(submittedAt)}</div>` : ""}
-                      </div>
-                      <span class="done-badge">✓ Done</span>
-                    </div>
-                    ${description ? `<div class="sub-note">${safeStr(description)}</div>` : ""}
-                    ${fsImgSrc
-                      ? `<div class="sub-photo-wrap"><img class="sub-photo" src="${fsImgSrc}" alt="Final submission photo"></div>`
-                      : `<div class="sub-photo-placeholder">No Photo</div>`}
-                  </div>`;
+                 <div class="sub-card ${!fsImgSrc ? 'sub-card-noimage' : ''}">
+  <div class="sub-card-header">
+    <div>
+      <div class="sub-service-name">${safeStr(serviceName || "Final Submission")}</div>
+      ${(submittedBy || submittedAt) ? `
+      <div class="sub-by">${safeStr(submittedBy)}${submittedBy && submittedAt ? " · " : ""}${safeStr(submittedAt)}</div>` : ""}
+    </div>
+    <span class="done-badge">✓ Done</span>
+  </div>
+  ${description ? `<div class="sub-note">${safeStr(description)}</div>` : ""}
+  ${fsImgSrc
+    ? `<div class="sub-photo-wrap"><img class="sub-photo" src="${fsImgSrc}" alt="Final submission photo"></div>`
+    : ""}
+</div>`;
                 }).join("")}
               </div>
             </div>

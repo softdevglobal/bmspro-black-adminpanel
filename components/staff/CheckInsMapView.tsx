@@ -177,6 +177,8 @@ export default function CheckInsMapView({
 
     // Add check-in markers
     filteredCheckIns.forEach((checkIn) => {
+      if (!checkIn.staffLatitude || !checkIn.staffLongitude) return;
+      
       const position = {
         lat: checkIn.staffLatitude,
         lng: checkIn.staffLongitude,

@@ -390,10 +390,10 @@ function generateEmailHTML(
                     ${servicesList}
                   </div>
                 ` : ""}
-                ${status === "Completed" && completedAdditionalIssues.length > 0 ? `
+                ${status === "Completed" && acceptedAdditionalIssues.length > 0 ? `
                   <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid ${color}30;">
                     <p style="margin: 0 0 10px; color: #6b7280; font-size: 14px; font-weight: 500;">Additional Work</p>
-                    ${completedAdditionalIssues.map((i: any) => {
+                    ${acceptedAdditionalIssues.map((i: any) => {
                       const isAccepted = i.status === "approved" && i.price != null && i.customerResponse !== "reject" && i.customerResponse !== "rejected";
                       const priceStr = isAccepted && i.price != null ? formatPrice(Number(i.price)) : "Declined";
                       return `<div style="margin-bottom: 8px; padding: 10px 12px; background: ${isAccepted ? "#ecfdf5" : "#fef2f2"}; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">

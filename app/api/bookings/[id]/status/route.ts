@@ -111,6 +111,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       staffId?: string;
       staffName?: string;
       services?: any[];
+      forceComplete?: boolean; // Allow owner-confirmed completion with pending tasks
       rejectionReason?: string; // For staff rejecting a booking
       isReassignment?: boolean; // Flag for admin reassigning after rejection
       previousStatus?: string; // Previous status from client (for mobile app that updates Firestore first)

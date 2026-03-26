@@ -55,6 +55,7 @@ type CustomerAdditionalIssue = {
   image?: string | null;
   price: number | null;
   status: string;
+  completionStatus?: string | null;
   customerResponse?: "accept" | "reject" | null;
   customerRespondedAt?: string | null;
 };

@@ -228,43 +228,42 @@ function generateEmailHTML(
   ` : "";
   
   // For Completed status: show Services, Additional work (if any), then Total
-  // Only include completed additional work (✔) - undone items are not relevant to the final bill
-  const completedAdditionalIssues = (data.additionalIssues || []).filter(
+  // Include all accepted additional work (admin approved + customer accepted)
+  const acceptedAdditionalIssues = (data.additionalIssues || []).filter(
     (i: any) =>
       i.status === "approved" &&
       i.price != null &&
-      i.customerResponse !== "reject" &&
-      i.customerResponse !== "rejected" &&
-      ((i.completionStatus || "").toLowerCase() === "completed")
+      (i.customerResponse === "accept" || i.customerResponse === "accepted")
   );
-  const additionalWorkTotal = completedAdditionalIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+  const additionalWorkTotal = acceptedAdditionalIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
   const servicesListForPrice = data.services && data.services.length > 0 ? data.services : [];
   const servicesSubtotalFromServices = servicesListForPrice.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0);
-  const totalPrice = data.price != null && data.price !== undefined ? Number(data.price) : 0;
+  const rawPrice = data.price != null && data.price !== undefined ? Number(data.price) : 0;
   const servicesSubtotal = servicesSubtotalFromServices > 0
     ? servicesSubtotalFromServices
-    : (totalPrice > 0 ? totalPrice - additionalWorkTotal : 0);
-  const hasVisibleAdditionalIssues = completedAdditionalIssues.length > 0;
-  const showPriceBreakdown = status === "Completed" && (totalPrice > 0 || hasVisibleAdditionalIssues);
+    : rawPrice;
+  const grandTotal = servicesSubtotal + additionalWorkTotal;
+  const hasVisibleAdditionalIssues = acceptedAdditionalIssues.length > 0;
+  const showPriceBreakdown = status === "Completed" && (grandTotal > 0 || hasVisibleAdditionalIssues);
 
-  const priceInfo = (data.price !== null && data.price !== undefined) || totalPrice > 0 || hasVisibleAdditionalIssues ? (
+  const priceInfo = grandTotal > 0 || hasVisibleAdditionalIssues || rawPrice > 0 ? (
     showPriceBreakdown ? `
     <tr>
       <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Service Price</td>
       <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${formatPrice(servicesSubtotal)}</td>
     </tr>
-    <tr>
+    ${hasVisibleAdditionalIssues ? `<tr>
       <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Additional Work</td>
       <td style='padding: 8px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right;'>${formatPrice(additionalWorkTotal)}</td>
-    </tr>
+    </tr>` : ""}
     <tr>
       <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Total</td>
-      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(totalPrice)}</td>
+      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(grandTotal)}</td>
     </tr>
   ` : `
     <tr>
       <td style='padding: 8px 0; color: #6b7280; font-size: 14px;'>Total Price</td>
-      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(totalPrice || data.price || 0)}</td>
+      <td style='padding: 8px 0; color: #111827; font-size: 16px; font-weight: 600; text-align: right;'>${formatPrice(rawPrice || 0)}</td>
     </tr>
   `
   ) : "";

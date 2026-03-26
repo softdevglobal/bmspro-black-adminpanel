@@ -1213,6 +1213,17 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         return;
       }
 
+      // Block completion if additional issues are pending admin/customer decisions
+      if (action === "Complete" && row) {
+        const issues = Array.isArray(row.additionalIssues) ? row.additionalIssues : [];
+        const pendingAdmin = issues.filter((i) => (i.status || "pending") === "pending").length;
+        const pendingCustomer = issues.filter((i) => i.status === "approved" && !i.customerResponse).length;
+        if (pendingAdmin > 0 || pendingCustomer > 0) {
+          setPendingIssuesAlert({ pendingAdmin, pendingCustomer });
+          return;
+        }
+      }
+
       // Check for incomplete tasks before completing — show styled modal
       if (action === "Complete" && row) {
         const tasks = Array.isArray(row.tasks) ? row.tasks : [];
@@ -1256,6 +1267,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     rowId: string;
     completedTasks: number;
     totalTasks: number;
+  } | null>(null);
+
+  const [pendingIssuesAlert, setPendingIssuesAlert] = useState<{
+    pendingAdmin: number;
+    pendingCustomer: number;
   } | null>(null);
 
   const handleForceComplete = async () => {
@@ -3497,6 +3513,60 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                     <span>Reassign Booking</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Pending Additional Issues Alert Modal ────────────────── */}
+      {pendingIssuesAlert && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden animate-scale-in">
+            <div className="bg-gradient-to-r from-red-500 to-rose-500 px-6 py-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                <i className="fas fa-hand text-white" />
+              </div>
+              <h3 className="text-white font-semibold">Cannot Complete Booking</h3>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-neutral-600 text-sm leading-relaxed mb-4">
+                This booking has pending additional work requests that need decisions before it can be completed.
+              </p>
+              <div className="space-y-2">
+                {pendingIssuesAlert.pendingAdmin > 0 && (
+                  <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-user-shield text-amber-600 text-xs" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-amber-800">{pendingIssuesAlert.pendingAdmin} pending admin approval</div>
+                      <div className="text-xs text-amber-600">Admin needs to approve or reject</div>
+                    </div>
+                  </div>
+                )}
+                {pendingIssuesAlert.pendingCustomer > 0 && (
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <i className="fas fa-user text-blue-600 text-xs" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-blue-800">{pendingIssuesAlert.pendingCustomer} awaiting customer response</div>
+                      <div className="text-xs text-blue-600">Customer needs to accept or reject</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="text-neutral-500 text-xs mt-4 leading-relaxed">
+                Staff should contact the admin to get a decision on pending requests before completing the booking.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex items-center justify-end">
+              <button
+                onClick={() => setPendingIssuesAlert(null)}
+                className="px-5 py-2 rounded-full text-sm font-semibold bg-neutral-900 hover:bg-black text-white shadow-sm transition"
+              >
+                Understood
               </button>
             </div>
           </div>

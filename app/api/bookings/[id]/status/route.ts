@@ -199,6 +199,25 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           { status: 400 }
         );
       }
+
+      // Guard: booking cannot be completed while additional issues are pending decision
+      const issues: any[] = Array.isArray(data.additionalIssues) ? data.additionalIssues : [];
+      const pendingAdmin = issues.filter((i: any) => (i.status || "pending") === "pending");
+      const pendingCustomer = issues.filter((i: any) =>
+        i.status === "approved" && !i.customerResponse
+      );
+      if (pendingAdmin.length > 0 || pendingCustomer.length > 0) {
+        return NextResponse.json(
+          {
+            error: "Cannot complete booking while additional work requests are pending.",
+            details: {
+              pendingAdminDecision: pendingAdmin.length,
+              pendingCustomerDecision: pendingCustomer.length,
+            },
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Allow same-status updates when only services are being updated (for staff assignment)
@@ -235,6 +254,24 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // Only update status if it's actually changing
     if (currentStatus !== actualNextStatus) {
       updateData.status = actualNextStatus;
+    }
+
+    // On completion: recalculate total to include accepted additional issue prices
+    if (actualNextStatus === "Completed" && currentStatus !== "Completed") {
+      const services: any[] = Array.isArray(data.services) ? data.services : [];
+      const servicesSubtotal = services.length > 0
+        ? services.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0)
+        : (Number(data.price) || 0);
+      const acceptedIssues: any[] = (Array.isArray(data.additionalIssues) ? data.additionalIssues : [])
+        .filter((i: any) =>
+          i.status === "approved" &&
+          i.price != null &&
+          (i.customerResponse === "accept" || i.customerResponse === "accepted")
+        );
+      const additionalTotal = acceptedIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+      if (additionalTotal > 0) {
+        updateData.price = servicesSubtotal + additionalTotal;
+      }
     }
 
     // Add services update if provided (for multi-service staff assignment)

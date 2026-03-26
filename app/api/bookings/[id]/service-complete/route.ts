@@ -357,9 +357,38 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }
 
       // If all services are completed, update booking status to "Completed"
+      // but only if no additional issues are pending admin/customer decision
       if (allCompleted) {
+        const issues: any[] = Array.isArray(bookingData.additionalIssues) ? bookingData.additionalIssues : [];
+        const pendingAdmin = issues.filter((i: any) => (i.status || "pending") === "pending");
+        const pendingCustomer = issues.filter((i: any) =>
+          i.status === "approved" && !i.customerResponse
+        );
+        if (pendingAdmin.length > 0 || pendingCustomer.length > 0) {
+          return NextResponse.json({
+            ok: false,
+            error: "Cannot complete booking while additional work requests are pending.",
+            details: {
+              pendingAdminDecision: pendingAdmin.length,
+              pendingCustomerDecision: pendingCustomer.length,
+            },
+          }, { status: 400, headers: corsHeaders });
+        }
         updateData.status = "Completed";
         updateData.completedAt = FieldValue.serverTimestamp();
+
+        // Recalculate total to include accepted additional issue prices
+        const multiServicesSubtotal = updatedServices.reduce((sum: number, s: any) => sum + (Number(s.price) || 0), 0);
+        const multiAcceptedIssues = (Array.isArray(bookingData.additionalIssues) ? bookingData.additionalIssues : [])
+          .filter((i: any) =>
+            i.status === "approved" &&
+            i.price != null &&
+            (i.customerResponse === "accept" || i.customerResponse === "accepted")
+          );
+        const multiAdditionalTotal = multiAcceptedIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+        if (multiAdditionalTotal > 0) {
+          updateData.price = (multiServicesSubtotal > 0 ? multiServicesSubtotal : (Number(bookingData.price) || 0)) + multiAdditionalTotal;
+        }
       }
 
       await bookingRef.update(updateData);
@@ -537,6 +566,23 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         }, { status: 400, headers: corsHeaders });
       }
 
+      // Guard: cannot complete while additional issues are pending decision
+      const singleIssues: any[] = Array.isArray(bookingData.additionalIssues) ? bookingData.additionalIssues : [];
+      const sPendingAdmin = singleIssues.filter((i: any) => (i.status || "pending") === "pending");
+      const sPendingCustomer = singleIssues.filter((i: any) =>
+        i.status === "approved" && !i.customerResponse
+      );
+      if (sPendingAdmin.length > 0 || sPendingCustomer.length > 0) {
+        return NextResponse.json({
+          ok: false,
+          error: "Cannot complete booking while additional work requests are pending. Please contact admin.",
+          details: {
+            pendingAdminDecision: sPendingAdmin.length,
+            pendingCustomerDecision: sPendingCustomer.length,
+          },
+        }, { status: 400, headers: corsHeaders });
+      }
+
       const finalServiceName = bookingData.serviceName || "Service";
 
       // Update booking to completed
@@ -550,6 +596,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       if (body.mileage !== undefined) {
         const val = typeof body.mileage === "string" ? body.mileage.trim() : "";
         updateData.mileage = val || null;
+      }
+
+      // Recalculate total to include accepted additional issue prices
+      const singleAcceptedIssues = singleIssues.filter((i: any) =>
+        i.status === "approved" &&
+        i.price != null &&
+        (i.customerResponse === "accept" || i.customerResponse === "accepted")
+      );
+      const singleAdditionalTotal = singleAcceptedIssues.reduce((sum: number, i: any) => sum + (Number(i.price) || 0), 0);
+      if (singleAdditionalTotal > 0) {
+        updateData.price = (Number(bookingData.price) || 0) + singleAdditionalTotal;
       }
 
       await bookingRef.update(updateData);

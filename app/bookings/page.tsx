@@ -306,6 +306,51 @@ function BookingsPageContent() {
           return;
         }
 
+        // Block completion if additional issues are pending admin/customer decisions
+        if (booking && newStatus === "Completed") {
+          const issues = Array.isArray(booking.additionalIssues) ? booking.additionalIssues : [];
+          const pendingAdmin = issues.filter((i: any) => (i.status || "pending") === "pending").length;
+          const pendingCustomer = issues.filter((i: any) => i.status === "approved" && !i.customerResponse).length;
+          if (pendingAdmin > 0 || pendingCustomer > 0) {
+            await new Promise<void>((resolve) => {
+              const overlay = document.createElement("div");
+              overlay.style.cssText = "position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px)";
+              let detailsHtml = "";
+              if (pendingAdmin > 0) {
+                detailsHtml += `<div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#fffbeb;border-radius:0.75rem;border:1px solid #fde68a;margin-bottom:0.5rem">
+                  <div style="width:2rem;height:2rem;border-radius:0.5rem;background:#fef3c7;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-user-shield" style="color:#d97706;font-size:0.7rem"></i></div>
+                  <div><div style="font-size:0.875rem;font-weight:600;color:#92400e">${pendingAdmin} pending admin approval</div><div style="font-size:0.75rem;color:#b45309">Admin needs to approve or reject</div></div>
+                </div>`;
+              }
+              if (pendingCustomer > 0) {
+                detailsHtml += `<div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#eff6ff;border-radius:0.75rem;border:1px solid #bfdbfe;margin-bottom:0.5rem">
+                  <div style="width:2rem;height:2rem;border-radius:0.5rem;background:#dbeafe;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="fas fa-user" style="color:#2563eb;font-size:0.7rem"></i></div>
+                  <div><div style="font-size:0.875rem;font-weight:600;color:#1e40af">${pendingCustomer} awaiting customer response</div><div style="font-size:0.75rem;color:#2563eb">Customer needs to accept or reject</div></div>
+                </div>`;
+              }
+              overlay.innerHTML = `
+                <div style="background:#fff;border-radius:1rem;box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);max-width:28rem;width:calc(100% - 2rem);overflow:hidden;animation:scaleIn .2s ease-out">
+                  <div style="background:linear-gradient(to right,#ef4444,#f43f5e);padding:1rem 1.5rem;display:flex;align-items:center;gap:0.75rem">
+                    <div style="width:2.5rem;height:2.5rem;border-radius:0.75rem;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center"><i class="fas fa-hand" style="color:#fff"></i></div>
+                    <h3 style="color:#fff;font-weight:600;font-size:1rem;margin:0">Cannot Complete Booking</h3>
+                  </div>
+                  <div style="padding:1.25rem 1.5rem">
+                    <p style="color:#525252;font-size:0.875rem;line-height:1.6;margin:0 0 1rem 0">This booking has pending additional work requests that need decisions before it can be completed.</p>
+                    ${detailsHtml}
+                    <p style="color:#737373;font-size:0.75rem;line-height:1.6;margin:1rem 0 0 0">Staff should contact the admin to get a decision on pending requests before completing the booking.</p>
+                  </div>
+                  <div style="padding:0 1.5rem 1.25rem;display:flex;justify-content:flex-end">
+                    <button id="pi-ok" style="padding:0.5rem 1.25rem;border-radius:9999px;font-size:0.875rem;font-weight:600;background:#171717;color:#fff;border:none;cursor:pointer">Understood</button>
+                  </div>
+                </div>`;
+              document.body.appendChild(overlay);
+              overlay.querySelector("#pi-ok")!.addEventListener("click", () => { overlay.remove(); resolve(); });
+              overlay.addEventListener("click", (e) => { if (e.target === overlay) { overlay.remove(); resolve(); } });
+            });
+            return;
+          }
+        }
+
         // Check for incomplete tasks before completing — show styled modal
         let forceComplete = false;
         if (booking && newStatus === "Completed") {

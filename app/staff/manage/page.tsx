@@ -16,6 +16,7 @@ import { updateBranch } from "@/lib/branches";
 import { deleteDoc } from "firebase/firestore";
 import WeeklyScheduleSelector, { WeeklySchedule } from "@/components/staff/WeeklyScheduleSelector";
 import { TIMEZONES } from "@/lib/timezone";
+import { subscribeToCheckInsForOwner, StaffCheckInRecord } from "@/lib/staffCheckIn";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -41,6 +42,7 @@ export default function SettingsPage() {
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
   const [ownerPlan, setOwnerPlan] = useState<{ name: string; priceLabel: string; staffLimit: number } | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [activeCheckIns, setActiveCheckIns] = useState<StaffCheckInRecord[]>([]);
 
   type StaffTraining = { ohs: boolean; prod: boolean; tool: boolean };
   type HoursDay = { open?: string; close?: string; closed?: boolean };
@@ -148,6 +150,18 @@ export default function SettingsPage() {
       unsubStaff();
     };
   }, [ownerUid]);
+
+  // Subscribe to real-time check-ins for today to show active/on-shift staff
+  useEffect(() => {
+    if (!ownerUid) return;
+    const today = new Date();
+    const unsub = subscribeToCheckInsForOwner(ownerUid, today, (records) => {
+      setActiveCheckIns(records.filter((r) => r.status === "checked_in"));
+    });
+    return () => unsub();
+  }, [ownerUid]);
+
+  const checkedInStaffIds = new Set(activeCheckIns.map((c) => c.staffId));
 
   // Fetch owner's package/plan with staff limit
   useEffect(() => {
@@ -930,12 +944,13 @@ export default function SettingsPage() {
                   ) : (
                     data.staff.map((s) => {
                     const isSuspended = s.status === "Suspended";
-                    const borderColor = isSuspended ? "border-red-400" : "border-green-500";
+                    const isCheckedIn = checkedInStaffIds.has(s.id);
+                    const borderColor = isSuspended ? "border-red-400" : isCheckedIn ? "border-green-500" : "border-neutral-300";
                     const opacity = isSuspended ? "opacity-75" : "";
                     return (
                       <div
                         key={s.id}
-                        className={`bg-white rounded-xl shadow-sm border border-neutral-200 p-4 lg:p-5 hover:shadow-lg transition-all duration-200 border-l-4 ${borderColor} ${opacity} group`}
+                        className={`bg-white rounded-xl shadow-sm border border-neutral-200 p-4 lg:p-5 hover:shadow-lg transition-all duration-200 border-l-4 ${borderColor} ${opacity} group ${isCheckedIn ? "ring-1 ring-green-200" : ""}`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                           {/* Avatar Section */}
@@ -943,8 +958,13 @@ export default function SettingsPage() {
                             <img
                               src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
                               alt="Avatar"
-                              className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-100 ring-2 ring-neutral-100 group-hover:ring-neutral-200 transition"
+                              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-neutral-100 ring-2 transition ${isCheckedIn ? "ring-green-400" : "ring-neutral-100 group-hover:ring-neutral-200"}`}
                             />
+                            {isCheckedIn && (
+                              <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
+                                <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                              </div>
+                            )}
                             {s.systemRole === "branch_admin" && (
                               <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-indigo-500 flex items-center justify-center border-2 border-white">
                                 <i className="fas fa-crown text-[8px] text-white" />
@@ -978,16 +998,28 @@ export default function SettingsPage() {
                             {/* Status and Actions */}
                             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 shrink-0">
                               {/* Status Badge */}
+                              {isCheckedIn && !isSuspended ? (
+                                <div className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-semibold shadow-sm whitespace-nowrap bg-green-50 text-green-700 border border-green-300">
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="relative w-2 h-2">
+                                      <div className="absolute inset-0 rounded-full bg-green-500 animate-ping opacity-75" />
+                                      <div className="relative w-2 h-2 rounded-full bg-green-500" />
+                                    </div>
+                                    Active
+                                  </div>
+                                </div>
+                              ) : (
                               <div className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-semibold shadow-sm whitespace-nowrap ${
                                 isSuspended 
                                   ? "bg-red-50 text-red-700 border border-red-200" 
-                                  : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-neutral-50 text-neutral-600 border border-neutral-200"
                               }`}>
                                 <div className="flex items-center gap-1.5">
-                                  <div className={`w-2 h-2 rounded-full ${isSuspended ? "bg-red-500" : "bg-emerald-500"}`} />
-                                  {s.status}
+                                  <div className={`w-2 h-2 rounded-full ${isSuspended ? "bg-red-500" : "bg-neutral-400"}`} />
+                                  {isSuspended ? "Suspended" : "Offline"}
                                 </div>
                               </div>
+                              )}
                               
                               {/* Action Buttons */}
                               <div className="flex items-center gap-1 sm:gap-1.5">
@@ -1063,6 +1095,18 @@ export default function SettingsPage() {
                       <div className="bg-rose-500/30 border border-rose-400/30 rounded-lg p-3 text-xs text-rose-100">
                         <i className="fas fa-exclamation-circle mr-1" />
                         Staff limit reached. <button onClick={() => setShowUpgradeModal(true)} className="underline font-semibold hover:text-white">Upgrade plan</button>
+                      </div>
+                    )}
+                    {activeCheckIns.length > 0 && (
+                      <div className="bg-green-500/20 backdrop-blur-sm p-3 lg:p-4 rounded-lg flex justify-between items-center border border-green-400/30 hover:bg-green-500/25 transition">
+                        <div className="flex items-center gap-2">
+                          <div className="relative">
+                            <div className="absolute inset-0 rounded-full bg-green-400 animate-ping opacity-50" style={{width: 12, height: 12}} />
+                            <div className="w-3 h-3 rounded-full bg-green-400" />
+                          </div>
+                          <span className="text-green-100 text-sm lg:text-base">On Shift Now</span>
+                        </div>
+                        <span className="font-bold text-lg lg:text-xl text-green-300">{activeCheckIns.length}</span>
                       </div>
                     )}
                     <div className="bg-emerald-500/20 backdrop-blur-sm p-3 lg:p-4 rounded-lg flex justify-between items-center border border-emerald-400/20 hover:bg-emerald-500/25 transition">
@@ -1258,14 +1302,24 @@ export default function SettingsPage() {
                                 <tr key={s.id} className="border-b hover:bg-neutral-50/50 transition">
                                   <td className="p-2 sm:p-3 border-r font-medium text-neutral-800">
                                     <div className="flex items-center gap-2 sm:gap-3">
-                                      <img
-                                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
-                                        alt={s.name}
-                                        className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-neutral-100 shrink-0"
-                                      />
+                                      <div className="relative shrink-0">
+                                        <img
+                                          src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(s.avatar)}`}
+                                          alt={s.name}
+                                          className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-neutral-100 ${checkedInStaffIds.has(s.id) ? "ring-2 ring-green-400" : ""}`}
+                                        />
+                                        {checkedInStaffIds.has(s.id) && (
+                                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-white" />
+                                        )}
+                                      </div>
                                       <div className="min-w-0">
                                         <div className="flex items-center gap-1 sm:gap-1.5">
                                           <span className="font-semibold text-xs sm:text-sm truncate">{s.name}</span>
+                                          {checkedInStaffIds.has(s.id) && (
+                                            <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold bg-green-100 text-green-700 shrink-0">
+                                              Active
+                                            </span>
+                                          )}
                                           {s.systemRole === "branch_admin" && (
                                             <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold bg-indigo-500 text-white shrink-0">
                                               <i className="fas fa-crown" />
@@ -1848,8 +1902,16 @@ export default function SettingsPage() {
                         {previewStaff.mobile}
                       </div>
                     )}
-                  <div className={`text-xs font-bold mt-1 ${previewStaff.status === "Active" ? "text-green-600" : "text-red-600"}`}>
-                    {previewStaff.status}
+                  <div className={`text-xs font-bold mt-1 flex items-center gap-1.5 ${previewStaff.status === "Active" ? (checkedInStaffIds.has(previewStaff.id) ? "text-green-600" : "text-neutral-500") : "text-red-600"}`}>
+                    {checkedInStaffIds.has(previewStaff.id) ? (
+                      <>
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                        </span>
+                        Active
+                      </>
+                    ) : previewStaff.status === "Suspended" ? "Suspended" : "Offline"}
                   </div>
                 </div>
               </div>

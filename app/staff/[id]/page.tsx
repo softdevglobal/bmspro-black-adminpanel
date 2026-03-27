@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, Timestamp, where } from "firebase/firestore";
 
 type StaffStatus = "Active" | "Suspended";
 type StaffTraining = { ohs?: boolean; prod?: boolean; tool?: boolean };
@@ -355,6 +355,7 @@ export default function StaffPreviewPage() {
   const [branchHours, setBranchHours] = useState<HoursMap | null>(null);
   const [staffBookings, setStaffBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "overview" | "schedule" | "training" | "appointments" | "customers"
   >("overview");
@@ -427,6 +428,20 @@ export default function StaffPreviewPage() {
     );
     return () => unsub();
   }, [ownerUid, staffId]);
+
+  // Subscribe to real-time check-in status for this staff member
+  useEffect(() => {
+    if (!staffId) return;
+    const q = query(
+      collection(db, "staff_check_ins"),
+      where("staffId", "==", staffId),
+      where("status", "==", "checked_in")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setIsCheckedIn(!snap.empty);
+    }, () => setIsCheckedIn(false));
+    return () => unsub();
+  }, [staffId]);
 
   // Subscribe to bookings for this staff member
   useEffect(() => {
@@ -591,12 +606,23 @@ export default function StaffPreviewPage() {
                 </div>
                 {staff?.status && (
                   <div
-                    className={`shrink-0 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold ${
-                      staff.status === "Active" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                    className={`shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${
+                      staff.status === "Suspended"
+                        ? "bg-rose-100 text-rose-800"
+                        : isCheckedIn
+                          ? "bg-green-100 text-green-800 border border-green-300"
+                          : "bg-neutral-100 text-neutral-600"
                     }`}
                   >
-                    <i className="fas fa-circle" />
-                    {staff.status}
+                    {isCheckedIn ? (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                      </span>
+                    ) : (
+                      <i className={`fas fa-circle text-[6px] ${staff.status === "Suspended" ? "text-rose-500" : "text-neutral-400"}`} />
+                    )}
+                    {staff.status === "Suspended" ? "Suspended" : isCheckedIn ? "Active" : "Offline"}
                   </div>
                 )}
               </div>
@@ -669,11 +695,21 @@ export default function StaffPreviewPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="px-3 py-1.5 rounded-full bg-neutral-100">{staff.role}</span>
                             <span
-                              className={`px-3 py-1.5 rounded-full text-xs ${
-                                staff.status === "Active" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                              className={`px-3 py-1.5 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 ${
+                                staff.status === "Suspended"
+                                  ? "bg-rose-50 text-rose-700"
+                                  : isCheckedIn
+                                    ? "bg-green-50 text-green-700 border border-green-200"
+                                    : "bg-neutral-50 text-neutral-600"
                               }`}
                             >
-                              {staff.status}
+                              {isCheckedIn && (
+                                <span className="relative flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                                </span>
+                              )}
+                              {staff.status === "Suspended" ? "Suspended" : isCheckedIn ? "Active" : "Offline"}
                             </span>
                           </div>
                         </div>

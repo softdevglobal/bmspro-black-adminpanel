@@ -2035,10 +2035,13 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
 
                       {/* ─── Task Progress & List ─────────────────────────── */}
                       {previewRow.tasks && previewRow.tasks.length > 0 && (() => {
-                        const doneCount = previewRow.tasks.filter(t => t.done).length;
+                        const doneCount = previewRow.tasks.filter(t => !!t.done).length;
                         const totalCount = previewRow.tasks.length;
-                        const pct = previewRow.taskProgress || 0;
-                        const isComplete = pct === 100;
+                        const pct =
+                          totalCount > 0
+                            ? Math.round((doneCount / totalCount) * 100)
+                            : previewRow.taskProgress || 0;
+                        const isComplete = totalCount > 0 && doneCount === totalCount;
                         const serviceTaskGroups = (() => {
                           const groups = new Map<string, { label: string; tasks: typeof previewRow.tasks }>();
                           for (const task of previewRow.tasks) {

@@ -3120,10 +3120,14 @@ export default function BookingEnginePage() {
 
                           {/* ─── Task Progress Bar ─────────────────────────── */}
                           {bk.tasks && bk.tasks.length > 0 && (() => {
-                            const doneCount = bk.tasks.filter(t => t.done).length;
+                            const doneCount = bk.tasks.filter(t => !!t.done).length;
                             const totalCount = bk.tasks.length;
-                            const pct = bk.taskProgress || 0;
-                            const isComplete = pct === 100;
+                            // Derive from task flags — stored taskProgress can be stale (e.g. 100 after new tasks were added)
+                            const pct =
+                              totalCount > 0
+                                ? Math.round((doneCount / totalCount) * 100)
+                                : bk.taskProgress ?? 0;
+                            const isComplete = totalCount > 0 && doneCount === totalCount;
                             return (
                             <div className="mt-4">
                               <button

@@ -33,22 +33,28 @@ export async function GET(req: NextRequest) {
         price: d.price || 0,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
         updatedAt: d.updatedAt?.toDate?.()?.toISOString() || null,
-        // Task progress data
-        tasks: Array.isArray(d.tasks)
-          ? d.tasks.map((t: any) => ({
-              id: t.id || "",
-              serviceId: t.serviceId || "",
-              serviceName: t.serviceName || "",
-              name: t.name || "",
-              description: t.description || "",
-              done: !!t.done,
-              imageUrl: t.imageUrl || "",
-              staffNote: t.staffNote || "",
-              completedAt: t.completedAt || null,
-              completedByStaffName: t.completedByStaffName || null,
-            }))
-          : null,
-        taskProgress: typeof d.taskProgress === "number" ? d.taskProgress : 0,
+        // Task progress data (recompute progress from tasks so UI never shows 100% when tasks remain undone)
+        ...(() => {
+          const tasks = Array.isArray(d.tasks)
+            ? d.tasks.map((t: any) => ({
+                id: t.id || "",
+                serviceId: t.serviceId || "",
+                serviceName: t.serviceName || "",
+                name: t.name || "",
+                description: t.description || "",
+                done: !!t.done,
+                imageUrl: t.imageUrl || "",
+                staffNote: t.staffNote || "",
+                completedAt: t.completedAt || null,
+                completedByStaffName: t.completedByStaffName || null,
+              }))
+            : null;
+          const n = tasks?.length ?? 0;
+          const done = tasks?.filter((t) => t.done).length ?? 0;
+          const taskProgress =
+            n > 0 ? Math.round((done / n) * 100) : typeof d.taskProgress === "number" ? d.taskProgress : 0;
+          return { tasks, taskProgress };
+        })(),
         finalSubmission: d.finalSubmission
           ? {
               description: d.finalSubmission.description || "",

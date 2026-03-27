@@ -175,8 +175,15 @@ export default function CheckInsMapView({
       ? checkIns.filter((c) => c.branchId === selectedBranchId)
       : checkIns;
 
+    // Sort so checked-out markers render first (bottom) and active ones render last (on top)
+    const sortedCheckIns = [...filteredCheckIns].sort((a, b) => {
+      const aActive = a.status === "checked_in" ? 1 : 0;
+      const bActive = b.status === "checked_in" ? 1 : 0;
+      return aActive - bActive;
+    });
+
     // Add check-in markers
-    filteredCheckIns.forEach((checkIn) => {
+    sortedCheckIns.forEach((checkIn) => {
       if (!checkIn.staffLatitude || !checkIn.staffLongitude) return;
       
       const position = {
@@ -196,17 +203,18 @@ export default function CheckInsMapView({
       checkInMarkerContent.innerHTML = `
         <div style="
           background: ${markerColor};
-          width: 32px;
-          height: 32px;
+          width: ${isCheckedOut ? "28px" : "36px"};
+          height: ${isCheckedOut ? "28px" : "36px"};
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-          border: 2px solid white;
+          box-shadow: 0 2px 8px rgba(0,0,0,${isCheckedOut ? "0.15" : "0.4"});
+          border: ${isCheckedOut ? "2px" : "3px"} solid white;
           color: white;
-          font-size: 12px;
+          font-size: ${isCheckedOut ? "11px" : "13px"};
           font-weight: 600;
+          z-index: ${isCheckedOut ? "1" : "10"};
         ">
           ${checkIn.staffName.charAt(0).toUpperCase()}
         </div>
@@ -217,6 +225,7 @@ export default function CheckInsMapView({
         position,
         title: checkIn.staffName,
         content: checkInMarkerContent,
+        zIndex: isCheckedOut ? 1 : 10,
       });
 
       checkInMarker.addListener("click", () => {

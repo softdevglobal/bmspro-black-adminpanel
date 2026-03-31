@@ -1,0 +1,114 @@
+import { NextRequest, NextResponse } from "next/server";
+import { adminDb } from "@/lib/firebaseAdmin";
+import {
+  verifyCallCenterAuth,
+  canAccessWorkshop,
+  CORS_HEADERS,
+} from "@/lib/callCenterAuth";
+
+export const runtime = "nodejs";
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: CORS_HEADERS });
+}
+
+/**
+ * GET /api/call-center/bookings/[id]/additional-issues
+ *
+ * List all additional issues (extra work) for a booking.
+ * Includes admin-set prices and customer response status.
+ * Agents use this to know what needs customer approval.
+ */
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  const auth = await verifyCallCenterAuth(req);
+  if (!auth.success || !auth.user) {
+    return NextResponse.json(
+      { error: auth.error },
+      { status: auth.status || 401, headers: CORS_HEADERS }
+    );
+  }
+
+  const { id } = await context.params;
+
+  try {
+    const db = adminDb();
+
+    const bookingDoc = await db.doc(`bookings/${id}`).get();
+    if (!bookingDoc.exists) {
+      return NextResponse.json(
+        { error: "Booking not found" },
+        { status: 404, headers: CORS_HEADERS }
+      );
+    }
+
+    const d = bookingDoc.data()!;
+
+    if (!canAccessWorkshop(auth.user, d.ownerUid)) {
+      return NextResponse.json(
+        { error: "Access denied" },
+        { status: 403, headers: CORS_HEADERS }
+      );
+    }
+
+    const additionalIssues = Array.isArray(d.additionalIssues)
+      ? d.additionalIssues
+      : [];
+
+    const issues = additionalIssues.map((i: any) => ({
+      id: i.id || "",
+      issueTitle: i.issueTitle || "",
+      description: i.description || "",
+      recommendedRepair: i.recommendedRepair || "",
+      partsRequired: i.partsRequired || "",
+      labourTimeHours: i.labourTimeHours || 0,
+      imageUrl: i.imageUrl || null,
+      price: i.price ?? null,
+      status: i.status || "pending",
+      customerResponse: i.customerResponse || null,
+      customerRespondedAt: i.customerRespondedAt || null,
+      reportedAt: i.reportedAt || null,
+      reportedByStaffName: i.reportedByStaffName || "",
+      completionStatus: i.completionStatus || null,
+    }));
+
+    const pendingPricing = issues.filter(
+      (i: any) => i.status === "pending"
+    );
+    const awaitingCustomer = issues.filter(
+      (i: any) => i.status === "approved" && !i.customerResponse
+    );
+    const accepted = issues.filter(
+      (i: any) => i.customerResponse === "accept"
+    );
+    const rejected = issues.filter(
+      (i: any) =>
+        i.status === "rejected" || i.customerResponse === "reject"
+    );
+
+    return NextResponse.json(
+      {
+        bookingId: id,
+        clientName: d.client || d.clientName || "",
+        clientPhone: d.clientPhone || "",
+        issues,
+        summary: {
+          total: issues.length,
+          pendingPricing: pendingPricing.length,
+          awaitingCustomer: awaitingCustomer.length,
+          accepted: accepted.length,
+          rejected: rejected.length,
+        },
+      },
+      { headers: CORS_HEADERS }
+    );
+  } catch (error: any) {
+    console.error("[call-center/bookings/additional-issues GET] Error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500, headers: CORS_HEADERS }
+    );
+  }
+}

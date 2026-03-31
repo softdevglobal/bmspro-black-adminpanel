@@ -1,0 +1,546 @@
+{
+  "info": {
+    "name": "BMS Pro Black — Call Center API",
+    "description": "Production tests for https://black.bmspros.com.au/api/call-center\n\nSet collection variables: baseUrl, token (Firebase ID token), ownerUid, branchId, serviceIds, did, customerPhone.\nAfter successful requests, scripts save customerId and bookingId when applicable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://black.bmspros.com.au/api/call-center" },
+    { "key": "token", "value": "" },
+    { "key": "ownerUid", "value": "" },
+    { "key": "branchId", "value": "" },
+    { "key": "serviceIds", "value": "" },
+    { "key": "did", "value": "" },
+    { "key": "customerPhone", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "bookingId", "value": "" },
+    { "key": "issueId", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "0. Public (no auth)",
+      "item": [
+        {
+          "name": "GET Request Data Spec (handover)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/public/request-data",
+            "description": "No token. Full JSON spec for Niranga / dashboard devs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has meta + endpoints', function () {",
+                  "  pm.expect(j).to.have.property('meta');",
+                  "  pm.expect(j).to.have.property('endpoints');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Public Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/public/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.expect(pm.response.json().ok).to.eql(true);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "GET Agent Profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth",
+            "description": "Health check: valid Firebase token + call_center_agents doc."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has agent object', function () { pm.expect(j).to.have.property('agent'); });",
+                  "pm.test('Agent has uid', function () { pm.expect(j.agent).to.have.property('uid'); });",
+                  "if (j.agent && j.agent.assignedWorkshops && j.agent.assignedWorkshops.length) {",
+                  "  const first = j.agent.assignedWorkshops[0];",
+                  "  const ou = typeof first === 'object' ? first.ownerUid : null;",
+                  "  if (ou) pm.collectionVariables.set('ownerUid', ou);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. DID Lookup",
+      "item": [
+        {
+          "name": "GET Resolve DID to Workshop",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/did-lookup?did={{did}}",
+            "description": "Set `did` collection variable first (e.g. +61412345678)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('matched true', function () { pm.expect(j.matched).to.eql(true); });",
+                  "if (j.workshop && j.workshop.ownerUid) {",
+                  "  pm.collectionVariables.set('ownerUid', j.workshop.ownerUid);",
+                  "}",
+                  "if (j.branchId) pm.collectionVariables.set('branchId', j.branchId);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Workshops",
+      "item": [
+        {
+          "name": "GET List Assigned Workshops",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/workshops"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has workshops array', function () { pm.expect(j).to.have.property('workshops'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Workshop Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/workshops/{{ownerUid}}",
+            "description": "Requires ownerUid. Response includes branches, services, staff."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has workshop + branches + services', function () {",
+                  "  pm.expect(j).to.have.property('workshop');",
+                  "  pm.expect(j).to.have.property('branches');",
+                  "  pm.expect(j).to.have.property('services');",
+                  "});",
+                  "if (j.branches && j.branches[0] && j.branches[0].id) {",
+                  "  pm.collectionVariables.set('branchId', j.branches[0].id);",
+                  "}",
+                  "if (j.services && j.services[0] && j.services[0].id) {",
+                  "  pm.collectionVariables.set('serviceIds', j.services[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Customers",
+      "item": [
+        {
+          "name": "GET Search Customers (screen pop)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/customers?q={{customerPhone}}&searchBy=phone",
+            "description": "Uses X-Tenant-Id for ownerUid. Set customerPhone."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has customers array', function () { pm.expect(j).to.have.property('customers'); });",
+                  "if (j.customers && j.customers[0] && j.customers[0].id) {",
+                  "  pm.collectionVariables.set('customerId', j.customers[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Customer Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/customers/{{customerId}}",
+            "description": "Requires customerId (from search or manual)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has customer + vehicles + bookings', function () {",
+                  "  pm.expect(j).to.have.property('customer');",
+                  "  pm.expect(j).to.have.property('vehicles');",
+                  "  pm.expect(j).to.have.property('bookings');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerUid\": \"{{ownerUid}}\",\n  \"name\": \"Postman Test Customer\",\n  \"email\": \"postman.customer@example.com\",\n  \"phone\": \"+61400000002\",\n  \"vehicleNumber\": \"PM999\",\n  \"notes\": \"Created from Postman\"\n}"
+            },
+            "url": "{{baseUrl}}/customers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.test('Status 201', function () { pm.response.to.have.status(201); });",
+                  "  const j = pm.response.json();",
+                  "  if (j.customerId) pm.collectionVariables.set('customerId', j.customerId);",
+                  "} else if (pm.response.code === 409) {",
+                  "  pm.test('Conflict — use existingCustomerId', function () { pm.response.to.have.status(409); });",
+                  "  const j = pm.response.json();",
+                  "  if (j.existingCustomerId) pm.collectionVariables.set('customerId', j.existingCustomerId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Bookings",
+      "item": [
+        {
+          "name": "GET Booking Availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/bookings/availability?branchId={{branchId}}&date=2026-04-15&serviceIds={{serviceIds}}",
+            "description": "Adjust date. serviceIds comma-separated if multiple."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has slot fields', function () {",
+                  "  pm.expect(j).to.have.property('available');",
+                  "  pm.expect(j).to.have.property('availableSlots');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET List Bookings",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/bookings?limit=25"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has bookings array', function () { pm.expect(j).to.have.property('bookings'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Create Booking",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerUid\": \"{{ownerUid}}\",\n  \"branchId\": \"{{branchId}}\",\n  \"date\": \"2026-04-15\",\n  \"time\": \"10:00\",\n  \"pickupTime\": \"16:00\",\n  \"services\": [\n    {\n      \"serviceId\": \"{{serviceIds}}\",\n      \"serviceName\": \"Full Service\",\n      \"price\": 299,\n      \"duration\": 120\n    }\n  ],\n  \"client\": \"Postman Booking Test\",\n  \"clientEmail\": \"postman.booking@example.com\",\n  \"clientPhone\": \"+61400000003\",\n  \"customerId\": \"{{customerId}}\",\n  \"vehicleNumber\": \"PMBOOK1\",\n  \"notes\": \"Postman collection test\"\n}"
+            },
+            "url": "{{baseUrl}}/bookings",
+            "description": "Set `serviceIds` to ONE Firestore service document id (from Workshop Detail). For multiple services, duplicate the object in the body with different serviceIds."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  pm.test('Status 201', function () { pm.response.to.have.status(201); });",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j).to.have.property('bookingId');",
+                  "  pm.collectionVariables.set('bookingId', j.bookingId);",
+                  "} else {",
+                  "  pm.test('Create booking responded', function () { pm.expect(pm.response.code).to.be.oneOf([201, 400, 403, 404]); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Booking Detail (job card)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/bookings/{{bookingId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has booking + services + progress', function () {",
+                  "  pm.expect(j).to.have.property('booking');",
+                  "  pm.expect(j).to.have.property('services');",
+                  "  pm.expect(j).to.have.property('progress');",
+                  "});",
+                  "if (j.booking && j.booking.source === 'call_center') {",
+                  "  pm.test('Created via call center API', function () { pm.expect(j.booking.source).to.eql('call_center'); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Additional Issues",
+      "item": [
+        {
+          "name": "GET List Additional Issues",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/bookings/{{bookingId}}/additional-issues"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has issues + summary', function () {",
+                  "  pm.expect(j).to.have.property('issues');",
+                  "  pm.expect(j).to.have.property('summary');",
+                  "});",
+                  "const pending = (j.issues || []).find(i => i.status === 'approved' && !i.customerResponse);",
+                  "if (pending && pending.id) pm.collectionVariables.set('issueId', pending.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH Relay Customer Decision",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerResponse\": \"accept\"\n}"
+            },
+            "url": "{{baseUrl}}/bookings/{{bookingId}}/additional-issues/{{issueId}}",
+            "description": "Only works when issue status is approved and no prior customerResponse. Set issueId from GET list or manually."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or expected error', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 400, 404, 409]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.success).to.eql(true);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Call Logs",
+      "item": [
+        {
+          "name": "POST Call Log",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ownerUid\": \"{{ownerUid}}\",\n  \"branchId\": \"{{branchId}}\",\n  \"callerPhone\": \"{{customerPhone}}\",\n  \"direction\": \"inbound\",\n  \"purpose\": \"general_inquiry\",\n  \"duration\": 120,\n  \"notes\": \"Postman test call\",\n  \"outcome\": \"info_provided\",\n  \"customerId\": \"{{customerId}}\",\n  \"bookingId\": \"{{bookingId}}\",\n  \"callCenterCallId\": \"supabase-or-local-id-123\"\n}"
+            },
+            "url": "{{baseUrl}}/call-logs"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', function () { pm.response.to.have.status(201); });",
+                  "const j = pm.response.json();",
+                  "pm.expect(j).to.have.property('callLogId');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Call Logs",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/call-logs?ownerUid={{ownerUid}}&limit=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.expect(j).to.have.property('callLogs');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Webhooks (CC Admin only)",
+      "item": [
+        {
+          "name": "GET List Webhooks",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/webhooks"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 403', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

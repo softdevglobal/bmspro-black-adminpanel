@@ -1,0 +1,342 @@
+/**
+ * Public machine-readable API contract for call center integration (no auth to read this spec).
+ * Handover: Niranga — use GET /api/call-center/public/request-data
+ */
+
+export const CALL_CENTER_PUBLIC_META = {
+  service: "BMS Pro Black — Call Center API",
+  basePath: "/api/call-center",
+  productionExampleBaseUrl: "https://black.bmspros.com.au/api/call-center",
+  handoverContact: "Niranga",
+  documentationFile: "CALL_CENTER_API.md (repo root, admin panel)",
+  postmanCollection: "postman/BMS_Call_Center_API.postman_collection.json",
+  authentication: {
+    requiredForMostEndpoints: true,
+    type: "HTTP Bearer",
+    tokenSource:
+      "Firebase Authentication — same project as BMS. Call center agents sign in with email/password; send ID token as Authorization: Bearer <idToken>",
+    agentProfileCollection: "Firestore: call_center_agents/{firebaseUid}",
+  },
+  tenantScoping: {
+    description:
+      "Workshop tenant is ownerUid (workshop owner's Firebase UID). Send as query ?ownerUid=... or header X-Tenant-Id.",
+  },
+  notes: [
+    "This JSON describes request/response shapes only. It does not grant access to data.",
+    "Webhook registration exists at POST /webhooks (CC admin); dispatch to external URLs must be wired separately if not yet in codebase.",
+  ],
+} as const;
+
+export type PublicEndpointSpec = {
+  id: string;
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  path: string;
+  authRequired: boolean;
+  description: string;
+  headers?: { name: string; required: boolean; when?: string; example?: string }[];
+  queryParams?: { name: string; required: boolean; type: string; description?: string }[];
+  requestBody?: Record<string, unknown> | null;
+  responseSuccess?: { status: number; bodyExample?: Record<string, unknown> };
+};
+
+export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
+  {
+    id: "public.request-data",
+    method: "GET",
+    path: "/public/request-data",
+    authRequired: false,
+    description: "Returns this specification (no authentication).",
+    responseSuccess: { status: 200, bodyExample: { meta: {}, endpoints: [] } },
+  },
+  {
+    id: "public.health",
+    method: "GET",
+    path: "/public/health",
+    authRequired: false,
+    description: "Liveness check for call center API routes (no authentication).",
+    responseSuccess: { status: 200, bodyExample: { ok: true, service: "call-center" } },
+  },
+  {
+    id: "auth.me",
+    method: "GET",
+    path: "/auth",
+    authRequired: true,
+    description: "Current call center agent profile and assigned workshops.",
+    headers: [{ name: "Authorization", required: true, example: "Bearer <firebase_id_token>" }],
+  },
+  {
+    id: "auth.register",
+    method: "POST",
+    path: "/auth",
+    authRequired: true,
+    description: "Create call center agent (BMS super_admin or workshop_owner Bearer only).",
+    headers: [
+      { name: "Authorization", required: true, when: "BMS admin Firebase token", example: "Bearer <admin_id_token>" },
+    ],
+    requestBody: {
+      email: "agent@example.com",
+      password: "min6chars",
+      name: "Agent Name",
+      role: "call_center_agent",
+      assignedWorkshops: ["<ownerUid>"],
+    },
+    responseSuccess: { status: 201 },
+  },
+  {
+    id: "auth.patch",
+    method: "PATCH",
+    path: "/auth",
+    authRequired: true,
+    description: "Update agent workshops / suspend / role (BMS admin).",
+    headers: [{ name: "Authorization", required: true, example: "Bearer <admin_id_token>" }],
+    requestBody: {
+      agentUid: "<firebaseUid>",
+      assignedWorkshops: ["<ownerUid>"],
+      suspended: false,
+    },
+  },
+  {
+    id: "did-lookup.get",
+    method: "GET",
+    path: "/did-lookup",
+    authRequired: true,
+    description: "Resolve inbound DID to workshop (did_mappings or branch phone).",
+    queryParams: [{ name: "did", required: true, type: "string", description: "E.164 or local phone" }],
+  },
+  {
+    id: "did-lookup.post",
+    method: "POST",
+    path: "/did-lookup",
+    authRequired: true,
+    description: "Create/update DID mapping (call_center_admin only).",
+    requestBody: {
+      did: "+61400000000",
+      ownerUid: "<ownerUid>",
+      branchId: "<branchId|null>",
+      branchName: "Optional",
+      label: "Optional",
+    },
+  },
+  {
+    id: "workshops.list",
+    method: "GET",
+    path: "/workshops",
+    authRequired: true,
+    description: "Workshops the agent may access.",
+  },
+  {
+    id: "workshops.detail",
+    method: "GET",
+    path: "/workshops/{ownerUid}",
+    authRequired: true,
+    description: "Branches, services, staff for one workshop.",
+  },
+  {
+    id: "customers.search",
+    method: "GET",
+    path: "/customers",
+    authRequired: true,
+    description: "Search customers by phone/email/name within tenant.",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string", description: "Or use X-Tenant-Id header" },
+      { name: "q", required: true, type: "string" },
+      { name: "searchBy", required: false, type: "phone|email|name" },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, when: "if ownerUid not in query", example: "<ownerUid>" }],
+  },
+  {
+    id: "customers.create",
+    method: "POST",
+    path: "/customers",
+    authRequired: true,
+    description: "Create a customer record in BMS for the given workshop.",
+    requestBody: {
+      ownerUid: "<ownerUid>",
+      name: "Customer Name",
+      email: "optional",
+      phone: "optional",
+      vehicleNumber: "optional",
+      vehicleDetails: { make: "", model: "", year: "", colour: "", vin: "", engineNumber: "", bodyType: "" },
+      notes: "optional",
+    },
+    responseSuccess: { status: 201, bodyExample: { success: true, customerId: "<id>", name: "" } },
+  },
+  {
+    id: "customers.detail",
+    method: "GET",
+    path: "/customers/{customerId}",
+    authRequired: true,
+    description: "Screen pop: profile, vehicles, booking history.",
+    queryParams: [{ name: "ownerUid", required: false, type: "string" }],
+    headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+  },
+  {
+    id: "customers.vehicles.list",
+    method: "GET",
+    path: "/customers/{customerId}/vehicles",
+    authRequired: true,
+    description: "List vehicles registered under a customer.",
+    queryParams: [{ name: "ownerUid", required: true, type: "string" }],
+  },
+  {
+    id: "customers.vehicles.create",
+    method: "POST",
+    path: "/customers/{customerId}/vehicles",
+    authRequired: true,
+    description: "Add a vehicle to an existing customer.",
+    requestBody: {
+      ownerUid: "<ownerUid>",
+      rego: "ABC123",
+      make: "",
+      model: "",
+      year: "",
+      colour: "",
+    },
+  },
+  {
+    id: "bookings.list",
+    method: "GET",
+    path: "/bookings",
+    authRequired: true,
+    description: "List bookings for a workshop with optional filters (status, date, branch, customer).",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string" },
+      { name: "status", required: false, type: "string" },
+      { name: "date", required: false, type: "YYYY-MM-DD" },
+      { name: "branchId", required: false, type: "string" },
+      { name: "customerId", required: false, type: "string" },
+      { name: "limit", required: false, type: "number" },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+  },
+  {
+    id: "bookings.create",
+    method: "POST",
+    path: "/bookings",
+    authRequired: true,
+    description: "Creates booking in BMS Firestore (workshop sees it in admin + app).",
+    requestBody: {
+      ownerUid: "<ownerUid>",
+      branchId: "<branchId>",
+      branchName: "optional",
+      date: "YYYY-MM-DD",
+      time: "HH:mm",
+      pickupTime: "HH:mm|null",
+      services: [{ serviceId: "<id>", serviceName: "", price: 0, duration: 0, staffId: "optional" }],
+      client: "Name",
+      clientEmail: "",
+      clientPhone: "",
+      customerId: "optional",
+      vehicleNumber: "",
+      vehicleDetails: { bodyType: "", colour: "", vin: "", engineNumber: "", mileage: "" },
+      notes: "",
+    },
+    responseSuccess: {
+      status: 201,
+      bodyExample: { success: true, bookingId: "", bookingCode: "", status: "", totalPrice: 0, totalDuration: 0 },
+    },
+  },
+  {
+    id: "bookings.availability",
+    method: "GET",
+    path: "/bookings/availability",
+    authRequired: true,
+    description: "Return available and blocked time slots for a branch/date and selected services.",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string" },
+      { name: "branchId", required: true, type: "string" },
+      { name: "date", required: true, type: "YYYY-MM-DD" },
+      { name: "serviceIds", required: true, type: "string", description: "Comma-separated service ids" },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+  },
+  {
+    id: "bookings.detail",
+    method: "GET",
+    path: "/bookings/{id}",
+    authRequired: true,
+    description: "Job card: services, tasks, additional issues, progress.",
+  },
+  {
+    id: "bookings.additional-issues.list",
+    method: "GET",
+    path: "/bookings/{id}/additional-issues",
+    authRequired: true,
+    description: "List extra work (additional issues) on a booking and summary counts.",
+  },
+  {
+    id: "bookings.additional-issues.patch",
+    method: "PATCH",
+    path: "/bookings/{id}/additional-issues/{issueId}",
+    authRequired: true,
+    description: "Record customer accept/reject after phone approval (issue must be approved with price).",
+    requestBody: { customerResponse: "accept" },
+  },
+  {
+    id: "call-logs.create",
+    method: "POST",
+    path: "/call-logs",
+    authRequired: true,
+    description: "Record a call in BMS for workshop visibility; optional callCenterCallId links to external CRM.",
+    requestBody: {
+      ownerUid: "<ownerUid>",
+      branchId: "optional",
+      callerPhone: "",
+      callerName: "optional",
+      customerId: "optional",
+      bookingId: "optional",
+      direction: "inbound|outbound",
+      purpose: "booking|progress_check|extra_work_approval|general_inquiry|complaint|other",
+      duration: 0,
+      notes: "",
+      outcome: "",
+      callCenterCallId: "optional Supabase id for cross-reference",
+    },
+  },
+  {
+    id: "call-logs.list",
+    method: "GET",
+    path: "/call-logs",
+    authRequired: true,
+    description: "Retrieve call log history for a workshop, optionally filtered by customer or booking.",
+    queryParams: [
+      { name: "ownerUid", required: true, type: "string" },
+      { name: "customerId", required: false, type: "string" },
+      { name: "bookingId", required: false, type: "string" },
+      { name: "limit", required: false, type: "number" },
+    ],
+  },
+  {
+    id: "webhooks.list",
+    method: "GET",
+    path: "/webhooks",
+    authRequired: true,
+    description: "call_center_admin only.",
+  },
+  {
+    id: "webhooks.create",
+    method: "POST",
+    path: "/webhooks",
+    authRequired: true,
+    description: "call_center_admin only.",
+    requestBody: {
+      url: "https://your-app.com/webhooks/bms",
+      events: [
+        "booking.status_changed",
+        "booking.additional_issue",
+        "booking.issue_priced",
+        "booking.completed",
+        "booking.canceled",
+      ],
+      secret: "optional signing secret",
+      description: "",
+    },
+  },
+  {
+    id: "webhooks.delete",
+    method: "DELETE",
+    path: "/webhooks?id={webhookId}",
+    authRequired: true,
+    description: "call_center_admin only.",
+  },
+];

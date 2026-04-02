@@ -45,14 +45,16 @@ const token = await user.getIdToken();
 
 1. `GET /auth` — confirm agent + workshops  
 2. `GET /did-lookup?did=...` — map inbound number → `ownerUid` / branch (if configured)  
-3. `GET /workshops/{ownerUid}` — branches, `serviceId`s, staff  
-4. `GET /customers?q=...&searchBy=phone` (+ tenant) — screen pop search  
-5. `GET /customers/{customerId}` — profile, vehicles, booking list  
-6. `GET /bookings/availability?branchId=&date=&serviceIds=` — slots before booking  
-7. `POST /bookings` — create job in BMS  
-8. `GET /bookings/{id}` — status / tasks / progress  
-9. `GET /bookings/{id}/additional-issues` → `PATCH .../additional-issues/{issueId}` — extra work after customer agrees on phone  
-10. `POST /call-logs` — optional audit in BMS; use `callCenterCallId` to tie to your system  
+3. `GET /workshops/{ownerUid}` — branches, staff overview  
+4. `GET /services?branchId=` (+ tenant) — **list services for the selected branch** (price, duration, available staff per service)  
+5. `GET /services/{serviceId}` — **full service detail** (checklist, branches, staff) — optional, for drill-down  
+6. `GET /customers?q=...&searchBy=phone` (+ tenant) — screen pop search  
+7. `GET /customers/{customerId}` — profile, vehicles, booking list  
+8. `GET /bookings/availability?branchId=&date=&serviceIds=` — slots before booking  
+9. `POST /bookings` — create job in BMS (use `serviceId`s from step 4)  
+10. `GET /bookings/{id}` — status / tasks / progress  
+11. `GET /bookings/{id}/additional-issues` → `PATCH .../additional-issues/{issueId}` — extra work after customer agrees on phone  
+12. `POST /call-logs` — optional audit in BMS; use `callCenterCallId` to tie to your system  
 
 ---
 
@@ -70,12 +72,14 @@ Paths are relative to the base URL above.
 | GET | `/did-lookup?did=` | Map DID → workshop. |
 | POST | `/did-lookup` | **CC admin.** Body: `did`, `ownerUid`, optional `branchId`, `branchName`, `label`. |
 | GET | `/workshops` | Workshops the agent can access. |
-| GET | `/workshops/{ownerUid}` | Branches, services, staff. |
+| GET | `/workshops/{ownerUid}` | Branches, services (summary), staff. |
 | GET | `/customers` | Query: `q` (required), `searchBy` optional (`phone` \| `email` \| `name`). Tenant required. |
 | POST | `/customers` | Body: `ownerUid`, `name`, optional `email`, `phone`, `vehicleNumber`, `vehicleDetails`, `notes`. |
 | GET | `/customers/{customerId}` | Tenant required. |
 | GET | `/customers/{customerId}/vehicles` | Query: `ownerUid`. |
 | POST | `/customers/{customerId}/vehicles` | Body: `ownerUid`, `rego`, optional vehicle fields. |
+| GET | `/services` | **Tenant required.** Optional `branchId` to filter by branch. Returns services with `name`, `price`, `duration`, `description`, `staff[]` (who can perform it), `checklistCount`. |
+| GET | `/services/{serviceId}` | Full service detail: `checklist[]` items, `branches[]` (with names), `staff[]`. |
 | GET | `/bookings` | Tenant + optional `status`, `date`, `branchId`, `customerId`, `limit`. |
 | GET | `/bookings/availability` | Query: `branchId`, `date` (YYYY-MM-DD), `serviceIds` (comma-separated). Tenant. |
 | POST | `/bookings` | Body: `ownerUid`, `branchId`, `date`, `time`, `services[]` (`serviceId` required per line), `client`, optional `pickupTime`, `clientEmail`, `clientPhone`, `customerId`, `vehicleNumber`, `vehicleDetails`, `notes`. |

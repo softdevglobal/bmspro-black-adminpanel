@@ -289,7 +289,90 @@
       ]
     },
     {
-      "name": "5. Bookings",
+      "name": "5. Services",
+      "item": [
+        {
+          "name": "GET List Services (all)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/services",
+            "description": "Lists all services for the workshop. Includes available staff per service."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has services array', function () { pm.expect(j).to.have.property('services'); });",
+                  "if (j.services && j.services[0] && j.services[0].id) {",
+                  "  pm.collectionVariables.set('serviceIds', j.services[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET List Services (by branch)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/services?branchId={{branchId}}",
+            "description": "Services filtered to a specific branch. Use when agent has selected a branch for the booking."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has services array', function () { pm.expect(j).to.have.property('services'); });",
+                  "pm.test('Has total count', function () { pm.expect(j).to.have.property('total'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Service Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/services/{{serviceIds}}",
+            "description": "Full service detail: checklist, branches (with names), and staff. Uses serviceIds variable (single ID)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has service object', function () { pm.expect(j).to.have.property('service'); });",
+                  "pm.test('Service has staff', function () { pm.expect(j.service).to.have.property('staff'); });",
+                  "pm.test('Service has checklist', function () { pm.expect(j.service).to.have.property('checklist'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Bookings (uses services)",
       "item": [
         {
           "name": "GET Booking Availability",
@@ -405,7 +488,7 @@
       ]
     },
     {
-      "name": "6. Additional Issues",
+      "name": "7. Additional Issues",
       "item": [
         {
           "name": "GET List Additional Issues",
@@ -466,7 +549,7 @@
       ]
     },
     {
-      "name": "7. Call Logs",
+      "name": "8. Call Logs",
       "item": [
         {
           "name": "POST Call Log",
@@ -517,7 +600,7 @@
       ]
     },
     {
-      "name": "8. Webhooks (CC Admin only)",
+      "name": "9. Webhooks (CC Admin only)",
       "item": [
         {
           "name": "GET List Webhooks",

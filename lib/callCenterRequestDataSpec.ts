@@ -194,6 +194,62 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     },
   },
   {
+    id: "services.list",
+    method: "GET",
+    path: "/services",
+    authRequired: true,
+    description: "List services for a workshop, optionally filtered by branch. Includes available staff per service.",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string", description: "Or use X-Tenant-Id header" },
+      { name: "branchId", required: false, type: "string", description: "Filter services assigned to this branch" },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, when: "if ownerUid not in query", example: "<ownerUid>" }],
+    responseSuccess: {
+      status: 200,
+      bodyExample: {
+        services: [
+          {
+            id: "<serviceId>",
+            name: "Full Service",
+            description: "Complete vehicle service",
+            price: 299,
+            duration: 120,
+            icon: "",
+            imageUrl: "",
+            branches: ["<branchId>"],
+            staff: [{ id: "<staffUid>", name: "John", role: "staff", branchId: "<branchId>" }],
+            checklistCount: 5,
+          },
+        ],
+        total: 1,
+      },
+    },
+  },
+  {
+    id: "services.detail",
+    method: "GET",
+    path: "/services/{serviceId}",
+    authRequired: true,
+    description: "Full service detail: checklist items, assigned branches (with names), and available staff.",
+    responseSuccess: {
+      status: 200,
+      bodyExample: {
+        service: {
+          id: "<serviceId>",
+          name: "Full Service",
+          description: "Complete vehicle service",
+          price: 299,
+          duration: 120,
+          icon: "",
+          imageUrl: "",
+          branches: [{ id: "<branchId>", name: "Main Branch" }],
+          staff: [{ id: "<staffUid>", name: "John", role: "staff", branchId: "<branchId>" }],
+          checklist: [{ name: "Oil change", description: "Replace engine oil" }],
+        },
+      },
+    },
+  },
+  {
     id: "bookings.list",
     method: "GET",
     path: "/bookings",

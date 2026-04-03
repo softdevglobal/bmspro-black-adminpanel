@@ -48,10 +48,9 @@ export async function GET(req: NextRequest) {
   const filterDate = req.nextUrl.searchParams.get("date");
   const filterCustomerId = req.nextUrl.searchParams.get("customerId");
   const filterBranchId = req.nextUrl.searchParams.get("branchId");
-  const limit = Math.min(
-    parseInt(req.nextUrl.searchParams.get("limit") || "25", 10),
-    100
-  );
+  const rawLimit = parseInt(req.nextUrl.searchParams.get("limit") || "25", 10);
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 25;
 
   try {
     const db = adminDb();
@@ -122,8 +121,33 @@ export async function GET(req: NextRequest) {
       { bookings, total: bookings.length },
       { headers: CORS_HEADERS }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[call-center/bookings GET] Error:", error);
+    const err = error as { code?: number | string; message?: string };
+    const message = typeof err.message === "string" ? err.message : String(error);
+    const indexUrl = message.match(
+      /https:\/\/console\.firebase\.google\.com[^\s)]+/
+    );
+    const failedPrecondition =
+      err.code === 9 ||
+      err.code === "failed-precondition" ||
+      /requires an index|FAILED_PRECONDITION/i.test(message);
+    if (failedPrecondition) {
+      return NextResponse.json(
+        {
+          error:
+            "Firestore composite index missing for bookings list. Deploy indexes (see firestore.indexes.json in repo) or open the link from your server logs.",
+          ...(indexUrl?.[0] ? { indexUrl: indexUrl[0] } : {}),
+        },
+        { status: 503, headers: CORS_HEADERS }
+      );
+    }
+    if (err.code === 3 || err.code === "invalid-argument") {
+      return NextResponse.json(
+        { error: "Invalid query", details: message },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: CORS_HEADERS }

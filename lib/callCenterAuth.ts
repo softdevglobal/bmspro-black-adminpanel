@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import {
+  verifyAdminAuth,
+  getFirebaseIdTokenFromRequest,
+  missingFirebaseTokenMessage,
+} from "@/lib/authHelpers";
 
 export const CALL_CENTER_ROLES = ["call_center_agent", "call_center_admin"];
 
@@ -19,6 +24,19 @@ export interface CallCenterUser {
   assignedWorkshops: string[];
   isCCAdmin: boolean;
 }
+
+/** Call center agent JWT, or BMS staff JWT (same Firebase project) scoped to tenant. */
+export type CallCenterRequestAuth =
+  | { kind: "agent"; user: CallCenterUser }
+  | {
+      kind: "tenant_admin";
+      uid: string;
+      role: string;
+      email: string;
+      name: string;
+      ownerUid: string;
+      isSuperAdmin: boolean;
+    };
 
 /** Normalize Firestore assigned workshop ids (trim, legacy snake_case, `{ ownerUid }` items). */
 function normalizeAssignedWorkshopIds(raw: unknown): string[] {
@@ -56,14 +74,9 @@ interface CCAuthResult {
  */
 export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResult> {
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return { success: false, error: "Missing authorization header", status: 401 };
-    }
-
-    const idToken = authHeader.split("Bearer ")[1];
+    const idToken = getFirebaseIdTokenFromRequest(req);
     if (!idToken) {
-      return { success: false, error: "Missing token", status: 401 };
+      return { success: false, error: missingFirebaseTokenMessage(), status: 401 };
     }
 
     let decodedToken;
@@ -123,6 +136,75 @@ export function canAccessWorkshop(user: CallCenterUser, ownerUid: string): boole
   if (user.isCCAdmin) return true;
   const id = ownerUid.trim();
   return user.assignedWorkshops.includes(id);
+}
+
+/**
+ * Accept call center agents, or BMS staff using the normal admin ID token
+ * (workshop owner / branch admin / super admin). Fixes Postman/tests that
+ * sign in as workshop owner but are not in `call_center_agents`.
+ */
+export async function verifyCallCenterOrTenantAdminAuth(
+  req: NextRequest
+): Promise<
+  { success: false; error: string; status?: number } | { success: true; auth: CallCenterRequestAuth }
+> {
+  const cc = await verifyCallCenterAuth(req);
+  if (cc.success && cc.user) {
+    return { success: true, auth: { kind: "agent", user: cc.user } };
+  }
+
+  const admin = await verifyAdminAuth(req, ["super_admin", "workshop_owner", "branch_admin"]);
+  if (admin.success && admin.userData) {
+    const u = admin.userData;
+    return {
+      success: true,
+      auth: {
+        kind: "tenant_admin",
+        uid: u.uid,
+        role: u.role,
+        email: u.email,
+        name: u.name,
+        ownerUid: u.ownerUid,
+        isSuperAdmin: u.isSuperAdmin,
+      },
+    };
+  }
+
+  const status =
+    cc.status === 401 || admin.status === 401 ? 401 : cc.status || admin.status || 401;
+  const error =
+    cc.error === "Not a registered call center agent"
+      ? "Not authorized: use a call center agent account, or sign in as BMS staff (workshop owner, branch admin, or super admin)"
+      : cc.status === 401
+        ? cc.error || "Unauthorized"
+        : admin.error || cc.error || "Unauthorized";
+
+  return { success: false, error, status };
+}
+
+export function canAccessWorkshopForAuth(auth: CallCenterRequestAuth, workshopOwnerUid: string): boolean {
+  const id = workshopOwnerUid.trim();
+  if (auth.kind === "agent") {
+    return canAccessWorkshop(auth.user, id);
+  }
+  if (auth.isSuperAdmin) return true;
+  if (auth.role === "workshop_owner" && auth.uid === id) return true;
+  if (auth.role === "branch_admin" && auth.ownerUid === id) return true;
+  return false;
+}
+
+/** Scope for GET /api/call-center/workshops list. */
+export function workshopListScopeForAuth(
+  auth: CallCenterRequestAuth
+): { mode: "all" } | { mode: "ids"; ids: string[] } {
+  if (auth.kind === "agent") {
+    if (auth.user.isCCAdmin) return { mode: "all" };
+    return { mode: "ids", ids: auth.user.assignedWorkshops };
+  }
+  if (auth.isSuperAdmin) return { mode: "all" };
+  if (auth.role === "workshop_owner") return { mode: "ids", ids: [auth.uid] };
+  if (auth.role === "branch_admin") return { mode: "ids", ids: [auth.ownerUid] };
+  return { mode: "ids", ids: [] };
 }
 
 /**

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
-  verifyCallCenterAuth,
-  canAccessWorkshop,
+  verifyCallCenterOrTenantAdminAuth,
+  canAccessWorkshopForAuth,
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
@@ -23,11 +23,11 @@ export async function OPTIONS() {
  * Returns: array of matched customers with basic info.
  */
 export async function GET(req: NextRequest) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
+      { error: gate.error },
+      { status: gate.status || 401, headers: CORS_HEADERS }
     );
   }
 
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (!canAccessWorkshop(auth.user, ownerUid)) {
+  if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
     return NextResponse.json(
       { error: "Access denied to this workshop" },
       { status: 403, headers: CORS_HEADERS }
@@ -179,15 +179,22 @@ export async function GET(req: NextRequest) {
  * }
  */
 export async function POST(req: NextRequest) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
+      { error: gate.error },
+      { status: gate.status || 401, headers: CORS_HEADERS }
     );
   }
 
   try {
+    const actor =
+      gate.auth.kind === "agent"
+        ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
+        : { uid: gate.auth.uid, name: gate.auth.name };
+    const createdByRole =
+      gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
+
     const body = await req.json();
     const {
       ownerUid,
@@ -206,7 +213,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!canAccessWorkshop(auth.user, ownerUid)) {
+    if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
       return NextResponse.json(
         { error: "Access denied to this workshop" },
         { status: 403, headers: CORS_HEADERS }
@@ -270,8 +277,8 @@ export async function POST(req: NextRequest) {
       notes: notes?.trim() || "",
       createdAt: now,
       updatedAt: now,
-      createdBy: auth.user.uid,
-      createdByRole: "call_center_agent",
+      createdBy: actor.uid,
+      createdByRole,
     };
 
     const customerRef = await db.collection("customers").add(customerData);

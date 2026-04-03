@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
-  verifyCallCenterAuth,
-  canAccessWorkshop,
+  verifyCallCenterOrTenantAdminAuth,
+  canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 
@@ -29,11 +29,11 @@ export async function PATCH(
     params: Promise<{ id: string; issueId: string }>;
   }
 ) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
+      { error: gate.error },
+      { status: gate.status || 401, headers: CORS_HEADERS }
     );
   }
 
@@ -64,7 +64,7 @@ export async function PATCH(
 
     const d = bookingDoc.data()!;
 
-    if (!canAccessWorkshop(auth.user, d.ownerUid)) {
+    if (!canAccessWorkshopForAuth(gate.auth, d.ownerUid)) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403, headers: CORS_HEADERS }
@@ -105,12 +105,19 @@ export async function PATCH(
       );
     }
 
+    const actor =
+      gate.auth.kind === "agent"
+        ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
+        : { uid: gate.auth.uid, name: gate.auth.name };
+    const performedByRole =
+      gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
+
     const now = new Date().toISOString();
     additionalIssues[issueIndex] = {
       ...issue,
       customerResponse,
       customerRespondedAt: now,
-      customerRespondedBy: `agent:${auth.user.uid}`,
+      customerRespondedBy: `${gate.auth.kind === "agent" ? "agent" : "staff"}:${actor.uid}`,
     };
 
     await bookingRef.update({
@@ -122,10 +129,10 @@ export async function PATCH(
     await db.collection("bookingActivities").add({
       bookingId,
       type: "additional_issue_customer_response",
-      message: `Customer ${customerResponse === "accept" ? "accepted" : "rejected"} extra work "${issue.issueTitle}" (${issue.price ? "$" + issue.price : "no price"}) — relayed by agent ${auth.user.name}`,
-      performedBy: auth.user.uid,
-      performedByName: auth.user.name,
-      performedByRole: "call_center_agent",
+      message: `Customer ${customerResponse === "accept" ? "accepted" : "rejected"} extra work "${issue.issueTitle}" (${issue.price ? "$" + issue.price : "no price"}) — relayed by ${actor.name}`,
+      performedBy: actor.uid,
+      performedByName: actor.name,
+      performedByRole: performedByRole,
       issueId,
       customerResponse,
       timestamp: new Date(),

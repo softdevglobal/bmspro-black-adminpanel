@@ -3,6 +3,36 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 
 // ==================== SERVER-SIDE AUTH HELPERS (for API routes only) ====================
 
+/**
+ * Firebase ID token from `Authorization: Bearer …` (case-insensitive header name),
+ * or in development only from `?access_token=` / `?token=` for local Postman/browser tests.
+ */
+export function getFirebaseIdTokenFromRequest(req: NextRequest): string | null {
+  const h =
+    req.headers.get("authorization") ??
+    req.headers.get("Authorization") ??
+    "";
+  const bearer = h.match(/^Bearer\s+(.+)$/i);
+  if (bearer?.[1]) {
+    const t = bearer[1].trim();
+    if (t) return t;
+  }
+  if (process.env.NODE_ENV === "development") {
+    const q =
+      req.nextUrl.searchParams.get("access_token")?.trim() ||
+      req.nextUrl.searchParams.get("token")?.trim();
+    if (q) return q;
+  }
+  return null;
+}
+
+export function missingFirebaseTokenMessage(): string {
+  if (process.env.NODE_ENV === "development") {
+    return "Missing Firebase ID token: use Authorization Bearer in Postman (Auth tab), or locally append ?access_token=<your_id_token>";
+  }
+  return "Missing authorization header";
+}
+
 export const ADMIN_ROLES = ["workshop_owner", "branch_admin", "super_admin"];
 
 export const STAFF_MANAGEMENT_ROLES = ["workshop_owner", "branch_admin"];
@@ -31,14 +61,9 @@ export async function verifyAdminAuth(
   allowAllAdmins?: boolean
 ): Promise<AuthResult> {
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return { success: false, error: "Missing authorization header", status: 401 };
-    }
-
-    const idToken = authHeader.split("Bearer ")[1];
+    const idToken = getFirebaseIdTokenFromRequest(req);
     if (!idToken) {
-      return { success: false, error: "Missing token", status: 401 };
+      return { success: false, error: missingFirebaseTokenMessage(), status: 401 };
     }
 
     const auth = adminAuth();

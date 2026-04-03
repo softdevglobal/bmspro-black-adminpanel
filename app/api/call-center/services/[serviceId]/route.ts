@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
-  verifyCallCenterAuth,
-  canAccessWorkshop,
+  verifyCallCenterOrTenantAdminAuth,
+  canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 
@@ -22,11 +22,11 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ serviceId: string }> }
 ) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
+      { error: gate.error },
+      { status: gate.status || 401, headers: CORS_HEADERS }
     );
   }
 
@@ -45,7 +45,7 @@ export async function GET(
 
     const d = serviceDoc.data()!;
 
-    if (!canAccessWorkshop(auth.user, d.ownerUid)) {
+    if (!canAccessWorkshopForAuth(gate.auth, d.ownerUid)) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403, headers: CORS_HEADERS }

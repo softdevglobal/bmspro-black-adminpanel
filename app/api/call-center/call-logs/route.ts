@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
-  verifyCallCenterAuth,
-  canAccessWorkshop,
+  verifyCallCenterOrTenantAdminAuth,
+  canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 
@@ -34,11 +34,11 @@ export async function OPTIONS() {
  * }
  */
 export async function POST(req: NextRequest) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
+      { error: gate.error },
+      { status: gate.status || 401, headers: CORS_HEADERS }
     );
   }
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!canAccessWorkshop(auth.user, ownerUid)) {
+    if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403, headers: CORS_HEADERS }
@@ -89,6 +89,11 @@ export async function POST(req: NextRequest) {
 
     const db = adminDb();
 
+    const actor =
+      gate.auth.kind === "agent"
+        ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
+        : { uid: gate.auth.uid, name: gate.auth.name };
+
     const logData = {
       ownerUid,
       branchId: branchId || null,
@@ -102,8 +107,8 @@ export async function POST(req: NextRequest) {
       notes: notes?.trim() || "",
       outcome: outcome || null,
       callCenterCallId: callCenterCallId || null,
-      agentUid: auth.user.uid,
-      agentName: auth.user.name,
+      agentUid: actor.uid,
+      agentName: actor.name,
       createdAt: new Date(),
     };
 
@@ -131,11 +136,11 @@ export async function POST(req: NextRequest) {
  * Retrieve call history. Useful for agents to see previous interactions.
  */
 export async function GET(req: NextRequest) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
+      { error: gate.error },
+      { status: gate.status || 401, headers: CORS_HEADERS }
     );
   }
 
@@ -154,7 +159,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  if (!canAccessWorkshop(auth.user, ownerUid)) {
+  if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
     return NextResponse.json(
       { error: "Access denied" },
       { status: 403, headers: CORS_HEADERS }

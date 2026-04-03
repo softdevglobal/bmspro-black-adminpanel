@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
-  verifyCallCenterAuth,
-  canAccessWorkshop,
+  verifyCallCenterOrTenantAdminAuth,
+  workshopListScopeForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { fetchWorkshopFullDetail } from "@/lib/callCenterWorkshopDetail";
 
 export const runtime = "nodejs";
 
@@ -15,40 +16,58 @@ export async function OPTIONS() {
 /**
  * GET /api/call-center/workshops
  *
- * List all workshops the agent has access to.
- * CC admins see all active workshops; agents see only assigned ones.
+ * Lists workshops the caller can access. Each item includes full detail:
+ * workshop profile, branches, services, staff (same shape as GET .../workshops/[ownerUid]).
  *
- * Returns: array of workshop summaries.
+ * Query: summary=1 — legacy light list (ownerUid, name, slug, … only).
+ *
+ * Local dev: without Bearer, all workshops are listed unless CALL_CENTER_DEV_LIST_ALL_WORKSHOPS=false.
  */
 export async function GET(req: NextRequest) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
-    return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS }
-    );
+  const summaryOnly = req.nextUrl.searchParams.get("summary") === "1";
+
+  const devListAllUnauthed =
+    process.env.NODE_ENV === "development" &&
+    process.env.CALL_CENTER_DEV_LIST_ALL_WORKSHOPS !== "false";
+
+  let scope: ReturnType<typeof workshopListScopeForAuth>;
+
+  if (devListAllUnauthed) {
+    scope = { mode: "all" };
+  } else {
+    const gate = await verifyCallCenterOrTenantAdminAuth(req);
+    if (!gate.success) {
+      const body: Record<string, string> = { error: gate.error || "Unauthorized" };
+      if (process.env.NODE_ENV === "development") {
+        body.hint =
+          "Add Authorization: Bearer <Firebase idToken>, or ?access_token=… on localhost. To require a token in dev, set CALL_CENTER_DEV_LIST_ALL_WORKSHOPS=false in .env.local.";
+      }
+      return NextResponse.json(body, {
+        status: gate.status || 401,
+        headers: CORS_HEADERS,
+      });
+    }
+    scope = workshopListScopeForAuth(gate.auth);
   }
 
   try {
     const db = adminDb();
-    const user = auth.user;
 
     let workshopDocs;
 
-    if (user.isCCAdmin) {
+    if (scope.mode === "all") {
       const snap = await db
         .collection("users")
         .where("role", "==", "workshop_owner")
         .get();
       workshopDocs = snap.docs;
     } else {
-      if (user.assignedWorkshops.length === 0) {
+      if (scope.ids.length === 0) {
         return NextResponse.json({ workshops: [] }, { headers: CORS_HEADERS });
       }
-      // Firestore `in` queries support max 30 values
       const batches: string[][] = [];
-      for (let i = 0; i < user.assignedWorkshops.length; i += 30) {
-        batches.push(user.assignedWorkshops.slice(i, i + 30));
+      for (let i = 0; i < scope.ids.length; i += 30) {
+        batches.push(scope.ids.slice(i, i + 30));
       }
       workshopDocs = [];
       for (const batch of batches) {
@@ -61,13 +80,19 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const workshops = workshopDocs
-      .filter((doc) => {
-        const d = doc.data();
-        const status = d.accountStatus || d.status || "";
-        return status !== "suspended" && status !== "inactive";
-      })
-      .map((doc) => {
+    const activeDocs = workshopDocs.filter((doc) => {
+      const d = doc.data();
+      const status = d.accountStatus || d.status || "";
+      return status !== "suspended" && status !== "inactive";
+    });
+
+    const headers =
+      devListAllUnauthed && process.env.NODE_ENV === "development"
+        ? { ...CORS_HEADERS, "X-Dev-Auth-Bypass": "development-default" }
+        : CORS_HEADERS;
+
+    if (summaryOnly) {
+      const workshops = activeDocs.map((doc) => {
         const d = doc.data();
         return {
           ownerUid: doc.id,
@@ -81,8 +106,15 @@ export async function GET(req: NextRequest) {
           accountStatus: d.accountStatus || "active",
         };
       });
+      return NextResponse.json({ workshops }, { headers });
+    }
 
-    return NextResponse.json({ workshops }, { headers: CORS_HEADERS });
+    const bundles = await Promise.all(
+      activeDocs.map((doc) => fetchWorkshopFullDetail(db, doc.id))
+    );
+    const workshops = bundles.filter((b): b is NonNullable<typeof b> => b != null);
+
+    return NextResponse.json({ workshops }, { headers });
   } catch (error: any) {
     console.error("[call-center/workshops] Error:", error);
     return NextResponse.json(

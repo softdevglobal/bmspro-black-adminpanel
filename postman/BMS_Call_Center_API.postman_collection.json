@@ -300,7 +300,7 @@
               { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
             ],
             "url": "{{baseUrl}}/services",
-            "description": "Lists all services for the workshop. Includes available staff per service."
+            "description": "Lists all services. Each includes staff[] and full checklist[] (todos). Use ?summary=1 to omit checklist and keep checklistCount only."
           },
           "event": [
             {

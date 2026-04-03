@@ -37,12 +37,11 @@ function mapChecklistFromDoc(checklistRaw: unknown): Array<{
 }
 
 /**
- * GET /api/call-center/services?ownerUid=X&branchId=Y&includeChecklist=1
+ * GET /api/call-center/services?ownerUid=X&branchId=Y
  *
- * List services for a workshop. When branchId is provided, only returns
- * services assigned to that branch. Each service includes the staff
- * members that can perform it (matched via staffIds on the service doc).
- * By default only checklistCount is included; add includeChecklist=1 for full checklist[] per service.
+ * List services for a workshop. Each service includes staff[] and full checklist[]
+ * (todo template items: index, name, description, done, imageUrl), plus checklistCount.
+ * Optional summary=1 — omit checklist[] and keep only checklistCount (smaller payload).
  */
 export async function GET(req: NextRequest) {
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
@@ -69,9 +68,7 @@ export async function GET(req: NextRequest) {
   }
 
   const branchId = req.nextUrl.searchParams.get("branchId");
-  const ic = req.nextUrl.searchParams.get("includeChecklist");
-  const includeChecklist =
-    ic === "1" || ic?.toLowerCase() === "true" || ic?.toLowerCase() === "yes";
+  const summaryOnly = req.nextUrl.searchParams.get("summary") === "1";
 
   try {
     const db = adminDb();
@@ -138,7 +135,7 @@ export async function GET(req: NextRequest) {
           .map((sid) => staffMap[sid]),
         checklistCount,
       };
-      if (includeChecklist) {
+      if (!summaryOnly) {
         base.checklist = mapChecklistFromDoc(d.checklist);
       }
       return base;

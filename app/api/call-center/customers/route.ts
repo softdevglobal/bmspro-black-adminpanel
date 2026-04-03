@@ -6,6 +6,10 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import {
+  mapCustomerVehicleDoc,
+  vehicleDetailsFromCustomerDoc,
+} from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -93,6 +97,7 @@ export async function GET(req: NextRequest) {
           email: d.email || "",
           phone: d.phone || d.clientPhone || "",
           vehicleNumber: d.vehicleNumber || d.vehicleRego || "",
+          vehicleDetails: vehicleDetailsFromCustomerDoc(d as Record<string, unknown>),
           createdAt: d.createdAt || null,
         });
       }
@@ -141,6 +146,15 @@ export async function GET(req: NextRequest) {
             email: d.clientEmail || "",
             phone: d.clientPhone || "",
             vehicleNumber: d.vehicleNumber || "",
+            vehicleDetails: {
+              make: d.vehicleMake || "",
+              model: d.vehicleModel || "",
+              bodyType: d.vehicleBodyType || "",
+              colour: d.vehicleColour || "",
+              vin: d.vehicleVinChassis || "",
+              engineNumber: d.vehicleEngineNumber || "",
+              mileage: d.vehicleMileage || "",
+            },
             createdAt: d.createdAt || null,
             source: "booking",
           });
@@ -150,8 +164,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const customers = await Promise.all(
+      results.map(async (row: Record<string, unknown>) => {
+        const id = row.id as string | null;
+        if (!id) {
+          return { ...row, vehicles: [] as unknown[] };
+        }
+        const vs = await db.collection(`customers/${id}/vehicles`).get();
+        const vehicles = vs.docs.map((v) =>
+          mapCustomerVehicleDoc(v.id, v.data() as Record<string, unknown>)
+        );
+        return { ...row, vehicles };
+      })
+    );
+
     return NextResponse.json(
-      { customers: results, total: results.length },
+      { customers, total: customers.length },
       { headers: CORS_HEADERS }
     );
   } catch (error: any) {

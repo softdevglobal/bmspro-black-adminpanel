@@ -6,6 +6,7 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { mapCustomerVehicleDoc } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -14,9 +15,10 @@ export async function OPTIONS() {
 }
 
 /**
- * GET /api/call-center/customers/[customerId]/vehicles?ownerUid=X
+ * GET /api/call-center/customers/[customerId]/vehicles
  *
  * List all registered vehicles for a customer.
+ * Tenant optional: `ownerUid` / `X-Tenant-Id` — if omitted, resolved from the customer document.
  */
 export async function GET(
   req: NextRequest,
@@ -31,31 +33,31 @@ export async function GET(
   }
 
   const { customerId } = await context.params;
-  const ownerUid = getTenantId(req);
-
-  if (!ownerUid) {
-    return NextResponse.json(
-      { error: "Missing ownerUid" },
-      { status: 400, headers: CORS_HEADERS }
-    );
-  }
-
-  if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
-    return NextResponse.json(
-      { error: "Access denied" },
-      { status: 403, headers: CORS_HEADERS }
-    );
-  }
 
   try {
     const db = adminDb();
 
-    // Verify customer belongs to this workshop
     const custDoc = await db.doc(`customers/${customerId}`).get();
-    if (!custDoc.exists || custDoc.data()?.ownerUid !== ownerUid) {
+    if (!custDoc.exists) {
       return NextResponse.json(
         { error: "Customer not found in this workshop" },
         { status: 404, headers: CORS_HEADERS }
+      );
+    }
+
+    const customerOwnerUid = (custDoc.data()?.ownerUid as string) || "";
+    const tenantFromRequest = getTenantId(req);
+    if (tenantFromRequest && tenantFromRequest !== customerOwnerUid) {
+      return NextResponse.json(
+        { error: "Customer does not belong to this tenant" },
+        { status: 403, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!customerOwnerUid || !canAccessWorkshopForAuth(gate.auth, customerOwnerUid)) {
+      return NextResponse.json(
+        { error: "Access denied" },
+        { status: 403, headers: CORS_HEADERS }
       );
     }
 
@@ -63,20 +65,9 @@ export async function GET(
       .collection(`customers/${customerId}/vehicles`)
       .get();
 
-    const vehicles = vehiclesSnap.docs.map((doc) => {
-      const d = doc.data();
-      return {
-        id: doc.id,
-        rego: d.rego || d.vehicleNumber || "",
-        make: d.make || "",
-        model: d.model || "",
-        year: d.year || "",
-        colour: d.colour || "",
-        vin: d.vin || "",
-        engineNumber: d.engineNumber || "",
-        bodyType: d.bodyType || "",
-      };
-    });
+    const vehicles = vehiclesSnap.docs.map((doc) =>
+      mapCustomerVehicleDoc(doc.id, doc.data() as Record<string, unknown>)
+    );
 
     return NextResponse.json({ vehicles }, { headers: CORS_HEADERS });
   } catch (error: any) {
@@ -115,16 +106,34 @@ export async function POST(
         : { uid: gate.auth.uid, name: gate.auth.name };
 
     const body = await req.json();
-    const ownerUid = body.ownerUid || getTenantId(req);
+    const db = adminDb();
 
-    if (!ownerUid) {
+    const custDoc = await db.doc(`customers/${customerId}`).get();
+    if (!custDoc.exists) {
       return NextResponse.json(
-        { error: "Missing ownerUid" },
-        { status: 400, headers: CORS_HEADERS }
+        { error: "Customer not found" },
+        { status: 404, headers: CORS_HEADERS }
       );
     }
 
-    if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
+    const customerOwnerUid = (custDoc.data()?.ownerUid as string) || "";
+    const tenantFromRequest = getTenantId(req);
+
+    if (body.ownerUid && body.ownerUid !== customerOwnerUid) {
+      return NextResponse.json(
+        { error: "Customer does not belong to this tenant" },
+        { status: 403, headers: CORS_HEADERS }
+      );
+    }
+
+    if (tenantFromRequest && tenantFromRequest !== customerOwnerUid) {
+      return NextResponse.json(
+        { error: "Customer does not belong to this tenant" },
+        { status: 403, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!customerOwnerUid || !canAccessWorkshopForAuth(gate.auth, customerOwnerUid)) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403, headers: CORS_HEADERS }
@@ -135,16 +144,6 @@ export async function POST(
       return NextResponse.json(
         { error: "Vehicle registration (rego) is required" },
         { status: 400, headers: CORS_HEADERS }
-      );
-    }
-
-    const db = adminDb();
-
-    const custDoc = await db.doc(`customers/${customerId}`).get();
-    if (!custDoc.exists || custDoc.data()?.ownerUid !== ownerUid) {
-      return NextResponse.json(
-        { error: "Customer not found" },
-        { status: 404, headers: CORS_HEADERS }
       );
     }
 

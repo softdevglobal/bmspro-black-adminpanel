@@ -7,6 +7,10 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { normalizeBookingStatus, getServiceCompletionProgress } from "@/lib/bookingTypes";
+import {
+  mapCustomerVehicleDoc,
+  vehicleDetailsFromCustomerDoc,
+} from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -79,20 +83,9 @@ export async function GET(
       .collection(`customers/${customerId}/vehicles`)
       .get();
 
-    const vehicles = vehiclesSnap.docs.map((doc) => {
-      const d = doc.data();
-      return {
-        id: doc.id,
-        rego: d.rego || d.vehicleNumber || "",
-        make: d.make || "",
-        model: d.model || "",
-        year: d.year || "",
-        colour: d.colour || "",
-        vin: d.vin || "",
-        engineNumber: d.engineNumber || "",
-        bodyType: d.bodyType || "",
-      };
-    });
+    const vehicles = vehiclesSnap.docs.map((doc) =>
+      mapCustomerVehicleDoc(doc.id, doc.data() as Record<string, unknown>)
+    );
 
     // Get booking history for this customer
     const customerEmail = (custData.email || "").toLowerCase();
@@ -152,6 +145,15 @@ export async function GET(
         })),
         totalPrice: d.price || d.totalPrice || 0,
         vehicleNumber: d.vehicleNumber || "",
+        vehicleDetails: {
+          make: d.vehicleMake || "",
+          model: d.vehicleModel || "",
+          bodyType: d.vehicleBodyType || "",
+          colour: d.vehicleColour || "",
+          vin: d.vehicleVinChassis || "",
+          engineNumber: d.vehicleEngineNumber || "",
+          mileage: d.vehicleMileage || "",
+        },
         progress,
         additionalIssueCount: additionalIssues.length,
         pendingApprovalCount: pendingIssues.length,
@@ -168,6 +170,9 @@ export async function GET(
           email: custData.email || "",
           phone: custData.phone || custData.clientPhone || "",
           vehicleNumber: custData.vehicleNumber || "",
+          vehicleDetails: vehicleDetailsFromCustomerDoc(
+            custData as Record<string, unknown>
+          ),
           address: custData.address || "",
           notes: custData.notes || "",
           createdAt: custData.createdAt || null,

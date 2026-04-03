@@ -368,6 +368,35 @@
               }
             }
           ]
+        },
+        {
+          "name": "GET Service checklists (all todos)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Tenant-Id", "value": "{{ownerUid}}" }
+            ],
+            "url": "{{baseUrl}}/services/checklists",
+            "description": "Aggregated checklist/todo rows for every service (flat `todos` + grouped `services`). Optional: ?branchId={{branchId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has todos + services', function () {",
+                  "  pm.expect(j).to.have.property('todos');",
+                  "  pm.expect(j).to.have.property('services');",
+                  "  pm.expect(j).to.have.property('totalChecklistItems');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

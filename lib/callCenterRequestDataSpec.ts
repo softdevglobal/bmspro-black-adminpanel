@@ -250,6 +250,48 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     },
   },
   {
+    id: "services.checklists",
+    method: "GET",
+    path: "/services/checklists",
+    authRequired: true,
+    description:
+      "All service checklist / todo template items for a workshop (for call-center scripts and customer explanations). Flat `todos` plus grouped `services`.",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string" },
+      { name: "branchId", required: false, type: "string", description: "Only services linked to this branch" },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+    responseSuccess: {
+      status: 200,
+      bodyExample: {
+        ownerUid: "<ownerUid>",
+        branchId: null,
+        totalServices: 2,
+        totalChecklistItems: 8,
+        services: [
+          {
+            serviceId: "<id>",
+            serviceName: "Full Service",
+            checklist: [
+              { index: 0, name: "Oil change", description: "", done: false, imageUrl: "" },
+            ],
+          },
+        ],
+        todos: [
+          {
+            serviceId: "<id>",
+            serviceName: "Full Service",
+            index: 0,
+            name: "Oil change",
+            description: "",
+            done: false,
+            imageUrl: "",
+          },
+        ],
+      },
+    },
+  },
+  {
     id: "bookings.list",
     method: "GET",
     path: "/bookings",

@@ -47,14 +47,15 @@ const token = await user.getIdToken();
 2. `GET /did-lookup?did=...` — map inbound number → `ownerUid` / branch (if configured)  
 3. `GET /workshops/{ownerUid}` — branches, staff overview  
 4. `GET /services?branchId=` (+ tenant) — **list services for the selected branch** (price, duration, available staff per service)  
-5. `GET /services/{serviceId}` — **full service detail** (checklist, branches, staff) — optional, for drill-down  
-6. `GET /customers?q=...&searchBy=phone` (+ tenant) — screen pop search  
-7. `GET /customers/{customerId}` — profile, vehicles, booking list  
-8. `GET /bookings/availability?branchId=&date=&serviceIds=` — slots before booking  
-9. `POST /bookings` — create job in BMS (use `serviceId`s from step 4)  
-10. `GET /bookings/{id}` — status / tasks / progress  
-11. `GET /bookings/{id}/additional-issues` → `PATCH .../additional-issues/{issueId}` — extra work after customer agrees on phone  
-12. `POST /call-logs` — optional audit in BMS; use `callCenterCallId` to tie to your system  
+5. `GET /services/checklists` (+ tenant) — **all checklist/todo lines** across services (scripts / explaining work to customers)  
+6. `GET /services/{serviceId}` — **full service detail** (checklist, branches, staff) — optional, for drill-down  
+7. `GET /customers?q=...&searchBy=phone` (+ tenant) — screen pop search  
+8. `GET /customers/{customerId}` — profile, vehicles, booking list  
+9. `GET /bookings/availability?branchId=&date=&serviceIds=` — slots before booking  
+10. `POST /bookings` — create job in BMS (use `serviceId`s from step 4)  
+11. `GET /bookings/{id}` — status / tasks / progress  
+12. `GET /bookings/{id}/additional-issues` → `PATCH .../additional-issues/{issueId}` — extra work after customer agrees on phone  
+13. `POST /call-logs` — optional audit in BMS; use `callCenterCallId` to tie to your system  
 
 ---
 
@@ -80,6 +81,7 @@ Paths are relative to the base URL above.
 | POST | `/customers/{customerId}/vehicles` | Body: `ownerUid`, `rego`, optional vehicle fields. |
 | GET | `/services` | **Tenant required.** Optional `branchId` to filter by branch. Returns services with `name`, `price`, `duration`, `description`, `staff[]` (who can perform it), `checklistCount`. |
 | GET | `/services/{serviceId}` | Full service detail: `checklist[]` items, `branches[]` (with names), `staff[]`. |
+| GET | `/services/checklists` | **Tenant required.** All services’ checklist/todo template items: flat `todos[]` (each row has `serviceId`, `serviceName`, `index`, `name`, `description`) plus grouped `services[]`. Optional `branchId`. |
 | GET | `/bookings` | Tenant + optional `status`, `date`, `branchId`, `customerId`, `limit`. |
 | GET | `/bookings/availability` | Query: `branchId`, `date` (YYYY-MM-DD), `serviceIds` (comma-separated). Tenant. |
 | POST | `/bookings` | Body: `ownerUid`, `branchId`, `date`, `time`, `services[]` (`serviceId` required per line), `client`, optional `pickupTime`, `clientEmail`, `clientPhone`, `customerId`, `vehicleNumber`, `vehicleDetails`, `notes`. |

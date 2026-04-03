@@ -37,6 +37,10 @@ function activityTimestampMs(ts: unknown): number {
 /**
  * GET /api/call-center/bookings/[id]
  *
+ * `id` may be the Firestore document id or a human-readable `bookingCode`
+ * (e.g. BK-2026-032612-2452). Document id is tried first; if missing, a
+ * `bookingCode` equality query is used.
+ *
  * Get full booking details including:
  * - All service details with completion status
  * - Task progress (checklist items)
@@ -57,12 +61,31 @@ export async function GET(
     );
   }
 
-  const { id } = await context.params;
+  const { id: idParam } = await context.params;
+  const segment = decodeURIComponent(idParam || "").trim();
 
   try {
     const db = adminDb();
 
-    const bookingDoc = await db.doc(`bookings/${id}`).get();
+    let bookingDoc = await db.doc(`bookings/${segment}`).get();
+
+    if (!bookingDoc.exists && segment) {
+      const byCode = await db
+        .collection("bookings")
+        .where("bookingCode", "==", segment)
+        .limit(2)
+        .get();
+      if (!byCode.empty) {
+        if (byCode.size > 1) {
+          return NextResponse.json(
+            { error: "Multiple bookings match this booking code" },
+            { status: 409, headers: CORS_HEADERS }
+          );
+        }
+        bookingDoc = byCode.docs[0];
+      }
+    }
+
     if (!bookingDoc.exists) {
       return NextResponse.json(
         { error: "Booking not found" },
@@ -70,6 +93,7 @@ export async function GET(
       );
     }
 
+    const resolvedId = bookingDoc.id;
     const d = bookingDoc.data()!;
 
     const ownerUid =
@@ -104,7 +128,7 @@ export async function GET(
     // sort by timestamp in memory and take the latest 20.
     const activitiesSnap = await db
       .collection("bookingActivities")
-      .where("bookingId", "==", id)
+      .where("bookingId", "==", resolvedId)
       .get();
 
     const activitiesRaw = activitiesSnap.docs.map((doc) => {
@@ -125,7 +149,7 @@ export async function GET(
     return NextResponse.json(
       {
         booking: {
-          id,
+          id: resolvedId,
           bookingCode: d.bookingCode || "",
           status,
           date: d.date || "",
@@ -145,7 +169,7 @@ export async function GET(
           vehicleColour: d.vehicleColour || "",
           vehicleMileage: d.vehicleMileage || d.mileage || "",
           notes: d.notes || "",
-          source: d.source || "",
+          source: d.source || d.bookingSource || "",
           createdAt: d.createdAt || null,
           updatedAt: d.updatedAt || null,
         },

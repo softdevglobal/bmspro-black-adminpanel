@@ -202,6 +202,7 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     queryParams: [
       { name: "ownerUid", required: false, type: "string", description: "Or use X-Tenant-Id header" },
       { name: "branchId", required: false, type: "string", description: "Filter services assigned to this branch" },
+      { name: "includeChecklist", required: false, type: "1|true", description: "Include full checklist[] per service (default: only checklistCount)" },
     ],
     headers: [{ name: "X-Tenant-Id", required: false, when: "if ownerUid not in query", example: "<ownerUid>" }],
     responseSuccess: {

@@ -79,7 +79,7 @@ Paths are relative to the base URL above.
 | GET | `/customers/{customerId}` | Tenant required. |
 | GET | `/customers/{customerId}/vehicles` | Query: `ownerUid`. |
 | POST | `/customers/{customerId}/vehicles` | Body: `ownerUid`, `rego`, optional vehicle fields. |
-| GET | `/services` | **Tenant required.** Optional `branchId` to filter by branch. Returns services with `name`, `price`, `duration`, `description`, `staff[]` (who can perform it), `checklistCount`. |
+| GET | `/services` | **Tenant required.** Optional `branchId`. Returns `staff[]`, `checklistCount`. Add **`includeChecklist=1`** (or `true`) to include full **`checklist[]`** per service. Or use `GET /services/checklists` for all todos in one flat list. |
 | GET | `/services/{serviceId}` | Full service detail: `checklist[]` items, `branches[]` (with names), `staff[]`. |
 | GET | `/services/checklists` | **Tenant required.** All services’ checklist/todo template items: flat `todos[]` (each row has `serviceId`, `serviceName`, `index`, `name`, `description`) plus grouped `services[]`. Optional `branchId`. |
 | GET | `/bookings` | Tenant + optional `status`, `date`, `branchId`, `customerId`, `limit`. |

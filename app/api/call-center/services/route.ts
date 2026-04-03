@@ -13,12 +13,36 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS });
 }
 
+function mapChecklistFromDoc(checklistRaw: unknown): Array<{
+  index: number;
+  name: string;
+  description: string;
+  done: boolean;
+  imageUrl: string;
+}> {
+  if (!Array.isArray(checklistRaw)) return [];
+  return checklistRaw.map((item: unknown, index: number) => {
+    if (typeof item === "string") {
+      return { index, name: item, description: "", done: false, imageUrl: "" };
+    }
+    const o = item as Record<string, unknown>;
+    return {
+      index,
+      name: typeof o.name === "string" ? o.name : "",
+      description: typeof o.description === "string" ? o.description : "",
+      done: !!o.done,
+      imageUrl: typeof o.imageUrl === "string" ? o.imageUrl : "",
+    };
+  });
+}
+
 /**
- * GET /api/call-center/services?ownerUid=X&branchId=Y
+ * GET /api/call-center/services?ownerUid=X&branchId=Y&includeChecklist=1
  *
  * List services for a workshop. When branchId is provided, only returns
  * services assigned to that branch. Each service includes the staff
  * members that can perform it (matched via staffIds on the service doc).
+ * By default only checklistCount is included; add includeChecklist=1 for full checklist[] per service.
  */
 export async function GET(req: NextRequest) {
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
@@ -45,6 +69,9 @@ export async function GET(req: NextRequest) {
   }
 
   const branchId = req.nextUrl.searchParams.get("branchId");
+  const ic = req.nextUrl.searchParams.get("includeChecklist");
+  const includeChecklist =
+    ic === "1" || ic?.toLowerCase() === "true" || ic?.toLowerCase() === "yes";
 
   try {
     const db = adminDb();
@@ -96,7 +123,8 @@ export async function GET(req: NextRequest) {
     const services = serviceDocs.map((doc) => {
       const d = doc.data();
       const staffIds: string[] = d.staffIds || [];
-      return {
+      const checklistCount = Array.isArray(d.checklist) ? d.checklist.length : 0;
+      const base: Record<string, unknown> = {
         id: doc.id,
         name: d.name || "",
         description: d.description || "",
@@ -108,8 +136,12 @@ export async function GET(req: NextRequest) {
         staff: staffIds
           .filter((sid) => staffMap[sid])
           .map((sid) => staffMap[sid]),
-        checklistCount: Array.isArray(d.checklist) ? d.checklist.length : 0,
+        checklistCount,
       };
+      if (includeChecklist) {
+        base.checklist = mapChecklistFromDoc(d.checklist);
+      }
+      return base;
     });
 
     return NextResponse.json(

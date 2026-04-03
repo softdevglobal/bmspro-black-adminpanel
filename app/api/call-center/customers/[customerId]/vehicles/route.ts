@@ -6,7 +6,10 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
-import { mapCustomerVehicleDoc } from "@/lib/callCenterCustomerVehicles";
+import {
+  mapCustomerVehicleDoc,
+  parseVehicleDetailsBody,
+} from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -80,10 +83,11 @@ export async function GET(
 }
 
 /**
- * POST /api/call-center/customers/[customerId]/vehicles?ownerUid=X
+ * POST /api/call-center/customers/[customerId]/vehicles
  *
- * Add a vehicle to a customer's profile.
- * Body: { rego, make?, model?, year?, colour?, vin?, engineNumber?, bodyType? }
+ * Add a vehicle. Body must include **rego** or **registrationNumber** or **vehicleNumber**.
+ * Optional: make, model, year, colour, bodyType, engineNumber, vin, vinChassis, mileage, notes,
+ * or nest under **vehicleDetails: { ... }**. Response includes full **vehicle** object.
  */
 export async function POST(
   req: NextRequest,
@@ -140,23 +144,16 @@ export async function POST(
       );
     }
 
-    if (!body.rego || typeof body.rego !== "string") {
-      return NextResponse.json(
-        { error: "Vehicle registration (rego) is required" },
-        { status: 400, headers: CORS_HEADERS }
-      );
+    const parsed = parseVehicleDetailsBody(body as Record<string, unknown>);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400, headers: CORS_HEADERS });
     }
 
+    const now = new Date();
     const vehicleData = {
-      rego: body.rego.trim(),
-      make: body.make?.trim() || "",
-      model: body.model?.trim() || "",
-      year: body.year?.toString().trim() || "",
-      colour: body.colour?.trim() || "",
-      vin: body.vin?.trim() || "",
-      engineNumber: body.engineNumber?.trim() || "",
-      bodyType: body.bodyType?.trim() || "",
-      createdAt: new Date(),
+      ...parsed.payload,
+      createdAt: now,
+      updatedAt: now,
       createdBy: actor.uid,
     };
 
@@ -164,8 +161,14 @@ export async function POST(
       .collection(`customers/${customerId}/vehicles`)
       .add(vehicleData);
 
+    const saved = await ref.get();
+    const vehicle = mapCustomerVehicleDoc(
+      ref.id,
+      saved.data() as Record<string, unknown>
+    );
+
     return NextResponse.json(
-      { success: true, vehicleId: ref.id },
+      { success: true, vehicleId: ref.id, vehicle },
       { status: 201, headers: CORS_HEADERS }
     );
   } catch (error: any) {

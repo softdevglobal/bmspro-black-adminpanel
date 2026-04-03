@@ -131,6 +131,53 @@ export async function GET(req: NextRequest) {
   }
 }
 
+function str(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && !Number.isNaN(v)) return String(v);
+  return "";
+}
+
+/** Same vehicle shape as book-now (make, model, year, rego, mileage, body, colour, VIN, engine, notes). */
+function vehicleFieldsFromBody(body: Record<string, unknown>): {
+  vehicleNumber: string;
+  vehicleMake: string;
+  vehicleModel: string;
+  vehicleYear: string;
+  vehicleMileage: string;
+  vehicleBodyType: string;
+  vehicleColour: string;
+  vehicleVinChassis: string;
+  vehicleEngineNumber: string;
+  vehicleNotes: string;
+} {
+  const vd =
+    body.vehicleDetails && typeof body.vehicleDetails === "object" && body.vehicleDetails !== null
+      ? (body.vehicleDetails as Record<string, unknown>)
+      : {};
+
+  const pick = (key: string, alt?: string) =>
+    str(vd[key]) || (alt ? str(vd[alt]) : "") || str(body[key]) || (alt ? str(body[alt]) : "");
+
+  const rego =
+    pick("registrationNumber") ||
+    pick("rego") ||
+    str(body.vehicleNumber);
+
+  return {
+    vehicleNumber: rego,
+    vehicleMake: pick("make"),
+    vehicleModel: pick("model"),
+    vehicleYear: pick("year"),
+    vehicleMileage: pick("mileage"),
+    vehicleBodyType: pick("bodyType"),
+    vehicleColour: pick("colour", "color"),
+    vehicleVinChassis: pick("vinChassis") || pick("vin"),
+    vehicleEngineNumber: pick("engineNumber"),
+    vehicleNotes: pick("notes"),
+  };
+}
+
 /**
  * POST /api/call-center/bookings
  *
@@ -148,8 +195,11 @@ export async function GET(req: NextRequest) {
  *   clientEmail?: string,
  *   clientPhone?: string,
  *   customerId?: string,
- *   vehicleNumber?: string,
- *   vehicleDetails?: { bodyType, colour, vin, engineNumber, mileage },
+ *   vehicleNumber?: string,  // or registration — see vehicleDetails
+ *   vehicleDetails?: {
+ *     make?, model?, year?, registrationNumber?, rego?, mileage?, bodyType?, colour?, color?,
+ *     vin?, vinChassis?, engineNumber?, notes? (vehicle-specific; merged into booking notes),
+ *   },
  *   notes?: string,
  * }
  */
@@ -170,7 +220,7 @@ export async function POST(req: NextRequest) {
     const createdByRole =
       gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
 
-    const body = await req.json();
+    const body = (await req.json()) as Record<string, unknown>;
     const {
       ownerUid,
       branchId,
@@ -183,10 +233,12 @@ export async function POST(req: NextRequest) {
       clientEmail,
       clientPhone,
       customerId,
-      vehicleNumber,
-      vehicleDetails,
       notes,
-    } = body;
+    } = body as Record<string, any>;
+
+    const vf = vehicleFieldsFromBody(body);
+    const generalNotes = typeof notes === "string" ? notes.trim() : "";
+    const combinedNotes = [generalNotes, vf.vehicleNotes].filter(Boolean).join("\n\n");
 
     // Validation
     if (!ownerUid) {
@@ -328,20 +380,23 @@ export async function POST(req: NextRequest) {
       pickupTime: pickupTime || null,
       duration: totalDuration,
       price: totalPrice,
-      client: client.trim(),
+      client: (client as string).trim(),
       clientEmail: clientEmail?.trim() || "",
       clientPhone: clientPhone?.trim() || "",
       customerId: customerId || null,
-      vehicleNumber: vehicleNumber?.trim() || "",
-      vehicleBodyType: vehicleDetails?.bodyType || "",
-      vehicleColour: vehicleDetails?.colour || "",
-      vehicleVinChassis: vehicleDetails?.vin || "",
-      vehicleEngineNumber: vehicleDetails?.engineNumber || "",
-      vehicleMileage: vehicleDetails?.mileage || "",
+      vehicleNumber: vf.vehicleNumber,
+      vehicleMake: vf.vehicleMake || null,
+      vehicleModel: vf.vehicleModel || null,
+      vehicleYear: vf.vehicleYear || null,
+      vehicleBodyType: vf.vehicleBodyType || "",
+      vehicleColour: vf.vehicleColour || "",
+      vehicleVinChassis: vf.vehicleVinChassis || "",
+      vehicleEngineNumber: vf.vehicleEngineNumber || "",
+      vehicleMileage: vf.vehicleMileage || "",
       services: resolvedServices,
       tasks,
       additionalIssues: [],
-      notes: notes?.trim() || "",
+      notes: combinedNotes,
       bookingCode,
       status: allNeedAssignment ? "Pending" : "AwaitingStaffApproval",
       createdAt: now,

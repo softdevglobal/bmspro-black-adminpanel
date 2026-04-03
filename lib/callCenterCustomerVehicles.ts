@@ -1,3 +1,62 @@
+/** Parse string/number fields from JSON body. */
+function str(body: Record<string, unknown>, key: string): string {
+  const v = body[key];
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" && !Number.isNaN(v)) return String(v);
+  return "";
+}
+
+/**
+ * Build Firestore payload for `customers/{cid}/vehicles` from API request body.
+ * Accepts rego | registrationNumber | vehicleNumber; optional book-now aliases (vinChassis, etc.).
+ */
+export function parseVehicleDetailsBody(body: Record<string, unknown>): {
+  ok: true;
+  payload: Record<string, unknown>;
+} | { ok: false; error: string } {
+  const nested =
+    body.vehicleDetails && typeof body.vehicleDetails === "object" && body.vehicleDetails !== null
+      ? (body.vehicleDetails as Record<string, unknown>)
+      : {};
+
+  const { vehicleDetails: _vd, ownerUid: _ou, ...topLevel } = body;
+  const merged: Record<string, unknown> = { ...nested, ...topLevel };
+
+  const rego =
+    str(merged, "rego") ||
+    str(merged, "registrationNumber") ||
+    str(merged, "vehicleNumber");
+
+  if (!rego) {
+    return {
+      ok: false,
+      error:
+        "Provide rego, registrationNumber, or vehicleNumber (and optional make, model, year, colour, vin, vinChassis, engineNumber, bodyType, mileage, notes). You may nest fields under vehicleDetails.",
+    };
+  }
+
+  const vin = str(merged, "vin") || str(merged, "vinChassis");
+  const vinChassis = str(merged, "vinChassis") || str(merged, "vin");
+
+  const payload: Record<string, unknown> = {
+    rego,
+    registrationNumber: str(merged, "registrationNumber") || rego,
+    vehicleNumber: rego,
+    make: str(merged, "make"),
+    model: str(merged, "model"),
+    year: str(merged, "year"),
+    colour: str(merged, "colour"),
+    bodyType: str(merged, "bodyType"),
+    engineNumber: str(merged, "engineNumber"),
+    mileage: str(merged, "mileage"),
+    notes: str(merged, "notes"),
+    vin: vin || vinChassis,
+    vinChassis: vinChassis || vin,
+  };
+
+  return { ok: true, payload };
+}
+
 /**
  * Normalize a vehicle document from `customers/{id}/vehicles/{vehicleId}` for call-center APIs.
  * Merges field name variants used by book-now vs call-center POST.

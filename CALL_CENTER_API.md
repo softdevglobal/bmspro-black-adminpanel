@@ -77,14 +77,14 @@ Paths are relative to the base URL above.
 | GET | `/customers` | Query: `q` (required), `searchBy` optional (`phone` \| `email` \| `name`). Tenant required. |
 | POST | `/customers` | Body: `ownerUid`, `name`, optional `email`, `phone`, `vehicleNumber`, `vehicleDetails`, `notes`. |
 | GET | `/customers/{customerId}` | Tenant required. |
-| GET | `/customers/{customerId}/vehicles` | Query: `ownerUid`. |
-| POST | `/customers/{customerId}/vehicles` | Body: `ownerUid`, `rego`, optional vehicle fields. |
+| GET | `/customers/{customerId}/vehicles` | `ownerUid` / `X-Tenant-Id` optional (inferred from customer). |
+| POST | `/customers/{customerId}/vehicles` | Body: **`rego`** or **`registrationNumber`** or **`vehicleNumber`**; optional make, model, year, colour, bodyType, engineNumber, vin, vinChassis, mileage, notes, or nested **`vehicleDetails`**. Returns **`vehicle`** (full object). `ownerUid` optional. |
 | GET | `/services` | **Tenant required.** Optional `branchId`. Each service includes **`checklist[]`** (todo template: `index`, `name`, `description`, …) and `checklistCount`. Add **`summary=1`** to omit `checklist[]` (count only). Or `GET /services/checklists` for a flat `todos` list. |
 | GET | `/services/{serviceId}` | Full service detail: `checklist[]` items, `branches[]` (with names), `staff[]`. |
 | GET | `/services/checklists` | **Tenant required.** All services’ checklist/todo template items: flat `todos[]` (each row has `serviceId`, `serviceName`, `index`, `name`, `description`) plus grouped `services[]`. Optional `branchId`. |
 | GET | `/bookings` | Tenant + optional `status`, `date`, `branchId`, `customerId`, `limit`. |
 | GET | `/bookings/availability` | Query: `branchId`, `date` (YYYY-MM-DD), `serviceIds` (comma-separated). Tenant. |
-| POST | `/bookings` | Body: `ownerUid`, `branchId`, `date`, `time`, `services[]` (`serviceId` required per line), `client`, optional `pickupTime`, `clientEmail`, `clientPhone`, `customerId`, `vehicleNumber`, `vehicleDetails`, `notes`. |
+| POST | `/bookings` | Body: `ownerUid`, `branchId`, `date`, `time`, `services[]`, `client`, optional `pickupTime`, `clientEmail`, `clientPhone`, `customerId`, `vehicleNumber`, **`vehicleDetails`** (same as book-now: make, model, year, registrationNumber/rego, mileage, bodyType, colour, vin / vinChassis, engineNumber, notes). Vehicle notes are merged with `notes`. |
 | GET | `/bookings/{id}` | Job card: services, tasks, issues, progress. |
 | GET | `/bookings/{id}/additional-issues` | Extra work list + summary. |
 | PATCH | `/bookings/{id}/additional-issues/{issueId}` | Body: `{ "customerResponse": "accept" \| "reject" }` (issue must be `approved` with price). |

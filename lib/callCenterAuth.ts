@@ -20,6 +20,28 @@ export interface CallCenterUser {
   isCCAdmin: boolean;
 }
 
+/** Normalize Firestore assigned workshop ids (trim, legacy snake_case, `{ ownerUid }` items). */
+function normalizeAssignedWorkshopIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const arr = raw;
+  const out: string[] = [];
+  for (const item of arr) {
+    if (typeof item === "string") {
+      const s = item.trim();
+      if (s) out.push(s);
+    } else if (
+      item &&
+      typeof item === "object" &&
+      "ownerUid" in item &&
+      typeof (item as { ownerUid: unknown }).ownerUid === "string"
+    ) {
+      const s = (item as { ownerUid: string }).ownerUid.trim();
+      if (s) out.push(s);
+    }
+  }
+  return [...new Set(out)];
+}
+
 interface CCAuthResult {
   success: boolean;
   error?: string;
@@ -71,6 +93,11 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
       return { success: false, error: "Invalid call center role", status: 403 };
     }
 
+    const assignedWorkshops = normalizeAssignedWorkshopIds([
+      ...(Array.isArray(data.assignedWorkshops) ? data.assignedWorkshops : []),
+      ...(Array.isArray(data.assigned_workshops) ? data.assigned_workshops : []),
+    ]);
+
     return {
       success: true,
       user: {
@@ -78,7 +105,7 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
         role,
         email: data.email || decodedToken.email || "",
         name: data.displayName || data.name || "",
-        assignedWorkshops: Array.isArray(data.assignedWorkshops) ? data.assignedWorkshops : [],
+        assignedWorkshops,
         isCCAdmin: role === "call_center_admin",
       },
     };
@@ -94,7 +121,8 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
  */
 export function canAccessWorkshop(user: CallCenterUser, ownerUid: string): boolean {
   if (user.isCCAdmin) return true;
-  return user.assignedWorkshops.includes(ownerUid);
+  const id = ownerUid.trim();
+  return user.assignedWorkshops.includes(id);
 }
 
 /**

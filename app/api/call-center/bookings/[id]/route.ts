@@ -17,6 +17,23 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS });
 }
 
+function activityTimestampMs(ts: unknown): number {
+  if (ts == null) return 0;
+  if (
+    typeof ts === "object" &&
+    ts !== null &&
+    typeof (ts as { toMillis?: () => number }).toMillis === "function"
+  ) {
+    return (ts as { toMillis: () => number }).toMillis();
+  }
+  if (typeof ts === "string") {
+    const n = Date.parse(ts);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  if (typeof ts === "number" && Number.isFinite(ts)) return ts;
+  return 0;
+}
+
 /**
  * GET /api/call-center/bookings/[id]
  *
@@ -55,7 +72,18 @@ export async function GET(
 
     const d = bookingDoc.data()!;
 
-    if (!canAccessWorkshopForAuth(gate.auth, d.ownerUid)) {
+    const ownerUid =
+      typeof d.ownerUid === "string"
+        ? d.ownerUid.trim()
+        : String(d.ownerUid ?? "").trim();
+    if (!ownerUid) {
+      return NextResponse.json(
+        { error: "Booking is missing owner information" },
+        { status: 422, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403, headers: CORS_HEADERS }
@@ -72,15 +100,14 @@ export async function GET(
     const serviceProgress = getServiceCompletionProgress(services);
     const taskProgress = getTaskProgress(tasks);
 
-    // Fetch recent activity
+    // Recent activity: equality-only query (no orderBy) so no composite index is required;
+    // sort by timestamp in memory and take the latest 20.
     const activitiesSnap = await db
       .collection("bookingActivities")
       .where("bookingId", "==", id)
-      .orderBy("timestamp", "desc")
-      .limit(20)
       .get();
 
-    const activities = activitiesSnap.docs.map((doc) => {
+    const activitiesRaw = activitiesSnap.docs.map((doc) => {
       const a = doc.data();
       return {
         id: doc.id,
@@ -89,8 +116,11 @@ export async function GET(
         performedByName: a.performedByName || "",
         performedByRole: a.performedByRole || "",
         timestamp: a.timestamp || null,
+        _sortMs: activityTimestampMs(a.timestamp),
       };
     });
+    activitiesRaw.sort((x, y) => y._sortMs - x._sortMs);
+    const activities = activitiesRaw.slice(0, 20).map(({ _sortMs, ...row }) => row);
 
     return NextResponse.json(
       {

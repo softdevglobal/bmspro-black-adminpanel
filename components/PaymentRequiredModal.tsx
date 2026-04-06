@@ -91,10 +91,10 @@ export default function PaymentRequiredModal({
   // Trial expired view - dedicated walkthrough
   if (isTrialExpired) {
     return (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4 py-6 md:py-14 md:px-8">
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-        <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+        <div className="relative my-auto max-h-[calc(100dvh-3rem)] w-full max-w-md shrink-0 overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl md:max-h-[calc(100dvh-7rem)]">
           <div className="bg-neutral-900 p-6 text-white text-center">
             <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center mx-auto mb-4">
               <i className="fas fa-hourglass-end text-3xl" />
@@ -227,10 +227,10 @@ export default function PaymentRequiredModal({
 
   // Free trial / pending payment view
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto p-4 py-6 md:py-14 md:px-8">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+      <div className="relative my-auto max-h-[calc(100dvh-3rem)] w-full max-w-md shrink-0 overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl md:max-h-[calc(100dvh-7rem)]">
         <div className={`p-6 text-white text-center ${
           hasFreeTrial 
             ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500' 

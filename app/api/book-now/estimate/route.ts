@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { sendEstimateRequestEmail } from "@/lib/emailService";
+import { apnsAlertConfig } from "@/lib/fcmIosHelpers";
 
 export const runtime = "nodejs";
 
@@ -91,11 +92,13 @@ export async function POST(req: NextRequest) {
       const fcmToken = ownerDoc.data()?.fcmToken;
       if (fcmToken) {
         const messaging = adminMessaging();
+        const pushTitle = "New Estimate Request";
+        const pushBody = `${customerName} has requested an estimate${branchName ? ` at ${branchName}` : ""}.`;
         await messaging.send({
           token: fcmToken,
           notification: {
-            title: "New Estimate Request",
-            body: `${customerName} has requested an estimate${branchName ? ` at ${branchName}` : ""}.`,
+            title: pushTitle,
+            body: pushBody,
           },
           data: {
             type: "new_estimate",
@@ -105,12 +108,7 @@ export async function POST(req: NextRequest) {
             priority: "high",
             notification: { channelId: "appointments", sound: "default" },
           },
-          apns: {
-            headers: { "apns-priority": "10" },
-            payload: {
-              aps: { alert: { title: "New Estimate Request", body: `${customerName} has requested an estimate.` }, sound: "default", badge: 1 },
-            },
-          },
+          apns: apnsAlertConfig(pushTitle, pushBody),
         });
       }
     } catch (pushErr) {

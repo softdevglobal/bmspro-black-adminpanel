@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
+import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { Message } from "firebase-admin/messaging";
 
 export const runtime = "nodejs";
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
         title,
         body: message,
       },
-      data: data || {},
+      data: normalizeFcmData(data),
       android: {
         priority: "high",
         ttl: 86400000, // 24 hours in milliseconds
@@ -89,24 +90,7 @@ export async function POST(req: NextRequest) {
           defaultVibrateTimings: true,
         },
       },
-      apns: {
-        headers: {
-          "apns-priority": "10", // High priority for immediate delivery
-          "apns-push-type": "alert",
-        },
-        payload: {
-          aps: {
-            alert: {
-              title,
-              body: message,
-            },
-            sound: "default",
-            badge: 1,
-            "content-available": 1, // Wake up app in background
-            "mutable-content": 1,   // Allow notification modification
-          },
-        },
-      },
+      apns: apnsAlertConfig(title, message),
     };
 
     console.log("📤 Sending FCM message to token:", fcmToken.substring(0, 20) + "...");

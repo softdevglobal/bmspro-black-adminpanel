@@ -6,6 +6,7 @@ import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
+import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 import { sendBookingRequestReceivedEmail, sendBookingEmail } from "@/lib/emailService";
 
@@ -128,7 +129,7 @@ async function sendPushNotification(
         title,
         body,
       },
-      data: data || {},
+      data: normalizeFcmData(data),
       android: {
         priority: "high",
         ttl: 86400000, // 24 hours in milliseconds
@@ -140,24 +141,7 @@ async function sendPushNotification(
           defaultVibrateTimings: true,
         },
       },
-      apns: {
-        headers: {
-          "apns-priority": "10", // High priority for immediate delivery
-          "apns-push-type": "alert",
-        },
-        payload: {
-          aps: {
-            alert: {
-              title,
-              body,
-            },
-            sound: "default",
-            badge: 1,
-            "content-available": 1, // Wake up app in background
-            "mutable-content": 1,   // Allow notification modification
-          },
-        },
-      },
+      apns: apnsAlertConfig(title, body),
     };
 
     await messaging.send(message);

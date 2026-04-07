@@ -15,11 +15,90 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS });
 }
 
-/** Super admin (BMS) or call center admin — may list all notifications system-wide. */
-function canListSystemWideNotifications(auth: CallCenterRequestAuth): boolean {
+/** `?all=1` — super admin, or any call center agent (scoped to assigned workshops unless CC admin / super admin). */
+function canUseAllQueryParam(auth: CallCenterRequestAuth): boolean {
+  if (auth.kind === "tenant_admin" && auth.isSuperAdmin) return true;
+  if (auth.kind === "agent") return true;
+  return false;
+}
+
+/** Full database read (no workshop filter): super admin or call center admin only. */
+function hasFullSystemWideAccess(auth: CallCenterRequestAuth): boolean {
   if (auth.kind === "tenant_admin" && auth.isSuperAdmin) return true;
   if (auth.kind === "agent" && auth.user.isCCAdmin) return true;
   return false;
+}
+
+/**
+ * Booking-engine `customer_notifications` for one or more workshop owner UIDs
+ * (matches per-tenant logic: by ownerUid field + legacy via customers → customerId).
+ */
+async function fetchBookingEngineNotificationsForWorkshops(
+  db: Firestore,
+  workshopOwnerUids: string[]
+): Promise<QueryDocumentSnapshot[]> {
+  const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
+  if (normalized.length === 0) return [];
+
+  const seen = new Set<string>();
+  const rows: QueryDocumentSnapshot[] = [];
+
+  for (let i = 0; i < normalized.length; i += 30) {
+    const chunk = normalized.slice(i, i + 30);
+    const snap = await db
+      .collection("customer_notifications")
+      .where("ownerUid", "in", chunk)
+      .get();
+    for (const doc of snap.docs) {
+      if (seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      rows.push(doc);
+    }
+  }
+
+  for (const tenant of normalized) {
+    const custSnap = await db.collection("customers").where("ownerUid", "==", tenant).get();
+    const ids = custSnap.docs.map((d) => d.id);
+    for (let j = 0; j < ids.length; j += 30) {
+      const chunk = ids.slice(j, j + 30);
+      if (chunk.length === 0) continue;
+      const snap = await db
+        .collection("customer_notifications")
+        .where("customerId", "in", chunk)
+        .get();
+      for (const doc of snap.docs) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        rows.push(doc);
+      }
+    }
+  }
+
+  return rows;
+}
+
+/** Internal `notifications` rows whose ownerUid is in the allowed workshop list (max 30 per `in` query). */
+async function fetchAdminNotificationsForWorkshops(
+  db: Firestore,
+  workshopOwnerUids: string[]
+): Promise<QueryDocumentSnapshot[]> {
+  const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
+  if (normalized.length === 0) return [];
+
+  const seen = new Set<string>();
+  const rows: QueryDocumentSnapshot[] = [];
+
+  for (let i = 0; i < normalized.length; i += 30) {
+    const chunk = normalized.slice(i, i + 30);
+    const snap = await db.collection("notifications").where("ownerUid", "in", chunk).get();
+    for (const doc of snap.docs) {
+      if (seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      rows.push(doc);
+    }
+  }
+
+  return rows;
 }
 
 type MappedNotification = {
@@ -160,9 +239,10 @@ async function fetchAllDocumentsNewestFirst(
  * **Workshop scope** — `ownerUid` (or X-Tenant-Id): all **booking-engine customer** notifications
  * for that tenant (`customer_notifications` only — what customers see in the public booking app).
  *
- * **System scope** — `all=1` or `scope=all`: all rows in `customer_notifications` system-wide
- * (booking engine inbox). Optional `includeAdmin=1` also merges internal `notifications`
- * (staff/admin app — not shown to booking customers). Super admin or call center admin only.
+ * **System scope** — `all=1` or `scope=all`: booking-engine customer notifications.
+ * Super admin / call center **admin**: entire `customer_notifications` collection.
+ * Call center **agents**: same feed limited to **assigned workshops** only.
+ * Optional `includeAdmin=1` adds internal `notifications` (scoped the same way for agents).
  *
  * Headers: Authorization: Bearer <Firebase ID token>
  */
@@ -194,11 +274,11 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get("unreadOnly")?.toLowerCase() === "true";
 
   if (systemWide) {
-    if (!canListSystemWideNotifications(gate.auth)) {
+    if (!canUseAllQueryParam(gate.auth)) {
       return NextResponse.json(
         {
           error:
-            "System-wide list requires super admin or call center admin. Use ownerUid for workshop-scoped access.",
+            "Use ?all=1 with a call center or super admin account, or pass ownerUid for workshop-scoped access.",
         },
         { status: 403, headers: CORS_HEADERS }
       );
@@ -206,11 +286,31 @@ export async function GET(req: NextRequest) {
 
     try {
       const db = adminDb();
+      const fullAccess = hasFullSystemWideAccess(gate.auth);
 
-      const custDocs = await fetchAllDocumentsNewestFirst(db, "customer_notifications");
-      const adminDocs = includeAdminPanel
-        ? await fetchAllDocumentsNewestFirst(db, "notifications")
-        : [];
+      let custDocs: QueryDocumentSnapshot[];
+      let adminDocs: QueryDocumentSnapshot[] = [];
+      let scopedToWorkshops: string[] | null = null;
+
+      if (fullAccess) {
+        custDocs = await fetchAllDocumentsNewestFirst(db, "customer_notifications");
+        adminDocs = includeAdminPanel
+          ? await fetchAllDocumentsNewestFirst(db, "notifications")
+          : [];
+      } else {
+        const assigned =
+          gate.auth.kind === "agent" ? gate.auth.user.assignedWorkshops : [];
+        scopedToWorkshops = [...assigned];
+        custDocs = await fetchBookingEngineNotificationsForWorkshops(db, assigned);
+        custDocs.sort(
+          (a, b) =>
+            parseTime(b.data().createdAt?.toDate?.()?.toISOString() || null) -
+            parseTime(a.data().createdAt?.toDate?.()?.toISOString() || null)
+        );
+        adminDocs = includeAdminPanel
+          ? await fetchAdminNotificationsForWorkshops(db, assigned)
+          : [];
+      }
 
       const customerIds = new Set<string>();
       const ownerUids = new Set<string>();
@@ -273,6 +373,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           scope: "all",
+          fullSystemAccess: fullAccess,
+          scopedToWorkshops,
           includeAdminPanel,
           notifications: out,
           totalMerged: merged.length,
@@ -296,7 +398,7 @@ export async function GET(req: NextRequest) {
   const ownerUid = getTenantId(req);
   if (!ownerUid?.trim()) {
     return NextResponse.json(
-      { error: "Missing ownerUid (query param ownerUid / tenantId or X-Tenant-Id header), or use all=1 with super admin / call center admin" },
+      { error: "Missing ownerUid (query param ownerUid / tenantId or X-Tenant-Id header), or use all=1 as a call center / super admin user" },
       { status: 400, headers: CORS_HEADERS }
     );
   }

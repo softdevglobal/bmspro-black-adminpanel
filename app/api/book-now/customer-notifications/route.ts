@@ -45,6 +45,10 @@ export async function GET(req: NextRequest) {
         message: d.message || "",
         read: d.read === true,
         workshopName: d.workshopName || null,
+        customerPhone:
+          (typeof d.customerPhone === "string" && d.customerPhone.trim()) ||
+          (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
+          null,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
       };
     })

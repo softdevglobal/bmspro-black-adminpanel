@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
-import { createNotification, createAdditionalIssueRejectedNotification } from "@/lib/notifications";
+import {
+  createNotification,
+  createAdditionalIssueRejectedNotification,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
 import { sendAdditionalIssuePriceSetEmail } from "@/lib/emailService";
 
@@ -153,6 +157,7 @@ export async function PATCH(
             title: "Additional Work Quote Ready",
             message: `${issueTitle}: $${price.toFixed(2)} - Please review and approve or decline.`,
             read: false,
+            customerPhone: resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ?? null,
             workshopName,
             createdAt: FieldValue.serverTimestamp(),
           });

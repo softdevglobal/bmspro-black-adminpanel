@@ -120,6 +120,7 @@ type MappedNotification = {
   createdAt: string | null;
   customerName: string | null;
   customerEmail: string | null;
+  customerPhone: string | null;
 };
 
 type MappedAdminNotification = {
@@ -144,11 +145,16 @@ type UnifiedNotification = MappedNotification | MappedAdminNotification;
 
 function mapCustomerDoc(
   doc: QueryDocumentSnapshot,
-  customerMeta: Map<string, { name: string; email: string }>
+  customerMeta: Map<string, { name: string; email: string; phone?: string }>
 ): MappedNotification {
   const d = doc.data();
   const customerId = (d.customerId as string) || null;
   const meta = customerId ? customerMeta.get(customerId) : undefined;
+  const docPhone =
+    (typeof d.customerPhone === "string" && d.customerPhone.trim()) ||
+    (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
+    "";
+  const metaPhone = meta?.phone?.trim() || "";
   return {
     source: "customer_panel",
     id: doc.id,
@@ -168,6 +174,7 @@ function mapCustomerDoc(
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
     customerName: meta?.name || null,
     customerEmail: meta?.email || null,
+    customerPhone: docPhone || metaPhone || null,
   };
 }
 
@@ -206,7 +213,7 @@ function dedupeKeyCustomerInbox(m: MappedNotification): string {
 
 function mapNotificationsDocToCustomerPanel(
   doc: QueryDocumentSnapshot,
-  customerMeta: Map<string, { name: string; email: string }>,
+  customerMeta: Map<string, { name: string; email: string; phone?: string }>,
   ownerNames: Map<string, string>
 ): MappedNotification {
   const d = doc.data();
@@ -218,6 +225,11 @@ function mapNotificationsDocToCustomerPanel(
   const customerId = uid || em || null;
   const meta = customerId ? customerMeta.get(customerId) : undefined;
   const ownerUid = (d.ownerUid as string) || null;
+  const docPhone =
+    (typeof d.customerPhone === "string" && d.customerPhone.trim()) ||
+    (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
+    "";
+  const metaPhone = meta?.phone?.trim() || "";
   return {
     source: "customer_panel",
     id: doc.id,
@@ -237,6 +249,7 @@ function mapNotificationsDocToCustomerPanel(
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
     customerName: meta?.name || (d.clientName as string) || null,
     customerEmail: meta?.email || em || null,
+    customerPhone: docPhone || metaPhone || null,
   };
 }
 
@@ -549,7 +562,7 @@ export async function GET(req: NextRequest) {
         if (ou) ownerUids.add(String(ou));
       }
 
-      const customerMeta = new Map<string, { name: string; email: string }>();
+      const customerMeta = new Map<string, { name: string; email: string; phone?: string }>();
       const customerIdList = [...customerIds];
       for (let i = 0; i < customerIdList.length; i += 10) {
         const chunk = customerIdList.slice(i, i + 10);
@@ -559,9 +572,11 @@ export async function GET(req: NextRequest) {
         for (const cs of csnaps) {
           if (!cs.exists) continue;
           const c = cs.data()!;
+          const ph = String(c.phone || c.clientPhone || "").trim();
           customerMeta.set(cs.id, {
             name: String(c.name || c.client || c.fullName || "").trim() || "Customer",
             email: String(c.email || c.clientEmail || "").trim(),
+            ...(ph ? { phone: ph } : {}),
           });
         }
       }
@@ -655,13 +670,15 @@ export async function GET(req: NextRequest) {
   try {
     const db = adminDb();
 
-    const customerMeta = new Map<string, { name: string; email: string }>();
+    const customerMeta = new Map<string, { name: string; email: string; phone?: string }>();
     const custSnap = await db.collection("customers").where("ownerUid", "==", tenant).get();
     for (const c of custSnap.docs) {
       const d = c.data();
+      const ph = String(d.phone || d.clientPhone || "").trim();
       customerMeta.set(c.id, {
         name: String(d.name || d.client || d.fullName || "").trim() || "Customer",
         email: String(d.email || d.clientEmail || "").trim(),
+        ...(ph ? { phone: ph } : {}),
       });
     }
 

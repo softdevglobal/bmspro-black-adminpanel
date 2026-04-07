@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { sendEstimateReplyEmail } from "@/lib/emailService";
+import { resolveCustomerPhoneForStorage } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,13 @@ export async function POST(req: NextRequest) {
     const customerId = estimateData.customerId;
     if (customerId) {
       try {
+        let customerPhone = resolveCustomerPhoneForStorage(estimateData as Record<string, any>);
+        if (!customerPhone) {
+          const custSnap = await db.collection("customers").doc(customerId).get();
+          if (custSnap.exists) {
+            customerPhone = resolveCustomerPhoneForStorage(custSnap.data() as Record<string, any>);
+          }
+        }
         await db.collection("customer_notifications").add({
           customerId,
           ownerUid,
@@ -63,6 +71,7 @@ export async function POST(req: NextRequest) {
           title: "New Reply to Your Estimate",
           message: "The workshop has replied to your estimate request.",
           read: false,
+          customerPhone: customerPhone ?? null,
           workshopName: (await db.collection("users").doc(ownerUid).get()).data()?.workshopName || "Workshop",
           createdAt: FieldValue.serverTimestamp(),
         });

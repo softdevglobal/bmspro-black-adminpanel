@@ -215,6 +215,19 @@ function stripUndefined<T>(obj: T): T {
 }
 
 /**
+ * Single value to store on customer-facing notifications (`customerPhone` on `customer_notifications`
+ * and normalized on `notifications` when the row targets the customer).
+ * Order: explicit customerPhone → booking clientPhone → generic phone.
+ */
+export function resolveCustomerPhoneForStorage(source: Record<string, any>): string | null {
+  const s =
+    String(source?.customerPhone ?? "").trim() ||
+    String(source?.clientPhone ?? "").trim() ||
+    String(source?.phone ?? "").trim();
+  return s || null;
+}
+
+/**
  * Staff / admin / owner-only notification types — never copy into the booking-engine
  * customer inbox (`customer_notifications`).
  */
@@ -277,6 +290,7 @@ async function mirrorBookingEngineCustomerInbox(
     issueId: cleanData.issueId ?? null,
     issueTitle: cleanData.issueTitle ?? null,
     price: typeof cleanData.price === "number" ? cleanData.price : null,
+    customerPhone: resolveCustomerPhoneForStorage(cleanData),
     workshopName,
     createdAt: FieldValue.serverTimestamp(),
   };
@@ -303,6 +317,15 @@ export async function createNotification(data: Omit<Notification, "id" | "create
         cleanData[key] = stripUndefined(value);
       }
     });
+
+    const targetsCustomerInApp =
+      Boolean(String(cleanData.customerUid || "").trim()) ||
+      Boolean(String(cleanData.customerEmail || "").trim()) ||
+      Boolean(String(cleanData.clientEmail || "").trim());
+    if (targetsCustomerInApp) {
+      const ph = resolveCustomerPhoneForStorage(cleanData);
+      if (ph) cleanData.customerPhone = ph;
+    }
     
     // CRITICAL: Ensure branchAdminUid is explicitly set (don't allow null/undefined)
     // This is required for mobile app queries to work

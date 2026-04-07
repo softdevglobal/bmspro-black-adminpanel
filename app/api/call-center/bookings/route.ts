@@ -14,11 +14,17 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS });
 }
 
+/** Internal Firestore page size only; response is not capped when listing all. */
+const BOOKINGS_LIST_BATCH_SIZE = 500;
+/** Optional cap when client passes limit=N (avoids accidental huge values). */
+const BOOKINGS_LIST_MAX_EXPLICIT_LIMIT = 50_000;
+
 /**
- * GET /api/call-center/bookings?ownerUid=X&status=Confirmed&date=2026-03-31&customerId=X&limit=25
+ * GET /api/call-center/bookings?ownerUid=X&status=Confirmed&date=2026-03-31&customerId=X&limit=100
  *
  * List bookings for a workshop with optional filters.
- * Supports filtering by status, date, customer, and branch.
+ * By default returns every matching Firestore row (loaded in batches server-side).
+ * Pass limit=N to return at most N rows (max BOOKINGS_LIST_MAX_EXPLICIT_LIMIT).
  */
 export async function GET(req: NextRequest) {
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
@@ -48,9 +54,22 @@ export async function GET(req: NextRequest) {
   const filterDate = req.nextUrl.searchParams.get("date");
   const filterCustomerId = req.nextUrl.searchParams.get("customerId");
   const filterBranchId = req.nextUrl.searchParams.get("branchId");
-  const rawLimit = parseInt(req.nextUrl.searchParams.get("limit") || "25", 10);
-  const limit =
-    Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 25;
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const allParam = req.nextUrl.searchParams.get("all");
+  const forceAll =
+    allParam === "true" ||
+    allParam === "1" ||
+    (limitParam && limitParam.toLowerCase() === "all");
+
+  let explicitLimit: number | null = null;
+  if (limitParam != null && limitParam.toLowerCase() !== "all") {
+    const raw = parseInt(limitParam, 10);
+    if (Number.isFinite(raw) && raw > 0) {
+      explicitLimit = Math.min(raw, BOOKINGS_LIST_MAX_EXPLICIT_LIMIT);
+    }
+  }
+
+  const fetchAll = forceAll || explicitLimit === null;
 
   try {
     const db = adminDb();
@@ -67,13 +86,31 @@ export async function GET(req: NextRequest) {
       query = query.where("branchId", "==", filterBranchId);
     }
 
-    query = query.orderBy("createdAt", "desc").limit(limit);
+    query = query.orderBy("createdAt", "desc");
 
-    const snap = await query.get();
+    let listDocs: FirebaseFirestore.QueryDocumentSnapshot[];
+    if (fetchAll) {
+      listDocs = [];
+      let last: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      while (true) {
+        let paged = query.limit(BOOKINGS_LIST_BATCH_SIZE);
+        if (last) {
+          paged = paged.startAfter(last);
+        }
+        const snap = await paged.get();
+        if (snap.empty) break;
+        listDocs.push(...snap.docs);
+        last = snap.docs[snap.docs.length - 1];
+        if (snap.docs.length < BOOKINGS_LIST_BATCH_SIZE) break;
+      }
+    } else {
+      const snap = await query.limit(explicitLimit!).get();
+      listDocs = snap.docs;
+    }
 
     const bookings: any[] = [];
 
-    for (const doc of snap.docs) {
+    for (const doc of listDocs) {
       const d = doc.data();
       const status = normalizeBookingStatus(d.status);
 

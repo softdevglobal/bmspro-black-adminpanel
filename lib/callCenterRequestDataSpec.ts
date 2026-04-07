@@ -335,14 +335,16 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     method: "GET",
     path: "/bookings",
     authRequired: true,
-    description: "List bookings for a workshop with optional filters (status, date, branch, customer).",
+    description:
+      "List bookings for a workshop with optional filters (status, date, branch, customer). With no limit param, returns all matching Firestore rows (server loads in batches). Optional limit=N caps rows (max 50000).",
     queryParams: [
       { name: "ownerUid", required: false, type: "string" },
       { name: "status", required: false, type: "string" },
       { name: "date", required: false, type: "YYYY-MM-DD" },
       { name: "branchId", required: false, type: "string" },
       { name: "customerId", required: false, type: "string" },
-      { name: "limit", required: false, type: "number" },
+      { name: "limit", required: false, type: "number|string" },
+      { name: "all", required: false, type: "boolean" },
     ],
     headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
   },

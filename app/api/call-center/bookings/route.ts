@@ -7,6 +7,7 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { normalizeBookingStatus, getServiceCompletionProgress } from "@/lib/bookingTypes";
+import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
 
 export const runtime = "nodejs";
 
@@ -120,9 +121,10 @@ export async function GET(req: NextRequest) {
 
       const services = Array.isArray(d.services) ? d.services : [];
       const progress = getServiceCompletionProgress(services);
-      const additionalIssues = Array.isArray(d.additionalIssues)
+      const additionalIssuesRaw = Array.isArray(d.additionalIssues)
         ? d.additionalIssues
         : [];
+      const additionalIssues = serializeAdditionalIssuesForCallCenterApi(additionalIssuesRaw);
 
       bookings.push({
         id: doc.id,
@@ -145,9 +147,10 @@ export async function GET(req: NextRequest) {
         })),
         totalPrice: d.price || d.totalPrice || 0,
         progress,
+        additionalIssues,
         additionalIssueCount: additionalIssues.length,
         pendingApprovalCount: additionalIssues.filter(
-          (i: any) => i.status === "approved" && !i.customerResponse
+          (i) => i.status === "approved" && !i.customerResponse
         ).length,
         notes: d.notes || "",
         createdAt: d.createdAt || null,

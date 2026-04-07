@@ -5,6 +5,7 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
 
 export const runtime = "nodejs";
 
@@ -53,26 +54,7 @@ export async function GET(
       );
     }
 
-    const additionalIssues = Array.isArray(d.additionalIssues)
-      ? d.additionalIssues
-      : [];
-
-    const issues = additionalIssues.map((i: any) => ({
-      id: i.id || "",
-      issueTitle: i.issueTitle || "",
-      description: i.description || "",
-      recommendedRepair: i.recommendedRepair || "",
-      partsRequired: i.partsRequired || "",
-      labourTimeHours: i.labourTimeHours || 0,
-      imageUrl: i.imageUrl || null,
-      price: i.price ?? null,
-      status: i.status || "pending",
-      customerResponse: i.customerResponse || null,
-      customerRespondedAt: i.customerRespondedAt || null,
-      reportedAt: i.reportedAt || null,
-      reportedByStaffName: i.reportedByStaffName || "",
-      completionStatus: i.completionStatus || null,
-    }));
+    const issues = serializeAdditionalIssuesForCallCenterApi(d.additionalIssues);
 
     const pendingPricing = issues.filter(
       (i: any) => i.status === "pending"

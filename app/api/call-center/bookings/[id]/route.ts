@@ -10,6 +10,7 @@ import {
   getServiceCompletionProgress,
   getTaskProgress,
 } from "@/lib/bookingTypes";
+import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
 
 export const runtime = "nodejs";
 
@@ -117,9 +118,7 @@ export async function GET(
     const status = normalizeBookingStatus(d.status);
     const services = Array.isArray(d.services) ? d.services : [];
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
-    const additionalIssues = Array.isArray(d.additionalIssues)
-      ? d.additionalIssues
-      : [];
+    const additionalIssues = serializeAdditionalIssuesForCallCenterApi(d.additionalIssues);
 
     const serviceProgress = getServiceCompletionProgress(services);
     const taskProgress = getTaskProgress(tasks);
@@ -195,22 +194,7 @@ export async function GET(
           staffNote: t.staffNote || "",
           completedAt: t.completedAt || null,
         })),
-        additionalIssues: additionalIssues.map((i: any) => ({
-          id: i.id || "",
-          issueTitle: i.issueTitle || "",
-          description: i.description || "",
-          recommendedRepair: i.recommendedRepair || "",
-          partsRequired: i.partsRequired || "",
-          labourTimeHours: i.labourTimeHours || 0,
-          imageUrl: i.imageUrl || null,
-          price: i.price ?? null,
-          status: i.status || "pending",
-          customerResponse: i.customerResponse || null,
-          customerRespondedAt: i.customerRespondedAt || null,
-          reportedAt: i.reportedAt || null,
-          reportedByStaffName: i.reportedByStaffName || "",
-          completionStatus: i.completionStatus || null,
-        })),
+        additionalIssues,
         progress: {
           services: serviceProgress,
           tasks: taskProgress,

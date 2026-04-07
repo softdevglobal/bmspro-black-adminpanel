@@ -336,7 +336,7 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     path: "/bookings",
     authRequired: true,
     description:
-      "List bookings for a workshop with optional filters (status, date, branch, customer). With no limit param, returns all matching Firestore rows (server loads in batches). Optional limit=N caps rows (max 50000).",
+      "List bookings for a workshop with optional filters (status, date, branch, customer). With no limit param, returns all matching Firestore rows (server loads in batches). Optional limit=N caps rows (max 50000). Each booking includes an additionalIssues array with full extra-work details (titles, pricing, customer response, completion, image URLs).",
     queryParams: [
       { name: "ownerUid", required: false, type: "string" },
       { name: "status", required: false, type: "string" },

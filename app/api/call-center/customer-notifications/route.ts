@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { DocumentData, Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
   verifyCallCenterOrTenantAdminAuth,
@@ -171,6 +171,195 @@ function mapCustomerDoc(
   };
 }
 
+/** Same blocklist as `lib/notifications` mirror — not shown as customer inbox. */
+const NOT_CUSTOMER_INBOX_NOTIFICATION_TYPES = new Set([
+  "staff_assignment",
+  "staff_reassignment",
+  "additional_issue_accepted",
+  "additional_issue_rejected",
+  "additional_issue_customer_rejected",
+  "staff_rejected",
+  "additional_issue_found",
+  "staff_booking_created",
+  "booking_needs_assignment",
+  "booking_engine_new_booking",
+]);
+
+const LEGACY_BOOKING_TYPES_FOR_FULL_SCAN = [
+  "booking_confirmed",
+  "booking_completed",
+  "booking_canceled",
+  "booking_status_changed",
+];
+
+const BOOKING_CUSTOMER_NOTIFICATION_TYPES = new Set(LEGACY_BOOKING_TYPES_FOR_FULL_SCAN);
+
+function dedupeKeyCustomerInbox(m: MappedNotification): string {
+  return [
+    m.customerId || "",
+    m.bookingId || "",
+    m.type,
+    m.estimateId ?? "",
+    m.issueId ?? "",
+  ].join("|");
+}
+
+function mapNotificationsDocToCustomerPanel(
+  doc: QueryDocumentSnapshot,
+  customerMeta: Map<string, { name: string; email: string }>,
+  ownerNames: Map<string, string>
+): MappedNotification {
+  const d = doc.data();
+  const uid = typeof d.customerUid === "string" ? d.customerUid.trim() : "";
+  const em =
+    (typeof d.customerEmail === "string" && d.customerEmail.trim()) ||
+    (typeof d.clientEmail === "string" && d.clientEmail.trim()) ||
+    "";
+  const customerId = uid || em || null;
+  const meta = customerId ? customerMeta.get(customerId) : undefined;
+  const ownerUid = (d.ownerUid as string) || null;
+  return {
+    source: "customer_panel",
+    id: doc.id,
+    customerId,
+    ownerUid,
+    type: (d.type as string) || "booking_status_changed",
+    estimateId: (d.estimateId as string) || null,
+    bookingId: (d.bookingId as string) || null,
+    bookingCode: (d.bookingCode as string) || null,
+    issueId: (d.issueId as string) || null,
+    issueTitle: (d.issueTitle as string) || null,
+    price: typeof d.price === "number" ? d.price : null,
+    title: (d.title as string) || "Notification",
+    message: (d.message as string) || "",
+    read: d.read === true,
+    workshopName: (ownerUid ? ownerNames.get(ownerUid) : null) || (d.branchName as string) || null,
+    createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
+    customerName: meta?.name || (d.clientName as string) || null,
+    customerEmail: meta?.email || em || null,
+  };
+}
+
+function isCustomerFacingNotificationsDoc(d: DocumentData): boolean {
+  const t = String(d.type || "");
+  if (t && NOT_CUSTOMER_INBOX_NOTIFICATION_TYPES.has(t)) return false;
+
+  const uid = d.customerUid;
+  if (typeof uid === "string" && uid.trim()) return true;
+
+  /**
+   * Many booking status notifications only set `customerEmail` / `clientEmail` when the booking
+   * has no Firebase `customerUid` — those rows were previously dropped from this API and never mirrored.
+   */
+  if (BOOKING_CUSTOMER_NOTIFICATION_TYPES.has(t)) {
+    const em =
+      (typeof d.customerEmail === "string" && d.customerEmail.trim()) ||
+      (typeof d.clientEmail === "string" && d.clientEmail.trim());
+    if (em) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Legacy rows in `notifications` aimed at customers (`customerUid` and/or booking-type + email).
+ * Scoped: `ownerUid in workshops`. Unscoped: per booking type (full history) + recent scan for other customerUid rows.
+ */
+async function fetchLegacyCustomerBookingNotifications(
+  db: Firestore,
+  workshopOwnerUids: string[] | null
+): Promise<QueryDocumentSnapshot[]> {
+  const out: QueryDocumentSnapshot[] = [];
+  const seen = new Set<string>();
+
+  const visit = (doc: QueryDocumentSnapshot) => {
+    const d = doc.data();
+    if (!isCustomerFacingNotificationsDoc(d)) return;
+    if (workshopOwnerUids !== null) {
+      const ou = d.ownerUid as string | undefined;
+      if (!ou || !workshopOwnerUids.includes(ou)) return;
+    }
+    if (seen.has(doc.id)) return;
+    seen.add(doc.id);
+    out.push(doc);
+  };
+
+  if (workshopOwnerUids !== null) {
+    if (workshopOwnerUids.length === 0) return [];
+    const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
+    for (let i = 0; i < normalized.length; i += 30) {
+      const chunk = normalized.slice(i, i + 30);
+      const snap = await db.collection("notifications").where("ownerUid", "in", chunk).get();
+      snap.docs.forEach(visit);
+    }
+    return out;
+  }
+
+  for (const t of LEGACY_BOOKING_TYPES_FOR_FULL_SCAN) {
+    try {
+      let last: QueryDocumentSnapshot | undefined;
+      while (true) {
+        let q = db
+          .collection("notifications")
+          .where("type", "==", t)
+          .orderBy("createdAt", "desc")
+          .limit(PAGE_SIZE);
+        if (last) q = q.startAfter(last);
+        const snap = await q.get();
+        if (snap.empty) break;
+        snap.docs.forEach((doc) => {
+          const d = doc.data();
+          if (!isCustomerFacingNotificationsDoc(d)) return;
+          if (seen.has(doc.id)) return;
+          seen.add(doc.id);
+          out.push(doc);
+        });
+        if (snap.docs.length < PAGE_SIZE) break;
+        last = snap.docs[snap.docs.length - 1];
+      }
+    } catch {
+      const snap = await db.collection("notifications").where("type", "==", t).get();
+      snap.docs.forEach((doc) => {
+        const d = doc.data();
+        if (!isCustomerFacingNotificationsDoc(d)) return;
+        if (seen.has(doc.id)) return;
+        seen.add(doc.id);
+        out.push(doc);
+      });
+    }
+  }
+
+  const rowsAfterBookingTypeQueries = out.length;
+  const MAX_RECENT_SCAN_BATCHES = 60;
+  const MAX_RECENT_CUSTOMER_ROWS = 4000;
+  try {
+    let last: QueryDocumentSnapshot | undefined;
+    let batches = 0;
+    while (batches < MAX_RECENT_SCAN_BATCHES) {
+      let q = db.collection("notifications").orderBy("createdAt", "desc").limit(PAGE_SIZE);
+      if (last) q = q.startAfter(last);
+      const snap = await q.get();
+      if (snap.empty) break;
+      for (const doc of snap.docs) {
+        const d = doc.data();
+        if (!isCustomerFacingNotificationsDoc(d)) continue;
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        out.push(doc);
+        if (out.length - rowsAfterBookingTypeQueries >= MAX_RECENT_CUSTOMER_ROWS) break;
+      }
+      if (out.length - rowsAfterBookingTypeQueries >= MAX_RECENT_CUSTOMER_ROWS) break;
+      batches += 1;
+      if (snap.docs.length < PAGE_SIZE) break;
+      last = snap.docs[snap.docs.length - 1];
+    }
+  } catch {
+    /* orderBy(createdAt) may fail without index */
+  }
+
+  return out;
+}
+
 function mapAdminPanelDoc(
   doc: QueryDocumentSnapshot,
   ownerNames: Map<string, string>
@@ -234,15 +423,33 @@ async function fetchAllDocumentsNewestFirst(
 }
 
 /**
+ * Every `customer_notifications` doc for all owners (no orderBy — Firestore would omit rows missing `createdAt`).
+ * Sorted newest-first in memory for the merged response.
+ */
+async function fetchEntireCustomerNotificationsCollection(
+  db: Firestore
+): Promise<QueryDocumentSnapshot[]> {
+  const snap = await db.collection("customer_notifications").get();
+  const docs = [...snap.docs] as QueryDocumentSnapshot[];
+  docs.sort(
+    (a, b) =>
+      parseTime(b.data().createdAt?.toDate?.()?.toISOString() || null) -
+      parseTime(a.data().createdAt?.toDate?.()?.toISOString() || null)
+  );
+  return docs;
+}
+
+/**
  * GET /api/call-center/customer-notifications
  *
  * **Workshop scope** — `ownerUid` (or X-Tenant-Id): all **booking-engine customer** notifications
  * for that tenant (`customer_notifications` only — what customers see in the public booking app).
  *
- * **System scope** — `all=1` or `scope=all`: booking-engine customer notifications.
- * Super admin / call center **admin**: entire `customer_notifications` collection.
- * Call center **agents**: same feed limited to **assigned workshops** only.
- * Optional `includeAdmin=1` adds internal `notifications` (scoped the same way for agents).
+ * **System scope** — `all=1` or `scope=all`: booking-engine customer notifications for **all owners / all customers**.
+ * Any **call center agent** or **super admin** with `all=1` loads the full `customer_notifications` collection (plus legacy `notifications` with customerUid).
+ * **Customer-only feed (default):** `notifications` entries have `source: "customer_panel"` — same Firestore data customers see
+ * (`customer_notifications` plus legacy `notifications` with `customerUid`). Use **`customerOnly=1`** to force that even if a client sends `includeAdmin=1`.
+ * Optional **`includeAdmin=1`**: also append internal staff/admin rows (`source: "admin_panel"`); full internal collection for **super admin** or **call center admin**, scoped for agents.
  *
  * Headers: Authorization: Bearer <Firebase ID token>
  */
@@ -262,12 +469,19 @@ export async function GET(req: NextRequest) {
     allParam?.toLowerCase() === "true" ||
     scopeParam?.toLowerCase() === "all";
 
-  /** When true, also loads internal `notifications` (admin/staff app). Default false — only booking-engine `customer_notifications`. */
+  /**
+   * When true, also merges internal `notifications` (admin/staff app) into the list (`source: "admin_panel"`).
+   * Default false — response is **only what customers see** (book-now inbox + legacy rows with `customerUid`).
+   */
+  const customerOnly =
+    req.nextUrl.searchParams.get("customerOnly") === "1" ||
+    req.nextUrl.searchParams.get("customerOnly")?.toLowerCase() === "true";
   const includeAdminPanel =
-    req.nextUrl.searchParams.get("includeAdmin") === "1" ||
-    req.nextUrl.searchParams.get("includeAdmin")?.toLowerCase() === "true" ||
-    req.nextUrl.searchParams.get("includeAdminPanel") === "1" ||
-    req.nextUrl.searchParams.get("includeAdminPanel")?.toLowerCase() === "true";
+    !customerOnly &&
+    (req.nextUrl.searchParams.get("includeAdmin") === "1" ||
+      req.nextUrl.searchParams.get("includeAdmin")?.toLowerCase() === "true" ||
+      req.nextUrl.searchParams.get("includeAdminPanel") === "1" ||
+      req.nextUrl.searchParams.get("includeAdminPanel")?.toLowerCase() === "true");
 
   const unreadOnly =
     req.nextUrl.searchParams.get("unreadOnly") === "1" ||
@@ -287,36 +501,46 @@ export async function GET(req: NextRequest) {
     try {
       const db = adminDb();
       const fullAccess = hasFullSystemWideAccess(gate.auth);
-
-      let custDocs: QueryDocumentSnapshot[];
-      let adminDocs: QueryDocumentSnapshot[] = [];
+      /**
+       * `canUseAllQueryParam` only allows super admin or call center agents — both get every owner's
+       * customer_notifications + system-wide legacy customer rows (not filtered by assigned workshops).
+       */
       let scopedToWorkshops: string[] | null = null;
-
-      if (fullAccess) {
-        custDocs = await fetchAllDocumentsNewestFirst(db, "customer_notifications");
-        adminDocs = includeAdminPanel
-          ? await fetchAllDocumentsNewestFirst(db, "notifications")
-          : [];
-      } else {
-        const assigned =
-          gate.auth.kind === "agent" ? gate.auth.user.assignedWorkshops : [];
-        scopedToWorkshops = [...assigned];
-        custDocs = await fetchBookingEngineNotificationsForWorkshops(db, assigned);
-        custDocs.sort(
-          (a, b) =>
-            parseTime(b.data().createdAt?.toDate?.()?.toISOString() || null) -
-            parseTime(a.data().createdAt?.toDate?.()?.toISOString() || null)
-        );
-        adminDocs = includeAdminPanel
-          ? await fetchAdminNotificationsForWorkshops(db, assigned)
-          : [];
+      if (!fullAccess && gate.auth.kind === "agent") {
+        scopedToWorkshops = [...gate.auth.user.assignedWorkshops];
       }
+
+      const custDocs = await fetchEntireCustomerNotificationsCollection(db);
+
+      const adminDocs =
+        includeAdminPanel && fullAccess
+          ? await fetchAllDocumentsNewestFirst(db, "notifications")
+          : includeAdminPanel && gate.auth.kind === "agent"
+            ? await fetchAdminNotificationsForWorkshops(
+                db,
+                gate.auth.user.assignedWorkshops
+              )
+            : [];
+
+      const legacyScope: string[] | null = null;
+      const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, legacyScope);
 
       const customerIds = new Set<string>();
       const ownerUids = new Set<string>();
       for (const doc of custDocs) {
         const d = doc.data();
         if (d.customerId) customerIds.add(String(d.customerId));
+        if (d.ownerUid) ownerUids.add(String(d.ownerUid));
+      }
+      for (const doc of legacyDocs) {
+        const d = doc.data();
+        if (d.customerUid) customerIds.add(String(d.customerUid));
+        if (typeof d.customerEmail === "string" && d.customerEmail.trim()) {
+          customerIds.add(d.customerEmail.trim());
+        }
+        if (typeof d.clientEmail === "string" && d.clientEmail.trim()) {
+          customerIds.add(d.clientEmail.trim());
+        }
         if (d.ownerUid) ownerUids.add(String(d.ownerUid));
       }
       for (const doc of adminDocs) {
@@ -358,12 +582,24 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      const inboxByKey = new Map<string, MappedNotification>();
+      for (const doc of custDocs) {
+        const m = mapCustomerDoc(doc, customerMeta);
+        inboxByKey.set(dedupeKeyCustomerInbox(m), m);
+      }
+      for (const doc of legacyDocs) {
+        const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
+        const k = dedupeKeyCustomerInbox(m);
+        if (!inboxByKey.has(k)) inboxByKey.set(k, m);
+      }
+      const customerInboxRows = Array.from(inboxByKey.values()).sort(
+        (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+      );
+
       const merged: UnifiedNotification[] = [
-        ...custDocs.map((doc) => mapCustomerDoc(doc, customerMeta)),
+        ...customerInboxRows,
         ...adminDocs.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
       ];
-
-      merged.sort((a, b) => parseTime(b.createdAt) - parseTime(a.createdAt));
 
       let out = merged;
       if (unreadOnly) out = out.filter((r) => !r.read);
@@ -375,12 +611,17 @@ export async function GET(req: NextRequest) {
           scope: "all",
           fullSystemAccess: fullAccess,
           scopedToWorkshops,
+          customerOnly,
           includeAdminPanel,
+          /** Same inbox as book-now per customer: `customer_notifications` + legacy `notifications` (customerUid). */
+          customerFacingNotificationCount: customerInboxRows.length,
           notifications: out,
           totalMerged: merged.length,
           unreadCount,
           counts: {
-            bookingEngineCustomer: custDocs.length,
+            bookingEngineCustomerInbox: customerInboxRows.length,
+            customerNotificationsDocs: custDocs.length,
+            legacyNotificationsMerged: legacyDocs.length,
             adminStaffApp: adminDocs.length,
           },
         },
@@ -453,16 +694,45 @@ export async function GET(req: NextRequest) {
 
     rows.sort((a, b) => parseTime(b.createdAt) - parseTime(a.createdAt));
 
-    let filtered = unreadOnly ? rows.filter((r) => !r.read) : rows;
+    const ownerNames = new Map<string, string>();
+    const userSnap = await db.collection("users").doc(tenant).get();
+    if (userSnap.exists) {
+      const u = userSnap.data()!;
+      ownerNames.set(
+        tenant,
+        String(u.workshopName || u.displayName || u.name || u.businessName || "").trim() || "Workshop"
+      );
+    }
 
-    const unreadCount = rows.filter((r) => !r.read).length;
+    const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, [tenant]);
+
+    const inboxByKey = new Map<string, MappedNotification>();
+    for (const row of rows) {
+      inboxByKey.set(dedupeKeyCustomerInbox(row), row);
+    }
+    for (const doc of legacyDocs) {
+      const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
+      const k = dedupeKeyCustomerInbox(m);
+      if (!inboxByKey.has(k)) inboxByKey.set(k, m);
+    }
+    const mergedRows = Array.from(inboxByKey.values()).sort(
+      (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+    );
+
+    let filtered = unreadOnly ? mergedRows.filter((r) => !r.read) : mergedRows;
+
+    const unreadCount = mergedRows.filter((r) => !r.read).length;
 
     return NextResponse.json(
       {
         scope: "workshop",
         notifications: filtered,
-        totalFetched: rows.length,
+        totalFetched: mergedRows.length,
         unreadCount,
+        counts: {
+          customerNotificationsDocs: rows.length,
+          legacyNotificationsMerged: legacyDocs.length,
+        },
       },
       { headers: CORS_HEADERS }
     );

@@ -215,6 +215,76 @@ function stripUndefined<T>(obj: T): T {
 }
 
 /**
+ * Staff / admin / owner-only notification types — never copy into the booking-engine
+ * customer inbox (`customer_notifications`).
+ */
+const NOT_MIRROR_TO_CUSTOMER_INBOX = new Set<string>([
+  "staff_assignment",
+  "staff_reassignment",
+  "additional_issue_accepted",
+  "additional_issue_rejected",
+  "additional_issue_customer_rejected",
+  "staff_rejected",
+  "additional_issue_found",
+  "staff_booking_created",
+  "booking_needs_assignment",
+  "booking_engine_new_booking",
+]);
+
+/**
+ * Duplicate customer-targeted rows from `notifications` into `customer_notifications` so the
+ * book-now app and call-center API see the same inbox as estimate replies / additional-work quotes.
+ */
+async function mirrorBookingEngineCustomerInbox(
+  cleanData: Record<string, any>,
+  _notificationsDocId: string
+): Promise<void> {
+  const customerKey =
+    String(cleanData.customerUid || "").trim() ||
+    String(cleanData.customerEmail || "").trim() ||
+    String(cleanData.clientEmail || "").trim();
+  const ownerUid = String(cleanData.ownerUid || "").trim();
+  const type = String(cleanData.type || "").trim();
+  if (!customerKey || !ownerUid) return;
+  if (!type || NOT_MIRROR_TO_CUSTOMER_INBOX.has(type)) return;
+
+  const db = adminDb();
+  let workshopName = "Workshop";
+  try {
+    const od = await db.doc(`users/${ownerUid}`).get();
+    const u = od.data();
+    workshopName =
+      String(u?.workshopName || u?.displayName || u?.name || "Workshop").trim() || "Workshop";
+  } catch {
+    /* ignore */
+  }
+
+  const payload: Record<string, any> = {
+    customerId: customerKey,
+    ownerUid,
+    type,
+    title: String(cleanData.title || ""),
+    message: String(cleanData.message || ""),
+    read: false,
+    bookingId: cleanData.bookingId ?? null,
+    bookingCode: cleanData.bookingCode ?? null,
+    branchName: cleanData.branchName ?? null,
+    staffName: cleanData.staffName ?? null,
+    serviceName: cleanData.serviceName ?? null,
+    bookingDate: cleanData.bookingDate ?? null,
+    bookingTime: cleanData.bookingTime ?? null,
+    estimateId: cleanData.estimateId ?? null,
+    issueId: cleanData.issueId ?? null,
+    issueTitle: cleanData.issueTitle ?? null,
+    price: typeof cleanData.price === "number" ? cleanData.price : null,
+    workshopName,
+    createdAt: FieldValue.serverTimestamp(),
+  };
+
+  await db.collection("customer_notifications").add(stripUndefined(payload));
+}
+
+/**
  * Create a notification (generic)
  */
 export async function createNotification(data: Omit<Notification, "id" | "createdAt" | "read">): Promise<string> {
@@ -250,6 +320,12 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     console.log(`📤 createNotification: Final notification data - branchAdminUid: ${cleanData.branchAdminUid || "NOT SET"}, targetAdminUid: ${cleanData.targetAdminUid || "NOT SET"}, type: ${cleanData.type || "unknown"}`);
     
     const ref = await db.collection("notifications").add(cleanData);
+
+    try {
+      await mirrorBookingEngineCustomerInbox(cleanData, ref.id);
+    } catch (mirrorErr) {
+      console.error("mirrorBookingEngineCustomerInbox failed:", mirrorErr);
+    }
     
     // Send push notification if staffUid, targetAdminUid, targetOwnerUid, branchAdminUid, or customerUid is present
     const staffUid = (data as any).staffUid;

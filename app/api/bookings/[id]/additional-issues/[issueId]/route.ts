@@ -143,6 +143,7 @@ export async function PATCH(
           const workshopName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
           await db.collection("customer_notifications").add({
             customerId: customerIdForNotif,
+            ownerUid,
             type: "additional_issue_quote",
             bookingId: id,
             bookingCode: bookingCode || null,

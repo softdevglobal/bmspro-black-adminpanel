@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
       try {
         await db.collection("customer_notifications").add({
           customerId,
+          ownerUid,
           type: "estimate_reply",
           estimateId,
           title: "New Reply to Your Estimate",

@@ -116,7 +116,8 @@ async function sendPushNotification(
         title,
         body,
       },
-      data: normalizeFcmData(data),
+      // Duplicate title/body in `data` so iOS data/background paths and Dart handlers always have strings
+      data: normalizeFcmData({ ...(data ?? {}), title, body }),
       android: {
         priority: "high",
         ttl: 86400000, // 24 hours in milliseconds

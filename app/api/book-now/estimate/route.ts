@@ -103,6 +103,8 @@ export async function POST(req: NextRequest) {
           data: {
             type: "new_estimate",
             estimateId: estimateRef.id,
+            title: pushTitle,
+            body: pushBody,
           },
           android: {
             priority: "high",

@@ -129,7 +129,7 @@ async function sendPushNotification(
         title,
         body,
       },
-      data: normalizeFcmData(data),
+      data: normalizeFcmData({ ...(data ?? {}), title, body }),
       android: {
         priority: "high",
         ttl: 86400000, // 24 hours in milliseconds

@@ -72,13 +72,17 @@ export async function POST(req: NextRequest) {
     // Send push notification
     const messaging = adminMessaging();
     
+    const dataObj =
+      data != null && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : {};
     const notificationMessage: Message = {
       token: fcmToken,
       notification: {
         title,
         body: message,
       },
-      data: normalizeFcmData(data),
+      data: normalizeFcmData({ ...dataObj, title, body: message }),
       android: {
         priority: "high",
         ttl: 86400000, // 24 hours in milliseconds

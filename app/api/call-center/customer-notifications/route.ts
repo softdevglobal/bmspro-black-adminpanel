@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { DocumentData, Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
+import {
+  LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
+  isCustomerFacingNotificationsDoc,
+} from "@/lib/callCenterCustomerInboxFilters";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -188,29 +192,6 @@ function mapCustomerDoc(
   };
 }
 
-/** Same blocklist as `lib/notifications` mirror — not shown as customer inbox. */
-const NOT_CUSTOMER_INBOX_NOTIFICATION_TYPES = new Set([
-  "staff_assignment",
-  "staff_reassignment",
-  "additional_issue_accepted",
-  "additional_issue_rejected",
-  "additional_issue_customer_rejected",
-  "staff_rejected",
-  "additional_issue_found",
-  "staff_booking_created",
-  "booking_needs_assignment",
-  "booking_engine_new_booking",
-]);
-
-const LEGACY_BOOKING_TYPES_FOR_FULL_SCAN = [
-  "booking_confirmed",
-  "booking_completed",
-  "booking_canceled",
-  "booking_status_changed",
-];
-
-const BOOKING_CUSTOMER_NOTIFICATION_TYPES = new Set(LEGACY_BOOKING_TYPES_FOR_FULL_SCAN);
-
 function dedupeKeyCustomerInbox(m: MappedNotification): string {
   return [
     m.customerId || "",
@@ -267,27 +248,6 @@ function mapNotificationsDocToCustomerPanel(
     notificationReviewed: d.notificationReviewed === true,
     calledCustomer: d.calledCustomer === true,
   };
-}
-
-function isCustomerFacingNotificationsDoc(d: DocumentData): boolean {
-  const t = String(d.type || "");
-  if (t && NOT_CUSTOMER_INBOX_NOTIFICATION_TYPES.has(t)) return false;
-
-  const uid = d.customerUid;
-  if (typeof uid === "string" && uid.trim()) return true;
-
-  /**
-   * Many booking status notifications only set `customerEmail` / `clientEmail` when the booking
-   * has no Firebase `customerUid` — those rows were previously dropped from this API and never mirrored.
-   */
-  if (BOOKING_CUSTOMER_NOTIFICATION_TYPES.has(t)) {
-    const em =
-      (typeof d.customerEmail === "string" && d.customerEmail.trim()) ||
-      (typeof d.clientEmail === "string" && d.clientEmail.trim());
-    if (em) return true;
-  }
-
-  return false;
 }
 
 /**

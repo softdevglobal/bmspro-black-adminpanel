@@ -4,6 +4,7 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { parseOptionalBooleanFlag } from "@/lib/parseCallCenterNotificationFlagBody";
 import { resolveCustomerNotificationForCallCenter } from "@/lib/resolveCustomerNotificationForCallCenter";
 
 export const runtime = "nodejs";
@@ -15,8 +16,13 @@ export async function OPTIONS() {
 /**
  * POST /api/call-center/customer-notifications/[notificationId]/called-customer
  *
- * Sets `calledCustomer: true` on the customer notification document
- * (`customer_notifications` or customer-facing `notifications`). Use POST (not GET) so the server state changes.
+ * Sets `calledCustomer` on the customer notification document
+ * (`customer_notifications` or customer-facing `notifications`).
+ *
+ * Body (optional JSON): `{ "calledCustomer": true | false }`
+ * - `true` — agent called the customer.
+ * - `false` — reset / did not call.
+ * - Omit field or empty body — defaults to `true` (backward compatible).
  *
  * Auth: Bearer Firebase ID token (call center agent or BMS staff: workshop owner, branch admin, super admin).
  */
@@ -61,14 +67,23 @@ export async function POST(
     );
   }
 
+  const parsed = await parseOptionalBooleanFlag(req, "calledCustomer", true);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error },
+      { status: parsed.status, headers: CORS_HEADERS }
+    );
+  }
+  const calledCustomer = parsed.value;
+
   try {
-    await resolved.doc.ref.update({ calledCustomer: true });
+    await resolved.doc.ref.update({ calledCustomer });
     return NextResponse.json(
       {
         success: true,
         notificationId: notificationId.trim(),
         collection: resolved.doc.collectionId,
-        calledCustomer: true,
+        calledCustomer,
       },
       { headers: CORS_HEADERS }
     );

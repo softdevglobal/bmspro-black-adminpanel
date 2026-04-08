@@ -4,6 +4,7 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { parseOptionalBooleanFlag } from "@/lib/parseCallCenterNotificationFlagBody";
 import { resolveCustomerNotificationForCallCenter } from "@/lib/resolveCustomerNotificationForCallCenter";
 
 export const runtime = "nodejs";
@@ -15,8 +16,13 @@ export async function OPTIONS() {
 /**
  * POST /api/call-center/customer-notifications/[notificationId]/notification-reviewed
  *
- * Sets `notificationReviewed: true` on the customer notification document
- * (`customer_notifications` or customer-facing `notifications`). Use POST (not GET) so the server state changes.
+ * Sets `notificationReviewed` on the customer notification document
+ * (`customer_notifications` or customer-facing `notifications`).
+ *
+ * Body (optional JSON): `{ "notificationReviewed": true | false }`
+ * - `true` — agent completed review / acknowledged.
+ * - `false` — agent opened the notification but took no action (or reset).
+ * - Omit field or send empty body — defaults to `true` (backward compatible).
  *
  * Auth: Bearer Firebase ID token (call center agent or BMS staff: workshop owner, branch admin, super admin).
  */
@@ -61,14 +67,23 @@ export async function POST(
     );
   }
 
+  const parsed = await parseOptionalBooleanFlag(req, "notificationReviewed", true);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: parsed.error },
+      { status: parsed.status, headers: CORS_HEADERS }
+    );
+  }
+  const notificationReviewed = parsed.value;
+
   try {
-    await resolved.doc.ref.update({ notificationReviewed: true });
+    await resolved.doc.ref.update({ notificationReviewed });
     return NextResponse.json(
       {
         success: true,
         notificationId: notificationId.trim(),
         collection: resolved.doc.collectionId,
-        notificationReviewed: true,
+        notificationReviewed,
       },
       { headers: CORS_HEADERS }
     );

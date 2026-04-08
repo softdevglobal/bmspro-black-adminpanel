@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
+import {
+  adminCreateCallCenterAgent,
+  adminUpdateCallCenterAgent,
+} from "@/lib/callCenterAgentsCrud";
 import {
   verifyCallCenterAuth,
   CORS_HEADERS,
@@ -54,6 +58,7 @@ export async function GET(req: NextRequest) {
       {
         agent: {
           uid: user.uid,
+          agent_id: user.uid,
           email: user.email,
           name: user.name,
           role: user.role,
@@ -105,79 +110,24 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { email, password, name, role, assignedWorkshops } = body;
-
-    if (!email || !password || !name) {
+    const result = await adminCreateCallCenterAgent(body, adminAuthResult.userData);
+    if (!result.ok) {
       return NextResponse.json(
-        { error: "Missing required fields: email, password, name" },
-        { status: 400, headers: CORS_HEADERS }
+        { error: result.error },
+        { status: result.status, headers: CORS_HEADERS }
       );
     }
-
-    if (password.length < 6) {
-      return NextResponse.json(
-        { error: "Password must be at least 6 characters" },
-        { status: 400, headers: CORS_HEADERS }
-      );
-    }
-
-    const agentRole = role === "call_center_admin" ? "call_center_admin" : "call_center_agent";
-
-    // Workshop owners can only assign their own workshop
-    let workshops: string[] = [];
-    if (adminAuthResult.userData.role === "workshop_owner") {
-      workshops = [adminAuthResult.userData.uid];
-    } else if (Array.isArray(assignedWorkshops)) {
-      workshops = assignedWorkshops;
-    }
-
-    const auth = adminAuth();
-    const db = adminDb();
-
-    // Create Firebase Auth user
-    let uid: string;
-    try {
-      const userRecord = await auth.createUser({
-        email: email.trim().toLowerCase(),
-        password,
-        displayName: name.trim(),
-        emailVerified: false,
-        disabled: false,
-      });
-      uid = userRecord.uid;
-    } catch (e: any) {
-      if (e.code === "auth/email-already-exists") {
-        return NextResponse.json(
-          { error: "An account with this email already exists" },
-          { status: 409, headers: CORS_HEADERS }
-        );
-      }
-      throw e;
-    }
-
-    // Create agent doc in call_center_agents collection
-    const now = new Date();
-    await db.doc(`call_center_agents/${uid}`).set({
-      email: email.trim().toLowerCase(),
-      displayName: name.trim(),
-      name: name.trim(),
-      role: agentRole,
-      assignedWorkshops: workshops,
-      suspended: false,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: adminAuthResult.userData.uid,
-      createdByRole: adminAuthResult.userData.role,
-    });
-
+    const a = result.agent;
     return NextResponse.json(
       {
         success: true,
-        uid,
-        email: email.trim().toLowerCase(),
-        name: name.trim(),
-        role: agentRole,
-        assignedWorkshops: workshops,
+        uid: a.uid,
+        agent_id: a.agent_id,
+        email: a.email,
+        name: a.name,
+        role: a.role,
+        assignedWorkshops: a.assignedWorkshops,
+        agent: a,
       },
       { status: 201, headers: CORS_HEADERS }
     );
@@ -228,52 +178,20 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const db = adminDb();
-
-    const agentDoc = await db.doc(`call_center_agents/${agentUid}`).get();
-    if (!agentDoc.exists) {
+    const result = await adminUpdateCallCenterAgent(
+      agentUid,
+      { assignedWorkshops, suspended, role, name },
+      adminAuthResult.userData
+    );
+    if (!result.ok) {
       return NextResponse.json(
-        { error: "Agent not found" },
-        { status: 404, headers: CORS_HEADERS }
+        { error: result.error },
+        { status: result.status, headers: CORS_HEADERS }
       );
     }
 
-    const updates: Record<string, any> = { updatedAt: new Date() };
-
-    if (assignedWorkshops !== undefined && Array.isArray(assignedWorkshops)) {
-      if (adminAuthResult.userData.role === "workshop_owner") {
-        // Workshop owners can only add/remove their own uid
-        const existing = agentDoc.data()?.assignedWorkshops || [];
-        const ownerUid = adminAuthResult.userData.uid;
-        if (assignedWorkshops.includes(ownerUid)) {
-          updates.assignedWorkshops = [...new Set([...existing, ownerUid])];
-        } else {
-          updates.assignedWorkshops = existing.filter(
-            (id: string) => id !== ownerUid
-          );
-        }
-      } else {
-        updates.assignedWorkshops = assignedWorkshops;
-      }
-    }
-
-    if (suspended !== undefined) {
-      updates.suspended = Boolean(suspended);
-    }
-
-    if (role && ["call_center_agent", "call_center_admin"].includes(role)) {
-      updates.role = role;
-    }
-
-    if (name && typeof name === "string") {
-      updates.displayName = name.trim();
-      updates.name = name.trim();
-    }
-
-    await db.doc(`call_center_agents/${agentUid}`).update(updates);
-
     return NextResponse.json(
-      { success: true, agentUid, updates: Object.keys(updates) },
+      { success: true, agentUid, agent: result.agent },
       { headers: CORS_HEADERS }
     );
   } catch (error: any) {

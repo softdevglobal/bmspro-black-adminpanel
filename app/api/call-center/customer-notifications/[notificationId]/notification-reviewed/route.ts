@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveNotificationActorSnapshot } from "@/lib/callCenterActorFromAuth";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -20,8 +21,8 @@ export async function OPTIONS() {
  * (`customer_notifications` or customer-facing `notifications`).
  *
  * Body (optional JSON): `{ "notificationReviewed": true | false }`
- * - `true` — agent completed review / acknowledged.
- * - `false` — agent opened the notification but took no action (or reset).
+ * - `true` — sets reviewer UID, email, display name (`notificationReviewedByDisplayName` + `ByName`).
+ * - `false` — clears reviewer fields.
  * - Omit field or send empty body — defaults to `true` (backward compatible).
  *
  * Auth: Bearer Firebase ID token (call center agent or BMS staff: workshop owner, branch admin, super admin).
@@ -76,14 +77,36 @@ export async function POST(
   }
   const notificationReviewed = parsed.value;
 
+  const actor = await resolveNotificationActorSnapshot(gate.auth);
+  const update =
+    notificationReviewed === true
+      ? {
+          notificationReviewed: true,
+          notificationReviewedByUid: actor.uid,
+          notificationReviewedByDisplayName: actor.displayName || null,
+          notificationReviewedByName: actor.displayName || null,
+          notificationReviewedByEmail: actor.email || null,
+        }
+      : {
+          notificationReviewed: false,
+          notificationReviewedByUid: null,
+          notificationReviewedByDisplayName: null,
+          notificationReviewedByName: null,
+          notificationReviewedByEmail: null,
+        };
+
   try {
-    await resolved.doc.ref.update({ notificationReviewed });
+    await resolved.doc.ref.update(update);
     return NextResponse.json(
       {
         success: true,
         notificationId: notificationId.trim(),
         collection: resolved.doc.collectionId,
         notificationReviewed,
+        notificationReviewedByUid: update.notificationReviewedByUid,
+        notificationReviewedByName: update.notificationReviewedByName,
+        notificationReviewedByDisplayName: update.notificationReviewedByDisplayName,
+        notificationReviewedByEmail: update.notificationReviewedByEmail,
       },
       { headers: CORS_HEADERS }
     );

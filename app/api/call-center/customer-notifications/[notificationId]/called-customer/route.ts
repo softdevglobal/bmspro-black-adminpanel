@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveNotificationActorSnapshot } from "@/lib/callCenterActorFromAuth";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -20,8 +21,8 @@ export async function OPTIONS() {
  * (`customer_notifications` or customer-facing `notifications`).
  *
  * Body (optional JSON): `{ "calledCustomer": true | false }`
- * - `true` — agent called the customer.
- * - `false` — reset / did not call.
+ * - `true` — records the authenticated user as who called (`calledCustomerBy*` fields).
+ * - `false` — clears those fields.
  * - Omit field or empty body — defaults to `true` (backward compatible).
  *
  * Auth: Bearer Firebase ID token (call center agent or BMS staff: workshop owner, branch admin, super admin).
@@ -76,14 +77,36 @@ export async function POST(
   }
   const calledCustomer = parsed.value;
 
+  const actor = await resolveNotificationActorSnapshot(gate.auth);
+  const update =
+    calledCustomer === true
+      ? {
+          calledCustomer: true,
+          calledCustomerByUid: actor.uid,
+          calledCustomerByDisplayName: actor.displayName || null,
+          calledCustomerByName: actor.displayName || null,
+          calledCustomerByEmail: actor.email || null,
+        }
+      : {
+          calledCustomer: false,
+          calledCustomerByUid: null,
+          calledCustomerByDisplayName: null,
+          calledCustomerByName: null,
+          calledCustomerByEmail: null,
+        };
+
   try {
-    await resolved.doc.ref.update({ calledCustomer });
+    await resolved.doc.ref.update(update);
     return NextResponse.json(
       {
         success: true,
         notificationId: notificationId.trim(),
         collection: resolved.doc.collectionId,
         calledCustomer,
+        calledCustomerByUid: update.calledCustomerByUid,
+        calledCustomerByName: update.calledCustomerByName,
+        calledCustomerByDisplayName: update.calledCustomerByDisplayName,
+        calledCustomerByEmail: update.calledCustomerByEmail,
       },
       { headers: CORS_HEADERS }
     );

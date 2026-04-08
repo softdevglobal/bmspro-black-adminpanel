@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { agentTrackingFieldsFromFirestore } from "@/lib/customerNotificationAgentTrackingFields";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest) {
           null,
         notificationReviewed: d.notificationReviewed === true,
         calledCustomer: d.calledCustomer === true,
+        ...agentTrackingFieldsFromFirestore(d as Record<string, unknown>),
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
       };
     })

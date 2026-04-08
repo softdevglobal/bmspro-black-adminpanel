@@ -246,6 +246,18 @@ export const CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS = {
   notificationReviewed: false,
   /** Call center agent has called the customer about this matter. */
   calledCustomer: false,
+  /** Firebase UID of the agent/staff who last set `notificationReviewed` to true. */
+  notificationReviewedByUid: null as string | null,
+  /** Legacy / alias of display name for older clients. */
+  notificationReviewedByName: null as string | null,
+  /** Preferred label for call-center UI (from `call_center_agents.displayName` or `users.displayName`). */
+  notificationReviewedByDisplayName: null as string | null,
+  notificationReviewedByEmail: null as string | null,
+  /** Firebase UID of the agent/staff who last set `calledCustomer` to true. */
+  calledCustomerByUid: null as string | null,
+  calledCustomerByName: null as string | null,
+  calledCustomerByDisplayName: null as string | null,
+  calledCustomerByEmail: null as string | null,
 } as const;
 
 /** Booking status messages that go to the customer (also mirrored to `customer_notifications` when possible). */

@@ -5,6 +5,7 @@ import {
   LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
   isCustomerFacingNotificationsDoc,
 } from "@/lib/callCenterCustomerInboxFilters";
+import { agentTrackingFieldsFromFirestore } from "@/lib/customerNotificationAgentTrackingFields";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -129,6 +130,14 @@ type MappedNotification = {
   notificationReviewed: boolean;
   /** Call center agent has called the customer. */
   calledCustomer: boolean;
+  notificationReviewedByUid: string | null;
+  notificationReviewedByName: string | null;
+  notificationReviewedByDisplayName: string | null;
+  notificationReviewedByEmail: string | null;
+  calledCustomerByUid: string | null;
+  calledCustomerByName: string | null;
+  calledCustomerByDisplayName: string | null;
+  calledCustomerByEmail: string | null;
 };
 
 type MappedAdminNotification = {
@@ -189,6 +198,7 @@ function mapCustomerDoc(
     customerPhone: docPhone || metaPhone || null,
     notificationReviewed: d.notificationReviewed === true,
     calledCustomer: d.calledCustomer === true,
+    ...agentTrackingFieldsFromFirestore(d as Record<string, unknown>),
   };
 }
 
@@ -247,6 +257,7 @@ function mapNotificationsDocToCustomerPanel(
     customerPhone: docPhone || metaPhone || null,
     notificationReviewed: d.notificationReviewed === true,
     calledCustomer: d.calledCustomer === true,
+    ...agentTrackingFieldsFromFirestore(d as Record<string, unknown>),
   };
 }
 

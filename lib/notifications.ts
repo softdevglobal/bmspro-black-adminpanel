@@ -238,6 +238,45 @@ export function resolveCustomerNameForStorage(source: Record<string, any>): stri
 }
 
 /**
+ * Call-center agent workflow on customer-related notifications (`notifications` + `customer_notifications`).
+ * Both default to false at creation; agents can update later (e.g. via admin API).
+ */
+export const CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS = {
+  /** Call center agent has opened/reviewed this notification. */
+  notificationReviewed: false,
+  /** Call center agent has called the customer about this matter. */
+  calledCustomer: false,
+} as const;
+
+/** Booking status messages that go to the customer (also mirrored to `customer_notifications` when possible). */
+const CUSTOMER_LIFECYCLE_NOTIFICATION_TYPES = new Set<string>([
+  "booking_confirmed",
+  "booking_completed",
+  "booking_canceled",
+  "booking_status_changed",
+]);
+
+/**
+ * Whether this `notifications` row is customer-related and should store call-center tracking fields.
+ * Avoids attaching flags to staff/admin-only rows (e.g. `staff_assignment` with `clientPhone` only).
+ */
+function shouldAttachCallCenterAgentTracking(cleanData: Record<string, any>): boolean {
+  const hasCustomerRecipient =
+    Boolean(String(cleanData.customerUid || "").trim()) ||
+    Boolean(String(cleanData.customerEmail || "").trim()) ||
+    Boolean(String(cleanData.clientEmail || "").trim());
+
+  const hasCustomerContact =
+    hasCustomerRecipient || Boolean(String(cleanData.clientPhone || "").trim());
+
+  const type = String(cleanData.type || "").trim();
+  if (CUSTOMER_LIFECYCLE_NOTIFICATION_TYPES.has(type) && hasCustomerContact) {
+    return true;
+  }
+  return hasCustomerRecipient;
+}
+
+/**
  * Staff / admin / owner-only notification types — never copy into the booking-engine
  * customer inbox (`customer_notifications`).
  */
@@ -302,6 +341,7 @@ async function mirrorBookingEngineCustomerInbox(
     price: typeof cleanData.price === "number" ? cleanData.price : null,
     customerPhone: resolveCustomerPhoneForStorage(cleanData),
     customerName: resolveCustomerNameForStorage(cleanData),
+    ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
     workshopName,
     createdAt: FieldValue.serverTimestamp(),
   };
@@ -329,10 +369,7 @@ export async function createNotification(data: Omit<Notification, "id" | "create
       }
     });
 
-    const targetsCustomerInApp =
-      Boolean(String(cleanData.customerUid || "").trim()) ||
-      Boolean(String(cleanData.customerEmail || "").trim()) ||
-      Boolean(String(cleanData.clientEmail || "").trim());
+    const targetsCustomerInApp = shouldAttachCallCenterAgentTracking(cleanData);
     if (targetsCustomerInApp) {
       const ph = resolveCustomerPhoneForStorage(cleanData);
       if (ph) cleanData.customerPhone = ph;
@@ -341,6 +378,7 @@ export async function createNotification(data: Omit<Notification, "id" | "create
         cleanData.clientName = nm;
         if (!String(cleanData.customerName || "").trim()) cleanData.customerName = nm;
       }
+      Object.assign(cleanData, CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS);
     }
     
     // CRITICAL: Ensure branchAdminUid is explicitly set (don't allow null/undefined)

@@ -53,6 +53,8 @@ export async function GET(req: NextRequest) {
           (typeof d.customerName === "string" && d.customerName.trim()) ||
           (typeof d.clientName === "string" && d.clientName.trim()) ||
           null,
+        notificationReviewed: d.notificationReviewed === true,
+        calledCustomer: d.calledCustomer === true,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
       };
     })

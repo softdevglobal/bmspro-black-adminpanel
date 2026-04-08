@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import {
   createNotification,
   createAdditionalIssueRejectedNotification,
+  CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
   resolveCustomerNameForStorage,
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
@@ -160,6 +161,7 @@ export async function PATCH(
             read: false,
             customerPhone: resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ?? null,
             customerName: resolveCustomerNameForStorage(bookingData as Record<string, any>) ?? null,
+            ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
             workshopName,
             createdAt: FieldValue.serverTimestamp(),
           });

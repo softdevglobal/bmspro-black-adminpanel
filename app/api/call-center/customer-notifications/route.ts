@@ -121,6 +121,10 @@ type MappedNotification = {
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  /** Call center agent has reviewed/opened this notification. */
+  notificationReviewed: boolean;
+  /** Call center agent has called the customer. */
+  calledCustomer: boolean;
 };
 
 type MappedAdminNotification = {
@@ -179,6 +183,8 @@ function mapCustomerDoc(
     customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || null,
     customerPhone: docPhone || metaPhone || null,
+    notificationReviewed: d.notificationReviewed === true,
+    calledCustomer: d.calledCustomer === true,
   };
 }
 
@@ -258,6 +264,8 @@ function mapNotificationsDocToCustomerPanel(
     customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || em || null,
     customerPhone: docPhone || metaPhone || null,
+    notificationReviewed: d.notificationReviewed === true,
+    calledCustomer: d.calledCustomer === true,
   };
 }
 

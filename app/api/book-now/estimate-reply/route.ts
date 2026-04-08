@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { sendEstimateReplyEmail } from "@/lib/emailService";
-import { resolveCustomerNameForStorage, resolveCustomerPhoneForStorage } from "@/lib/notifications";
+import {
+  CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
+  resolveCustomerNameForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -76,6 +80,7 @@ export async function POST(req: NextRequest) {
           read: false,
           customerPhone: customerPhone ?? null,
           customerName: customerName ?? null,
+          ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
           workshopName: (await db.collection("users").doc(ownerUid).get()).data()?.workshopName || "Workshop",
           createdAt: FieldValue.serverTimestamp(),
         });

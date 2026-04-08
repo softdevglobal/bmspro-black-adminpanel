@@ -49,6 +49,10 @@ export async function GET(req: NextRequest) {
           (typeof d.customerPhone === "string" && d.customerPhone.trim()) ||
           (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
           null,
+        customerName:
+          (typeof d.customerName === "string" && d.customerName.trim()) ||
+          (typeof d.clientName === "string" && d.clientName.trim()) ||
+          null,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
       };
     })

@@ -262,9 +262,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         };
         if (bookingData.customerUid) notificationData.customerUid = bookingData.customerUid;
         if (bookingData.clientEmail) notificationData.customerEmail = bookingData.clientEmail;
+        if (bookingData.clientPhone) notificationData.customerPhone = bookingData.clientPhone;
         if (bookingData.bookingCode) notificationData.bookingCode = bookingData.bookingCode;
         if (bookingData.branchName) notificationData.branchName = bookingData.branchName;
         if (bookingData.branchId) notificationData.branchId = bookingData.branchId;
+        notificationData.clientName = clientName;
         notificationData.staffName = staffName;
         notificationData.serviceName = bookingData.serviceName;
         await createNotification(notificationData);

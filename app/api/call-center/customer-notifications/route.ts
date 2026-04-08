@@ -154,6 +154,10 @@ function mapCustomerDoc(
     (typeof d.customerPhone === "string" && d.customerPhone.trim()) ||
     (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
     "";
+  const docCustomerName =
+    (typeof d.customerName === "string" && d.customerName.trim()) ||
+    (typeof d.clientName === "string" && d.clientName.trim()) ||
+    "";
   const metaPhone = meta?.phone?.trim() || "";
   return {
     source: "customer_panel",
@@ -172,7 +176,7 @@ function mapCustomerDoc(
     read: d.read === true,
     workshopName: (d.workshopName as string) || null,
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
-    customerName: meta?.name || null,
+    customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || null,
     customerPhone: docPhone || metaPhone || null,
   };
@@ -229,6 +233,10 @@ function mapNotificationsDocToCustomerPanel(
     (typeof d.customerPhone === "string" && d.customerPhone.trim()) ||
     (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
     "";
+  const docCustomerName =
+    (typeof d.customerName === "string" && d.customerName.trim()) ||
+    (typeof d.clientName === "string" && d.clientName.trim()) ||
+    "";
   const metaPhone = meta?.phone?.trim() || "";
   return {
     source: "customer_panel",
@@ -247,7 +255,7 @@ function mapNotificationsDocToCustomerPanel(
     read: d.read === true,
     workshopName: (ownerUid ? ownerNames.get(ownerUid) : null) || (d.branchName as string) || null,
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
-    customerName: meta?.name || (d.clientName as string) || null,
+    customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || em || null,
     customerPhone: docPhone || metaPhone || null,
   };

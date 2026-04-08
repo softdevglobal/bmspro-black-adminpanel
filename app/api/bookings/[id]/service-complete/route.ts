@@ -170,6 +170,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           if (bookingData.clientEmail) notificationData.customerEmail = bookingData.clientEmail;
           if (bookingData.clientPhone) notificationData.customerPhone = bookingData.clientPhone;
           if (bookingData.bookingCode) notificationData.bookingCode = bookingData.bookingCode;
+          notificationData.clientName = clientName;
           if (staffName) notificationData.staffName = staffName;
           if (bookingData.serviceName) notificationData.serviceName = bookingData.serviceName;
           if (bookingData.branchName) notificationData.branchName = bookingData.branchName;
@@ -474,6 +475,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           if (bookingData.clientEmail) notificationData.customerEmail = bookingData.clientEmail;
           if (bookingData.clientPhone) notificationData.customerPhone = bookingData.clientPhone;
           if (bookingData.bookingCode) notificationData.bookingCode = bookingData.bookingCode;
+          notificationData.clientName = clientName;
           if (staffName) notificationData.staffName = staffName;
           if (bookingData.serviceName) notificationData.serviceName = bookingData.serviceName;
           if (bookingData.branchName) notificationData.branchName = bookingData.branchName;
@@ -683,6 +685,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         if (bookingData.clientEmail) notificationData.customerEmail = bookingData.clientEmail;
         if (bookingData.clientPhone) notificationData.customerPhone = bookingData.clientPhone;
         if (bookingData.bookingCode) notificationData.bookingCode = bookingData.bookingCode;
+        notificationData.clientName = clientName;
         if (staffName) notificationData.staffName = staffName;
         if (finalServiceName) notificationData.serviceName = finalServiceName;
         if (bookingData.branchName) notificationData.branchName = bookingData.branchName;

@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import {
   createNotification,
   createAdditionalIssueRejectedNotification,
+  resolveCustomerNameForStorage,
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
 import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
@@ -158,6 +159,7 @@ export async function PATCH(
             message: `${issueTitle}: $${price.toFixed(2)} - Please review and approve or decline.`,
             read: false,
             customerPhone: resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ?? null,
+            customerName: resolveCustomerNameForStorage(bookingData as Record<string, any>) ?? null,
             workshopName,
             createdAt: FieldValue.serverTimestamp(),
           });

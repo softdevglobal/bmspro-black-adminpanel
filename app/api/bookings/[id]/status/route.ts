@@ -702,6 +702,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         if (data.clientEmail) notificationData.customerEmail = data.clientEmail;
         if (data.clientPhone) notificationData.customerPhone = data.clientPhone;
         if (data.bookingCode) notificationData.bookingCode = data.bookingCode;
+        notificationData.clientName = clientName;
         if (finalStaffName) notificationData.staffName = finalStaffName;
         if (finalServiceName) notificationData.serviceName = finalServiceName;
         if (data.branchName) notificationData.branchName = data.branchName;

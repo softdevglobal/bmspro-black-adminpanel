@@ -227,6 +227,16 @@ export function resolveCustomerPhoneForStorage(source: Record<string, any>): str
   return s || null;
 }
 
+/** Display name on customer-facing notification rows (`clientName` on `notifications`, `customerName` on inbox). */
+export function resolveCustomerNameForStorage(source: Record<string, any>): string | null {
+  const s =
+    String(source?.clientName ?? "").trim() ||
+    String(source?.client ?? "").trim() ||
+    String(source?.customerName ?? "").trim() ||
+    String(source?.name ?? "").trim();
+  return s || null;
+}
+
 /**
  * Staff / admin / owner-only notification types — never copy into the booking-engine
  * customer inbox (`customer_notifications`).
@@ -291,6 +301,7 @@ async function mirrorBookingEngineCustomerInbox(
     issueTitle: cleanData.issueTitle ?? null,
     price: typeof cleanData.price === "number" ? cleanData.price : null,
     customerPhone: resolveCustomerPhoneForStorage(cleanData),
+    customerName: resolveCustomerNameForStorage(cleanData),
     workshopName,
     createdAt: FieldValue.serverTimestamp(),
   };
@@ -325,6 +336,11 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     if (targetsCustomerInApp) {
       const ph = resolveCustomerPhoneForStorage(cleanData);
       if (ph) cleanData.customerPhone = ph;
+      const nm = resolveCustomerNameForStorage(cleanData);
+      if (nm) {
+        cleanData.clientName = nm;
+        if (!String(cleanData.customerName || "").trim()) cleanData.customerName = nm;
+      }
     }
     
     // CRITICAL: Ensure branchAdminUid is explicitly set (don't allow null/undefined)

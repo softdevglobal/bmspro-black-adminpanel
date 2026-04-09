@@ -62,6 +62,9 @@ export type CallCenterAdditionalIssuePayload = {
   completedByStaffName: string;
   completionNote: string;
   completionImageUrl: string | null;
+  /** Snapshot from booking when issue is created / quote approved (call center + history). */
+  customerPhone: string | null;
+  customerEmail: string | null;
 };
 
 export function serializeAdditionalIssueForCallCenterApi(
@@ -96,6 +99,16 @@ export function serializeAdditionalIssueForCallCenterApi(
     completionNote: str(i.completionNote),
     completionImageUrl:
       i.completionImageUrl == null ? null : str(i.completionImageUrl) || null,
+    customerPhone: (() => {
+      const p = str(i.customerPhone) || str(i.clientPhone);
+      const t = p.trim();
+      return t || null;
+    })(),
+    customerEmail: (() => {
+      const e = str(i.customerEmail) || str(i.clientEmail);
+      const t = e.trim();
+      return t || null;
+    })(),
   };
 }
 
@@ -104,4 +117,22 @@ export function serializeAdditionalIssuesForCallCenterApi(
 ): CallCenterAdditionalIssuePayload[] {
   if (!Array.isArray(list)) return [];
   return list.map((item) => serializeAdditionalIssueForCallCenterApi(item));
+}
+
+/** Older issues may lack per-row contact; fill from the parent booking for GET APIs. */
+export function mergeBookingContactIntoAdditionalIssues(
+  issues: CallCenterAdditionalIssuePayload[],
+  booking: Record<string, unknown>
+): CallCenterAdditionalIssuePayload[] {
+  const bookingPhone =
+    String(booking.clientPhone || booking.customerPhone || booking.phone || booking.mobile || "").trim() ||
+    null;
+  const bookingEmail =
+    String(booking.clientEmail || booking.customerEmail || "").trim() || null;
+  if (!bookingPhone && !bookingEmail) return issues;
+  return issues.map((issue) => ({
+    ...issue,
+    customerPhone: issue.customerPhone || bookingPhone,
+    customerEmail: issue.customerEmail || bookingEmail,
+  }));
 }

@@ -74,6 +74,16 @@ export async function GET(req: NextRequest) {
               status: i.status || "pending",
               customerResponse: i.customerResponse || null,
               customerRespondedAt: i.customerRespondedAt || null,
+              customerPhone:
+                (typeof i.customerPhone === "string" && i.customerPhone.trim()) ||
+                (typeof i.clientPhone === "string" && i.clientPhone.trim()) ||
+                (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
+                null,
+              customerEmail:
+                (typeof i.customerEmail === "string" && i.customerEmail.trim()) ||
+                (typeof i.clientEmail === "string" && i.clientEmail.trim()) ||
+                (typeof d.clientEmail === "string" && d.clientEmail.trim()) ||
+                null,
             }))
           : null,
       };

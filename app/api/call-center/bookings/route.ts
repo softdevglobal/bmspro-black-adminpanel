@@ -7,7 +7,10 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { normalizeBookingStatus, getServiceCompletionProgress } from "@/lib/bookingTypes";
-import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
+import {
+  mergeBookingContactIntoAdditionalIssues,
+  serializeAdditionalIssuesForCallCenterApi,
+} from "@/lib/callCenterAdditionalIssues";
 
 export const runtime = "nodejs";
 
@@ -124,7 +127,10 @@ export async function GET(req: NextRequest) {
       const additionalIssuesRaw = Array.isArray(d.additionalIssues)
         ? d.additionalIssues
         : [];
-      const additionalIssues = serializeAdditionalIssuesForCallCenterApi(additionalIssuesRaw);
+      const additionalIssues = mergeBookingContactIntoAdditionalIssues(
+        serializeAdditionalIssuesForCallCenterApi(additionalIssuesRaw),
+        d as Record<string, unknown>
+      );
 
       bookings.push({
         id: doc.id,

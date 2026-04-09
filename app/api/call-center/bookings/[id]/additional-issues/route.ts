@@ -5,7 +5,10 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
-import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
+import {
+  mergeBookingContactIntoAdditionalIssues,
+  serializeAdditionalIssuesForCallCenterApi,
+} from "@/lib/callCenterAdditionalIssues";
 
 export const runtime = "nodejs";
 
@@ -54,7 +57,10 @@ export async function GET(
       );
     }
 
-    const issues = serializeAdditionalIssuesForCallCenterApi(d.additionalIssues);
+    const issues = mergeBookingContactIntoAdditionalIssues(
+      serializeAdditionalIssuesForCallCenterApi(d.additionalIssues),
+      d as Record<string, unknown>
+    );
 
     const pendingPricing = issues.filter(
       (i: any) => i.status === "pending"

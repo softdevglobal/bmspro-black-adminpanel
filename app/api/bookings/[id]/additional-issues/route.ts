@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus } from "@/lib/bookingTypes";
-import { createNotification, createBranchAdminNotification, getBranchAdminUids } from "@/lib/notifications";
+import {
+  createNotification,
+  createBranchAdminNotification,
+  getBranchAdminUids,
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { sendAdditionalIssueNotificationEmail } from "@/lib/emailService";
 
@@ -56,6 +62,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       labourTimeHours: number;
       serviceId?: string | null;
       imageUrl?: string | null;
+      /** Optional snapshot when booking has no phone/email yet */
+      customerPhone?: string;
+      customerEmail?: string;
     };
 
     const issueTitle = (body.issueTitle || "").toString().trim();
@@ -109,6 +118,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const now = new Date().toISOString();
 
     const imageUrl = (body.imageUrl || "").toString().trim() || null;
+    const postPhone = typeof body.customerPhone === "string" ? body.customerPhone.trim() : "";
+    const postEmailRaw = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
+    const postEmail =
+      postEmailRaw && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(postEmailRaw) ? postEmailRaw : "";
     const newIssue = {
       id: issueId,
       issueTitle,
@@ -126,6 +139,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       reportedByStaffUid: staffUid,
       reportedByStaffName: staffName,
       serviceId: body.serviceId ?? null,
+      customerPhone:
+        postPhone ||
+        resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ||
+        null,
+      customerEmail:
+        postEmail ||
+        resolveCustomerEmailForStorage(bookingData as Record<string, any>) ||
+        null,
     };
 
     const existingIssues = Array.isArray(bookingData.additionalIssues) ? bookingData.additionalIssues : [];

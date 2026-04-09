@@ -10,7 +10,10 @@ import {
   getServiceCompletionProgress,
   getTaskProgress,
 } from "@/lib/bookingTypes";
-import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
+import {
+  mergeBookingContactIntoAdditionalIssues,
+  serializeAdditionalIssuesForCallCenterApi,
+} from "@/lib/callCenterAdditionalIssues";
 
 export const runtime = "nodejs";
 
@@ -118,7 +121,10 @@ export async function GET(
     const status = normalizeBookingStatus(d.status);
     const services = Array.isArray(d.services) ? d.services : [];
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
-    const additionalIssues = serializeAdditionalIssuesForCallCenterApi(d.additionalIssues);
+    const additionalIssues = mergeBookingContactIntoAdditionalIssues(
+      serializeAdditionalIssuesForCallCenterApi(d.additionalIssues),
+      d as Record<string, unknown>
+    );
 
     const serviceProgress = getServiceCompletionProgress(services);
     const taskProgress = getTaskProgress(tasks);

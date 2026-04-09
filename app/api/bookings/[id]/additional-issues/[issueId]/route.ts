@@ -5,6 +5,7 @@ import {
   createNotification,
   createAdditionalIssueRejectedNotification,
   CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
+  resolveCustomerEmailForStorage,
   resolveCustomerNameForStorage,
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
@@ -29,7 +30,13 @@ export async function PATCH(
     const userData = authResult.userData;
 
     const { id, issueId } = await context.params;
-    const body = (await req.json().catch(() => ({}))) as { price?: number; status?: "approved" | "rejected" };
+    const body = (await req.json().catch(() => ({}))) as {
+      price?: number;
+      status?: "approved" | "rejected";
+      /** Optional: persist when booking record has no phone yet */
+      customerPhone?: string;
+      customerEmail?: string;
+    };
 
     const status = body.status === "approved" || body.status === "rejected" ? body.status : "approved";
     const price = status === "rejected" ? null : (typeof body.price === "number" ? body.price : parseFloat(String(body.price ?? "")));
@@ -72,6 +79,21 @@ export async function PATCH(
 
     const now = new Date().toISOString();
     const updatedIssues = [...issues];
+    const issueSnap = updatedIssues[issueIndex] as Record<string, unknown>;
+    const bodyPhone = typeof body.customerPhone === "string" ? body.customerPhone.trim() : "";
+    const bodyEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
+    const phoneForQuote =
+      bodyPhone ||
+      resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ||
+      resolveCustomerPhoneForStorage(issueSnap as Record<string, any>) ||
+      null;
+    const emailFromBody =
+      bodyEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyEmail) ? bodyEmail : "";
+    const emailForQuote =
+      emailFromBody ||
+      resolveCustomerEmailForStorage(bookingData as Record<string, any>) ||
+      resolveCustomerEmailForStorage(issueSnap as Record<string, any>) ||
+      null;
     updatedIssues[issueIndex] = {
       ...updatedIssues[issueIndex],
       price: status === "approved" ? price : null,
@@ -79,6 +101,8 @@ export async function PATCH(
       priceSetByUid: userData.uid,
       priceSetByName: userData.name || "Admin",
       status,
+      customerPhone: phoneForQuote,
+      customerEmail: emailForQuote,
     };
 
     await bookingRef.update({
@@ -159,7 +183,8 @@ export async function PATCH(
             title: "Additional Work Quote Ready",
             message: `${issueTitle}: $${price.toFixed(2)} - Please review and approve or decline.`,
             read: false,
-            customerPhone: resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ?? null,
+            customerPhone: phoneForQuote,
+            clientPhone: phoneForQuote,
             customerName: resolveCustomerNameForStorage(bookingData as Record<string, any>) ?? null,
             ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
             workshopName,

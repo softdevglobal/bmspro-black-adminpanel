@@ -223,8 +223,22 @@ export function resolveCustomerPhoneForStorage(source: Record<string, any>): str
   const s =
     String(source?.customerPhone ?? "").trim() ||
     String(source?.clientPhone ?? "").trim() ||
-    String(source?.phone ?? "").trim();
+    String(source?.phone ?? "").trim() ||
+    String(source?.mobile ?? "").trim() ||
+    String(source?.phoneNumber ?? "").trim() ||
+    String(source?.contactNumber ?? "").trim();
   return s || null;
+}
+
+/** Best email for customer-facing rows (booking / issue snapshot). */
+export function resolveCustomerEmailForStorage(source: Record<string, any>): string | null {
+  const em =
+    String(source?.clientEmail ?? "").trim() ||
+    String(source?.customerEmail ?? "").trim();
+  if (em && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return em;
+  const cid = String(source?.customerId ?? "").trim();
+  if (cid && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cid)) return cid;
+  return em || null;
 }
 
 /** Display name on customer-facing notification rows (`clientName` on `notifications`, `customerName` on inbox). */

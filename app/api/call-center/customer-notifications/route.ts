@@ -7,6 +7,14 @@ import {
   isCustomerFacingNotificationsDoc,
 } from "@/lib/callCenterCustomerInboxFilters";
 import { agentTrackingFieldsFromFirestore } from "@/lib/customerNotificationAgentTrackingFields";
+import { firestoreDocBestIso } from "@/lib/firestoreDocTimestamps";
+import {
+  dedupeNewEstimateNotifications,
+  fetchCallCenterOpsNotifications,
+  fetchEstimatesForCallCenter,
+  mapEstimateDocForCallCenterFeed,
+  type MappedEstimateFeedItem,
+} from "@/lib/callCenterNotificationFeedExtras";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -157,9 +165,18 @@ type MappedAdminNotification = {
   clientName: string | null;
   createdAt: string | null;
   workshopName: string | null;
+  estimateId: string | null;
+  issueId: string | null;
+  issueTitle: string | null;
+  price: number | null;
+  /** Booking / workflow status when present on the notification doc. */
+  status: string | null;
 };
 
-type UnifiedNotification = MappedNotification | MappedAdminNotification;
+type UnifiedNotification =
+  | MappedNotification
+  | MappedAdminNotification
+  | MappedEstimateFeedItem;
 
 function mapCustomerDoc(
   doc: QueryDocumentSnapshot,
@@ -193,7 +210,7 @@ function mapCustomerDoc(
     message: (d.message as string) || "",
     read: d.read === true,
     workshopName: (d.workshopName as string) || null,
-    createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
+    createdAt: firestoreDocBestIso(d as Record<string, unknown>, ["createdAt", "updatedAt"]),
     customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || null,
     customerPhone: docPhone || metaPhone || null,
@@ -278,7 +295,7 @@ function mapNotificationsDocToCustomerPanel(
     message: (d.message as string) || "",
     read: d.read === true,
     workshopName: (ownerUid ? ownerNames.get(ownerUid) : null) || (d.branchName as string) || null,
-    createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
+    createdAt: firestoreDocBestIso(d as Record<string, unknown>, ["createdAt", "updatedAt"]),
     customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || em || null,
     customerPhone: docPhone || metaPhone || null,
@@ -418,7 +435,16 @@ function mapAdminPanelDoc(
     clientName: (d.clientName as string) || null,
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
     workshopName: ownerUid ? ownerNames.get(ownerUid) || null : null,
+    estimateId: (d.estimateId as string) || null,
+    issueId: (d.issueId as string) || null,
+    issueTitle: (d.issueTitle as string) || null,
+    price: typeof d.price === "number" ? d.price : null,
+    status: typeof d.status === "string" ? d.status : null,
   };
+}
+
+function unifiedItemCreatedAt(r: UnifiedNotification): string | null {
+  return r.createdAt ?? null;
 }
 
 function parseTime(iso: string | null): number {
@@ -477,11 +503,12 @@ async function fetchEntireCustomerNotificationsCollection(
  * **Workshop scope** — `ownerUid` (or X-Tenant-Id): all **booking-engine customer** notifications
  * for that tenant (`customer_notifications` only — what customers see in the public booking app).
  *
- * **System scope** — `all=1` or `scope=all`: booking-engine customer notifications for **all owners / all customers**.
- * Any **call center agent** or **super admin** with `all=1` loads the full `customer_notifications` collection (plus legacy `notifications` with customerUid).
- * **Customer-only feed (default):** `notifications` entries have `source: "customer_panel"` — same Firestore data customers see
- * (`customer_notifications` plus legacy `notifications` with `customerUid`). Use **`customerOnly=1`** to force that even if a client sends `includeAdmin=1`.
- * Optional **`includeAdmin=1`**: also append internal staff/admin rows (`source: "admin_panel"`); full internal collection for **super admin** or **call center admin**, scoped for agents.
+ * **System scope** — `all=1` or `scope=all`: customer inbox plus **call-center extras** (unless `customerOnly=1`):
+ * - `additional_issue_found` and `new_estimate` from `notifications` (when not already covered by `includeAdmin=1`).
+ * - All **`estimates`** documents (`source: "estimate"`) with vehicle / description / status.
+ * Super admin / CC-admin agents: all workshops; other agents: `assignedWorkshops` via `ownerUid`.
+ * **Customer-only feed:** `customerOnly=1` — hide ops notifications and estimate records (book-now inbox only).
+ * Optional **`includeAdmin=1`**: full `notifications` as `admin_panel` (includes ops types; dedicated ops fetch is skipped to avoid duplicates).
  *
  * Headers: Authorization: Bearer <Firebase ID token>
  */
@@ -542,6 +569,20 @@ export async function GET(req: NextRequest) {
         scopedToWorkshops = [...gate.auth.user.assignedWorkshops];
       }
 
+      const workshopScopeForFetch: string[] | null = fullAccess
+        ? null
+        : gate.auth.kind === "agent"
+          ? scopedToWorkshops ?? []
+          : null;
+
+      const estimateDocs = !customerOnly
+        ? await fetchEstimatesForCallCenter(db, workshopScopeForFetch)
+        : [];
+      const opsDocsDedicated =
+        !customerOnly && !includeAdminPanel
+          ? await fetchCallCenterOpsNotifications(db, workshopScopeForFetch)
+          : [];
+
       const custDocs = await fetchEntireCustomerNotificationsCollection(db);
 
       const adminDocs =
@@ -578,6 +619,14 @@ export async function GET(req: NextRequest) {
       for (const doc of adminDocs) {
         const d = doc.data();
         const ou = d.ownerUid || d.targetOwnerUid || d.targetAdminUid;
+        if (ou) ownerUids.add(String(ou));
+      }
+      for (const doc of estimateDocs) {
+        const ou = doc.data().ownerUid;
+        if (ou) ownerUids.add(String(ou));
+      }
+      for (const doc of opsDocsDedicated) {
+        const ou = doc.data().ownerUid;
         if (ou) ownerUids.add(String(ou));
       }
 
@@ -617,28 +666,52 @@ export async function GET(req: NextRequest) {
       }
 
       const fromCn = custDocs.map((doc) => mapCustomerDoc(doc, customerMeta));
-      let customerInboxRows = mergeCustomerPanelInbox(
+      const customerInboxRows = mergeCustomerPanelInbox(
         fromCn,
         legacyDocs,
         customerMeta,
         ownerNames
       );
+
+      const estimateRows = estimateDocs.map((doc) =>
+        mapEstimateDocForCallCenterFeed(doc, ownerNames)
+      );
+      const estimateFirestoreIds = new Set(estimateRows.map((e) => e.id));
+
+      const opsMappedDedicated = dedupeNewEstimateNotifications(
+        opsDocsDedicated.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
+        estimateFirestoreIds
+      );
+
+      const adminMapped = dedupeNewEstimateNotifications(
+        includeAdminPanel
+          ? adminDocs.map((doc) => mapAdminPanelDoc(doc, ownerNames))
+          : [],
+        estimateFirestoreIds
+      );
+
+      let merged: UnifiedNotification[] = [
+        ...customerInboxRows,
+        ...opsMappedDedicated,
+        ...adminMapped,
+        ...estimateRows,
+      ];
+      merged.sort(
+        (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
+      );
+
       if (scopedToWorkshops && scopedToWorkshops.length > 0) {
         const allow = new Set(scopedToWorkshops);
-        customerInboxRows = customerInboxRows.filter(
-          (m) => m.ownerUid != null && allow.has(String(m.ownerUid).trim())
+        merged = merged.filter(
+          (r) => r.ownerUid != null && allow.has(String(r.ownerUid).trim())
         );
       }
-
-      const merged: UnifiedNotification[] = [
-        ...customerInboxRows,
-        ...adminDocs.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
-      ];
 
       let out = merged;
       if (unreadOnly) out = out.filter((r) => !r.read);
 
       const unreadCount = merged.filter((r) => !r.read).length;
+      const customerFacingNotificationCount = merged.filter((r) => r.source === "customer_panel").length;
 
       return NextResponse.json(
         {
@@ -647,16 +720,18 @@ export async function GET(req: NextRequest) {
           scopedToWorkshops,
           customerOnly,
           includeAdminPanel,
-          /** Same inbox as book-now per customer: `customer_notifications` + legacy `notifications` (customerUid). */
-          customerFacingNotificationCount: customerInboxRows.length,
+          /** Rows from book-now customer inbox after workshop scope (if any). */
+          customerFacingNotificationCount,
           notifications: out,
           totalMerged: merged.length,
           unreadCount,
           counts: {
-            bookingEngineCustomerInbox: customerInboxRows.length,
+            bookingEngineCustomerInbox: customerFacingNotificationCount,
             customerNotificationsDocs: custDocs.length,
             legacyNotificationsMerged: legacyDocs.length,
             adminStaffApp: adminDocs.length,
+            callCenterOpsNotifications: opsDocsDedicated.length,
+            estimates: estimateRows.length,
           },
         },
         { headers: CORS_HEADERS }
@@ -744,19 +819,39 @@ export async function GET(req: NextRequest) {
 
     const mergedRows = mergeCustomerPanelInbox(rows, legacyDocs, customerMeta, ownerNames);
 
-    let filtered = unreadOnly ? mergedRows.filter((r) => !r.read) : mergedRows;
+    const opsDocsW = !customerOnly
+      ? await fetchCallCenterOpsNotifications(db, [tenant])
+      : [];
+    const estimateDocsW = !customerOnly ? await fetchEstimatesForCallCenter(db, [tenant]) : [];
+    const estimateRowsW = estimateDocsW.map((doc) =>
+      mapEstimateDocForCallCenterFeed(doc, ownerNames)
+    );
+    const estimateIdSetW = new Set(estimateRowsW.map((e) => e.id));
+    const opsMappedW = dedupeNewEstimateNotifications(
+      opsDocsW.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
+      estimateIdSetW
+    );
 
-    const unreadCount = mergedRows.filter((r) => !r.read).length;
+    let workshopMerged: UnifiedNotification[] = [...mergedRows, ...opsMappedW, ...estimateRowsW];
+    workshopMerged.sort(
+      (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
+    );
+
+    let filtered = unreadOnly ? workshopMerged.filter((r) => !r.read) : workshopMerged;
+
+    const unreadCount = workshopMerged.filter((r) => !r.read).length;
 
     return NextResponse.json(
       {
         scope: "workshop",
         notifications: filtered,
-        totalFetched: mergedRows.length,
+        totalFetched: workshopMerged.length,
         unreadCount,
         counts: {
           customerNotificationsDocs: rows.length,
           legacyNotificationsMerged: legacyDocs.length,
+          callCenterOpsNotifications: opsDocsW.length,
+          estimates: estimateRowsW.length,
         },
       },
       { headers: CORS_HEADERS }

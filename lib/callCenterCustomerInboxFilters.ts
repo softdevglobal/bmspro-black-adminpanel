@@ -46,7 +46,11 @@ export function isCustomerFacingNotificationsDoc(d: DocumentData): boolean {
     const em =
       (typeof d.customerEmail === "string" && d.customerEmail.trim()) ||
       (typeof d.clientEmail === "string" && d.clientEmail.trim());
-    if (em) return true;
+    const phone =
+      (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
+      (typeof d.customerPhone === "string" && d.customerPhone.trim());
+    /** Phone-only / walk-in bookings still get lifecycle rows in `notifications`. */
+    if (em || phone) return true;
   }
 
   if (t && CUSTOMER_INBOX_TYPES_EMAIL_OK.has(t)) {

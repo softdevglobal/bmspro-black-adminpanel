@@ -3,6 +3,7 @@ import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore"
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
   LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
+  LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
   isCustomerFacingNotificationsDoc,
 } from "@/lib/callCenterCustomerInboxFilters";
 import { agentTrackingFieldsFromFirestore } from "@/lib/customerNotificationAgentTrackingFields";
@@ -212,6 +213,32 @@ function dedupeKeyCustomerInbox(m: MappedNotification): string {
   ].join("|");
 }
 
+/**
+ * All rows from `customer_notifications` are kept (estimates, additional quotes, booking lifecycle, etc.).
+ * Legacy `notifications` rows are only added when no `customer_notifications` doc already represents the
+ * same business key (avoids duplicate mirror + legacy). Coarse dedupe keys must not collapse two real CN docs.
+ */
+function mergeCustomerPanelInbox(
+  fromCustomerNotifications: MappedNotification[],
+  legacyDocs: QueryDocumentSnapshot[],
+  customerMeta: Map<string, { name: string; email: string; phone?: string }>,
+  ownerNames: Map<string, string>
+): MappedNotification[] {
+  const cnBusinessKeys = new Set(
+    fromCustomerNotifications.map((m) => dedupeKeyCustomerInbox(m))
+  );
+  const fromLegacy: MappedNotification[] = [];
+  for (const doc of legacyDocs) {
+    const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
+    if (!cnBusinessKeys.has(dedupeKeyCustomerInbox(m))) {
+      fromLegacy.push(m);
+    }
+  }
+  return [...fromCustomerNotifications, ...fromLegacy].sort(
+    (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+  );
+}
+
 function mapNotificationsDocToCustomerPanel(
   doc: QueryDocumentSnapshot,
   customerMeta: Map<string, { name: string; email: string; phone?: string }>,
@@ -295,7 +322,12 @@ async function fetchLegacyCustomerBookingNotifications(
     return out;
   }
 
-  for (const t of LEGACY_BOOKING_TYPES_FOR_FULL_SCAN) {
+  const legacyTypesToScan = [
+    ...LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
+    ...LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
+  ] as const;
+
+  for (const t of legacyTypesToScan) {
     try {
       let last: QueryDocumentSnapshot | undefined;
       while (true) {
@@ -502,8 +534,8 @@ export async function GET(req: NextRequest) {
       const db = adminDb();
       const fullAccess = hasFullSystemWideAccess(gate.auth);
       /**
-       * `canUseAllQueryParam` only allows super admin or call center agents — both get every owner's
-       * customer_notifications + system-wide legacy customer rows (not filtered by assigned workshops).
+       * Call center agents without CC-admin: data is limited to `assignedWorkshops` (owner UIDs).
+       * Super admins and call_center_admin agents see all tenants.
        */
       let scopedToWorkshops: string[] | null = null;
       if (!fullAccess && gate.auth.kind === "agent") {
@@ -584,19 +616,19 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const inboxByKey = new Map<string, MappedNotification>();
-      for (const doc of custDocs) {
-        const m = mapCustomerDoc(doc, customerMeta);
-        inboxByKey.set(dedupeKeyCustomerInbox(m), m);
-      }
-      for (const doc of legacyDocs) {
-        const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
-        const k = dedupeKeyCustomerInbox(m);
-        if (!inboxByKey.has(k)) inboxByKey.set(k, m);
-      }
-      const customerInboxRows = Array.from(inboxByKey.values()).sort(
-        (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+      const fromCn = custDocs.map((doc) => mapCustomerDoc(doc, customerMeta));
+      let customerInboxRows = mergeCustomerPanelInbox(
+        fromCn,
+        legacyDocs,
+        customerMeta,
+        ownerNames
       );
+      if (scopedToWorkshops && scopedToWorkshops.length > 0) {
+        const allow = new Set(scopedToWorkshops);
+        customerInboxRows = customerInboxRows.filter(
+          (m) => m.ownerUid != null && allow.has(String(m.ownerUid).trim())
+        );
+      }
 
       const merged: UnifiedNotification[] = [
         ...customerInboxRows,
@@ -710,18 +742,7 @@ export async function GET(req: NextRequest) {
 
     const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, [tenant]);
 
-    const inboxByKey = new Map<string, MappedNotification>();
-    for (const row of rows) {
-      inboxByKey.set(dedupeKeyCustomerInbox(row), row);
-    }
-    for (const doc of legacyDocs) {
-      const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
-      const k = dedupeKeyCustomerInbox(m);
-      if (!inboxByKey.has(k)) inboxByKey.set(k, m);
-    }
-    const mergedRows = Array.from(inboxByKey.values()).sort(
-      (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
-    );
+    const mergedRows = mergeCustomerPanelInbox(rows, legacyDocs, customerMeta, ownerNames);
 
     let filtered = unreadOnly ? mergedRows.filter((r) => !r.read) : mergedRows;
 

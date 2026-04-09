@@ -193,6 +193,20 @@ export function canAccessWorkshopForAuth(auth: CallCenterRequestAuth, workshopOw
   return false;
 }
 
+/**
+ * Who may POST reviewed/called tracking on customer notifications.
+ * Call center agents (verified via `call_center_agents`) may update any such row — same operational
+ * model as handling customer comms across assigned tenants; workshop list still scopes GET feeds.
+ * BMS staff (workshop owner / branch admin / super admin) stays limited to their workshop / super.
+ */
+export function canActOnCustomerNotificationTracking(
+  auth: CallCenterRequestAuth,
+  workshopOwnerUid: string
+): boolean {
+  if (auth.kind === "agent") return true;
+  return canAccessWorkshopForAuth(auth, workshopOwnerUid);
+}
+
 /** Scope for GET /api/call-center/workshops list. */
 export function workshopListScopeForAuth(
   auth: CallCenterRequestAuth

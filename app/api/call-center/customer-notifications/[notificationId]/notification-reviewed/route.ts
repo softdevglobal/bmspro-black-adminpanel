@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveNotificationActorSnapshot } from "@/lib/callCenterActorFromAuth";
 import {
   verifyCallCenterOrTenantAdminAuth,
-  canAccessWorkshopForAuth,
+  canActOnCustomerNotificationTracking,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { parseOptionalBooleanFlag } from "@/lib/parseCallCenterNotificationFlagBody";
@@ -61,7 +61,7 @@ export async function POST(
     return NextResponse.json({ error: "Notification not found" }, { status: 404, headers: CORS_HEADERS });
   }
 
-  if (!canAccessWorkshopForAuth(gate.auth, resolved.doc.ownerUid)) {
+  if (!canActOnCustomerNotificationTracking(gate.auth, resolved.doc.ownerUid)) {
     return NextResponse.json(
       { error: "Access denied to this workshop" },
       { status: 403, headers: CORS_HEADERS }

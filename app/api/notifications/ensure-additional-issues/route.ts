@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { createNotification } from "@/lib/notifications";
+import {
+  createNotification,
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -74,6 +78,10 @@ export async function POST(req: NextRequest) {
         const bookingDate = bookingData.date || "";
         const bookingTime = bookingData.time || "";
         const serviceName = bookingData.serviceName || null;
+        const notifyPhone =
+          resolveCustomerPhoneForStorage(bookingData as Record<string, any>) || undefined;
+        const notifyEmail =
+          resolveCustomerEmailForStorage(bookingData as Record<string, any>) || undefined;
 
         try {
           await createNotification({
@@ -92,6 +100,10 @@ export async function POST(req: NextRequest) {
             bookingDate: bookingDate || undefined,
             bookingTime: bookingTime || undefined,
             additionalIssueId: issueId,
+            clientPhone: notifyPhone,
+            customerPhone: notifyPhone,
+            clientEmail: notifyEmail,
+            customerEmail: notifyEmail,
           } as any);
           created++;
         } catch (e) {

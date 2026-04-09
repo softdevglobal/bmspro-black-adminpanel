@@ -164,6 +164,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const bookingDate = bookingData.date || null;
     const bookingTime = bookingData.time || null;
     const serviceName = bookingData.serviceName || null;
+    const notifyPhone =
+      resolveCustomerPhoneForStorage(bookingData as Record<string, any>) || undefined;
+    const notifyEmail =
+      resolveCustomerEmailForStorage(bookingData as Record<string, any>) || undefined;
 
     // Notify branch admin(s)
     if (branchId && ownerUid) {
@@ -185,6 +189,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             type: "additional_issue_found" as any,
             title: "Additional Issue Reported",
             message: `${staffName} found: ${issueTitle} (${clientName}) - ${bookingCode || id}`,
+            clientPhone: notifyPhone,
+            customerPhone: notifyPhone,
+            clientEmail: notifyEmail,
+            customerEmail: notifyEmail,
           });
         }
       } catch (e) {
@@ -211,6 +219,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           branchId: branchId || undefined,
           bookingDate: bookingDate || undefined,
           bookingTime: bookingTime || undefined,
+          clientPhone: notifyPhone,
+          customerPhone: notifyPhone,
+          clientEmail: notifyEmail,
+          customerEmail: notifyEmail,
         } as any);
       } catch (e) {
         console.error("Failed to notify owner:", e);

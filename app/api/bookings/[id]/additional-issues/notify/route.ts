@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { createNotification, createBranchAdminNotification, getBranchAdminUids } from "@/lib/notifications";
+import {
+  createNotification,
+  createBranchAdminNotification,
+  getBranchAdminUids,
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -64,6 +70,10 @@ export async function POST(
     const bookingDate = bookingData.date || "";
     const bookingTime = bookingData.time || "";
     const serviceName = bookingData.serviceName || null;
+    const notifyPhone =
+      resolveCustomerPhoneForStorage(bookingData as Record<string, any>) || undefined;
+    const notifyEmail =
+      resolveCustomerEmailForStorage(bookingData as Record<string, any>) || undefined;
 
     // Notify branch admin(s)
     if (branchId) {
@@ -85,6 +95,10 @@ export async function POST(
             type: "additional_issue_found" as any,
             title: "Additional Issue Reported",
             message: `${staffName} found: ${issueTitle} (${clientName}) - ${bookingCode || id}`,
+            clientPhone: notifyPhone,
+            customerPhone: notifyPhone,
+            clientEmail: notifyEmail,
+            customerEmail: notifyEmail,
           });
         }
       } catch (e) {
@@ -109,6 +123,10 @@ export async function POST(
         branchId: branchId || undefined,
         bookingDate: bookingDate || undefined,
         bookingTime: bookingTime || undefined,
+        clientPhone: notifyPhone,
+        customerPhone: notifyPhone,
+        clientEmail: notifyEmail,
+        customerEmail: notifyEmail,
       } as any);
     } catch (e) {
       console.error("Failed to notify owner:", e);

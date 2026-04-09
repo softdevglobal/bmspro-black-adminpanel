@@ -20,6 +20,10 @@ import {
   type MappedEstimateFeedItem,
 } from "@/lib/callCenterNotificationFeedExtras";
 import {
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
+import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
   getTenantId,
@@ -175,6 +179,10 @@ type MappedAdminNotification = {
   price: number | null;
   /** Booking / workflow status when present on the notification doc. */
   status: string | null;
+  /** Customer contact on staff/ops notifications (e.g. additional_issue_found). */
+  customerPhone: string | null;
+  clientPhone: string | null;
+  customerEmail: string | null;
   notificationReviewed: boolean;
   calledCustomer: boolean;
   notificationReviewedByUid: string | null;
@@ -423,6 +431,12 @@ async function fetchLegacyCustomerBookingNotifications(
   return out;
 }
 
+function strOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
 function mapAdminPanelDoc(
   doc: QueryDocumentSnapshot,
   ownerNames: Map<string, string>
@@ -433,6 +447,8 @@ function mapAdminPanelDoc(
     (d.targetOwnerUid as string) ||
     (d.targetAdminUid as string) ||
     null;
+  const phone = strOrNull(d.customerPhone) || strOrNull(d.clientPhone);
+  const email = strOrNull(d.customerEmail) || strOrNull(d.clientEmail);
   return {
     source: "admin_panel",
     id: doc.id,
@@ -454,10 +470,64 @@ function mapAdminPanelDoc(
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
     status: typeof d.status === "string" ? d.status : null,
+    customerPhone: phone,
+    clientPhone: phone,
+    customerEmail: email,
     notificationReviewed: d.notificationReviewed === true,
     calledCustomer: d.calledCustomer === true,
     ...agentTrackingFieldsFromFirestore(d as Record<string, unknown>),
   };
+}
+
+/** Older `additional_issue_found` rows may lack contact on the notification — fill from `bookings/{id}`. */
+async function enrichAdminPanelAdditionalIssueBookingContact(
+  db: Firestore,
+  items: UnifiedNotification[]
+): Promise<UnifiedNotification[]> {
+  const bookingIds = new Set<string>();
+  for (const r of items) {
+    if (r.source !== "admin_panel") continue;
+    const m = r as MappedAdminNotification;
+    if (m.type !== "additional_issue_found") continue;
+    const bid = m.bookingId?.trim();
+    if (!bid) continue;
+    const ph = (m.customerPhone || m.clientPhone || "").toString().trim();
+    if (ph) continue;
+    bookingIds.add(bid);
+  }
+  if (bookingIds.size === 0) return items;
+
+  const byId = new Map<string, { phone: string | null; email: string | null }>();
+  const ids = [...bookingIds];
+  for (let i = 0; i < ids.length; i += 10) {
+    const chunk = ids.slice(i, i + 10);
+    const snaps = await db.getAll(...chunk.map((id) => db.doc(`bookings/${id}`)));
+    for (let j = 0; j < chunk.length; j++) {
+      const doc = snaps[j];
+      if (!doc.exists) continue;
+      const raw = doc.data()!;
+      byId.set(chunk[j], {
+        phone: resolveCustomerPhoneForStorage(raw as Record<string, any>),
+        email: resolveCustomerEmailForStorage(raw as Record<string, any>),
+      });
+    }
+  }
+
+  return items.map((r) => {
+    if (r.source !== "admin_panel") return r;
+    const m = r as MappedAdminNotification;
+    if (m.type !== "additional_issue_found" || !m.bookingId?.trim()) return r;
+    const ph = (m.customerPhone || m.clientPhone || "").toString().trim();
+    if (ph) return r;
+    const got = byId.get(m.bookingId.trim());
+    if (!got || (!got.phone && !got.email)) return r;
+    return {
+      ...m,
+      customerPhone: got.phone,
+      clientPhone: got.phone,
+      customerEmail: got.email,
+    } as UnifiedNotification;
+  });
 }
 
 async function enrichUnifiedNotificationsList(
@@ -740,6 +810,7 @@ export async function GET(req: NextRequest) {
       );
 
       merged = await enrichUnifiedNotificationsList(db, merged);
+      merged = await enrichAdminPanelAdditionalIssueBookingContact(db, merged);
 
       if (scopedToWorkshops && scopedToWorkshops.length > 0) {
         const allow = new Set(scopedToWorkshops);
@@ -879,6 +950,7 @@ export async function GET(req: NextRequest) {
     );
 
     workshopMerged = await enrichUnifiedNotificationsList(db, workshopMerged);
+    workshopMerged = await enrichAdminPanelAdditionalIssueBookingContact(db, workshopMerged);
 
     let filtered = unreadOnly ? workshopMerged.filter((r) => !r.read) : workshopMerged;
 

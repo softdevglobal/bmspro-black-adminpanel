@@ -1181,6 +1181,11 @@ export async function createBranchAdminNotification(data: {
   type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found" | "additional_issue_customer_accepted" | "additional_issue_customer_rejected";
   title?: string;
   message?: string;
+  /** Call center / dashboards — stored on `notifications` for additional work alerts */
+  clientPhone?: string;
+  customerPhone?: string;
+  clientEmail?: string;
+  customerEmail?: string;
 }): Promise<string> {
   const serviceList = data.services && data.services.length > 0
     ? data.services.map(s => s.name).join(", ")
@@ -1212,7 +1217,18 @@ export async function createBranchAdminNotification(data: {
     bookingDate: data.bookingDate,
     bookingTime: data.bookingTime,
   };
-  
+
+  const ph = String(data.customerPhone || data.clientPhone || "").trim();
+  if (ph) {
+    notificationData.customerPhone = ph;
+    notificationData.clientPhone = ph;
+  }
+  const em = String(data.customerEmail || data.clientEmail || "").trim();
+  if (em) {
+    notificationData.customerEmail = em;
+    notificationData.clientEmail = em;
+  }
+
   // Ensure branchAdminUid is set (required for mobile app to receive notification)
   if (!notificationData.branchAdminUid) {
     console.error(`❌ createBranchAdminNotification: branchAdminUid is missing! This notification will not be received by the mobile app.`);

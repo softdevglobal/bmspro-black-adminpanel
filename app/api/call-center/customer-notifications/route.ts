@@ -6,6 +6,10 @@ import {
   LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
   isCustomerFacingNotificationsDoc,
 } from "@/lib/callCenterCustomerInboxFilters";
+import {
+  enrichNotificationAgentTrackingFromProfiles,
+  loadActorProfilesByUid,
+} from "@/lib/callCenterNotificationActorProfiles";
 import { agentTrackingFieldsFromFirestore } from "@/lib/customerNotificationAgentTrackingFields";
 import { firestoreDocBestIso } from "@/lib/firestoreDocTimestamps";
 import {
@@ -171,6 +175,16 @@ type MappedAdminNotification = {
   price: number | null;
   /** Booking / workflow status when present on the notification doc. */
   status: string | null;
+  notificationReviewed: boolean;
+  calledCustomer: boolean;
+  notificationReviewedByUid: string | null;
+  notificationReviewedByName: string | null;
+  notificationReviewedByDisplayName: string | null;
+  notificationReviewedByEmail: string | null;
+  calledCustomerByUid: string | null;
+  calledCustomerByName: string | null;
+  calledCustomerByDisplayName: string | null;
+  calledCustomerByEmail: string | null;
 };
 
 type UnifiedNotification =
@@ -440,7 +454,32 @@ function mapAdminPanelDoc(
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
     status: typeof d.status === "string" ? d.status : null,
+    notificationReviewed: d.notificationReviewed === true,
+    calledCustomer: d.calledCustomer === true,
+    ...agentTrackingFieldsFromFirestore(d as Record<string, unknown>),
   };
+}
+
+async function enrichUnifiedNotificationsList(
+  db: Firestore,
+  items: UnifiedNotification[]
+): Promise<UnifiedNotification[]> {
+  const uids = new Set<string>();
+  for (const r of items) {
+    if (r.source !== "customer_panel" && r.source !== "admin_panel") continue;
+    const t = r as MappedNotification | MappedAdminNotification;
+    if (t.notificationReviewedByUid?.trim()) uids.add(t.notificationReviewedByUid.trim());
+    if (t.calledCustomerByUid?.trim()) uids.add(t.calledCustomerByUid.trim());
+  }
+  if (uids.size === 0) return items;
+  const profiles = await loadActorProfilesByUid(db, [...uids]);
+  return items.map((r) => {
+    if (r.source !== "customer_panel" && r.source !== "admin_panel") return r;
+    return enrichNotificationAgentTrackingFromProfiles(
+      r as MappedNotification | MappedAdminNotification,
+      profiles
+    ) as UnifiedNotification;
+  });
 }
 
 function unifiedItemCreatedAt(r: UnifiedNotification): string | null {
@@ -700,6 +739,8 @@ export async function GET(req: NextRequest) {
         (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
       );
 
+      merged = await enrichUnifiedNotificationsList(db, merged);
+
       if (scopedToWorkshops && scopedToWorkshops.length > 0) {
         const allow = new Set(scopedToWorkshops);
         merged = merged.filter(
@@ -836,6 +877,8 @@ export async function GET(req: NextRequest) {
     workshopMerged.sort(
       (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
     );
+
+    workshopMerged = await enrichUnifiedNotificationsList(db, workshopMerged);
 
     let filtered = unreadOnly ? workshopMerged.filter((r) => !r.read) : workshopMerged;
 

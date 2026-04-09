@@ -21,6 +21,7 @@ import {
 } from "@/lib/callCenterNotificationFeedExtras";
 import {
   resolveCustomerEmailForStorage,
+  resolveCustomerNameForStorage,
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
 import {
@@ -171,6 +172,8 @@ type MappedAdminNotification = {
   staffName: string | null;
   serviceName: string | null;
   clientName: string | null;
+  /** Same customer as `clientName`; use for call-center UI parity with `customer_panel`. */
+  customerName: string | null;
   createdAt: string | null;
   workshopName: string | null;
   estimateId: string | null;
@@ -449,6 +452,7 @@ function mapAdminPanelDoc(
     null;
   const phone = strOrNull(d.customerPhone) || strOrNull(d.clientPhone);
   const email = strOrNull(d.customerEmail) || strOrNull(d.clientEmail);
+  const displayName = resolveCustomerNameForStorage(d as Record<string, any>);
   return {
     source: "admin_panel",
     id: doc.id,
@@ -462,7 +466,8 @@ function mapAdminPanelDoc(
     branchName: (d.branchName as string) || null,
     staffName: (d.staffName as string) || null,
     serviceName: (d.serviceName as string) || null,
-    clientName: (d.clientName as string) || null,
+    clientName: displayName,
+    customerName: displayName,
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
     workshopName: ownerUid ? ownerNames.get(ownerUid) || null : null,
     estimateId: (d.estimateId as string) || null,
@@ -479,7 +484,7 @@ function mapAdminPanelDoc(
   };
 }
 
-/** Older `additional_issue_found` rows may lack contact on the notification — fill from `bookings/{id}`. */
+/** Older `additional_issue_found` rows may lack contact or customer name on the notification — fill from `bookings/{id}`. */
 async function enrichAdminPanelAdditionalIssueBookingContact(
   db: Firestore,
   items: UnifiedNotification[]
@@ -492,12 +497,16 @@ async function enrichAdminPanelAdditionalIssueBookingContact(
     const bid = m.bookingId?.trim();
     if (!bid) continue;
     const ph = (m.customerPhone || m.clientPhone || "").toString().trim();
-    if (ph) continue;
+    const nm = (m.clientName || m.customerName || "").toString().trim();
+    if (ph && nm) continue;
     bookingIds.add(bid);
   }
   if (bookingIds.size === 0) return items;
 
-  const byId = new Map<string, { phone: string | null; email: string | null }>();
+  const byId = new Map<
+    string,
+    { phone: string | null; email: string | null; customerName: string | null }
+  >();
   const ids = [...bookingIds];
   for (let i = 0; i < ids.length; i += 10) {
     const chunk = ids.slice(i, i + 10);
@@ -509,6 +518,7 @@ async function enrichAdminPanelAdditionalIssueBookingContact(
       byId.set(chunk[j], {
         phone: resolveCustomerPhoneForStorage(raw as Record<string, any>),
         email: resolveCustomerEmailForStorage(raw as Record<string, any>),
+        customerName: resolveCustomerNameForStorage(raw as Record<string, any>),
       });
     }
   }
@@ -518,14 +528,17 @@ async function enrichAdminPanelAdditionalIssueBookingContact(
     const m = r as MappedAdminNotification;
     if (m.type !== "additional_issue_found" || !m.bookingId?.trim()) return r;
     const ph = (m.customerPhone || m.clientPhone || "").toString().trim();
-    if (ph) return r;
+    const nm = (m.clientName || m.customerName || "").toString().trim();
+    if (ph && nm) return r;
     const got = byId.get(m.bookingId.trim());
-    if (!got || (!got.phone && !got.email)) return r;
+    if (!got || (!got.phone && !got.email && !got.customerName)) return r;
     return {
       ...m,
-      customerPhone: got.phone,
-      clientPhone: got.phone,
-      customerEmail: got.email,
+      customerPhone: ph || got.phone,
+      clientPhone: ph || got.phone,
+      customerEmail: (m.customerEmail || "").trim() || got.email,
+      clientName: nm || got.customerName || m.clientName,
+      customerName: nm || got.customerName || m.customerName,
     } as UnifiedNotification;
   });
 }

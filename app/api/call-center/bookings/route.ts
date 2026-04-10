@@ -11,6 +11,12 @@ import {
   mergeBookingContactIntoAdditionalIssues,
   serializeAdditionalIssuesForCallCenterApi,
 } from "@/lib/callCenterAdditionalIssues";
+import {
+  createOwnerNotification,
+  createBranchAdminNotification,
+  createStaffAssignmentNotification,
+  getBranchAdminUids,
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -477,6 +483,129 @@ export async function POST(req: NextRequest) {
     };
 
     const bookingRef = await db.collection("bookings").add(bookingData);
+    const bookingId = bookingRef.id;
+
+    const bookingTimeDisplay = pickupTime
+      ? `Drop-off: ${String(time)}, Pick-up: ${pickupTime}`
+      : String(time);
+    const primaryServiceName =
+      resolvedServices.length > 0
+        ? resolvedServices.map((s: { name?: string }) => s.name || "Service").join(", ")
+        : "Service";
+    const servicesForNotif = resolvedServices.map((s: any) => ({
+      name: s.name || "Service",
+      staffName: s.staffName || undefined,
+      staffId: s.staffId || undefined,
+    }));
+
+    // Workshop owner + branch admins + staff: same Firestore/FCM paths as /api/bookings (mobile app listens here)
+    try {
+      if (allNeedAssignment) {
+        await createOwnerNotification({
+          bookingId,
+          bookingCode,
+          ownerUid,
+          clientName: String(client).trim(),
+          serviceName: primaryServiceName,
+          services: servicesForNotif,
+          branchName: bookingData.branchName,
+          branchId: String(branchId),
+          bookingDate: String(date),
+          bookingTime: bookingTimeDisplay,
+          type: "booking_needs_assignment",
+          status: "Pending",
+        });
+        const branchAdminUids = await getBranchAdminUids(db, String(branchId), ownerUid);
+        for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
+          await createBranchAdminNotification({
+            bookingId,
+            bookingCode,
+            branchAdminUid,
+            ownerUid,
+            clientName: String(client).trim(),
+            serviceName: primaryServiceName,
+            services: servicesForNotif,
+            branchName: bookingData.branchName,
+            branchId: String(branchId),
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            status: "Pending",
+            type: "booking_needs_assignment",
+            clientPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
+            customerPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
+            clientEmail: typeof clientEmail === "string" ? clientEmail.trim() || undefined : undefined,
+          });
+        }
+      } else {
+        await createOwnerNotification({
+          bookingId,
+          bookingCode,
+          ownerUid,
+          clientName: String(client).trim(),
+          serviceName: primaryServiceName,
+          services: servicesForNotif,
+          branchName: bookingData.branchName,
+          branchId: String(branchId),
+          bookingDate: String(date),
+          bookingTime: bookingTimeDisplay,
+          type: "staff_booking_created",
+          status: "AwaitingStaffApproval",
+          creatorUid: actor.uid,
+          creatorName: actor.name,
+          creatorRole: "call_center_agent",
+        });
+        const branchAdminUids = await getBranchAdminUids(db, String(branchId), ownerUid);
+        for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
+          await createBranchAdminNotification({
+            bookingId,
+            bookingCode,
+            branchAdminUid,
+            ownerUid,
+            clientName: String(client).trim(),
+            serviceName: primaryServiceName,
+            services: servicesForNotif,
+            branchName: bookingData.branchName,
+            branchId: String(branchId),
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            status: "AwaitingStaffApproval",
+            type: "branch_booking_created",
+            clientPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
+            clientEmail: typeof clientEmail === "string" ? clientEmail.trim() || undefined : undefined,
+          });
+        }
+        const staffSeen = new Set<string>();
+        for (const svc of resolvedServices) {
+          const sid = svc.staffId as string | null | undefined;
+          if (!sid || String(sid).toLowerCase().includes("any")) continue;
+          if (staffSeen.has(sid)) continue;
+          staffSeen.add(sid);
+          await createStaffAssignmentNotification({
+            bookingId,
+            bookingCode,
+            staffUid: sid,
+            staffName: (svc.staffName as string) || "Staff",
+            clientName: String(client).trim(),
+            clientPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
+            serviceName: primaryServiceName,
+            services: servicesForNotif,
+            branchName: bookingData.branchName,
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            duration: totalDuration,
+            price: totalPrice,
+            ownerUid,
+          });
+        }
+      }
+      console.log(
+        `[call-center/bookings] Notifications sent for booking ${bookingCode} (${allNeedAssignment ? "Pending" : "AwaitingStaffApproval"})`
+      );
+    } catch (notifErr) {
+      console.error("[call-center/bookings POST] Failed to send notifications:", notifErr);
+    }
 
     // Log activity
     await db.collection("bookingActivities").add({

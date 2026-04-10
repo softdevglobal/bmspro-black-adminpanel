@@ -447,9 +447,20 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     const branchAdminUid = (data as any).branchAdminUid;
     const customerUid = (data as any).customerUid;
     
-    // Determine who to send push notification to
-    // Priority: branchAdminUid > targetAdminUid > staffUid > targetOwnerUid > customerUid
-    const userId = branchAdminUid || targetAdminUid || staffUid || targetOwnerUid || customerUid;
+    // Determine who to send push notification to.
+    // Staff assignment / reassignment must always target the technician, not branch admin
+    // (some payloads may include multiple UIDs).
+    const notificationTypeForPush = String(cleanData.type || "");
+    const staffFirstTypes = new Set([
+      "staff_assignment",
+      "staff_reassignment",
+      "booking_assigned",
+      "booking_approval_request",
+    ]);
+    const userId =
+      staffFirstTypes.has(notificationTypeForPush) && staffUid
+        ? staffUid
+        : branchAdminUid || targetAdminUid || staffUid || targetOwnerUid || customerUid;
     
     if (userId) {
       const notificationType = cleanData.type || "unknown";
@@ -472,7 +483,8 @@ export async function createNotification(data: Omit<Notification, "id" | "create
             {
               notificationId: ref.id,
               type: cleanData.type,
-              bookingId: cleanData.bookingId,
+              bookingId: cleanData.bookingId ?? "",
+              bookingCode: cleanData.bookingCode ?? "",
             }
           );
           console.log(`✅ Push notification sent successfully to user: ${userId} for notification type: ${notificationType}`);
@@ -1148,11 +1160,17 @@ export async function createOwnerNotification(data: {
   let message: string;
 
   switch (data.type) {
-    case "staff_booking_created":
-      const roleLabel = data.creatorRole === "branch_admin" ? "Branch Admin" : "Staff";
+    case "staff_booking_created": {
+      const roleLabel =
+        data.creatorRole === "branch_admin"
+          ? "Branch Admin"
+          : data.creatorRole === "call_center_agent"
+            ? "Call Center"
+            : "Staff";
       title = `New Booking Created by ${roleLabel}`;
-      message = `${data.creatorName || "Staff"} created a booking for ${data.clientName} - ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
+      message = `${data.creatorName || roleLabel} created a booking for ${data.clientName} - ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
       break;
+    }
     case "booking_needs_assignment":
       title = "New Booking - Staff Assignment Required";
       message = data.branchName

@@ -9,6 +9,8 @@ import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bo
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 import BookingsExportModal from "./BookingsExportModal";
+import BookingJobReportPdfViewer from "./BookingJobReportPdfViewer";
+import { bookingJobReportPdfFilename } from "@/lib/bookingPdfFilename";
 
 /** Firestore may store mileageRecordedAt as an ISO string or a Timestamp. */
 function parseMileageRecordedAt(value: unknown): Date | null {
@@ -1260,8 +1262,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   };
   const closePreview = () => setPreviewOpen(false);
 
-  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
-  const [pdfConfirmBookingId, setPdfConfirmBookingId] = useState<string | null>(null);
+  /** Same-origin iframe preview (see BookingJobReportPdfViewer). */
+  const [pdfPreview, setPdfPreview] = useState<{
+    bookingId: string;
+    filename: string;
+  } | null>(null);
 
   const [forceCompleteConfirm, setForceCompleteConfirm] = useState<{
     rowId: string;
@@ -1292,49 +1297,63 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     }
   };
 
-  const handleDownloadPDF = (bookingId: string) => {
-    setPdfConfirmBookingId(bookingId);
+  const closePdfPreview = () => setPdfPreview(null);
+
+  const openJobReportPdfPreview = (bookingId: string, bookingCode?: string | null) => {
+    setPdfPreview({
+      bookingId,
+      filename: bookingJobReportPdfFilename(bookingCode, bookingId),
+    });
   };
 
-  const confirmDownloadPDF = async () => {
-    const bookingId = pdfConfirmBookingId;
-    setPdfConfirmBookingId(null);
-    if (!bookingId) return;
+  const downloadPdfFromPreview = async () => {
+    if (!pdfPreview) return;
+    const user = auth.currentUser;
+    if (!user) return;
     try {
-      setDownloadingPdf(bookingId);
-      const user = auth.currentUser;
-      if (!user) return;
       const token = await user.getIdToken();
-      const res = await fetch(`/api/bookings/${bookingId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        let message = `Failed to download PDF (${res.status})`;
-        try {
-          const errorJson = await res.json();
-          if (errorJson?.error) message = `${message}: ${errorJson.error}`;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(message);
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const u = new URL(`/api/bookings/${encodeURIComponent(pdfPreview.bookingId)}/pdf`, window.location.origin);
+      u.searchParams.set("download", "1");
+      u.searchParams.set("token", token);
       const a = document.createElement("a");
-      a.href = url;
-      const disposition = res.headers.get("Content-Disposition");
-      const match = disposition?.match(/filename="?([^"]+)"?/);
-      a.download = match?.[1] || `Job-Report-${bookingId}.pdf`;
+      a.href = u.toString();
+      a.download = pdfPreview.filename;
+      a.rel = "noopener";
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("PDF download error:", err);
+    } catch (e) {
+      console.error(e);
       // eslint-disable-next-line no-alert
-      alert(err instanceof Error ? err.message : "Failed to download PDF");
-    } finally {
-      setDownloadingPdf(null);
+      alert("Could not start download.");
+    }
+  };
+
+  const printPdfFromPreview = async () => {
+    if (!pdfPreview) return;
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const u = new URL(`/api/bookings/${encodeURIComponent(pdfPreview.bookingId)}/pdf`, window.location.origin);
+      u.searchParams.set("inline", "1");
+      u.searchParams.set("token", token);
+      const w = window.open(u.toString(), "_blank", "noopener,noreferrer");
+      if (w) {
+        w.addEventListener("load", () => {
+          window.setTimeout(() => {
+            try {
+              w.print();
+            } catch {
+              /* user can print from the tab */
+            }
+          }, 300);
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      // eslint-disable-next-line no-alert
+      alert("Could not open print view.");
     }
   };
 
@@ -2351,12 +2370,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   <div className="shrink-0 border-t border-neutral-200 p-4 flex items-center justify-end gap-2 bg-white/90 backdrop-blur">
                     {previewRow && previewRow.status === "Completed" && (
                       <button
-                        onClick={() => previewRow && handleDownloadPDF(previewRow.id)}
-                        disabled={downloadingPdf === previewRow?.id}
-                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 bg-gradient-to-r from-neutral-800 to-neutral-900 hover:from-neutral-900 hover:to-black text-white shadow-sm disabled:opacity-60 mr-auto"
+                        onClick={() => previewRow && openJobReportPdfPreview(previewRow.id, previewRow.bookingCode)}
+                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 bg-gradient-to-r from-neutral-800 to-neutral-900 hover:from-neutral-900 hover:to-black text-white shadow-sm mr-auto"
                       >
-                        {downloadingPdf === previewRow?.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-file-pdf" />}
-                        {downloadingPdf === previewRow?.id ? "Generating..." : "Download Job Report"}
+                        <i className="fas fa-file-pdf" />
+                        View job report PDF
                       </button>
                     )}
                     <button
@@ -2559,12 +2577,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </button>
                         {r.status === "Completed" && (
                           <button
-                            onClick={() => handleDownloadPDF(r.id)}
-                            disabled={downloadingPdf === r.id}
-                            className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center disabled:opacity-50"
-                            title="Download Job Report PDF"
+                            onClick={() => openJobReportPdfPreview(r.id, r.bookingCode)}
+                            className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center"
+                            title="View job report PDF"
                           >
-                            <i className={`fas ${downloadingPdf === r.id ? "fa-spinner fa-spin" : "fa-file-pdf"} text-sm`} />
+                            <i className="fas fa-file-pdf text-sm" />
                           </button>
                         )}
                         <div className="flex-1" />
@@ -2835,13 +2852,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             </button>
                             {r.status === "Completed" && (
                               <button
-                                aria-label="Download Job Report"
-                                title="Download Job Report PDF"
-                                onClick={() => handleDownloadPDF(r.id)}
-                                disabled={downloadingPdf === r.id}
-                                className="hidden sm:inline-flex text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center disabled:opacity-50"
+                                aria-label="View job report PDF"
+                                title="View job report PDF"
+                                onClick={() => openJobReportPdfPreview(r.id, r.bookingCode)}
+                                className="hidden sm:inline-flex text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center"
                               >
-                                <i className={`fas ${downloadingPdf === r.id ? "fa-spinner fa-spin" : "fa-file-pdf"}`} />
+                                <i className="fas fa-file-pdf" />
                               </button>
                             )}
                             {rowActions.length > 0 && (
@@ -3616,35 +3632,55 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         </div>
       )}
 
-      {/* ─── PDF Download Confirmation Modal ────────────────────────── */}
-      {pdfConfirmBookingId && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden animate-scale-in">
-            <div className="bg-neutral-900 px-6 py-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                <i className="fas fa-file-pdf text-white" />
+      {/* ─── Job report PDF preview (download / print) ─────────────── */}
+      {pdfPreview && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-3 sm:p-4">
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[min(92vh,880px)] flex flex-col overflow-hidden animate-scale-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pdf-preview-title"
+          >
+            <div className="shrink-0 bg-neutral-900 px-4 py-3 sm:px-5 sm:py-3.5 flex flex-wrap items-center gap-2 sm:gap-3 border-b border-neutral-800">
+              <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                <i className="fas fa-file-pdf text-white text-sm" />
               </div>
-              <h3 className="text-white font-semibold">Download Job Report</h3>
+              <h3 id="pdf-preview-title" className="text-white font-semibold text-sm sm:text-base flex-1 min-w-0 truncate pr-2">
+                Job report — {pdfPreview.filename}
+              </h3>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
+                <button
+                  type="button"
+                  onClick={downloadPdfFromPreview}
+                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-semibold bg-white/15 hover:bg-white/25 text-white transition inline-flex items-center gap-2"
+                >
+                  <i className="fas fa-download text-[10px]" />
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={printPdfFromPreview}
+                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-semibold bg-white/15 hover:bg-white/25 text-white transition inline-flex items-center gap-2"
+                >
+                  <i className="fas fa-print text-[10px]" />
+                  Print
+                </button>
+                <button
+                  type="button"
+                  onClick={closePdfPreview}
+                  aria-label="Close"
+                  className="h-9 w-9 shrink-0 rounded-full bg-white text-neutral-900 hover:bg-neutral-100 transition inline-flex items-center justify-center"
+                >
+                  <i className="fas fa-times text-sm" />
+                </button>
+              </div>
             </div>
-            <div className="px-6 py-5">
-              <p className="text-neutral-600 text-sm leading-relaxed">
-                Do you want to download the complete job task report as a PDF? This includes all booking details, services, and task information.
-              </p>
-            </div>
-            <div className="px-6 pb-5 flex items-center justify-end gap-3">
-              <button
-                onClick={() => setPdfConfirmBookingId(null)}
-                className="px-4 py-2 rounded-full text-sm font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDownloadPDF}
-                className="px-5 py-2 rounded-full text-sm font-semibold bg-neutral-900 hover:bg-black text-white shadow-sm transition inline-flex items-center gap-2"
-              >
-                <i className="fas fa-download text-xs" />
-                Download PDF
-              </button>
+            <div className="flex min-h-0 flex-1 flex-col bg-neutral-100">
+              <BookingJobReportPdfViewer
+                bookingId={pdfPreview.bookingId}
+                filename={pdfPreview.filename}
+                className="min-h-0 flex-1"
+              />
             </div>
           </div>
         </div>

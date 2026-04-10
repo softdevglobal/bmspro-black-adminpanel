@@ -3,6 +3,7 @@ import puppeteer from "puppeteer-core";
 import { adminDb } from "./firebaseAdmin";
 import { fetchImageBuffer } from "./fetchImageForPdf";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
+import { bookingJobReportPdfFilename } from "./bookingPdfFilename";
 import { formatInTimezone } from "./timezone";
 import { PDFDocument as PDFLibDocument } from "pdf-lib";
 import sharp from "sharp";
@@ -386,8 +387,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   };
 
   const pdfBuffer = await buildPDF(booking, getImageBuffer);
-  const code = booking.bookingCode || bookingId.substring(0, 8);
-  const filename = `Job-Report-${code}.pdf`;
+  const filename = bookingJobReportPdfFilename(data.bookingCode, bookingId);
   return { buffer: pdfBuffer, filename };
 }
 

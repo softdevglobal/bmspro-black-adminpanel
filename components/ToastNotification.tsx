@@ -55,8 +55,16 @@ export default function ToastNotification({
   };
 
   const handleClick = () => {
-    if (bookingId) {
-      // Navigate based on notification type
+    if (type === "owner_booking_completed" && bookingId) {
+      router.push("/bookings/completed");
+    } else if (
+      type === "staff_clocked_in" ||
+      type === "staff_clocked_out" ||
+      type === "staff_break_started" ||
+      type === "staff_break_ended"
+    ) {
+      router.push("/staff/timesheets");
+    } else if (bookingId) {
       if (type === "booking_needs_assignment" || type === "booking_engine_new_booking" || type === "staff_booking_created") {
         router.push("/bookings/pending");
       } else if (type === "staff_rejected") {
@@ -80,6 +88,15 @@ export default function ToastNotification({
         return "fa-user-xmark";
       case "staff_accepted":
         return "fa-user-check";
+      case "owner_booking_completed":
+        return "fa-circle-check";
+      case "staff_clocked_in":
+        return "fa-right-to-bracket";
+      case "staff_clocked_out":
+        return "fa-right-from-bracket";
+      case "staff_break_started":
+      case "staff_break_ended":
+        return "fa-mug-hot";
       default:
         return "fa-bell";
     }
@@ -94,6 +111,15 @@ export default function ToastNotification({
         return "from-green-500 to-emerald-600";
       case "booking_needs_assignment":
         return "from-amber-500 to-orange-600";
+      case "owner_booking_completed":
+        return "from-emerald-500 to-teal-600";
+      case "staff_clocked_in":
+        return "from-green-500 to-emerald-600";
+      case "staff_clocked_out":
+        return "from-slate-500 to-slate-700";
+      case "staff_break_started":
+      case "staff_break_ended":
+        return "from-amber-600 to-yellow-600";
       default:
         return "from-neutral-700 to-neutral-900";
     }

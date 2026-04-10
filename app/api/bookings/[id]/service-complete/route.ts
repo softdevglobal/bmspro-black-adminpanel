@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus, type BookingService, type ServiceCompletionStatus, areAllServicesCompleted } from "@/lib/bookingTypes";
-import { createNotification, getNotificationContent } from "@/lib/notifications";
+import { createNotification, getNotificationContent, notifyOwnerBookingCompletedOnce } from "@/lib/notifications";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingServiceCompletedServer } from "@/lib/auditLogServer";
 import { sendBookingStatusChangeEmail } from "@/lib/emailService";
@@ -186,6 +186,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           await createNotification(notificationData);
           console.log("Sent booking completion notification for already-completed booking");
         }
+        await notifyOwnerBookingCompletedOnce({
+          bookingId: id,
+          bookingCode: bookingData.bookingCode,
+          ownerUid,
+          staffName,
+          clientName,
+          serviceName: bookingData.serviceName,
+          branchName: bookingData.branchName,
+          bookingDate: finalBookingDate,
+          bookingTime: finalBookingTime,
+        });
       } catch (e) {
         console.error("Failed to send notification for already-completed booking:", e);
       }
@@ -492,6 +503,22 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         } catch (e) {
           console.error("Failed to send customer notification:", e);
         }
+
+        try {
+          await notifyOwnerBookingCompletedOnce({
+            bookingId: id,
+            bookingCode: bookingData.bookingCode,
+            ownerUid,
+            staffName,
+            clientName,
+            serviceName: bookingData.serviceName,
+            branchName: bookingData.branchName,
+            bookingDate: finalBookingDate,
+            bookingTime: finalBookingTime,
+          });
+        } catch (e) {
+          console.error("Failed owner completion notification:", e);
+        }
         
         // Send email when status changes to Completed (AFTER database update)
         // Note: currentStatus is "Confirmed" at this point (verified on line 85), so we always send the email
@@ -696,6 +723,22 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         console.log("Sent booking completion notification to customer");
       } catch (e) {
         console.error("Failed to send customer notification:", e);
+      }
+
+      try {
+        await notifyOwnerBookingCompletedOnce({
+          bookingId: id,
+          bookingCode: bookingData.bookingCode,
+          ownerUid,
+          staffName,
+          clientName,
+          serviceName: finalServiceName,
+          branchName: bookingData.branchName,
+          bookingDate: finalBookingDate,
+          bookingTime: finalBookingTime,
+        });
+      } catch (e) {
+        console.error("Failed owner completion notification:", e);
       }
       
       // Send email when status changes to Completed (AFTER database update)

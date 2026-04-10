@@ -56,6 +56,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    function currentUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Workshop owner id for this user (branch_admin/staff store ownerUid; owners use their auth uid).
+    function effectiveWorkshopOwnerUid() {
+      let u = currentUserDoc();
+      return ('ownerUid' in u && u.ownerUid is string && u.ownerUid.size() > 0)
+        ? u.ownerUid
+        : request.auth.uid;
+    }
+
     // Notifications - users can only read their own (fixes branch admin permission-denied)
     match /notifications/{notifId} {
       allow read: if request.auth != null && (
@@ -64,7 +76,10 @@ service cloud.firestore {
         resource.data.customerUid == request.auth.uid ||
         resource.data.branchAdminUid == request.auth.uid ||
         resource.data.targetAdminUid == request.auth.uid ||
-        resource.data.targetOwnerUid == request.auth.uid
+        resource.data.targetOwnerUid == request.auth.uid ||
+        ('role' in currentUserDoc() && currentUserDoc().role == 'branch_admin' &&
+          resource.data.keys().hasAny(['targetOwnerUid']) &&
+          resource.data.targetOwnerUid == effectiveWorkshopOwnerUid())
       );
       allow create, update, delete: if false; // Server (Admin SDK) writes only
     }

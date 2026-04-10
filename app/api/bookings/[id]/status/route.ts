@@ -8,7 +8,8 @@ import {
   createStaffAssignmentNotification,
   createCustomerConfirmationNotification,
   createCustomerCancellationNotification,
-  createCustomerReschedulingNotification
+  createCustomerReschedulingNotification,
+  notifyOwnerBookingCompletedOnce,
 } from "@/lib/notifications";
 import { 
   logBookingStatusChangedServer, 
@@ -719,6 +720,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         await createNotification(notificationData);
         
         console.log("Sent customer completion notification");
+      }
+
+      if (actualNextStatus === "Completed" && effectivePreviousStatus !== "Completed") {
+        await notifyOwnerBookingCompletedOnce({
+          bookingId: id,
+          bookingCode: data.bookingCode,
+          ownerUid,
+          staffName: finalStaffName,
+          clientName,
+          serviceName: finalServiceName,
+          branchName: data.branchName,
+          bookingDate: finalBookingDate,
+          bookingTime: finalBookingTime,
+        });
       }
       
       // Send email when status changes to Completed (regardless of transition path)

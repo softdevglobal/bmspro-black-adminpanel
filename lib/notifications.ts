@@ -34,7 +34,12 @@ export type OwnerNotificationType =
   | "staff_booking_created"       // Staff created a booking
   | "booking_needs_assignment"    // Booking needs staff assignment
   | "booking_engine_new_booking"  // New booking from booking engine
-  | "additional_issue_found";     // Technician reported additional vehicle issue - needs pricing
+  | "additional_issue_found"     // Technician reported additional vehicle issue - needs pricing
+  | "owner_booking_completed"    // Staff/admin marked booking completed (workshop owner alert)
+  | "staff_clocked_in"           // Staff clocked on
+  | "staff_clocked_out"          // Staff clocked off (manual, suspicious, or auto)
+  | "staff_break_started"        // Staff started a break
+  | "staff_break_ended";         // Staff ended a break
 
 export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType | OwnerNotificationType;
 
@@ -317,6 +322,11 @@ const NOT_MIRROR_TO_CUSTOMER_INBOX = new Set<string>([
   "staff_booking_created",
   "booking_needs_assignment",
   "booking_engine_new_booking",
+  "owner_booking_completed",
+  "staff_clocked_in",
+  "staff_clocked_out",
+  "staff_break_started",
+  "staff_break_ended",
 ]);
 
 /**
@@ -484,6 +494,58 @@ export async function createNotification(data: Omit<Notification, "id" | "create
   } catch (error) {
     console.error("Error creating notification:", error);
     throw error;
+  }
+}
+
+/**
+ * Notify the workshop owner once per booking when it is marked completed.
+ * Skips if an owner_booking_completed row already exists for this bookingId.
+ */
+export async function notifyOwnerBookingCompletedOnce(data: {
+  bookingId: string;
+  bookingCode?: string;
+  ownerUid: string;
+  staffName?: string;
+  clientName?: string;
+  serviceName?: string;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+}): Promise<void> {
+  try {
+    const db = adminDb();
+    const snap = await db
+      .collection("notifications")
+      .where("bookingId", "==", data.bookingId)
+      .limit(40)
+      .get();
+    if (snap.docs.some((d) => d.data().type === "owner_booking_completed")) {
+      return;
+    }
+
+    const code = data.bookingCode ? ` ${data.bookingCode}` : "";
+    const who = data.staffName?.trim()
+      ? `${data.staffName.trim()} marked`
+      : "A team member marked";
+
+    await createNotification({
+      bookingId: data.bookingId,
+      bookingCode: data.bookingCode,
+      type: "owner_booking_completed",
+      title: "Booking completed",
+      message: `${who} booking${code} as completed${data.branchName ? ` · ${data.branchName}` : ""}.`,
+      status: "Completed",
+      ownerUid: data.ownerUid,
+      targetOwnerUid: data.ownerUid,
+      staffName: data.staffName,
+      clientName: data.clientName,
+      serviceName: data.serviceName,
+      branchName: data.branchName,
+      bookingDate: data.bookingDate,
+      bookingTime: data.bookingTime,
+    } as Omit<Notification, "id" | "createdAt" | "read">);
+  } catch (e) {
+    console.error("notifyOwnerBookingCompletedOnce:", e);
   }
 }
 

@@ -10,6 +10,7 @@ import { normalizeBookingStatus, getServiceCompletionProgress } from "@/lib/book
 import {
   mapCustomerVehicleDoc,
   vehicleDetailsFromCustomerDoc,
+  dedupeVehiclesByIdentity,
 } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
@@ -83,8 +84,10 @@ export async function GET(
       .collection(`customers/${customerId}/vehicles`)
       .get();
 
-    const vehicles = vehiclesSnap.docs.map((doc) =>
-      mapCustomerVehicleDoc(doc.id, doc.data() as Record<string, unknown>)
+    const vehicles = dedupeVehiclesByIdentity(
+      vehiclesSnap.docs.map((doc) =>
+        mapCustomerVehicleDoc(doc.id, doc.data() as Record<string, unknown>)
+      ) as (Record<string, unknown> & { id: string })[]
     );
 
     // Get booking history for this customer

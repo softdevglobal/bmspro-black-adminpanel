@@ -422,12 +422,22 @@ export async function POST(req: NextRequest) {
         const checklist = svcDoc.data()?.checklist;
         if (Array.isArray(checklist)) {
           for (const item of checklist) {
+            const rawSection =
+              typeof item === "string" ? undefined : (item as any)?.section;
+            const section =
+              rawSection === "interior" ||
+              rawSection === "engine_bay" ||
+              rawSection === "underbody" ||
+              rawSection === "exterior"
+                ? rawSection
+                : "interior";
             tasks.push({
               id: `task_${taskIndex++}`,
               serviceId: svc.id,
               serviceName: svc.name,
               name: item.name || item.title || "",
               description: item.description || "",
+              section,
               done: false,
               imageUrl: "",
               staffNote: "",

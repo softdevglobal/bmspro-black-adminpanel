@@ -5,6 +5,10 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import {
+  DEFAULT_CHECKLIST_SECTION,
+  isChecklistSection,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -92,6 +96,9 @@ export async function GET(
       ? d.checklist.map((item: any) => ({
           name: item.name || "",
           description: item.description || "",
+          section: isChecklistSection(item?.section)
+            ? item.section
+            : DEFAULT_CHECKLIST_SECTION,
         }))
       : [];
 

@@ -6,19 +6,177 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   createDefaultService,
   updateDefaultService,
   deleteDefaultService,
   subscribeDefaultServices,
   type DefaultServiceInput,
 } from "@/lib/defaultServices";
-import { type ChecklistItem, normalizeChecklist } from "@/lib/services";
+import {
+  CHECKLIST_SECTIONS,
+  CHECKLIST_SECTION_LABELS,
+  isChecklistSection,
+  normalizeChecklist,
+  groupChecklistItemsWithGlobalNumbers,
+  type ChecklistItem,
+  type ChecklistSection,
+} from "@/lib/services";
+import { nativeSelectInsetChevronClass } from "@/lib/nativeSelectChevron";
 
 type DefaultService = {
   id: string;
   name: string;
   checklist: ChecklistItem[];
 };
+
+type ChecklistRow = ChecklistItem & { id: string };
+
+function newChecklistRowId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function rowsFromChecklist(items: ChecklistItem[]): ChecklistRow[] {
+  return items.map((c) => ({ ...c, id: newChecklistRowId() }));
+}
+
+function checklistPayloadFromRows(rows: ChecklistRow[]): ChecklistItem[] {
+  return rows
+    .map(({ id: _id, ...item }) => item)
+    .filter((item) => item.name.trim() !== "");
+}
+
+/** Preview drawer — light area bars + dark text (same look as Book Now). */
+const CHECKLIST_SECTION_BADGE: Record<ChecklistSection, string> = {
+  interior: "border-blue-300 bg-blue-50 text-blue-900",
+  engine_bay: "border-neutral-400 bg-white text-neutral-900",
+  underbody: "border-violet-300 bg-violet-50 text-violet-900",
+  exterior: "border-emerald-300 bg-emerald-50 text-emerald-900",
+};
+
+const CHECKLIST_SECTION_ICON: Record<ChecklistSection, string> = {
+  interior: "fas fa-car-side",
+  engine_bay: "fas fa-gears",
+  underbody: "fas fa-wrench",
+  exterior: "fas fa-car",
+};
+
+function SortableChecklistRow({
+  row,
+  index,
+  onNameChange,
+  onDescriptionChange,
+  onSectionChange,
+  onRemove,
+}: {
+  row: ChecklistRow;
+  index: number;
+  onNameChange: (name: string) => void;
+  onDescriptionChange: (description: string) => void;
+  onSectionChange: (section: ChecklistSection) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.id,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.92 : 1,
+    zIndex: isDragging ? 20 : undefined,
+    position: "relative" as const,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`bg-white rounded-xl border overflow-hidden group/item ${
+        isDragging ? "border-amber-400 shadow-lg ring-2 ring-amber-200" : "border-amber-200"
+      }`}
+    >
+      <div className="flex items-start gap-2 p-3">
+        <button
+          type="button"
+          className="mt-0.5 flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 active:cursor-grabbing"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <i className="fas fa-grip-vertical text-[11px]" />
+        </button>
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+          <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <input
+            type="text"
+            value={row.name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="Task name"
+            className="w-full border-none bg-transparent p-0 text-xs font-semibold text-neutral-800 focus:outline-none focus:ring-0 sm:text-sm"
+          />
+          <textarea
+            value={row.description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            placeholder="Description (optional)"
+            rows={2}
+            className="w-full resize-none rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-[11px] text-neutral-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 sm:text-xs"
+          />
+          <div className="pt-0.5">
+            <select
+              value={isChecklistSection(row.section) ? row.section : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) onSectionChange(v as ChecklistSection);
+              }}
+              aria-label="Select area"
+              className={`${nativeSelectInsetChevronClass} w-full rounded-md border border-neutral-200 py-1.5 text-[11px] focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 sm:text-xs ${
+                isChecklistSection(row.section) ? "text-neutral-700" : "text-neutral-400"
+              }`}
+            >
+              <option value="" disabled hidden>
+                Select area
+              </option>
+              {CHECKLIST_SECTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {CHECKLIST_SECTION_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-400 opacity-0 transition-all hover:bg-red-100 hover:text-red-600 group-hover/item:opacity-100"
+          aria-label="Remove task"
+        >
+          <i className="fas fa-trash-can text-[9px]" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function AdminServicesPage() {
   const router = useRouter();
@@ -35,9 +193,27 @@ export default function AdminServicesPage() {
   const [deleting, setDeleting] = useState(false);
 
   const [name, setName] = useState("");
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  const [checklistRows, setChecklistRows] = useState<ChecklistRow[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [newChecklistDesc, setNewChecklistDesc] = useState("");
+  /** Empty string shows “Select area” placeholder in the add-task dropdown until the user picks. */
+  const [newChecklistSection, setNewChecklistSection] = useState<ChecklistSection | "">("");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const onChecklistDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setChecklistRows((items) => {
+      const oldIndex = items.findIndex((r) => r.id === active.id);
+      const newIndex = items.findIndex((r) => r.id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return items;
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  };
 
   // toast
   const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
@@ -86,18 +262,20 @@ export default function AdminServicesPage() {
   const openModal = () => {
     setEditingId(null);
     setName("");
-    setChecklist([]);
+    setChecklistRows([]);
     setNewChecklistItem("");
     setNewChecklistDesc("");
+    setNewChecklistSection("");
     setIsModalOpen(true);
   };
 
   const openEdit = (svc: DefaultService) => {
     setEditingId(svc.id);
     setName(svc.name);
-    setChecklist(svc.checklist || []);
+    setChecklistRows(rowsFromChecklist(svc.checklist || []));
     setNewChecklistItem("");
     setNewChecklistDesc("");
+    setNewChecklistSection("");
     setIsModalOpen(true);
   };
 
@@ -107,11 +285,21 @@ export default function AdminServicesPage() {
     e.preventDefault();
     if (!name.trim() || !adminUid) return;
 
+    const checklistPayload = checklistPayloadFromRows(checklistRows);
+    if (
+      checklistPayload.some(
+        (item) => item.name.trim() !== "" && !isChecklistSection(item.section)
+      )
+    ) {
+      showToast("Please select a vehicle area for every task.");
+      return;
+    }
+
     setSaving(true);
     try {
       const data: DefaultServiceInput = {
         name: name.trim(),
-        checklist: checklist.filter((item) => item.name.trim() !== ""),
+        checklist: checklistPayload,
       };
 
       if (editingId) {
@@ -384,50 +572,43 @@ export default function AdminServicesPage() {
                     <i className="fas fa-info-circle mr-1" />
                     These tasks will be included as defaults when an owner uses this template. They can modify them.
                   </p>
+                  <p className="text-[10px] text-neutral-500 mb-3">
+                    <i className="fas fa-arrows-alt-v mr-1" />
+                    Drag the grip handle to reorder. Pick which vehicle part each task belongs to: Interior, Engine Bay, Underbody, or Exterior.
+                  </p>
 
-                  {checklist.length > 0 && (
-                    <div className="space-y-2.5 mb-3">
-                      {checklist.map((item, index) => (
-                        <div key={index} className="bg-white rounded-xl border border-amber-200 overflow-hidden group/item">
-                          <div className="flex items-start gap-2.5 p-3">
-                            <div className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
-                            </div>
-                            <div className="flex-1 min-w-0 space-y-1.5">
-                              <input
-                                type="text"
-                                value={item.name}
-                                onChange={(e) => {
-                                  const updated = [...checklist];
-                                  updated[index] = { ...updated[index], name: e.target.value };
-                                  setChecklist(updated);
-                                }}
-                                placeholder="Task name"
-                                className="w-full text-xs sm:text-sm font-semibold text-neutral-800 bg-transparent focus:outline-none focus:ring-0 border-none p-0"
-                              />
-                              <textarea
-                                value={item.description}
-                                onChange={(e) => {
-                                  const updated = [...checklist];
-                                  updated[index] = { ...updated[index], description: e.target.value };
-                                  setChecklist(updated);
-                                }}
-                                placeholder="Description (optional)"
-                                rows={2}
-                                className="w-full text-[11px] sm:text-xs text-neutral-500 bg-neutral-50 rounded-lg border border-neutral-200 p-2 focus:outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400 resize-none"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
-                              className="opacity-0 group-hover/item:opacity-100 w-6 h-6 rounded-md bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-all flex-shrink-0 mt-0.5"
-                            >
-                              <i className="fas fa-trash-can text-[9px]" />
-                            </button>
-                          </div>
+                  {checklistRows.length > 0 && (
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onChecklistDragEnd}>
+                      <SortableContext items={checklistRows.map((r) => r.id)} strategy={verticalListSortingStrategy}>
+                        <div className="mb-3 space-y-2.5">
+                          {checklistRows.map((row, index) => (
+                            <SortableChecklistRow
+                              key={row.id}
+                              row={row}
+                              index={index}
+                              onNameChange={(value) => {
+                                setChecklistRows((prev) =>
+                                  prev.map((r) => (r.id === row.id ? { ...r, name: value } : r))
+                                );
+                              }}
+                              onDescriptionChange={(value) => {
+                                setChecklistRows((prev) =>
+                                  prev.map((r) => (r.id === row.id ? { ...r, description: value } : r))
+                                );
+                              }}
+                              onSectionChange={(value) => {
+                                setChecklistRows((prev) =>
+                                  prev.map((r) => (r.id === row.id ? { ...r, section: value } : r))
+                                );
+                              }}
+                              onRemove={() => {
+                                setChecklistRows((prev) => prev.filter((r) => r.id !== row.id));
+                              }}
+                            />
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </SortableContext>
+                    </DndContext>
                   )}
 
                   <div className="bg-white rounded-xl border border-dashed border-amber-300 p-3 space-y-2">
@@ -438,11 +619,24 @@ export default function AdminServicesPage() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          if (newChecklistItem.trim()) {
-                            setChecklist([...checklist, { name: newChecklistItem.trim(), description: newChecklistDesc.trim(), done: false, imageUrl: "" }]);
-                            setNewChecklistItem("");
-                            setNewChecklistDesc("");
+                          if (!newChecklistItem.trim()) return;
+                          if (newChecklistSection === "") {
+                            showToast("Please select an area.");
+                            return;
                           }
+                          setChecklistRows((prev) => [
+                            ...prev,
+                            {
+                              id: newChecklistRowId(),
+                              name: newChecklistItem.trim(),
+                              description: newChecklistDesc.trim(),
+                              done: false,
+                              section: newChecklistSection,
+                            },
+                          ]);
+                          setNewChecklistItem("");
+                          setNewChecklistDesc("");
+                          setNewChecklistSection("");
                         }
                       }}
                       placeholder="Task name — e.g. Oil & filter change"
@@ -455,14 +649,48 @@ export default function AdminServicesPage() {
                       rows={2}
                       className="w-full border border-neutral-200 rounded-lg p-2 text-[11px] sm:text-xs text-neutral-500 focus:ring-1 focus:ring-amber-400 focus:outline-none resize-none"
                     />
+                    <select
+                      value={newChecklistSection}
+                      onChange={(e) =>
+                        setNewChecklistSection(
+                          e.target.value === "" ? "" : (e.target.value as ChecklistSection)
+                        )
+                      }
+                      aria-label="Select area"
+                      className={`${nativeSelectInsetChevronClass} w-full rounded-md border border-neutral-200 py-1.5 text-[11px] focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 sm:text-xs ${
+                        newChecklistSection === "" ? "text-neutral-400" : "text-neutral-700"
+                      }`}
+                    >
+                      <option value="" disabled hidden>
+                        Select area
+                      </option>
+                      {CHECKLIST_SECTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {CHECKLIST_SECTION_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => {
-                        if (newChecklistItem.trim()) {
-                          setChecklist([...checklist, { name: newChecklistItem.trim(), description: newChecklistDesc.trim(), done: false, imageUrl: "" }]);
-                          setNewChecklistItem("");
-                          setNewChecklistDesc("");
+                        if (!newChecklistItem.trim()) return;
+                        if (newChecklistSection === "") {
+                          showToast("Please select an area.");
+                          return;
                         }
+                        setChecklistRows((prev) => [
+                          ...prev,
+                          {
+                            id: newChecklistRowId(),
+                            name: newChecklistItem.trim(),
+                            description: newChecklistDesc.trim(),
+                            done: false,
+                            section: newChecklistSection,
+                          },
+                        ]);
+                        setNewChecklistItem("");
+                        setNewChecklistDesc("");
+                        setNewChecklistSection("");
                       }}
                       className="w-full py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5"
                     >
@@ -471,10 +699,10 @@ export default function AdminServicesPage() {
                     </button>
                   </div>
 
-                  {checklist.length > 0 && (
+                  {checklistRows.length > 0 && (
                     <div className="mt-2 text-[10px] text-amber-600 font-medium">
                       <i className="fas fa-list-check mr-1" />
-                      {checklist.length} task{checklist.length !== 1 ? "s" : ""} in todo list
+                      {checklistRows.length} task{checklistRows.length !== 1 ? "s" : ""} in todo list
                     </div>
                   )}
                 </div>
@@ -563,18 +791,49 @@ export default function AdminServicesPage() {
                           {previewService.checklist.length} task{previewService.checklist.length !== 1 ? "s" : ""}
                         </span>
                       </h3>
-                      <div className="space-y-2">
-                        {previewService.checklist.map((item, index) => (
-                          <div key={index} className="flex items-start gap-2.5 bg-white rounded-lg p-3 border border-amber-100">
-                            <div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <span className="text-[10px] font-bold text-white">{index + 1}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-neutral-800 font-semibold">{item.name}</p>
-                              {item.description && (
-                                <p className="text-xs text-neutral-500 mt-0.5">{item.description}</p>
+                      <div className="space-y-4">
+                        {groupChecklistItemsWithGlobalNumbers(previewService.checklist).map((group) => (
+                          <div key={group.key} className="space-y-2">
+                            <div
+                              className={
+                                group.key === "unset"
+                                  ? "flex items-center gap-2 rounded-lg border-2 border-neutral-300 bg-neutral-50 px-2.5 py-1.5 text-neutral-800"
+                                  : `flex items-center gap-2 rounded-lg border-2 px-2.5 py-1.5 ${CHECKLIST_SECTION_BADGE[group.key as ChecklistSection]}`
+                              }
+                            >
+                              {group.key === "unset" ? (
+                                <>
+                                  <i className="fas fa-question-circle text-[10px] text-neutral-500" />
+                                  <span className="text-[11px] font-bold">Area not set</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className={`${CHECKLIST_SECTION_ICON[group.key]} text-[10px] opacity-90`} />
+                                  <span className="text-[11px] font-bold">
+                                    {CHECKLIST_SECTION_LABELS[group.key as ChecklistSection]}
+                                  </span>
+                                </>
                               )}
+                              <span className="ml-auto text-[10px] font-semibold text-neutral-600">
+                                {group.items.length} task{group.items.length !== 1 ? "s" : ""}
+                              </span>
                             </div>
+                            {group.items.map(({ item, num }) => (
+                              <div
+                                key={`${group.key}-${num}-${item.name}`}
+                                className="flex items-start gap-2.5 bg-white rounded-lg p-3 border border-amber-100"
+                              >
+                                <div className="h-6 min-w-[1.5rem] px-1 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5 tabular-nums">
+                                  <span className="text-[10px] font-bold text-white leading-none">{num}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-neutral-800 font-semibold">{item.name}</p>
+                                  {item.description && (
+                                    <p className="text-xs text-neutral-500 mt-0.5">{item.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         ))}
                       </div>

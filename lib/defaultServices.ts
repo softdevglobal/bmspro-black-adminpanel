@@ -11,7 +11,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import type { ChecklistItem } from "@/lib/services";
+import { templateChecklistForFirestore, type ChecklistItem } from "@/lib/services";
 
 export type DefaultServiceInput = {
   name: string;
@@ -24,8 +24,10 @@ export async function createDefaultService(
   adminUid: string,
   data: DefaultServiceInput
 ) {
+  const { checklist, ...rest } = data;
   const ref = await addDoc(collection(db, COLLECTION), {
-    ...data,
+    ...rest,
+    checklist: templateChecklistForFirestore(checklist),
     createdBy: adminUid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -38,10 +40,15 @@ export async function updateDefaultService(
   data: Partial<DefaultServiceInput>
 ) {
   const ref = doc(db, COLLECTION, serviceId);
-  await updateDoc(ref, {
-    ...data,
+  const { checklist, ...rest } = data;
+  const payload: Record<string, unknown> = {
+    ...rest,
     updatedAt: serverTimestamp(),
-  });
+  };
+  if (checklist !== undefined) {
+    payload.checklist = templateChecklistForFirestore(checklist);
+  }
+  await updateDoc(ref, payload as DocumentData);
 }
 
 export async function deleteDefaultService(serviceId: string) {

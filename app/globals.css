@@ -99,6 +99,23 @@ select:-webkit-autofill {
   background-color: #94a3b8;
 }
 
+/*
+ * Native <select> chevron inset from the right edge.
+ * Tailwind arbitrary bg-[url(...)] in JS constants is not always emitted; plain CSS is reliable.
+ */
+select.select-inset-chevron {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-left: 0.5rem;
+  padding-right: 3rem;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1.5rem center;
+  background-size: 0.75rem;
+}
+
 /* Toast Notification Animations */
 @keyframes slideInRight {
   from {

@@ -1,3 +1,96 @@
+/** Strip spaces/dashes and uppercase — same plate should dedupe across "ABF 3344" vs "abf-3344". */
+export function normalizeVehicleRego(raw: string): string {
+  return raw.replace(/[\s-]/g, "").toUpperCase();
+}
+
+/** Trim + uppercase + strip internal spaces (VINs are sometimes spaced). */
+export function normalizeVehicleVin(raw: string): string {
+  return raw.replace(/\s/g, "").toUpperCase();
+}
+
+const MIN_VIN_LEN_FOR_MATCH = 5;
+
+/** Normalized rego + vin from any vehicle subdoc shape (call-center, book-now, legacy). */
+export function regoVinFromVehicleData(d: Record<string, unknown>): {
+  rego: string;
+  vin: string;
+} {
+  const regoRaw = String(
+    d.rego ?? d.registrationNumber ?? d.vehicleNumber ?? ""
+  ).trim();
+  const vinRaw = String(d.vin ?? d.vinChassis ?? "").trim();
+  return {
+    rego: regoRaw ? normalizeVehicleRego(regoRaw) : "",
+    vin: vinRaw ? normalizeVehicleVin(vinRaw) : "",
+  };
+}
+
+/** True when two stored / incoming payloads describe the same car (same plate or same VIN). */
+export function isSameCustomerVehicle(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+): boolean {
+  const A = regoVinFromVehicleData(a);
+  const B = regoVinFromVehicleData(b);
+  if (A.rego && B.rego && A.rego === B.rego) return true;
+  if (
+    A.vin.length >= MIN_VIN_LEN_FOR_MATCH &&
+    B.vin.length >= MIN_VIN_LEN_FOR_MATCH &&
+    A.vin === B.vin
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Merge non-empty fields from `incoming` into `existing` (Firestore vehicle doc). */
+export function mergeVehicleFirestoreFields(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...existing };
+  for (const [key, val] of Object.entries(incoming)) {
+    if (val === undefined || val === null) continue;
+    if (typeof val === "string" && val.trim() === "") continue;
+    out[key] = val;
+  }
+  return out;
+}
+
+/**
+ * Collapse duplicate vehicle rows (same rego or same VIN). Keeps the first occurrence;
+ * merges missing display fields from later duplicates for richer UI.
+ */
+export function dedupeVehiclesByIdentity<
+  T extends Record<string, unknown> & { id: string }
+>(rows: T[]): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of rows) {
+    const { rego, vin } = regoVinFromVehicleData(row);
+    const key = rego ? `r:${rego}` : vin.length >= MIN_VIN_LEN_FOR_MATCH ? `v:${vin}` : `id:${row.id}`;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, { ...row });
+      continue;
+    }
+    const merged = { ...prev } as T;
+    for (const k of Object.keys(row)) {
+      if (k === "id") continue;
+      const a = merged[k];
+      const b = row[k];
+      const aEmpty =
+        a === undefined ||
+        a === null ||
+        (typeof a === "string" && String(a).trim() === "");
+      if (aEmpty && b !== undefined && b !== null && String(b).trim() !== "") {
+        (merged as Record<string, unknown>)[k] = b;
+      }
+    }
+    byKey.set(key, merged);
+  }
+  return Array.from(byKey.values());
+}
+
 /** Parse string/number fields from JSON body. */
 function str(body: Record<string, unknown>, key: string): string {
   const v = body[key];

@@ -9,6 +9,7 @@ import {
 import {
   mapCustomerVehicleDoc,
   vehicleDetailsFromCustomerDoc,
+  dedupeVehiclesByIdentity,
 } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
@@ -171,8 +172,10 @@ export async function GET(req: NextRequest) {
           return { ...row, vehicles: [] as unknown[] };
         }
         const vs = await db.collection(`customers/${id}/vehicles`).get();
-        const vehicles = vs.docs.map((v) =>
-          mapCustomerVehicleDoc(v.id, v.data() as Record<string, unknown>)
+        const vehicles = dedupeVehiclesByIdentity(
+          vs.docs.map((v) =>
+            mapCustomerVehicleDoc(v.id, v.data() as Record<string, unknown>)
+          ) as (Record<string, unknown> & { id: string })[]
         );
         return { ...row, vehicles };
       })

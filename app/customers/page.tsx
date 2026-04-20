@@ -6,6 +6,7 @@ import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { toCsv, parseCsv, downloadFile } from "@/lib/csvUtils";
+import { dedupeVehiclesByIdentity } from "@/lib/callCenterCustomerVehicles";
 
 type Customer = {
   id: string;
@@ -280,21 +281,23 @@ export default function CustomersPage() {
         const [vehiclesList, bookingsList] = await Promise.all([
           customerId
             ? getDocs(collection(db, "customers", customerId, "vehicles")).then((snap) =>
-                snap.docs.map((d) => {
-                  const data = d.data();
-                  return {
-                    id: d.id,
-                    registrationNumber: (data.registrationNumber || data.vehicleNumber || "").toString(),
-                    make: data.make,
-                    model: data.model,
-                    year: data.year,
-                    mileage: data.mileage,
-                    bodyType: data.bodyType,
-                    colour: data.colour,
-                    vinChassis: data.vinChassis,
-                    engineNumber: data.engineNumber,
-                  };
-                })
+                dedupeVehiclesByIdentity(
+                  snap.docs.map((d) => {
+                    const data = d.data();
+                    return {
+                      id: d.id,
+                      registrationNumber: (data.registrationNumber || data.vehicleNumber || "").toString(),
+                      make: data.make,
+                      model: data.model,
+                      year: data.year,
+                      mileage: data.mileage,
+                      bodyType: data.bodyType,
+                      colour: data.colour,
+                      vinChassis: data.vinChassis,
+                      engineNumber: data.engineNumber,
+                    };
+                  }) as (Vehicle & Record<string, unknown>)[]
+                )
               )
             : Promise.resolve([]),
           getDocs(query(collection(db, "bookings"), where("ownerUid", "==", ownerUid))).then((snap) => {
@@ -496,21 +499,23 @@ export default function CustomersPage() {
         let vehiclesList: Vehicle[] = [];
         if (customerId) {
           const vSnap = await getDocs(collection(db, "customers", customerId, "vehicles"));
-          vehiclesList = vSnap.docs.map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              registrationNumber: (data.registrationNumber || data.vehicleNumber || "").toString(),
-              make: data.make,
-              model: data.model,
-              year: data.year,
-              mileage: data.mileage,
-              bodyType: data.bodyType,
-              colour: data.colour,
-              vinChassis: data.vinChassis,
-              engineNumber: data.engineNumber,
-            };
-          });
+          vehiclesList = dedupeVehiclesByIdentity(
+            vSnap.docs.map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                registrationNumber: (data.registrationNumber || data.vehicleNumber || "").toString(),
+                make: data.make,
+                model: data.model,
+                year: data.year,
+                mileage: data.mileage,
+                bodyType: data.bodyType,
+                colour: data.colour,
+                vinChassis: data.vinChassis,
+                engineNumber: data.engineNumber,
+              };
+            }) as (Vehicle & Record<string, unknown>)[]
+          );
         }
 
         const email = (c.email || "").trim().toLowerCase();
@@ -874,8 +879,8 @@ export default function CustomersPage() {
                 </div>
               </div>
               
-              {/* Scrollable Content */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Scrollable Content — min-h-0 so flex child can shrink and overflow-y scrolls */}
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5 space-y-4 custom-scrollbar">
                 {/* Profile Section */}
                 <div className="flex items-center gap-4 bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
                   <div className="w-16 h-16 rounded-full bg-neutral-900 text-white flex items-center justify-center font-bold text-2xl shadow-lg flex-shrink-0">
@@ -993,21 +998,27 @@ export default function CustomersPage() {
                   ) : previewBookings.length === 0 ? (
                     <p className="text-xs text-neutral-500 py-2">No booking history</p>
                   ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {previewBookings.map((b) => (
-                        <div key={b.id} className="flex items-center justify-between gap-2 py-2 border-b border-neutral-100 last:border-0">
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm text-neutral-800 truncate">{b.serviceName}</div>
-                            <div className="text-[11px] text-neutral-500">{b.date} {b.time}</div>
-                          </div>
-                          <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                            b.status === "Completed" ? "bg-green-100 text-green-700" :
-                            b.status === "Confirmed" ? "bg-blue-100 text-blue-700" :
-                            b.status === "Canceled" || b.status === "Cancelled" ? "bg-red-100 text-red-700" :
-                            "bg-amber-100 text-amber-700"
-                          }`}>{b.status}</span>
-                        </div>
-                      ))}
+                    <div
+                      className="max-h-[min(45vh,320px)] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg border border-neutral-100 bg-neutral-50/60 px-2 py-1 custom-scrollbar"
+                      role="region"
+                      aria-label="Previous bookings list"
+                    >
+                      <ul className="space-y-0 divide-y divide-neutral-100">
+                        {previewBookings.map((b) => (
+                          <li key={b.id} className="flex items-center justify-between gap-2 py-2.5 first:pt-1 last:pb-1">
+                            <div className="min-w-0">
+                              <div className="font-medium text-sm text-neutral-800 truncate">{b.serviceName}</div>
+                              <div className="text-[11px] text-neutral-500">{b.date} {b.time}</div>
+                            </div>
+                            <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                              b.status === "Completed" ? "bg-green-100 text-green-700" :
+                              b.status === "Confirmed" ? "bg-blue-100 text-blue-700" :
+                              b.status === "Canceled" || b.status === "Cancelled" ? "bg-red-100 text-red-700" :
+                              "bg-amber-100 text-amber-700"
+                            }`}>{b.status}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>

@@ -3,7 +3,27 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
-import { type ChecklistItem, normalizeChecklist } from "@/lib/services";
+import {
+  type ChecklistItem,
+  type ChecklistSection,
+  normalizeChecklist,
+  groupChecklistItemsWithGlobalNumbers,
+  CHECKLIST_SECTION_LABELS,
+} from "@/lib/services";
+
+/** Area strips: light tinted bars + colored border (readable dark text), matching the preferred Book Now look. */
+const BOOK_NOW_SECTION_HEADER: Record<ChecklistSection, string> = {
+  interior: "border-blue-300 bg-blue-50 text-blue-900",
+  engine_bay: "border-neutral-400 bg-white text-neutral-900",
+  underbody: "border-violet-300 bg-violet-50 text-violet-900",
+  exterior: "border-emerald-300 bg-emerald-50 text-emerald-900",
+};
+const BOOK_NOW_SECTION_ICON: Record<ChecklistSection, string> = {
+  interior: "fas fa-car-side",
+  engine_bay: "fas fa-gears",
+  underbody: "fas fa-wrench",
+  exterior: "fas fa-car",
+};
 
 type DayHours = { open?: string; close?: string; closed?: boolean };
 type BranchHoursMap = {
@@ -2108,18 +2128,53 @@ export default function BookingEnginePage() {
                               </div>
                               <h5 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">What&apos;s Included</h5>
                             </div>
-                            <div className="space-y-2">
-                              {service.checklist.map((item, i) => (
-                                <div key={i} className="flex items-start gap-2.5 group/item" style={{ animation: `fadeSlideUp 0.3s ease-out ${i * 50}ms both` }}>
-                                  <div className="w-5 h-5 rounded-md bg-white border border-amber-200 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
-                                    <i className="fas fa-check text-amber-500 text-[8px]" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <span className="text-sm text-neutral-700 font-medium leading-snug block">{item.name}</span>
-                                    {item.description && (
-                                      <span className="text-xs text-neutral-400 leading-snug block mt-0.5">{item.description}</span>
+                            <div className="space-y-4">
+                              {groupChecklistItemsWithGlobalNumbers(service.checklist).map((group, gi) => (
+                                <div key={group.key} className="space-y-2">
+                                  <div
+                                    className={
+                                      group.key === "unset"
+                                        ? "flex items-center gap-2 rounded-lg border-2 border-neutral-300 bg-neutral-50 px-2.5 py-1.5 text-neutral-800"
+                                        : `flex items-center gap-2 rounded-lg border-2 px-2.5 py-1.5 ${BOOK_NOW_SECTION_HEADER[group.key as ChecklistSection]}`
+                                    }
+                                  >
+                                    {group.key === "unset" ? (
+                                      <>
+                                        <i className="fas fa-question-circle text-[10px] text-neutral-500" />
+                                        <span className="text-[11px] font-bold">Area not set</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <i className={`${BOOK_NOW_SECTION_ICON[group.key as ChecklistSection]} text-[10px] opacity-90`} />
+                                        <span className="text-[11px] font-bold">
+                                          {CHECKLIST_SECTION_LABELS[group.key as ChecklistSection]}
+                                        </span>
+                                      </>
                                     )}
+                                    <span className="ml-auto text-[10px] font-semibold text-neutral-600">
+                                      {group.items.length} task{group.items.length !== 1 ? "s" : ""}
+                                    </span>
                                   </div>
+                                  {group.items.map(({ item, num }, ii) => {
+                                    const animIndex = gi * 20 + ii;
+                                    return (
+                                      <div
+                                        key={`${group.key}-${num}-${item.name}`}
+                                        className="flex items-start gap-2.5 group/item pl-0.5"
+                                        style={{ animation: `fadeSlideUp 0.3s ease-out ${animIndex * 50}ms both` }}
+                                      >
+                                        <div className="h-6 min-w-[1.35rem] px-1 rounded-md bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm tabular-nums">
+                                          <span className="text-[10px] font-bold text-white leading-none">{num}</span>
+                                        </div>
+                                        <div className="min-w-0">
+                                          <span className="text-sm text-neutral-800 font-medium leading-snug block">{item.name}</span>
+                                          {item.description && (
+                                            <span className="text-xs text-neutral-500 leading-snug block mt-0.5">{item.description}</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ))}
                             </div>

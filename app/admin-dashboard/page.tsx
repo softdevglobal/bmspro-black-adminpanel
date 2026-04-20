@@ -7,6 +7,16 @@ import Script from "next/script";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useNotifications } from "@/components/NotificationProvider";
 
+/** Long currency strings use smaller type so they fit; short strings stay hero-sized. */
+function currencyStatHeadlineClass(formatted: string): string {
+  const len = formatted.length;
+  const base = "font-bold tabular-nums tracking-tight leading-tight";
+  if (len >= 24) return `${base} text-sm sm:text-base md:text-lg`;
+  if (len >= 18) return `${base} text-base sm:text-lg md:text-xl`;
+  if (len >= 14) return `${base} text-lg sm:text-xl md:text-2xl`;
+  return `${base} text-3xl`;
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -873,8 +883,13 @@ export default function AdminDashboardPage() {
                   <i className="fas fa-dollar-sign text-amber-400" />
                 </div>
               </div>
-              <div className="mb-2">
-                <h3 className="text-3xl font-bold">AU${monthlyRevenue.toLocaleString()}</h3>
+              <div className="mb-2 min-w-0 overflow-x-auto">
+                {(() => {
+                  const label = `AU$${monthlyRevenue.toLocaleString()}`;
+                  return (
+                    <h3 className={currencyStatHeadlineClass(label)}>{label}</h3>
+                  );
+                })()}
               </div>
               <div className="flex items-center space-x-2">
                 {revenueGrowth !== 0 && (
@@ -898,8 +913,13 @@ export default function AdminDashboardPage() {
                   <i className="fas fa-rotate text-emerald-400" />
                 </div>
               </div>
-              <div className="mb-2">
-                <h3 className="text-3xl font-bold">AU${mrr.toLocaleString()}</h3>
+              <div className="mb-2 min-w-0 overflow-x-auto">
+                {(() => {
+                  const label = `AU$${mrr.toLocaleString()}`;
+                  return (
+                    <h3 className={currencyStatHeadlineClass(label)}>{label}</h3>
+                  );
+                })()}
               </div>
               <div className="text-xs text-neutral-500">MRR from subscriptions</div>
             </div>

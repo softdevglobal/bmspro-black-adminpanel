@@ -6,6 +6,11 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import {
+  DEFAULT_CHECKLIST_SECTION,
+  isChecklistSection,
+  type ChecklistSection,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -18,20 +23,27 @@ function mapChecklistFromDoc(checklistRaw: unknown): Array<{
   name: string;
   description: string;
   done: boolean;
-  imageUrl: string;
+  section: ChecklistSection;
 }> {
   if (!Array.isArray(checklistRaw)) return [];
   return checklistRaw.map((item: unknown, index: number) => {
     if (typeof item === "string") {
-      return { index, name: item, description: "", done: false, imageUrl: "" };
+      return {
+        index,
+        name: item,
+        description: "",
+        done: false,
+        section: DEFAULT_CHECKLIST_SECTION,
+      };
     }
     const o = item as Record<string, unknown>;
+    const rawSection = o.section;
     return {
       index,
       name: typeof o.name === "string" ? o.name : "",
       description: typeof o.description === "string" ? o.description : "",
       done: !!o.done,
-      imageUrl: typeof o.imageUrl === "string" ? o.imageUrl : "",
+      section: isChecklistSection(rawSection) ? rawSection : DEFAULT_CHECKLIST_SECTION,
     };
   });
 }
@@ -40,7 +52,7 @@ function mapChecklistFromDoc(checklistRaw: unknown): Array<{
  * GET /api/call-center/services?ownerUid=X&branchId=Y
  *
  * List services for a workshop. Each service includes staff[] and full checklist[]
- * (todo template items: index, name, description, done, imageUrl), plus checklistCount.
+ * (todo template items: index, name, description, done), plus checklistCount.
  * Optional summary=1 — omit checklist[] and keep only checklistCount (smaller payload).
  */
 export async function GET(req: NextRequest) {

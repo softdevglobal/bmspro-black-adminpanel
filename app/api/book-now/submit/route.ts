@@ -201,12 +201,22 @@ export async function POST(req: NextRequest) {
         if (!Array.isArray(checklist) || checklist.length === 0) continue;
         const svcName = svcData?.name || svc.name || "";
         for (const item of checklist) {
+          const rawSection =
+            typeof item === "string" ? undefined : (item as any)?.section;
+          const section =
+            rawSection === "interior" ||
+            rawSection === "engine_bay" ||
+            rawSection === "underbody" ||
+            rawSection === "exterior"
+              ? rawSection
+              : "interior";
           bookingTasks.push({
             id: `task_${taskIndex++}`,
             serviceId: svcId,
             serviceName: svcName,
             name: typeof item === "string" ? item : (item.name || ""),
             description: typeof item === "string" ? "" : (item.description || ""),
+            section,
             done: false,
             imageUrl: "",
             staffNote: "",

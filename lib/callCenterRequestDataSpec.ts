@@ -322,7 +322,13 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             staff: [{ id: "<staffUid>", name: "John", role: "staff", branchId: "<branchId>" }],
             checklistCount: 5,
             checklist: [
-              { index: 0, name: "Oil change", description: "", done: false, imageUrl: "" },
+              {
+                index: 0,
+                name: "Oil change",
+                description: "",
+                done: false,
+                section: "engine_bay",
+              },
             ],
           },
         ],
@@ -349,7 +355,13 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
           imageUrl: "",
           branches: [{ id: "<branchId>", name: "Main Branch" }],
           staff: [{ id: "<staffUid>", name: "John", role: "staff", branchId: "<branchId>" }],
-          checklist: [{ name: "Oil change", description: "Replace engine oil" }],
+          checklist: [
+            {
+              name: "Oil change",
+              description: "Replace engine oil",
+              section: "engine_bay",
+            },
+          ],
         },
       },
     },
@@ -378,7 +390,13 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             serviceId: "<id>",
             serviceName: "Full Service",
             checklist: [
-              { index: 0, name: "Oil change", description: "", done: false, imageUrl: "" },
+              {
+                index: 0,
+                name: "Oil change",
+                description: "",
+                done: false,
+                section: "engine_bay",
+              },
             ],
           },
         ],
@@ -390,7 +408,7 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             name: "Oil change",
             description: "",
             done: false,
-            imageUrl: "",
+            section: "engine_bay",
           },
         ],
       },

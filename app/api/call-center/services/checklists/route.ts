@@ -6,6 +6,11 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import {
+  DEFAULT_CHECKLIST_SECTION,
+  isChecklistSection,
+  type ChecklistSection,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -18,22 +23,30 @@ type NormalizedChecklistItem = {
   name: string;
   description: string;
   done: boolean;
-  imageUrl: string;
+  /** Which vehicle part this task applies to: `interior | engine_bay | underbody | exterior`. */
+  section: ChecklistSection;
 };
 
 function normalizeChecklistItems(raw: unknown): NormalizedChecklistItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((item, index) => {
     if (typeof item === "string") {
-      return { index, name: item, description: "", done: false, imageUrl: "" };
+      return {
+        index,
+        name: item,
+        description: "",
+        done: false,
+        section: DEFAULT_CHECKLIST_SECTION,
+      };
     }
     const o = item as Record<string, unknown>;
+    const rawSection = o.section;
     return {
       index,
       name: typeof o.name === "string" ? o.name : "",
       description: typeof o.description === "string" ? o.description : "",
       done: !!o.done,
-      imageUrl: typeof o.imageUrl === "string" ? o.imageUrl : "",
+      section: isChecklistSection(rawSection) ? rawSection : DEFAULT_CHECKLIST_SECTION,
     };
   });
 }
@@ -103,7 +116,7 @@ export async function GET(req: NextRequest) {
       name: string;
       description: string;
       done: boolean;
-      imageUrl: string;
+      section: ChecklistSection;
     }> = [];
 
     for (const doc of docs) {
@@ -123,7 +136,7 @@ export async function GET(req: NextRequest) {
           name: row.name,
           description: row.description,
           done: row.done,
-          imageUrl: row.imageUrl,
+          section: row.section,
         });
       }
     }

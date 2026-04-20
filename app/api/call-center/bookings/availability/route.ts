@@ -7,17 +7,16 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { shouldBlockSlots, countsTowardDailyLimit } from "@/lib/bookingTypes";
+import {
+  branchHoursWindowFromSchedule,
+  getDayOfWeekFromYmd,
+  serializeCallCenterBranchForBooking,
+} from "@/lib/callCenterBranchForBooking";
 
 export const runtime = "nodejs";
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS });
-}
-
-function getDayOfWeek(dateStr: string): string {
-  const dateObj = new Date(dateStr + "T12:00:00");
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return days[dateObj.getDay()];
 }
 
 function timeToMinutes(timeStr: string): number {
@@ -91,7 +90,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = adminDb();
-    const dayOfWeek = getDayOfWeek(date);
+    const dayOfWeek = getDayOfWeekFromYmd(date);
 
     const [staffSnapshot, servicesSnapshot, branchDoc, bookingsSnapshot] = await Promise.all([
       db.collection("users").where("ownerUid", "==", ownerUid).get(),
@@ -100,16 +99,26 @@ export async function GET(req: NextRequest) {
       db.collection("bookings").where("ownerUid", "==", ownerUid).where("date", "==", date).get(),
     ]);
 
-    let branchHours: { open: string; close: string } | null = null;
-    if (branchDoc.exists) {
-      const branchData = branchDoc.data();
-      if (branchData?.hours && typeof branchData.hours === "object") {
-        const dayHours = branchData.hours[dayOfWeek];
-        if (dayHours && !dayHours.closed) {
-          branchHours = { open: dayHours.open || "09:00", close: dayHours.close || "17:00" };
-        }
-      }
+    const branchData = branchDoc.exists ? branchDoc.data() : null;
+    if (!branchDoc.exists || !branchData || (branchData.ownerUid && branchData.ownerUid !== ownerUid)) {
+      return NextResponse.json(
+        {
+          error: "Branch not found or access denied",
+          dayOfWeek,
+          branch: null,
+          blockedSlots: [],
+          availableSlots: [],
+          dailyLimitReached: false,
+        },
+        { status: 404, headers: CORS_HEADERS }
+      );
     }
+
+    const branch = serializeCallCenterBranchForBooking(branchId, branchData, date);
+    const branchHours =
+      branch?.daySchedule != null
+        ? branchHoursWindowFromSchedule(branch.daySchedule)
+        : null;
 
     if (!branchHours) {
       return NextResponse.json(
@@ -117,17 +126,19 @@ export async function GET(req: NextRequest) {
           available: false,
           reason: "Branch is closed on this day",
           dayOfWeek,
+          branch,
+          branchHours: null,
           blockedSlots: [],
           availableSlots: [],
           dailyLimitReached: false,
+          dailyLimit: branch?.bookingLimitPerDay ?? null,
+          currentBookings: 0,
         },
         { headers: CORS_HEADERS }
       );
     }
 
-    const branchData = branchDoc.exists ? branchDoc.data() : null;
-    const bookingLimitPerDay =
-      typeof branchData?.bookingLimitPerDay === "number" ? branchData.bookingLimitPerDay : null;
+    const bookingLimitPerDay = branch?.bookingLimitPerDay ?? null;
     const bookingsTowardLimit = bookingsSnapshot.docs
       .map((d) => ({ id: d.id, ...d.data() } as any))
       .filter((b: any) => b.branchId === branchId && countsTowardDailyLimit(b.status));
@@ -152,6 +163,7 @@ export async function GET(req: NextRequest) {
           available: false,
           reason: "Daily booking limit reached",
           dayOfWeek,
+          branch,
           branchHours,
           blockedSlots: allSlots,
           availableSlots: [],
@@ -265,6 +277,7 @@ export async function GET(req: NextRequest) {
       {
         available: availableSlots.length > 0,
         dayOfWeek,
+        branch,
         branchHours,
         allSlots,
         blockedSlots,

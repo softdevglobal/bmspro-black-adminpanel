@@ -45,13 +45,15 @@ const token = await user.getIdToken();
 
 1. `GET /auth` — confirm agent + workshops  
 2. `GET /did-lookup?did=...` — map inbound number → `ownerUid` / branch (if configured)  
-3. `GET /workshops/{ownerUid}` — branches, staff overview  
+3. `GET /workshops/{ownerUid}` — branches (each includes weekly `hours`, `bookingLimitPerDay`), services, staff  
+3b. `GET /branches?ownerUid=<workshopOwnerUid>` — **all branches** for that owner (array of full branch objects: `hours`, **`daySchedules`**, `bookingLimitPerDay`, …). Optional `?date=YYYY-MM-DD`. **Agents:** any owner; **BMS staff:** must have access to that workshop.  
+3c. `GET /branches/{branchId}` — single branch (same fields as each row above). **Call center agents:** any branch (`X-Tenant-Id` optional / ignored). **BMS staff:** scoped to their workshop; optional tenant must match branch. Optional `?date=YYYY-MM-DD` for **`daySchedule`**.  
 4. `GET /services?branchId=` (+ tenant) — **list services for the selected branch** (price, duration, available staff per service)  
 5. `GET /services/checklists` (+ tenant) — **all checklist/todo lines** across services (scripts / explaining work to customers)  
 6. `GET /services/{serviceId}` — **full service detail** (checklist, branches, staff) — optional, for drill-down  
 7. `GET /customers?q=...&searchBy=phone` (+ tenant) — screen pop search  
 8. `GET /customers/{customerId}` — profile, vehicles, booking list  
-9. `GET /bookings/availability?branchId=&date=&serviceIds=` — slots before booking  
+9. `GET /bookings/availability?branchId=&date=&serviceIds=` — slots before booking; response includes **`branch`** (`hours`, **`daySchedules`**, `bookingLimitPerDay`, and `daySchedule` for the requested `date`) alongside `branchHours`, `dailyLimit`, and slot arrays  
 10. `POST /bookings` — create job in BMS (use `serviceId`s from step 4)  
 11. `GET /bookings/{id}` — status / tasks / progress  
 12. `GET /bookings/{id}/additional-issues` → `PATCH .../additional-issues/{issueId}` — extra work after customer agrees on phone  
@@ -73,7 +75,9 @@ Paths are relative to the base URL above.
 | GET | `/did-lookup?did=` | Map DID → workshop. |
 | POST | `/did-lookup` | **CC admin.** Body: `did`, `ownerUid`, optional `branchId`, `branchName`, `label`. |
 | GET | `/workshops` | Workshops the agent can access. |
-| GET | `/workshops/{ownerUid}` | Branches, services (summary), staff. |
+| GET | `/workshops/{ownerUid}` | Branches (with `hours`, `bookingLimitPerDay`), services, staff. |
+| GET | `/branches` | Query: `ownerUid` or `X-Tenant-Id` (required). All branches for that workshop owner. Optional `date`. |
+| GET | `/branches/{branchId}` | **Agents:** any branch. **BMS staff:** tenant must match branch if sent. `daySchedules` + optional `date`. |
 | GET | `/customers` | Query: `q` (required), `searchBy` optional (`phone` \| `email` \| `name`). Tenant required. |
 | POST | `/customers` | Body: `ownerUid`, `name`, optional `email`, `phone`, `vehicleNumber`, `vehicleDetails`, `notes`. |
 | GET | `/customers/{customerId}` | Tenant required. |

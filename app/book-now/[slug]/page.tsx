@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import {
   type ChecklistItem,
   type ChecklistSection,
+  isChecklistSection,
   normalizeAreaOrder,
   normalizeChecklist,
   groupChecklistItemsWithGlobalNumbers,
@@ -66,7 +67,9 @@ type CustomerBookingTask = {
   staffNote: string;
   completedAt?: string | null;
   completedByStaffName?: string | null;
+  section?: ChecklistSection;
 };
+type CustomerBookingServiceSnap = { id: string; areaOrder: ChecklistSection[] };
 type CustomerAdditionalIssue = {
   id: string;
   issueTitle: string;
@@ -101,7 +104,146 @@ type CustomerBooking = {
     submittedByStaffName?: string | null;
   } | null;
   additionalIssues?: CustomerAdditionalIssue[] | null;
+  /** Per-service snapshot (incl. owner `areaOrder`) for area-wise progress */
+  services?: CustomerBookingServiceSnap[];
 };
+
+/** Area ordering for My Bookings: match the service snapshot (or live-enriched API) — dominant service when multiple. */
+function effectiveCustomerBookingAreaOrder(bk: Pick<CustomerBooking, "services" | "tasks">): ChecklistSection[] {
+  const services = bk.services ?? [];
+  const tasks = bk.tasks ?? [];
+  const serviceIds = [
+    ...new Set(tasks.map((t) => (t.serviceId || "").trim()).filter(Boolean)),
+  ] as string[];
+
+  const orderForServiceId = (sid: string): ChecklistSection[] | null => {
+    const snap = services.find((s) => s.id === sid);
+    if (snap?.areaOrder?.length) return normalizeAreaOrder(snap.areaOrder);
+    return null;
+  };
+
+  if (serviceIds.length === 1) {
+    const one = orderForServiceId(serviceIds[0]);
+    if (one) return one;
+  }
+
+  if (serviceIds.length > 1) {
+    const counts = new Map<string, number>();
+    for (const t of tasks) {
+      const id = (t.serviceId || "").trim();
+      if (!id) continue;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    let bestId = "";
+    let best = -1;
+    for (const [id, c] of counts) {
+      if (c > best) {
+        best = c;
+        bestId = id;
+      }
+    }
+    if (bestId) {
+      const ord = orderForServiceId(bestId);
+      if (ord) return ord;
+    }
+  }
+
+  for (const snap of services) {
+    if (snap.areaOrder?.length) return normalizeAreaOrder(snap.areaOrder);
+  }
+  return normalizeAreaOrder([]);
+}
+
+type CustomerBookingAreaSegment = {
+  key: ChecklistSection | "other";
+  label: string;
+  total: number;
+  done: number;
+};
+
+/** One progress segment per vehicle area (owner order). Legacy tasks without `section` use per-task bar instead (returns null). */
+function buildCustomerBookingAreaSegments(bk: CustomerBooking): CustomerBookingAreaSegment[] | null {
+  const tasks = bk.tasks ?? [];
+  if (tasks.length === 0) return null;
+  const hasAnySection = tasks.some((t) => isChecklistSection(t.section));
+  if (!hasAnySection) return null;
+
+  const order = effectiveCustomerBookingAreaOrder(bk);
+  const stats = new Map<ChecklistSection, { total: number; done: number }>();
+  for (const a of order) stats.set(a, { total: 0, done: 0 });
+  let otherTotal = 0;
+  let otherDone = 0;
+
+  for (const t of tasks) {
+    if (isChecklistSection(t.section)) {
+      const cur = stats.get(t.section) ?? { total: 0, done: 0 };
+      cur.total += 1;
+      if (t.done) cur.done += 1;
+      stats.set(t.section, cur);
+    } else {
+      otherTotal += 1;
+      if (t.done) otherDone += 1;
+    }
+  }
+
+  const segments: CustomerBookingAreaSegment[] = [];
+  for (const area of order) {
+    const s = stats.get(area)!;
+    segments.push({
+      key: area,
+      label: CHECKLIST_SECTION_LABELS[area],
+      total: s.total,
+      done: s.done,
+    });
+  }
+  if (otherTotal > 0) {
+    segments.push({
+      key: "other",
+      label: "Other",
+      total: otherTotal,
+      done: otherDone,
+    });
+  }
+  return segments;
+}
+
+type CustomerTaskAreaGroup = {
+  key: ChecklistSection | "other";
+  label: string;
+  tasks: CustomerBookingTask[];
+};
+
+/** Tasks under each vehicle area, in the same order as the service `areaOrder` (plus Other if needed). */
+function buildCustomerBookingTaskAreaGroups(bk: CustomerBooking): CustomerTaskAreaGroup[] | null {
+  const tasks = bk.tasks ?? [];
+  if (tasks.length === 0) return null;
+  const hasAnySection = tasks.some((t) => isChecklistSection(t.section));
+  if (!hasAnySection) return null;
+
+  const order = effectiveCustomerBookingAreaOrder(bk);
+  const buckets = new Map<ChecklistSection, CustomerBookingTask[]>();
+  for (const a of order) buckets.set(a, []);
+  const other: CustomerBookingTask[] = [];
+
+  for (const t of tasks) {
+    if (isChecklistSection(t.section)) {
+      buckets.get(t.section)!.push(t);
+    } else {
+      other.push(t);
+    }
+  }
+
+  const groups: CustomerTaskAreaGroup[] = [];
+  for (const area of order) {
+    const arr = buckets.get(area)!;
+    if (arr.length === 0) continue;
+    groups.push({ key: area, label: CHECKLIST_SECTION_LABELS[area], tasks: arr });
+  }
+  if (other.length > 0) {
+    groups.push({ key: "other", label: "Other", tasks: other });
+  }
+  return groups;
+}
 
 export default function BookingEnginePage() {
   const params = useParams();
@@ -3182,6 +3324,7 @@ export default function BookingEnginePage() {
                           {bk.tasks && bk.tasks.length > 0 && (() => {
                             const doneCount = bk.tasks.filter(t => !!t.done).length;
                             const totalCount = bk.tasks.length;
+                            const areaSegments = buildCustomerBookingAreaSegments(bk);
                             // Derive from task flags — stored taskProgress can be stale (e.g. 100 after new tasks were added)
                             const pct =
                               totalCount > 0
@@ -3218,7 +3361,9 @@ export default function BookingEnginePage() {
                                       <div>
                                         <span className="text-[11px] font-extrabold text-neutral-800 tracking-tight">Service Progress</span>
                                         <p className="text-[9px] text-neutral-400 font-medium -mt-0.5">
-                                          {isComplete ? "All tasks completed" : `${totalCount - doneCount} task${totalCount - doneCount !== 1 ? "s" : ""} remaining`}
+                                          {isComplete
+                                            ? "All tasks completed"
+                                            : `${totalCount - doneCount} task${totalCount - doneCount !== 1 ? "s" : ""} remaining`}
                                         </p>
                                       </div>
                                     </div>
@@ -3246,23 +3391,59 @@ export default function BookingEnginePage() {
                                     </div>
                                   </div>
 
-                                  {/* Segmented step dots */}
-                                  <div className="flex items-center gap-1 relative z-10">
-                                    {bk.tasks.map((task, i) => (
-                                      <div key={task.id || i} className="flex-1 flex items-center">
-                                        <div
-                                          className={`w-full h-2 rounded-full transition-all duration-500 ${
-                                            task.done
-                                              ? isComplete
-                                                ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
-                                                : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
-                                              : "bg-neutral-200/80"
-                                          }`}
-                                          style={{ animationDelay: `${i * 100}ms` }}
-                                        />
-                                      </div>
-                                    ))}
-                                  </div>
+                                  {/* Segmented bar: one strip per vehicle area (owner order), or one per task when tasks lack `section` */}
+                                  {areaSegments ? (
+                                    <div className="flex items-stretch gap-1 sm:gap-1.5 relative z-10">
+                                      {areaSegments.map((seg) => {
+                                        const segPct =
+                                          seg.total > 0 ? Math.round((seg.done / seg.total) * 100) : 0;
+                                        const areaComplete = seg.total > 0 && seg.done === seg.total;
+                                        const partial = seg.done > 0 && !areaComplete;
+                                        return (
+                                          <div
+                                            key={seg.key}
+                                            className="flex-1 flex flex-col gap-1 min-w-0"
+                                            title={`${seg.label}: ${seg.done}/${seg.total} tasks`}
+                                          >
+                                            <div className="w-full h-2 rounded-full bg-neutral-200/80 overflow-hidden">
+                                              <div
+                                                className={`h-full rounded-full transition-all duration-500 ${
+                                                  areaComplete
+                                                    ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/25"
+                                                    : partial
+                                                      ? "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                      : "bg-transparent"
+                                                }`}
+                                                style={{
+                                                  width: areaComplete ? "100%" : `${segPct}%`,
+                                                }}
+                                              />
+                                            </div>
+                                            <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400 truncate text-center leading-none px-0.5">
+                                              {seg.label}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 relative z-10">
+                                      {bk.tasks.map((task, i) => (
+                                        <div key={task.id || i} className="flex-1 flex items-center">
+                                          <div
+                                            className={`w-full h-2 rounded-full transition-all duration-500 ${
+                                              task.done
+                                                ? isComplete
+                                                  ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                  : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                : "bg-neutral-200/80"
+                                            }`}
+                                            style={{ animationDelay: `${i * 100}ms` }}
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
 
                                   {/* Step labels */}
                                   <div className="flex items-center justify-between mt-2.5 relative z-10">
@@ -3284,85 +3465,120 @@ export default function BookingEnginePage() {
                                 </div>
                               </button>
 
-                              {/* Expanded task list */}
+                              {/* Expanded task list — grouped by vehicle area (service areaOrder) when tasks have `section` */}
                               {expandedBookingId === bk.id && (
-                                <div className="mt-3 space-y-2 animate-[fadeSlideUp_0.3s_ease-out]">
-                                  {bk.tasks.map((task, tIdx) => (
-                                    <div
-                                      key={task.id || tIdx}
-                                      className={`rounded-xl border p-3 transition-all ${
-                                        task.done
-                                          ? "bg-emerald-50/60 border-emerald-200/80"
-                                          : "bg-neutral-50 border-neutral-200/80"
-                                      }`}
-                                    >
-                                      <div className="flex items-start gap-2.5">
-                                        {/* Checkbox indicator */}
-                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                          task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
-                                        }`}>
-                                          {task.done ? (
-                                            <i className="fas fa-check text-[8px]" />
-                                          ) : (
-                                            <span className="text-[9px] font-bold">{tIdx + 1}</span>
-                                          )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <p className={`text-xs font-semibold ${task.done ? "text-emerald-700" : "text-neutral-800"}`}>
-                                              {task.name}
-                                            </p>
-                                            {task.done && (
-                                              <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full shrink-0">
-                                                Done
-                                              </span>
+                                <div className="mt-3 space-y-3 animate-[fadeSlideUp_0.3s_ease-out]">
+                                  {(() => {
+                                    const taskAreaGroups = buildCustomerBookingTaskAreaGroups(bk);
+                                    let taskNum = 0;
+                                    const taskCard = (task: CustomerBookingTask, num: number) => (
+                                      <div
+                                        key={task.id ? `${task.id}-${num}` : `t-${num}`}
+                                        className={`rounded-xl border p-3 transition-all ${
+                                          task.done
+                                            ? "bg-emerald-50/60 border-emerald-200/80"
+                                            : "bg-neutral-50 border-neutral-200/80"
+                                        }`}
+                                      >
+                                        <div className="flex items-start gap-2.5">
+                                          <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                            task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                          }`}>
+                                            {task.done ? (
+                                              <i className="fas fa-check text-[8px]" />
+                                            ) : (
+                                              <span className="text-[9px] font-bold">{num}</span>
                                             )}
                                           </div>
-                                          {task.description && (
-                                            <p className="text-[11px] text-neutral-500 mt-0.5 leading-relaxed">{task.description}</p>
-                                          )}
-                                          {task.serviceName && (
-                                            <p className="text-[10px] text-neutral-400 mt-1">
-                                              <i className="fas fa-wrench mr-1 text-[8px]" />{task.serviceName}
-                                            </p>
-                                          )}
-                                          {/* Staff note */}
-                                          {task.staffNote && (
-                                            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
-                                              <p className="text-[11px] text-blue-700">
-                                                <i className="fas fa-comment-alt mr-1 text-[9px]" />
-                                                {task.staffNote}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <p className={`text-xs font-semibold ${task.done ? "text-emerald-700" : "text-neutral-800"}`}>
+                                                {task.name}
                                               </p>
-                                              {task.completedByStaffName && (
-                                                <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                              {task.done && (
+                                                <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full shrink-0">
+                                                  Done
+                                                </span>
                                               )}
                                             </div>
-                                          )}
-                                          {/* Task completion image */}
-                                          {task.done && task.imageUrl && (
-                                            <div className="mt-2">
-                                              <button
-                                                type="button"
-                                                onClick={() => setLightboxUrl(task.imageUrl)}
-                                                className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md"
-                                              >
-                                                <img
-                                                  src={task.imageUrl}
-                                                  alt={`${task.name} — completed`}
-                                                  className="w-full max-h-40 object-cover"
-                                                />
-                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                  <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm text-neutral-700 text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
-                                                    <i className="fas fa-expand mr-1 text-[8px]" />View
-                                                  </span>
-                                                </div>
-                                              </button>
-                                            </div>
-                                          )}
+                                            {task.description && (
+                                              <p className="text-[11px] text-neutral-500 mt-0.5 leading-relaxed">{task.description}</p>
+                                            )}
+                                            {task.serviceName && (
+                                              <p className="text-[10px] text-neutral-400 mt-1">
+                                                <i className="fas fa-wrench mr-1 text-[8px]" />{task.serviceName}
+                                              </p>
+                                            )}
+                                            {task.staffNote && (
+                                              <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                                                <p className="text-[11px] text-blue-700">
+                                                  <i className="fas fa-comment-alt mr-1 text-[9px]" />
+                                                  {task.staffNote}
+                                                </p>
+                                                {task.completedByStaffName && (
+                                                  <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                                )}
+                                              </div>
+                                            )}
+                                            {task.done && task.imageUrl && (
+                                              <div className="mt-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setLightboxUrl(task.imageUrl)}
+                                                  className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md"
+                                                >
+                                                  <img
+                                                    src={task.imageUrl}
+                                                    alt={`${task.name} — completed`}
+                                                    className="w-full max-h-40 object-cover"
+                                                  />
+                                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                    <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm text-neutral-700 text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                                                      <i className="fas fa-expand mr-1 text-[8px]" />View
+                                                    </span>
+                                                  </div>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+
+                                    if (taskAreaGroups) {
+                                      return (
+                                        <>
+                                          {taskAreaGroups.map((group) => {
+                                            const gDone = group.tasks.filter((t) => t.done).length;
+                                            const gTotal = group.tasks.length;
+                                            const headerClass =
+                                              group.key === "other"
+                                                ? "border-neutral-200 bg-neutral-50 text-neutral-800"
+                                                : BOOK_NOW_SECTION_HEADER[group.key];
+                                            const iconClass =
+                                              group.key === "other" ? "fas fa-ellipsis-h" : BOOK_NOW_SECTION_ICON[group.key];
+                                            return (
+                                              <div key={group.key} className="space-y-2">
+                                                <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${headerClass}`}>
+                                                  <i className={`${iconClass} text-[10px] opacity-80`} />
+                                                  <span className="text-[10px] font-extrabold uppercase tracking-wide">{group.label}</span>
+                                                  <span className="text-[9px] font-bold opacity-80 ml-auto tabular-nums">
+                                                    {gDone}/{gTotal}
+                                                  </span>
+                                                </div>
+                                                {group.tasks.map((task) => {
+                                                  taskNum += 1;
+                                                  return taskCard(task, taskNum);
+                                                })}
+                                              </div>
+                                            );
+                                          })}
+                                        </>
+                                      );
+                                    }
+
+                                    return <>{bk.tasks!.map((task, tIdx) => taskCard(task, tIdx + 1))}</>;
+                                  })()}
 
                                   {/* Final Submission */}
                                   {bk.finalSubmission && (

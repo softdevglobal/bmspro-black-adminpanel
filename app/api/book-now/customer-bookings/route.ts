@@ -1,5 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { DocumentData } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { isChecklistSection, normalizeAreaOrder, type ChecklistSection } from "@/lib/services";
+
+/** Build `services` payload with stable area ordering: use booking snapshot when non-empty, else live `services/{id}` doc. */
+function buildCustomerServicesPayload(
+  d: DocumentData,
+  liveAreaOrderByServiceId: Map<string, ChecklistSection[]>,
+  taskRows: Array<{ serviceId?: string }> | null
+): { id: string; areaOrder: ChecklistSection[] }[] {
+  const fromDoc: { id: string; raw: unknown }[] = Array.isArray(d.services)
+    ? d.services
+        .map((s: { id?: unknown; serviceId?: unknown; areaOrder?: unknown }) => ({
+          id: String(s.id ?? s.serviceId ?? "").trim(),
+          raw: s.areaOrder,
+        }))
+        .filter((x) => x.id.length > 0)
+    : [];
+
+  const byId = new Map<string, ChecklistSection[]>();
+
+  for (const row of fromDoc) {
+    const raw = row.raw;
+    let order = normalizeAreaOrder(raw);
+    if ((!Array.isArray(raw) || raw.length === 0) && liveAreaOrderByServiceId.has(row.id)) {
+      order = liveAreaOrderByServiceId.get(row.id)!;
+    }
+    byId.set(row.id, order);
+  }
+
+  const taskIds = new Set<string>();
+  if (taskRows) {
+    for (const t of taskRows) {
+      const id = String(t.serviceId ?? "").trim();
+      if (id) taskIds.add(id);
+    }
+  }
+
+  for (const tid of taskIds) {
+    if (!byId.has(tid)) {
+      byId.set(tid, liveAreaOrderByServiceId.get(tid) ?? normalizeAreaOrder([]));
+    }
+  }
+
+  return [...byId.entries()].map(([id, areaOrder]) => ({ id, areaOrder }));
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,15 +60,87 @@ export async function GET(req: NextRequest) {
       .where("customerId", "==", customerId)
       .get();
 
+    // Service IDs that need a live `areaOrder` (missing or empty on the booking snapshot)
+    const idsToFetch = new Set<string>();
+    for (const doc of snap.docs) {
+      const d = doc.data();
+      const tasks = Array.isArray(d.tasks) ? d.tasks : [];
+      const hasSnapshotOrder = new Set<string>();
+      if (Array.isArray(d.services)) {
+        for (const s of d.services) {
+          const id = String(s.id ?? s.serviceId ?? "").trim();
+          if (!id) continue;
+          const raw = s.areaOrder;
+          if (Array.isArray(raw) && raw.length > 0) hasSnapshotOrder.add(id);
+        }
+      }
+      const mentioned = new Set<string>();
+      if (Array.isArray(d.services)) {
+        for (const s of d.services) {
+          const id = String(s.id ?? s.serviceId ?? "").trim();
+          if (id) mentioned.add(id);
+        }
+      }
+      for (const t of tasks) {
+        const id = String(t.serviceId ?? "").trim();
+        if (id) mentioned.add(id);
+      }
+      for (const id of mentioned) {
+        if (!hasSnapshotOrder.has(id)) idsToFetch.add(id);
+      }
+    }
+
+    const liveAreaOrderByServiceId = new Map<string, ChecklistSection[]>();
+    await Promise.all(
+      [...idsToFetch].map(async (id) => {
+        try {
+          const sdoc = await db.collection("services").doc(id).get();
+          if (!sdoc.exists) return;
+          const data = sdoc.data();
+          const raw = data?.areaOrder;
+          if (!Array.isArray(raw) || raw.length === 0) return;
+          liveAreaOrderByServiceId.set(id, normalizeAreaOrder(raw));
+        } catch {
+          /* ignore */
+        }
+      })
+    );
+
     const bookings = snap.docs.map((doc) => {
       const d = doc.data();
+      const tasks = Array.isArray(d.tasks)
+        ? d.tasks.map((t: Record<string, unknown>) => {
+            const base = {
+              id: String(t.id ?? ""),
+              serviceId: String(t.serviceId ?? ""),
+              serviceName: String(t.serviceName ?? ""),
+              name: String(t.name ?? ""),
+              description: String(t.description ?? ""),
+              done: !!t.done,
+              imageUrl: String(t.imageUrl ?? ""),
+              staffNote: String(t.staffNote ?? ""),
+              completedAt: (t.completedAt as string | null | undefined) ?? null,
+              completedByStaffName: (t.completedByStaffName as string | null | undefined) ?? null,
+            };
+            return isChecklistSection(t.section)
+              ? { ...base, section: t.section as ChecklistSection }
+              : base;
+          })
+        : null;
+      const n = tasks?.length ?? 0;
+      const done = tasks?.filter((t) => t.done).length ?? 0;
+      const taskProgress =
+        n > 0 ? Math.round((done / n) * 100) : typeof d.taskProgress === "number" ? d.taskProgress : 0;
+
+      const services = buildCustomerServicesPayload(d, liveAreaOrderByServiceId, tasks);
+
       return {
         id: doc.id,
         bookingCode: d.bookingCode || "",
         serviceName:
           d.serviceName ||
           (Array.isArray(d.services)
-            ? d.services.map((s: any) => s.name).join(", ")
+            ? d.services.map((s: { name?: string }) => s.name).join(", ")
             : "Service"),
         status: d.status || "Pending",
         date: d.date || "",
@@ -33,28 +150,9 @@ export async function GET(req: NextRequest) {
         price: d.price || 0,
         createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
         updatedAt: d.updatedAt?.toDate?.()?.toISOString() || null,
-        // Task progress data (recompute progress from tasks so UI never shows 100% when tasks remain undone)
-        ...(() => {
-          const tasks = Array.isArray(d.tasks)
-            ? d.tasks.map((t: any) => ({
-                id: t.id || "",
-                serviceId: t.serviceId || "",
-                serviceName: t.serviceName || "",
-                name: t.name || "",
-                description: t.description || "",
-                done: !!t.done,
-                imageUrl: t.imageUrl || "",
-                staffNote: t.staffNote || "",
-                completedAt: t.completedAt || null,
-                completedByStaffName: t.completedByStaffName || null,
-              }))
-            : null;
-          const n = tasks?.length ?? 0;
-          const done = tasks?.filter((t) => t.done).length ?? 0;
-          const taskProgress =
-            n > 0 ? Math.round((done / n) * 100) : typeof d.taskProgress === "number" ? d.taskProgress : 0;
-          return { tasks, taskProgress };
-        })(),
+        tasks,
+        taskProgress,
+        services,
         finalSubmission: d.finalSubmission
           ? {
               description: d.finalSubmission.description || "",
@@ -64,7 +162,7 @@ export async function GET(req: NextRequest) {
             }
           : null,
         additionalIssues: Array.isArray(d.additionalIssues)
-          ? d.additionalIssues.map((i: any) => ({
+          ? d.additionalIssues.map((i: Record<string, unknown>) => ({
               id: i.id || "",
               issueTitle: i.issueTitle || "",
               description: i.description || "",
@@ -97,7 +195,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({ bookings: bookings.slice(0, 50) });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Customer bookings fetch error:", error);
     return NextResponse.json(
       { error: "Failed to fetch bookings" },

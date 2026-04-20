@@ -32,7 +32,9 @@ import {
 import {
   CHECKLIST_SECTIONS,
   CHECKLIST_SECTION_LABELS,
+  DEFAULT_AREA_ORDER,
   isChecklistSection,
+  normalizeAreaOrder,
   normalizeChecklist,
   groupChecklistItemsWithGlobalNumbers,
   type ChecklistItem,
@@ -44,7 +46,21 @@ type DefaultService = {
   id: string;
   name: string;
   checklist: ChecklistItem[];
+  areaOrder: ChecklistSection[];
 };
+
+/** dnd-kit id prefixes so chip drags can be told apart from task-row drags. */
+const CHIP_ID_PREFIX = "area-chip:";
+const chipId = (s: ChecklistSection) => `${CHIP_ID_PREFIX}${s}` as const;
+const sectionFromChipId = (id: string): ChecklistSection | null => {
+  if (!id.startsWith(CHIP_ID_PREFIX)) return null;
+  const raw = id.slice(CHIP_ID_PREFIX.length);
+  return isChecklistSection(raw) ? raw : null;
+};
+const ROW_ID_PREFIX = "row:";
+const rowDndId = (rowId: string) => `${ROW_ID_PREFIX}${rowId}`;
+const rowIdFromDndId = (id: string): string | null =>
+  id.startsWith(ROW_ID_PREFIX) ? id.slice(ROW_ID_PREFIX.length) : null;
 
 type ChecklistRow = ChecklistItem & { id: string };
 
@@ -80,6 +96,91 @@ const CHECKLIST_SECTION_ICON: Record<ChecklistSection, string> = {
   exterior: "fas fa-car",
 };
 
+/** Pastel palette for the draggable area chips in the editor. */
+const AREA_CHIP_THEME: Record<ChecklistSection, { base: string; active: string; dropTint: string; dot: string }> = {
+  interior: {
+    base: "border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100",
+    active: "border-blue-500 bg-blue-100 text-blue-900 ring-2 ring-blue-300",
+    dropTint: "border-blue-500 bg-blue-100 text-blue-900 ring-2 ring-blue-400 ring-offset-1",
+    dot: "bg-blue-500",
+  },
+  engine_bay: {
+    base: "border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100",
+    active: "border-neutral-600 bg-neutral-100 text-neutral-900 ring-2 ring-neutral-400",
+    dropTint: "border-neutral-600 bg-neutral-100 text-neutral-900 ring-2 ring-neutral-500 ring-offset-1",
+    dot: "bg-neutral-700",
+  },
+  underbody: {
+    base: "border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100",
+    active: "border-violet-500 bg-violet-100 text-violet-900 ring-2 ring-violet-300",
+    dropTint: "border-violet-500 bg-violet-100 text-violet-900 ring-2 ring-violet-400 ring-offset-1",
+    dot: "bg-violet-500",
+  },
+  exterior: {
+    base: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+    active: "border-emerald-500 bg-emerald-100 text-emerald-900 ring-2 ring-emerald-300",
+    dropTint: "border-emerald-500 bg-emerald-100 text-emerald-900 ring-2 ring-emerald-400 ring-offset-1",
+    dot: "bg-emerald-500",
+  },
+};
+
+function SortableAreaChip({
+  section,
+  count,
+  active,
+  draggingRow,
+  onClick,
+}: {
+  section: ChecklistSection;
+  count: number;
+  active: boolean;
+  draggingRow: boolean;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
+    id: chipId(section),
+  });
+  const theme = AREA_CHIP_THEME[section];
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.85 : 1,
+    zIndex: isDragging ? 30 : undefined,
+    position: "relative" as const,
+  };
+  const highlight = draggingRow && isOver
+    ? theme.dropTint
+    : active
+      ? theme.active
+      : theme.base;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex w-full items-center justify-between gap-2 rounded-lg border-2 px-3 py-2 text-xs font-semibold shadow-sm select-none transition-colors ${highlight} ${
+        isDragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      role="button"
+      aria-pressed={active}
+      aria-label={`${CHECKLIST_SECTION_LABELS[section]} (${count} task${count !== 1 ? "s" : ""})`}
+      title="Drag to reorder • Drop a task here to move it into this area • Click to quick-pick for next task"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <i className="fas fa-grip-vertical text-[10px] text-neutral-400" aria-hidden />
+        <i className={`${CHECKLIST_SECTION_ICON[section]} text-[11px] opacity-80`} />
+        <span className="truncate">{CHECKLIST_SECTION_LABELS[section]}</span>
+      </div>
+      <span className={`inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded ${theme.dot} px-1.5 text-[10px] font-bold text-white tabular-nums`}>
+        {count}
+      </span>
+    </div>
+  );
+}
+
 function SortableChecklistRow({
   row,
   index,
@@ -96,7 +197,7 @@ function SortableChecklistRow({
   onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: row.id,
+    id: rowDndId(row.id),
   });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -198,6 +299,22 @@ export default function AdminServicesPage() {
   const [newChecklistDesc, setNewChecklistDesc] = useState("");
   /** Empty string shows “Select area” placeholder in the add-task dropdown until the user picks. */
   const [newChecklistSection, setNewChecklistSection] = useState<ChecklistSection | "">("");
+  const [areaOrder, setAreaOrder] = useState<ChecklistSection[]>(DEFAULT_AREA_ORDER);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  /** Live per-area task counts for the chip badges. */
+  const areaCounts = React.useMemo(() => {
+    const counts: Record<ChecklistSection, number> = {
+      interior: 0,
+      engine_bay: 0,
+      underbody: 0,
+      exterior: 0,
+    };
+    for (const r of checklistRows) {
+      if (isChecklistSection(r.section)) counts[r.section]++;
+    }
+    return counts;
+  }, [checklistRows]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -206,10 +323,41 @@ export default function AdminServicesPage() {
 
   const onChecklistDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    setActiveDragId(null);
+    if (!over) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const activeChipSection = sectionFromChipId(activeId);
+    const overChipSection = sectionFromChipId(overId);
+
+    // Area chip reordering
+    if (activeChipSection && overChipSection) {
+      if (activeChipSection === overChipSection) return;
+      setAreaOrder((prev) => {
+        const from = prev.indexOf(activeChipSection);
+        const to = prev.indexOf(overChipSection);
+        if (from < 0 || to < 0) return prev;
+        return arrayMove(prev, from, to);
+      });
+      return;
+    }
+
+    const activeRowId = rowIdFromDndId(activeId);
+    if (!activeRowId) return;
+
+    // Row dropped on a chip → reassign that row's area
+    if (overChipSection) {
+      setChecklistRows((rows) =>
+        rows.map((r) => (r.id === activeRowId ? { ...r, section: overChipSection } : r))
+      );
+      return;
+    }
+
+    const overRowId = rowIdFromDndId(overId);
+    if (!overRowId || activeRowId === overRowId) return;
     setChecklistRows((items) => {
-      const oldIndex = items.findIndex((r) => r.id === active.id);
-      const newIndex = items.findIndex((r) => r.id === over.id);
+      const oldIndex = items.findIndex((r) => r.id === activeRowId);
+      const newIndex = items.findIndex((r) => r.id === overRowId);
       if (oldIndex < 0 || newIndex < 0) return items;
       return arrayMove(items, oldIndex, newIndex);
     });
@@ -253,6 +401,7 @@ export default function AdminServicesPage() {
           id: String(r.id),
           name: String(r.name || ""),
           checklist: normalizeChecklist(r.checklist as any[]),
+          areaOrder: normalizeAreaOrder((r as any).areaOrder),
         }))
       );
     });
@@ -266,6 +415,7 @@ export default function AdminServicesPage() {
     setNewChecklistItem("");
     setNewChecklistDesc("");
     setNewChecklistSection("");
+    setAreaOrder(DEFAULT_AREA_ORDER);
     setIsModalOpen(true);
   };
 
@@ -276,6 +426,7 @@ export default function AdminServicesPage() {
     setNewChecklistItem("");
     setNewChecklistDesc("");
     setNewChecklistSection("");
+    setAreaOrder(normalizeAreaOrder(svc.areaOrder));
     setIsModalOpen(true);
   };
 
@@ -300,6 +451,7 @@ export default function AdminServicesPage() {
       const data: DefaultServiceInput = {
         name: name.trim(),
         checklist: checklistPayload,
+        areaOrder,
       };
 
       if (editingId) {
@@ -574,12 +726,18 @@ export default function AdminServicesPage() {
                   </p>
                   <p className="text-[10px] text-neutral-500 mb-3">
                     <i className="fas fa-arrows-alt-v mr-1" />
-                    Drag the grip handle to reorder. Pick which vehicle part each task belongs to: Interior, Engine Bay, Underbody, or Exterior.
+                    Drag the grip handle to reorder tasks. Use the <strong>Area order</strong> panel below to reorder areas (drag chips) or reassign tasks (drop a task onto a chip).
                   </p>
 
-                  {checklistRows.length > 0 && (
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onChecklistDragEnd}>
-                      <SortableContext items={checklistRows.map((r) => r.id)} strategy={verticalListSortingStrategy}>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={(ev) => setActiveDragId(String(ev.active.id))}
+                    onDragCancel={() => setActiveDragId(null)}
+                    onDragEnd={onChecklistDragEnd}
+                  >
+                    {checklistRows.length > 0 && (
+                      <SortableContext items={checklistRows.map((r) => rowDndId(r.id))} strategy={verticalListSortingStrategy}>
                         <div className="mb-3 space-y-2.5">
                           {checklistRows.map((row, index) => (
                             <SortableChecklistRow
@@ -608,10 +766,9 @@ export default function AdminServicesPage() {
                           ))}
                         </div>
                       </SortableContext>
-                    </DndContext>
-                  )}
+                    )}
 
-                  <div className="bg-white rounded-xl border border-dashed border-amber-300 p-3 space-y-2">
+                    <div className="bg-white rounded-xl border border-dashed border-amber-300 p-3 space-y-2">
                     <input
                       type="text"
                       value={newChecklistItem}
@@ -699,12 +856,19 @@ export default function AdminServicesPage() {
                     </button>
                   </div>
 
-                  {checklistRows.length > 0 && (
-                    <div className="mt-2 text-[10px] text-amber-600 font-medium">
-                      <i className="fas fa-list-check mr-1" />
-                      {checklistRows.length} task{checklistRows.length !== 1 ? "s" : ""} in todo list
-                    </div>
-                  )}
+                    {checklistRows.length > 0 && (
+                      <div className="mt-2 text-[10px] text-amber-600 font-medium">
+                        <i className="fas fa-list-check mr-1" />
+                        {checklistRows.length} task{checklistRows.length !== 1 ? "s" : ""} in todo list
+                      </div>
+                    )}
+                    {/* Area-order chips are intentionally hidden for super-admin
+                        templates — workshop owners customise the order per-service
+                        on their own form. Templates always use the default order. */}
+                  </DndContext>
+                  {/* Inline customer preview is owner-only — super-admin
+                      templates don't expose the area order or preview button;
+                      owners see the preview on their service form. */}
                 </div>
               </div>
 
@@ -792,7 +956,7 @@ export default function AdminServicesPage() {
                         </span>
                       </h3>
                       <div className="space-y-4">
-                        {groupChecklistItemsWithGlobalNumbers(previewService.checklist).map((group) => (
+                        {groupChecklistItemsWithGlobalNumbers(previewService.checklist, previewService.areaOrder).map((group) => (
                           <div key={group.key} className="space-y-2">
                             <div
                               className={
@@ -823,8 +987,8 @@ export default function AdminServicesPage() {
                                 key={`${group.key}-${num}-${item.name}`}
                                 className="flex items-start gap-2.5 bg-white rounded-lg p-3 border border-amber-100"
                               >
-                                <div className="h-6 min-w-[1.5rem] px-1 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5 tabular-nums">
-                                  <span className="text-[10px] font-bold text-white leading-none">{num}</span>
+                                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 shadow-sm shadow-amber-500/40 tabular-nums">
+                                  <span className="text-[10px] font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{num}</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm text-neutral-800 font-semibold">{item.name}</p>

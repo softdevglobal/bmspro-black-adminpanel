@@ -11,11 +11,18 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { templateChecklistForFirestore, type ChecklistItem } from "@/lib/services";
+import {
+  normalizeAreaOrder,
+  templateChecklistForFirestore,
+  type ChecklistItem,
+  type ChecklistSection,
+} from "@/lib/services";
 
 export type DefaultServiceInput = {
   name: string;
   checklist: ChecklistItem[];
+  /** Owner-defined order for area groups in previews/customer-facing views. */
+  areaOrder?: ChecklistSection[];
 };
 
 const COLLECTION = "default_services";
@@ -24,10 +31,11 @@ export async function createDefaultService(
   adminUid: string,
   data: DefaultServiceInput
 ) {
-  const { checklist, ...rest } = data;
+  const { checklist, areaOrder, ...rest } = data;
   const ref = await addDoc(collection(db, COLLECTION), {
     ...rest,
     checklist: templateChecklistForFirestore(checklist),
+    areaOrder: normalizeAreaOrder(areaOrder),
     createdBy: adminUid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -40,13 +48,16 @@ export async function updateDefaultService(
   data: Partial<DefaultServiceInput>
 ) {
   const ref = doc(db, COLLECTION, serviceId);
-  const { checklist, ...rest } = data;
+  const { checklist, areaOrder, ...rest } = data;
   const payload: Record<string, unknown> = {
     ...rest,
     updatedAt: serverTimestamp(),
   };
   if (checklist !== undefined) {
     payload.checklist = templateChecklistForFirestore(checklist);
+  }
+  if (areaOrder !== undefined) {
+    payload.areaOrder = normalizeAreaOrder(areaOrder);
   }
   await updateDoc(ref, payload as DocumentData);
 }

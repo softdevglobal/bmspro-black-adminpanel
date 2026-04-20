@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import {
   type ChecklistItem,
   type ChecklistSection,
+  normalizeAreaOrder,
   normalizeChecklist,
   groupChecklistItemsWithGlobalNumbers,
   CHECKLIST_SECTION_LABELS,
@@ -247,7 +248,11 @@ export default function BookingEnginePage() {
         if (!res.ok) { const data = await res.json(); setError(data.error || "Workshop not found"); return; }
         const data = await res.json();
         setWorkshop(data.workshop); setBranches(data.branches);
-        setAllServices((data.services || []).map((s: any) => ({ ...s, checklist: normalizeChecklist(s.checklist) })));
+        setAllServices((data.services || []).map((s: any) => ({
+          ...s,
+          checklist: normalizeChecklist(s.checklist),
+          areaOrder: normalizeAreaOrder(s.areaOrder),
+        })));
       } catch { setError("Failed to load workshop data"); }
       finally { setLoading(false); }
     })();
@@ -2129,7 +2134,7 @@ export default function BookingEnginePage() {
                               <h5 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">What&apos;s Included</h5>
                             </div>
                             <div className="space-y-4">
-                              {groupChecklistItemsWithGlobalNumbers(service.checklist).map((group, gi) => (
+                              {groupChecklistItemsWithGlobalNumbers(service.checklist, (service as any).areaOrder).map((group, gi) => (
                                 <div key={group.key} className="space-y-2">
                                   <div
                                     className={
@@ -2163,8 +2168,8 @@ export default function BookingEnginePage() {
                                         className="flex items-start gap-2.5 group/item pl-0.5"
                                         style={{ animation: `fadeSlideUp 0.3s ease-out ${animIndex * 50}ms both` }}
                                       >
-                                        <div className="h-6 min-w-[1.35rem] px-1 rounded-md bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm tabular-nums">
-                                          <span className="text-[10px] font-bold text-white leading-none">{num}</span>
+                                        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 shadow-sm shadow-amber-500/40 tabular-nums">
+                                          <span className="text-[10px] font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{num}</span>
                                         </div>
                                         <div className="min-w-0">
                                           <span className="text-sm text-neutral-800 font-medium leading-snug block">{item.name}</span>

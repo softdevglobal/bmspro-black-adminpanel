@@ -45,15 +45,45 @@ export function isChecklistSection(value: unknown): value is ChecklistSection {
   );
 }
 
+/** Default ordering of area groups when an owner hasn't customised it. */
+export const DEFAULT_AREA_ORDER: ChecklistSection[] = [...CHECKLIST_SECTIONS];
+
+/**
+ * Normalise an owner-customised area order read from Firestore.
+ * - Keeps only valid `ChecklistSection` entries and dedupes.
+ * - Appends any missing areas (in canonical order) so all four are always covered.
+ */
+export function normalizeAreaOrder(raw: unknown): ChecklistSection[] {
+  const seen = new Set<ChecklistSection>();
+  const out: ChecklistSection[] = [];
+  if (Array.isArray(raw)) {
+    for (const v of raw) {
+      if (isChecklistSection(v) && !seen.has(v)) {
+        seen.add(v);
+        out.push(v);
+      }
+    }
+  }
+  for (const s of DEFAULT_AREA_ORDER) {
+    if (!seen.has(s)) {
+      out.push(s);
+      seen.add(s);
+    }
+  }
+  return out;
+}
+
 /** Group key for previews: fixed section order, then legacy rows without a section. */
 export type ChecklistSectionGroupKey = ChecklistSection | "unset";
 
-/** Group checklist items by vehicle area (Interior → Engine Bay → Underbody → Exterior), then unset. */
+/** Group checklist items by vehicle area. Area order defaults to Interior → Engine Bay → Underbody → Exterior, but callers can pass a custom (owner-defined) order. Items without a section are grouped last under `unset`. */
 export function groupChecklistItemsBySection(
-  items: ChecklistItem[]
+  items: ChecklistItem[],
+  order: ChecklistSection[] = DEFAULT_AREA_ORDER
 ): { key: ChecklistSectionGroupKey; items: ChecklistItem[] }[] {
+  const effectiveOrder = normalizeAreaOrder(order);
   const buckets = new Map<ChecklistSection, ChecklistItem[]>();
-  for (const s of CHECKLIST_SECTIONS) buckets.set(s, []);
+  for (const s of effectiveOrder) buckets.set(s, []);
   const unset: ChecklistItem[] = [];
   for (const item of items) {
     if (isChecklistSection(item.section)) {
@@ -63,7 +93,7 @@ export function groupChecklistItemsBySection(
     }
   }
   const out: { key: ChecklistSectionGroupKey; items: ChecklistItem[] }[] = [];
-  for (const s of CHECKLIST_SECTIONS) {
+  for (const s of effectiveOrder) {
     const arr = buckets.get(s)!;
     if (arr.length > 0) out.push({ key: s, items: arr });
   }
@@ -84,12 +114,13 @@ export type ChecklistItem = {
   imageUrl?: string;
 };
 
-/** Area groups with a single global 1-based task index (customer-facing lists). */
+/** Area groups with a single global 1-based task index (customer-facing lists). Honors a custom area order if provided. */
 export function groupChecklistItemsWithGlobalNumbers(
-  items: ChecklistItem[]
+  items: ChecklistItem[],
+  order: ChecklistSection[] = DEFAULT_AREA_ORDER
 ): { key: ChecklistSectionGroupKey; items: { item: ChecklistItem; num: number }[] }[] {
   let n = 0;
-  return groupChecklistItemsBySection(items).map((group) => ({
+  return groupChecklistItemsBySection(items, order).map((group) => ({
     key: group.key,
     items: group.items.map((item) => ({ item, num: ++n })),
   }));
@@ -150,6 +181,8 @@ export type ServiceInput = {
   branches: string[]; // branchIds
   staffIds: string[]; // staff ids
   checklist?: ChecklistItem[]; // structured service checklist/todo items
+  /** Owner-defined order for area groups in previews/customer-facing views. */
+  areaOrder?: ChecklistSection[];
   completionImageUrl?: string; // upcoming: overall service completion photo
   sourceTemplateId?: string; // ID of default_service template this was cloned from
 };
@@ -177,11 +210,12 @@ async function removeServiceFromBranch(branchId: string, serviceId: string) {
 }
 
 export async function createServiceForOwner(ownerUid: string, data: ServiceInput, branchNames?: string[]) {
-  const { checklist, ...rest } = data;
+  const { checklist, areaOrder, ...rest } = data;
   const ref = await addDoc(collection(db, "services"), {
     ownerUid,
     ...rest,
     checklist: templateChecklistForFirestore(checklist),
+    areaOrder: normalizeAreaOrder(areaOrder),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -233,13 +267,16 @@ export async function updateService(serviceId: string, data: Partial<ServiceInpu
   if (branchesToAdd.length > 0) changes.push(`Added to ${branchesToAdd.length} branch(es)`);
   if (branchesToRemove.length > 0) changes.push(`Removed from ${branchesToRemove.length} branch(es)`);
 
-  const { checklist, ...rest } = data;
+  const { checklist, areaOrder, ...rest } = data;
   const updatePayload: Record<string, unknown> = {
     ...rest,
     updatedAt: serverTimestamp(),
   };
   if (checklist !== undefined) {
     updatePayload.checklist = templateChecklistForFirestore(checklist);
+  }
+  if (areaOrder !== undefined) {
+    updatePayload.areaOrder = normalizeAreaOrder(areaOrder);
   }
   await updateDoc(serviceRef, updatePayload as DocumentData);
 

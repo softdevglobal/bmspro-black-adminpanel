@@ -76,6 +76,7 @@ export async function GET(
         duration: data.duration || 0,
         imageUrl: data.imageUrl || "",
         checklist: Array.isArray(data.checklist) ? data.checklist : [],
+        areaOrder: Array.isArray(data.areaOrder) ? data.areaOrder : [],
         branches: Array.isArray(data.branches) ? data.branches : [],
       };
     });

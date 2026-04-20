@@ -371,7 +371,17 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     }
 
     // Create audit log entry
+    // Skip when status didn't actually change (e.g. mobile app email trigger after
+    // Firestore was already updated client-side, or services-only updates). The
+    // client/mobile path already writes the real status-change log; logging again
+    // here produces a duplicate "Confirmed → Confirmed" entry.
+    const shouldSkipStatusAuditLog =
+      statusIsSame && (isMobileAppEmailTrigger || isOnlyUpdatingServices);
+
     try {
+      if (shouldSkipStatusAuditLog) {
+        // Intentionally no-op: avoid duplicate audit log.
+      } else {
       const clientName = data.client || data.clientName || "Customer";
       const performer = {
         uid: callerUid,
@@ -417,6 +427,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           isStaffRejecting && body.rejectionReason ? `Rejection reason: ${body.rejectionReason}` : undefined,
           data.branchName
         );
+      }
       }
     } catch (auditError) {
       console.error("Failed to create audit log:", auditError);

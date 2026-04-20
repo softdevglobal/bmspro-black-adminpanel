@@ -6,7 +6,8 @@ import {
   missingFirebaseTokenMessage,
 } from "@/lib/authHelpers";
 
-export const CALL_CENTER_ROLES = ["call_center_agent", "call_center_admin"];
+/** `agent` is the canonical non-admin role; `call_center_agent` kept for legacy Firestore docs. */
+export const CALL_CENTER_ROLES = ["agent", "call_center_agent", "call_center_admin"];
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,7 +102,7 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
       return { success: false, error: "Agent account suspended", status: 403 };
     }
 
-    const role = (data.role || "call_center_agent").toString();
+    const role = (data.role || "agent").toString();
     if (!CALL_CENTER_ROLES.includes(role)) {
       return { success: false, error: "Invalid call center role", status: 403 };
     }

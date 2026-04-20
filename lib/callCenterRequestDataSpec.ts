@@ -77,7 +77,7 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
       email: "agent@example.com",
       password: "min6chars",
       name: "Agent Name",
-      role: "call_center_agent",
+      role: "agent",
       assignedWorkshops: ["<ownerUid>"],
     },
     responseSuccess: { status: 201 },

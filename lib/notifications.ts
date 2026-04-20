@@ -1164,7 +1164,9 @@ export async function createOwnerNotification(data: {
       const roleLabel =
         data.creatorRole === "branch_admin"
           ? "Branch Admin"
-          : data.creatorRole === "call_center_agent"
+          : data.creatorRole === "call_center_agent" ||
+              data.creatorRole === "agent" ||
+              data.creatorRole === "call_center_admin"
             ? "Call Center"
             : "Staff";
       title = `New Booking Created by ${roleLabel}`;

@@ -110,7 +110,7 @@ export async function PATCH(
         ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
         : { uid: gate.auth.uid, name: gate.auth.name };
     const performedByRole =
-      gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
+      gate.auth.kind === "agent" ? gate.auth.user.role : gate.auth.role;
 
     const now = new Date().toISOString();
     additionalIssues[issueIndex] = {

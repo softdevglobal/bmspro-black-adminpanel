@@ -40,7 +40,7 @@ export function serializeCallCenterAgent(
     email: String(d.email || "").trim(),
     name: String(d.name || d.displayName || "").trim(),
     displayName: String(d.displayName || d.name || "").trim(),
-    role: String(d.role || "call_center_agent"),
+    role: String(d.role || "agent"),
     suspended: d.suspended === true,
     assignedWorkshops,
     createdAt: d.createdAt?.toDate?.()?.toISOString() ?? null,
@@ -118,7 +118,11 @@ export async function adminCreateCallCenterAgent(
   }
 
   const agentRole =
-    body.role === "call_center_admin" ? "call_center_admin" : "call_center_agent";
+    body.role === "call_center_admin"
+      ? "call_center_admin"
+      : body.role === "call_center_agent"
+        ? "call_center_agent"
+        : "agent";
 
   let workshops: string[] = [];
   if (admin.role === "workshop_owner") {
@@ -224,7 +228,7 @@ export async function adminUpdateCallCenterAgent(
     updates.suspended = Boolean(body.suspended);
   }
 
-  if (body.role && ["call_center_agent", "call_center_admin"].includes(body.role)) {
+  if (body.role && ["agent", "call_center_agent", "call_center_admin"].includes(body.role)) {
     updates.role = body.role;
   }
 

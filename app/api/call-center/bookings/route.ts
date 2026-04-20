@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
         ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
         : { uid: gate.auth.uid, name: gate.auth.name };
     const createdByRole =
-      gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
+      gate.auth.kind === "agent" ? gate.auth.user.role : gate.auth.role;
 
     const body = (await req.json()) as Record<string, unknown>;
     const {
@@ -553,7 +553,7 @@ export async function POST(req: NextRequest) {
           status: "AwaitingStaffApproval",
           creatorUid: actor.uid,
           creatorName: actor.name,
-          creatorRole: "call_center_agent",
+          creatorRole: createdByRole,
         });
         const branchAdminUids = await getBranchAdminUids(db, String(branchId), ownerUid);
         for (const branchAdminUid of branchAdminUids) {

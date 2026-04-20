@@ -20,7 +20,7 @@ export async function OPTIONS() {
  * Branch details: `hours`, `daySchedules`, `bookingLimitPerDay`.
  * Optional `date=YYYY-MM-DD` sets `daySchedule` for that weekday.
  *
- * **Call center agents** (`call_center_agent` / `call_center_admin`): any authenticated
+ * **Call center agents** (`agent` / legacy `call_center_agent` / `call_center_admin`): any authenticated
  * agent may read any branch (operations hub). `X-Tenant-Id` / `ownerUid` are ignored for agents.
  *
  * **BMS staff** (workshop_owner / branch_admin / super_admin): must be allowed for that

@@ -3,45 +3,9 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingCode } from "@/lib/bookings";
 import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
-import { shouldBlockSlots } from "@/lib/bookingTypes";
 import { getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 
 export const runtime = "nodejs";
-
-function getDayOfWeek(dateStr: string): string {
-  const dateObj = new Date(dateStr + "T12:00:00");
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return days[dateObj.getDay()];
-}
-
-function isStaffAssignedToBranch(staff: any, branchId: string, dayOfWeek: string): boolean {
-  if (dayOfWeek && staff.weeklySchedule && typeof staff.weeklySchedule === "object") {
-    const daySchedule = staff.weeklySchedule[dayOfWeek];
-    if (daySchedule && daySchedule.branchId) {
-      return daySchedule.branchId === branchId;
-    }
-    if (daySchedule === null || daySchedule === undefined) {
-      return false;
-    }
-  }
-  return staff.branchId === branchId;
-}
-
-function isAnyStaffId(staffId?: string | null): boolean {
-  if (!staffId) return true;
-  const str = String(staffId).trim().toLowerCase();
-  return str === "" || str === "null" || str.includes("any") || str === "not assigned yet";
-}
-
-function timeToMinutes(timeStr: string): number {
-  const parts = timeStr.split(":").map(Number);
-  if (parts.length < 2) return 0;
-  return parts[0] * 60 + parts[1];
-}
-
-function timeRangesOverlap(s1: number, e1: number, s2: number, e2: number): boolean {
-  return s1 < e2 && s2 < e1;
-}
 
 /**
  * Public API: Submit a booking from the booking engine.
@@ -216,82 +180,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Capacity check: ensure not all eligible staff are booked at the requested time
-    try {
-      const dayOfWeek = getDayOfWeek(date);
-
-      const [staffSnapshot, servicesSnapshot, bookingsSnapshot] = await Promise.all([
-        db.collection("users").where("ownerUid", "==", ownerUid).get(),
-        db.collection("services").where("ownerUid", "==", ownerUid).get(),
-        db.collection("bookings").where("ownerUid", "==", ownerUid).where("date", "==", date).get(),
-      ]);
-
-      const allStaff = staffSnapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-      const allServicesData = servicesSnapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-      const activeBookings = bookingsSnapshot.docs
-        .map((d: any) => ({ id: d.id, ...d.data() }))
-        .filter((b: any) => b.branchId === branchId && shouldBlockSlots(b.status));
-
-      for (const svc of serviceDetails) {
-        const serviceData: any = allServicesData.find((s: any) => String(s.id) === String(svc.id));
-        const eligible = allStaff.filter((st: any) => {
-          const role = (st.role || "").toString().toLowerCase();
-          if (role !== "staff" && role !== "branch_admin") return false;
-          if (st.status && st.status !== "Active") return false;
-          if (serviceData?.staffIds?.length > 0) {
-            if (!serviceData.staffIds.some((id: string) => String(id) === st.id || String(id) === (st.uid || st.id))) return false;
-          }
-          return isStaffAssignedToBranch(st, branchId, dayOfWeek);
-        });
-
-        if (eligible.length === 0) continue;
-
-        const svcDuration = svc.duration || totalDuration || 60;
-        const newStart = timeToMinutes(svc.time || time);
-        const newEnd = newStart + svcDuration;
-
-        const bookedStaffIds = new Set<string>();
-        let anyStaffOverlapping = 0;
-
-        for (const booking of activeBookings) {
-          if (booking.services && Array.isArray(booking.services) && booking.services.length > 0) {
-            for (const existingSvc of booking.services) {
-              if (!existingSvc.time) continue;
-              const existingStaffId = existingSvc.staffId || booking.staffId || null;
-              const existingStart = timeToMinutes(existingSvc.time);
-              const existingEnd = existingStart + (existingSvc.duration || booking.duration || 60);
-              if (!timeRangesOverlap(newStart, newEnd, existingStart, existingEnd)) continue;
-              if (!isAnyStaffId(existingStaffId)) {
-                if (eligible.some((s: any) => s.id === existingStaffId)) bookedStaffIds.add(existingStaffId!);
-              } else {
-                anyStaffOverlapping++;
-              }
-            }
-          } else {
-            if (!booking.time) continue;
-            const existingStaffId = booking.staffId || null;
-            const existingStart = timeToMinutes(booking.time);
-            const existingEnd = existingStart + (booking.duration || 60);
-            if (!timeRangesOverlap(newStart, newEnd, existingStart, existingEnd)) continue;
-            if (!isAnyStaffId(existingStaffId)) {
-              if (eligible.some((s: any) => s.id === existingStaffId)) bookedStaffIds.add(existingStaffId!);
-            } else {
-              anyStaffOverlapping++;
-            }
-          }
-        }
-
-        const freeStaff = eligible.length - bookedStaffIds.size - anyStaffOverlapping;
-        if (freeStaff <= 0) {
-          return NextResponse.json(
-            { error: `The ${svc.time || time} time slot is fully booked for ${svc.name}. All ${eligible.length} available staff are occupied. Please choose a different time.` },
-            { status: 409 }
-          );
-        }
-      }
-    } catch (capErr) {
-      console.error("Capacity check error (non-blocking):", capErr);
-    }
+    // NOTE: Staff-wise capacity checks have been intentionally removed.
+    // The booking engine no longer caps bookings by the number of eligible
+    // staff on shift — the workshop decides how many bookings to accept and
+    // handles staff assignment manually. The only remaining quota is the
+    // branch's optional `bookingLimitPerDay` (enforced in the availability
+    // endpoint by blocking all slots for the day once it is reached).
 
     // Build tasks array from service checklists
     let bookingTasks: any[] = [];

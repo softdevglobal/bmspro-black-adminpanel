@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { shouldBlockSlots, countsTowardDailyLimit } from "@/lib/bookingTypes";
+import { countsTowardDailyLimit } from "@/lib/bookingTypes";
 
 export const runtime = "nodejs";
 
@@ -10,41 +10,20 @@ function getDayOfWeek(dateStr: string): string {
   return days[dateObj.getDay()];
 }
 
-function isStaffAssignedToBranch(staff: any, branchId: string, dayOfWeek: string): boolean {
-  if (dayOfWeek && staff.weeklySchedule && typeof staff.weeklySchedule === "object") {
-    const daySchedule = staff.weeklySchedule[dayOfWeek];
-    if (daySchedule && daySchedule.branchId) {
-      return daySchedule.branchId === branchId;
-    }
-    if (daySchedule === null || daySchedule === undefined) {
-      return false;
-    }
-  }
-  return staff.branchId === branchId;
-}
-
-function isAnyStaff(staffId?: string | null): boolean {
-  if (!staffId) return true;
-  const str = String(staffId).trim().toLowerCase();
-  return str === "" || str === "null" || str.includes("any") || str === "not assigned yet";
-}
-
 function timeToMinutes(timeStr: string): number {
   const parts = timeStr.split(":").map(Number);
   if (parts.length < 2) return 0;
   return parts[0] * 60 + parts[1];
 }
 
-function timeRangesOverlap(
-  start1: number, end1: number,
-  start2: number, end2: number
-): boolean {
-  return start1 < end2 && start2 < end1;
-}
-
 /**
  * Public API: Check time slot availability for the booking engine.
- * Returns slots blocked by staff availability and daily booking limit.
+ *
+ * Slots are only blocked when the branch's daily booking limit has been
+ * reached. Staff-wise capacity (i.e. blocking a slot because all eligible
+ * staff for that time are already occupied) is intentionally NOT enforced
+ * here — a branch can accept more bookings than it has staff; assignment is
+ * handled manually by the workshop.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -80,10 +59,8 @@ export async function GET(req: NextRequest) {
     const ownerUid = usersQuery.docs[0].id;
     const dayOfWeek = getDayOfWeek(date);
 
-    // Fetch staff, services, branch, and existing bookings in parallel
-    const [staffSnapshot, servicesSnapshot, branchDoc, bookingsSnapshot] = await Promise.all([
-      db.collection("users").where("ownerUid", "==", ownerUid).get(),
-      db.collection("services").where("ownerUid", "==", ownerUid).get(),
+    // Fetch branch and existing bookings in parallel
+    const [branchDoc, bookingsSnapshot] = await Promise.all([
       db.collection("branches").doc(branchId).get(),
       db.collection("bookings").where("ownerUid", "==", ownerUid).where("date", "==", date).get(),
     ]);
@@ -103,40 +80,6 @@ export async function GET(req: NextRequest) {
     if (!branchHours) {
       return NextResponse.json({ blockedSlots: [], dailyLimitReached: false });
     }
-
-    const allStaff = staffSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const allServicesData = servicesSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    // Compute eligible staff per selected service
-    const eligibleStaffByService: Record<string, string[]> = {};
-    const serviceDurations: Record<string, number> = {};
-
-    for (const serviceId of serviceIds) {
-      const serviceData: any = allServicesData.find((s) => s.id === serviceId);
-      serviceDurations[serviceId] = serviceData?.duration || 60;
-
-      const eligible = allStaff.filter((st: any) => {
-        const role = (st.role || "").toString().toLowerCase();
-        if (role !== "staff" && role !== "branch_admin") return false;
-        if (st.status && st.status !== "Active") return false;
-
-        if (serviceData?.staffIds && serviceData.staffIds.length > 0) {
-          const canPerform = serviceData.staffIds.some(
-            (id: string) => String(id) === st.id || String(id) === ((st as any).uid || st.id)
-          );
-          if (!canPerform) return false;
-        }
-
-        return isStaffAssignedToBranch(st, branchId, dayOfWeek);
-      });
-
-      eligibleStaffByService[serviceId] = eligible.map((s) => s.id);
-    }
-
-    // Filter active bookings for this branch
-    const activeBookings = bookingsSnapshot.docs
-      .map((d) => ({ id: d.id, ...d.data() } as any))
-      .filter((b: any) => b.branchId === branchId && shouldBlockSlots(b.status));
 
     // Generate all 30-min slots
     const openMins = timeToMinutes(branchHours.open);
@@ -169,80 +112,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // For each slot, check staff availability against each selected service
-    const blockedSlots: string[] = [];
-
-    for (const slot of allSlots) {
-      let isBlocked = false;
-
-      for (const serviceId of serviceIds) {
-        const eligibleIds = eligibleStaffByService[serviceId] || [];
-        const totalCapacity = eligibleIds.length;
-
-        if (totalCapacity === 0) {
-          // No eligible staff configured -- don't block (allow owner to handle manually)
-          continue;
-        }
-
-        const duration = serviceDurations[serviceId];
-        const slotStart = timeToMinutes(slot);
-        const slotEnd = slotStart + duration;
-
-        const bookedStaffIds = new Set<string>();
-        let anyStaffOverlapping = 0;
-
-        for (const booking of activeBookings) {
-          // Check services array for multi-service bookings
-          if (booking.services && Array.isArray(booking.services) && booking.services.length > 0) {
-            for (const existingSvc of booking.services) {
-              if (!existingSvc.time) continue;
-              const existingStaffId = existingSvc.staffId || booking.staffId || null;
-              const existingStart = timeToMinutes(existingSvc.time);
-              const existingDuration = existingSvc.duration || booking.duration || 60;
-              const existingEnd = existingStart + existingDuration;
-
-              if (!timeRangesOverlap(slotStart, slotEnd, existingStart, existingEnd)) continue;
-
-              if (!isAnyStaff(existingStaffId)) {
-                if (eligibleIds.includes(existingStaffId!)) {
-                  bookedStaffIds.add(existingStaffId!);
-                }
-              } else {
-                anyStaffOverlapping++;
-              }
-            }
-          } else {
-            if (!booking.time) continue;
-            const existingStaffId = booking.staffId || null;
-            const existingStart = timeToMinutes(booking.time);
-            const existingDuration = booking.duration || 60;
-            const existingEnd = existingStart + existingDuration;
-
-            if (!timeRangesOverlap(slotStart, slotEnd, existingStart, existingEnd)) continue;
-
-            if (!isAnyStaff(existingStaffId)) {
-              if (eligibleIds.includes(existingStaffId!)) {
-                bookedStaffIds.add(existingStaffId!);
-              }
-            } else {
-              anyStaffOverlapping++;
-            }
-          }
-        }
-
-        const freeStaff = totalCapacity - bookedStaffIds.size - anyStaffOverlapping;
-        if (freeStaff <= 0) {
-          isBlocked = true;
-        }
-      }
-
-      if (isBlocked) {
-        blockedSlots.push(slot);
-      }
-    }
-
+    // Otherwise, no slot is blocked — staff capacity is intentionally ignored.
     return NextResponse.json({
-      blockedSlots,
+      blockedSlots: [],
       dailyLimitReached: false,
       dailyLimit: bookingLimitPerDay,
       dayBookings: bookingsTowardLimit.length,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { FieldValue, Firestore, FieldPath } from "firebase-admin/firestore";
 import { Message } from "firebase-admin/messaging";
-import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
+import { normalizeBookingStatus } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
@@ -19,33 +19,6 @@ function isAnyStaff(staffId?: string | null): boolean {
   if (!staffId) return true; // null, undefined, or empty
   const str = String(staffId).trim().toLowerCase();
   return str === "" || str === "null" || str.includes("any");
-}
-
-/**
- * Get the day-of-week name for a date string (YYYY-MM-DD).
- * Uses noon to avoid timezone boundary issues.
- */
-function getDayOfWeek(dateStr: string): string {
-  const dateObj = new Date(dateStr + "T12:00:00");
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return days[dateObj.getDay()];
-}
-
-/**
- * Check if a staff member is assigned to a branch on a given day,
- * considering weeklySchedule first, then falling back to primary branchId.
- */
-function isStaffAssignedToBranch(staff: any, branchId: string, dayOfWeek: string): boolean {
-  if (dayOfWeek && staff.weeklySchedule && typeof staff.weeklySchedule === "object") {
-    const daySchedule = staff.weeklySchedule[dayOfWeek];
-    if (daySchedule && daySchedule.branchId) {
-      return daySchedule.branchId === branchId;
-    }
-    if (daySchedule === null || daySchedule === undefined) {
-      return false;
-    }
-  }
-  return staff.branchId === branchId;
 }
 
 /**
@@ -338,259 +311,21 @@ export async function POST(req: NextRequest) {
       console.error("Failed to get user role for booking source:", roleError);
     }
 
-    // Validate that the requested time slots are not already booked
     const db = adminDb();
-    const dateStr = String(body.date);
-    
-    // Helper function to check if two time ranges overlap
-    const timeRangesOverlap = (
-      start1: number, end1: number,
-      start2: number, end2: number
-    ): boolean => {
-      // Overlap occurs if: start1 < end2 && start2 < end1
-      return start1 < end2 && start2 < end1;
-    };
 
-    // Helper function to parse time string to minutes
-    const timeToMinutes = (timeStr: string): number => {
-      const parts = timeStr.split(':').map(Number);
-      if (parts.length < 2) return 0;
-      return parts[0] * 60 + parts[1];
-    };
-
-    // Use centralized helper to check if booking status should block slots
-    const isActiveStatus = (status: string | undefined): boolean => {
-      return shouldBlockSlots(status);
-    };
-
-    // Check for existing bookings that would conflict
-    try {
-      // Query bookings for the same date
-      const bookingsQuery = db.collection("bookings")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", "==", dateStr);
-      
-      const bookingRequestsQuery = db.collection("bookingRequests")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", "==", dateStr);
-
-      const [bookingsSnapshot, bookingRequestsSnapshot] = await Promise.all([
-        bookingsQuery.get().catch(() => ({ docs: [] })),
-        bookingRequestsQuery.get().catch(() => ({ docs: [] }))
-      ]);
-
-      // Combine results from both collections
-      const allExistingBookings: Array<any> = [
-        ...bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-        ...bookingRequestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-      ];
-
-      // Check each service in the new booking request
-      const servicesToCheck = body.services && Array.isArray(body.services) && body.services.length > 0
-        ? body.services
-        : [{
-            id: body.serviceId,
-            time: body.time,
-            duration: body.duration,
-            staffId: body.staffId || null
-          }];
-
-      // ----- Pre-fetch eligible staff for "Any Staff" services -----
-      const hasAnyStaffService = servicesToCheck.some((s: any) => isAnyStaff(s.staffId || body.staffId));
-      let eligibleStaffByService: Record<string, string[]> = {};
-
-      if (hasAnyStaffService) {
-        const dayOfWeek = getDayOfWeek(dateStr);
-
-        const [staffSnapshot, servicesSnapshot] = await Promise.all([
-          db.collection("users")
-            .where("ownerUid", "==", ownerUid)
-            .get()
-            .catch(() => ({ docs: [] as any[] })),
-          db.collection("services")
-            .where("ownerUid", "==", ownerUid)
-            .get()
-            .catch(() => ({ docs: [] as any[] })),
-        ]);
-
-        const allStaff = (staffSnapshot.docs || []).map((d: any) => ({ id: d.id, ...d.data() }));
-        const allServicesData = (servicesSnapshot.docs || []).map((d: any) => ({ id: d.id, ...d.data() }));
-
-        for (const svc of servicesToCheck) {
-          const svcStaffId = svc.staffId || body.staffId;
-          if (!isAnyStaff(svcStaffId)) continue; // Skip specific staff services
-
-          const serviceId = svc.id || svc.serviceId || body.serviceId;
-          const serviceData = allServicesData.find((s: any) => String(s.id) === String(serviceId));
-
-          const eligible = allStaff.filter((st: any) => {
-            const role = (st.role || "").toString().toLowerCase();
-            if (role !== "staff" && role !== "branch_admin") return false;
-            if (st.status && st.status !== "Active") return false;
-
-            // Check service capability
-            if (serviceData?.staffIds && serviceData.staffIds.length > 0) {
-              const canPerform = serviceData.staffIds.some((id: string) =>
-                String(id) === st.id || String(id) === (st.uid || st.id)
-              );
-              if (!canPerform) return false;
-            }
-
-            // Check branch assignment (weeklySchedule + primary branchId)
-            return isStaffAssignedToBranch(st, String(body.branchId), dayOfWeek);
-          });
-
-          eligibleStaffByService[String(serviceId)] = eligible.map((s: any) => s.id);
-          console.log(`[ADMIN BOOKING] Service ${serviceId}: ${eligible.length} eligible staff [${eligible.map((s: any) => s.id).join(', ')}] (day=${dayOfWeek})`);
-        }
-      }
-
-      for (const newService of servicesToCheck) {
-        const newServiceTime = newService.time || body.time;
-        const newServiceDuration = newService.duration || body.duration;
-        const newServiceStaffId = newService.staffId || body.staffId || null;
-
-        if (!newServiceTime) continue;
-
-        const newStartMinutes = timeToMinutes(newServiceTime);
-        const newEndMinutes = newStartMinutes + newServiceDuration;
-        const newIsAnyStaff = isAnyStaff(newServiceStaffId);
-
-        if (newIsAnyStaff) {
-          // ── "Any Staff" mode ──
-          // Only block if ALL eligible staff are occupied at this time.
-          const serviceId = newService.id || newService.serviceId || body.serviceId;
-          const eligibleIds = eligibleStaffByService[String(serviceId)] || [];
-
-          if (eligibleIds.length === 0) {
-            // No eligible staff data available – skip validation
-            continue;
-          }
-
-          const bookedStaffIds = new Set<string>();
-          let anyStaffBookingsOverlapping = 0;
-
-          for (const existingBooking of allExistingBookings) {
-            if (!isActiveStatus(existingBooking.status)) continue;
-
-            if (existingBooking.services && Array.isArray(existingBooking.services) && existingBooking.services.length > 0) {
-              for (const existingService of existingBooking.services) {
-                if (!existingService.time) continue;
-                const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
-                const existingStartMinutes = timeToMinutes(existingService.time);
-                const existingDuration = existingService.duration || existingBooking.duration || 60;
-                const existingEndMinutes = existingStartMinutes + existingDuration;
-
-                if (!timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) continue;
-
-                if (!isAnyStaff(existingServiceStaffId)) {
-                  if (eligibleIds.includes(existingServiceStaffId!)) {
-                    bookedStaffIds.add(existingServiceStaffId!);
-                  }
-                } else {
-                  anyStaffBookingsOverlapping++;
-                }
-              }
-            } else {
-              if (!existingBooking.time) continue;
-              const existingStaffId = existingBooking.staffId || null;
-              const existingStartMinutes = timeToMinutes(existingBooking.time);
-              const existingDuration = existingBooking.duration || 60;
-              const existingEndMinutes = existingStartMinutes + existingDuration;
-
-              if (!timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) continue;
-
-              if (!isAnyStaff(existingStaffId)) {
-                if (eligibleIds.includes(existingStaffId!)) {
-                  bookedStaffIds.add(existingStaffId!);
-                }
-              } else {
-                anyStaffBookingsOverlapping++;
-              }
-            }
-          }
-
-          const freeStaff = eligibleIds.length - bookedStaffIds.size - anyStaffBookingsOverlapping;
-          if (freeStaff <= 0) {
-            console.log(`[BOOKING CONFLICT] All ${eligibleIds.length} eligible staff are booked at ${newServiceTime} (${bookedStaffIds.size} specific + ${anyStaffBookingsOverlapping} any-staff)`);
-            return NextResponse.json(
-              {
-                error: "Time slot fully booked",
-                details: `All available staff members are booked at ${newServiceTime}. Please choose a different time.`,
-              },
-              { status: 409 }
-            );
-          }
-
-          // This "Any Staff" service passed — at least one staff member is free
-          continue;
-        }
-
-        // ── Specific staff mode ──
-        // Check against all existing bookings for the same specific staff
-        for (const existingBooking of allExistingBookings) {
-          // Skip if booking is not active
-          if (!isActiveStatus(existingBooking.status)) continue;
-
-          // Check if this is a multi-service booking
-          if (existingBooking.services && Array.isArray(existingBooking.services) && existingBooking.services.length > 0) {
-            // Check each service in the existing booking
-            for (const existingService of existingBooking.services) {
-              if (!existingService.time) continue;
-              
-              const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
-              
-              // Only conflict if same specific staff, or existing is "any staff" (could be assigned to our staff)
-              if (!isAnyStaff(existingServiceStaffId) && newServiceStaffId !== existingServiceStaffId) continue;
-
-              const existingStartMinutes = timeToMinutes(existingService.time);
-              const existingDuration = existingService.duration || existingBooking.duration || 60;
-              const existingEndMinutes = existingStartMinutes + existingDuration;
-
-              // Check for overlap
-              if (timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) {
-                return NextResponse.json(
-                  { 
-                    error: "Time slot already booked",
-                    details: `The selected time ${newServiceTime} conflicts with an existing booking. Please choose a different time.`
-                  },
-                  { status: 409 } // 409 Conflict
-                );
-              }
-            }
-          } else {
-            // Single-service booking
-            if (!existingBooking.time) continue;
-
-            const existingStaffId = existingBooking.staffId || null;
-            
-            // Only conflict if same specific staff, or existing is "any staff"
-            if (!isAnyStaff(existingStaffId) && newServiceStaffId !== existingStaffId) continue;
-
-            const existingStartMinutes = timeToMinutes(existingBooking.time);
-            const existingDuration = existingBooking.duration || 60;
-            const existingEndMinutes = existingStartMinutes + existingDuration;
-
-            // Check for overlap
-            if (timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) {
-              return NextResponse.json(
-                { 
-                  error: "Time slot already booked",
-                  details: `The selected time ${newServiceTime} conflicts with an existing booking. Please choose a different time.`
-                },
-                { status: 409 } // 409 Conflict
-              );
-            }
-          }
-        }
-      }
-    } catch (validationError: any) {
-      // Log the error but don't fail the booking if validation query fails
-      // This is a safety check, so we'll proceed if we can't verify
-      console.error("Error validating booking availability:", validationError);
-      // In production, you might want to be more strict and reject the booking
-      // For now, we'll proceed but log the error
-    }
+    // Staff-wise slot validation has been intentionally removed.
+    //
+    // Previously this route enforced two caps:
+    //   1. "Any Staff" services: rejected with 409 "Time slot fully booked"
+    //      once all eligible staff for the service/branch were occupied
+    //      (i.e. the "2 staff = max 2 bookings" behaviour).
+    //   2. Specific-staff services: rejected with 409 "Time slot already
+    //      booked" when that same staff member had an overlapping booking.
+    //
+    // Per product decision, staff assignment is now handled manually by the
+    // workshop and double-booking the same staff is allowed at this layer —
+    // only the branch's `bookingLimitPerDay` and opening-hours restrict
+    // bookings. The validation block below has been removed accordingly.
 
     const bookingCode = generateBookingCode();
     

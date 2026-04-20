@@ -6,6 +6,13 @@ import { auth, db } from "@/lib/firebase";
 import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
 import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bookingTypes";
+import {
+  type ChecklistSection,
+  CHECKLIST_SECTION_LABELS,
+  DEFAULT_AREA_ORDER,
+  isChecklistSection,
+  normalizeAreaOrder,
+} from "@/lib/services";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 import BookingsExportModal from "./BookingsExportModal";
@@ -51,6 +58,8 @@ type ServiceRow = {
   completedAt?: any;
   completedByStaffUid?: string;
   completedByStaffName?: string;
+  // Owner's customised area ordering snapshotted at booking creation.
+  areaOrder?: ChecklistSection[];
 };
 
 type Row = {
@@ -136,6 +145,8 @@ type TaskRow = {
   serviceName?: string;
   name: string;
   description: string;
+  /** Vehicle area this task belongs to. Snapshotted from service checklist at booking creation. */
+  section?: ChecklistSection;
   done: boolean;
   imageUrl: string;
   staffNote: string;
@@ -272,6 +283,10 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 completedAt: s.completedAt,
                 completedByStaffUid: s.completedByStaffUid,
                 completedByStaffName: s.completedByStaffName,
+                // Owner's vehicle-area ordering snapshotted at booking creation.
+                areaOrder: Array.isArray(s.areaOrder)
+                  ? (s.areaOrder.filter(isChecklistSection) as ChecklistSection[])
+                  : undefined,
               })) || null,
               // Task management
               tasks: Array.isArray(d.tasks) ? d.tasks.map((t: any) => ({
@@ -280,6 +295,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 serviceName: t.serviceName || "",
                 name: t.name || "",
                 description: t.description || "",
+                section: isChecklistSection(t.section) ? t.section : undefined,
                 done: !!t.done,
                 imageUrl: t.imageUrl || "",
                 staffNote: t.staffNote || "",
@@ -440,6 +456,13 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   // Export modal
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
+  // Fallback area-order cache for older bookings whose service snapshots were
+  // written before we started snapshotting `areaOrder`. When we open a booking
+  // preview, any task whose matching service entry lacks `areaOrder` triggers
+  // a lookup on the live `services/{id}` document so the checklist still shows
+  // in the owner's customised order rather than the default.
+  const [serviceAreaOrderFallback, setServiceAreaOrderFallback] = useState<Record<string, ChecklistSection[]>>({});
+
   // Sync mileage edit value when preview row changes
   useEffect(() => {
     if (previewRow?.mileage) {
@@ -449,6 +472,52 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       setMileageEditValue("");
     }
   }, [previewRow?.id, previewRow?.mileage]);
+
+  // Lazily fetch the live `areaOrder` for any service referenced by the open
+  // preview whose service snapshot lacks it. Runs once per preview open and
+  // only for services not already in the fallback cache — cheap and bounded.
+  useEffect(() => {
+    if (!previewRow || !previewRow.tasks || previewRow.tasks.length === 0) return;
+    const services = previewRow.services || [];
+    const idsNeeded = new Set<string>();
+    for (const task of previewRow.tasks) {
+      const svcId = task.serviceId ? String(task.serviceId) : "";
+      if (!svcId) continue;
+      const snapshot = services.find(
+        (s) => String(s.id || s.serviceId || "") === svcId,
+      );
+      if (snapshot?.areaOrder && snapshot.areaOrder.length > 0) continue;
+      if (serviceAreaOrderFallback[svcId]) continue;
+      idsNeeded.add(svcId);
+    }
+    if (idsNeeded.size === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const results: Record<string, ChecklistSection[]> = {};
+        await Promise.all(
+          Array.from(idsNeeded).map(async (id) => {
+            try {
+              const snap = await getDoc(firestoreDoc(db, "services", id));
+              if (snap.exists()) {
+                const raw = (snap.data() as any)?.areaOrder;
+                if (Array.isArray(raw)) {
+                  results[id] = normalizeAreaOrder(raw);
+                }
+              }
+            } catch {}
+          }),
+        );
+        if (!cancelled && Object.keys(results).length > 0) {
+          setServiceAreaOrderFallback((prev) => ({ ...prev, ...results }));
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewRow, serviceAreaOrderFallback]);
 
   // Open preview for a specific booking when openBookingId is in the URL (e.g. from notification click)
   useEffect(() => {
@@ -2061,12 +2130,27 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             ? Math.round((doneCount / totalCount) * 100)
                             : previewRow.taskProgress || 0;
                         const isComplete = totalCount > 0 && doneCount === totalCount;
-                        const serviceTaskGroups = (() => {
-                          const groups = new Map<string, { label: string; tasks: typeof previewRow.tasks }>();
+                        // Group tasks by service, and within each service by vehicle area
+                        // using the owner's snapshotted areaOrder (falling back to the
+                        // default order for older bookings without that snapshot).
+                        type ServiceGroup = {
+                          label: string;
+                          tasks: NonNullable<typeof previewRow.tasks>;
+                          areaOrder: ChecklistSection[];
+                          areaGroups: Array<{
+                            key: ChecklistSection | "unset";
+                            label: string;
+                            tasks: NonNullable<typeof previewRow.tasks>;
+                          }>;
+                        };
+                        const serviceTaskGroups: ServiceGroup[] = (() => {
+                          const groups = new Map<string, ServiceGroup>();
                           for (const task of previewRow.tasks) {
                             const taskServiceId = task.serviceId ? String(task.serviceId) : "";
                             const taskServiceName = task.serviceName ? String(task.serviceName) : "";
                             let matchedServiceName = taskServiceName || "General";
+                            let matchedAreaOrder: ChecklistSection[] = [...DEFAULT_AREA_ORDER];
+                            let haveAreaOrder = false;
 
                             if (previewRow.services && previewRow.services.length > 0) {
                               const matchedService = previewRow.services.find((svc) => {
@@ -2076,13 +2160,55 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   (taskServiceName && svcName && taskServiceName === svcName);
                               });
                               if (matchedService?.name) matchedServiceName = String(matchedService.name);
+                              if (matchedService?.areaOrder && matchedService.areaOrder.length > 0) {
+                                matchedAreaOrder = normalizeAreaOrder(matchedService.areaOrder);
+                                haveAreaOrder = true;
+                              }
+                            }
+                            // Fallback: use the live service's areaOrder when the booking
+                            // snapshot was written before we started persisting it.
+                            if (!haveAreaOrder && taskServiceId) {
+                              const fallback = serviceAreaOrderFallback[taskServiceId];
+                              if (fallback && fallback.length > 0) {
+                                matchedAreaOrder = fallback;
+                              }
                             }
 
                             const key = taskServiceId || matchedServiceName;
                             if (!groups.has(key)) {
-                              groups.set(key, { label: matchedServiceName, tasks: [] as typeof previewRow.tasks });
+                              groups.set(key, {
+                                label: matchedServiceName,
+                                tasks: [] as NonNullable<typeof previewRow.tasks>,
+                                areaOrder: matchedAreaOrder,
+                                areaGroups: [],
+                              });
                             }
                             groups.get(key)!.tasks.push(task);
+                          }
+                          // Build area-wise sub-groups for each service group.
+                          for (const group of groups.values()) {
+                            const buckets = new Map<
+                              ChecklistSection | "unset",
+                              NonNullable<typeof previewRow.tasks>
+                            >();
+                            for (const t of group.tasks) {
+                              const bucketKey: ChecklistSection | "unset" =
+                                isChecklistSection(t.section) ? t.section : "unset";
+                              if (!buckets.has(bucketKey)) buckets.set(bucketKey, [] as NonNullable<typeof previewRow.tasks>);
+                              buckets.get(bucketKey)!.push(t);
+                            }
+                            const areaGroups: ServiceGroup["areaGroups"] = [];
+                            for (const area of group.areaOrder) {
+                              const tasks = buckets.get(area);
+                              if (tasks && tasks.length > 0) {
+                                areaGroups.push({ key: area, label: CHECKLIST_SECTION_LABELS[area], tasks });
+                              }
+                            }
+                            const unset = buckets.get("unset");
+                            if (unset && unset.length > 0) {
+                              areaGroups.push({ key: "unset", label: "Other", tasks: unset });
+                            }
+                            group.areaGroups = areaGroups;
                           }
                           return Array.from(groups.values());
                         })();
@@ -2193,67 +2319,98 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       {groupDone}/{groupTotal}
                                     </span>
                                   </div>
-                                  <div className="p-3 space-y-3">
-                                    {group.tasks.map((task, idx) => (
-                                      <div key={task.id || `${groupIdx}-${idx}`} className={`rounded-xl border p-3 transition-all ${
-                                        task.done
-                                          ? "bg-emerald-50/50 border-emerald-200"
-                                          : "bg-white border-neutral-200"
-                                      }`}>
-                                        <div className="flex items-start gap-3">
-                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                            task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
-                                          }`}>
-                                            {task.done ? (
-                                              <i className="fas fa-check text-[10px]" />
-                                            ) : (
-                                              <span className="text-[10px] font-bold">{idx + 1}</span>
-                                            )}
-                                          </div>
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                              <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
-                                                {task.name}
-                                              </p>
-                                              {task.done && (
-                                                <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
-                                              )}
+                                  <div className="p-3 space-y-4">
+                                    {(() => {
+                                      let taskNum = 0;
+                                      return group.areaGroups.map((area, areaIdx) => {
+                                        const areaDone = area.tasks.filter((t) => t.done).length;
+                                        const areaTotal = area.tasks.length;
+                                        return (
+                                          <div key={`${area.key}-${areaIdx}`} className="space-y-2">
+                                            {/* Area header */}
+                                            <div className="flex items-center gap-2 px-1">
+                                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                              <h6 className="text-[11px] font-bold uppercase tracking-wide text-neutral-600">
+                                                {area.label}
+                                              </h6>
+                                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                                                areaTotal > 0 && areaDone === areaTotal
+                                                  ? "bg-emerald-100 text-emerald-700"
+                                                  : "bg-amber-100 text-amber-700"
+                                              }`}>
+                                                {areaDone}/{areaTotal}
+                                              </span>
+                                              <div className="flex-1 h-px bg-neutral-200" />
                                             </div>
-                                            {task.description && (
-                                              <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
-                                            )}
-                                            {/* Staff note */}
-                                            {task.staffNote && (
-                                              <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
-                                                <p className="text-xs text-blue-700">
-                                                  <i className="fas fa-comment-alt mr-1" />
-                                                  {task.staffNote}
-                                                </p>
-                                                {task.completedByStaffName && (
-                                                  <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
-                                                )}
-                                              </div>
-                                            )}
-                                            {/* Task image */}
-                                            {task.imageUrl && (
-                                              <div className="mt-2">
-                                                <img
-                                                  src={task.imageUrl}
-                                                  alt={task.name}
-                                                  className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
-                                                  onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
-                                                />
-                                                <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
-                                                  onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
-                                                >
-                                                  <i className="fas fa-expand text-[9px]" /> Click to view full size
-                                                </p>
-                                              </div>
-                                            )}
+                                            <div className="space-y-2">
+                                              {area.tasks.map((task, idx) => {
+                                                taskNum += 1;
+                                                return (
+                                                  <div key={task.id || `${groupIdx}-${areaIdx}-${idx}`} className={`rounded-xl border p-3 transition-all ${
+                                                    task.done
+                                                      ? "bg-emerald-50/50 border-emerald-200"
+                                                      : "bg-white border-neutral-200"
+                                                  }`}>
+                                                    <div className="flex items-start gap-3">
+                                                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                                        task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                                      }`}>
+                                                        {task.done ? (
+                                                          <i className="fas fa-check text-[10px]" />
+                                                        ) : (
+                                                          <span className="text-[10px] font-bold">{taskNum}</span>
+                                                        )}
+                                                      </div>
+                                                      <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center justify-between">
+                                                          <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
+                                                            {task.name}
+                                                          </p>
+                                                          {task.done && (
+                                                            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
+                                                          )}
+                                                        </div>
+                                                        {task.description && (
+                                                          <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
+                                                        )}
+                                                        {/* Staff note */}
+                                                        {task.staffNote && (
+                                                          <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
+                                                            <p className="text-xs text-blue-700">
+                                                              <i className="fas fa-comment-alt mr-1" />
+                                                              {task.staffNote}
+                                                            </p>
+                                                            {task.completedByStaffName && (
+                                                              <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                                            )}
+                                                          </div>
+                                                        )}
+                                                        {/* Task image */}
+                                                        {task.imageUrl && (
+                                                          <div className="mt-2">
+                                                            <img
+                                                              src={task.imageUrl}
+                                                              alt={task.name}
+                                                              className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
+                                                              onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                                            />
+                                                            <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
+                                                              onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                                            >
+                                                              <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                                            </p>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
                                           </div>
-                                        </div>
-                                      </div>
-                                    ))}
+                                        );
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               );

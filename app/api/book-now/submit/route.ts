@@ -88,6 +88,17 @@ export async function POST(req: NextRequest) {
         const serviceData = serviceDoc.data()!;
         totalPrice += serviceData.price || 0;
         totalDuration += serviceData.duration || 0;
+        // Snapshot the owner's current area ordering so the booking preview
+        // keeps the same area-wise grouping even if the owner later reorders.
+        const rawAreaOrder = Array.isArray(serviceData.areaOrder)
+          ? serviceData.areaOrder.filter(
+              (v: unknown) =>
+                v === "interior" ||
+                v === "engine_bay" ||
+                v === "underbody" ||
+                v === "exterior"
+            )
+          : [];
         serviceDetails.push({
           id: svc.id,
           serviceId: svc.id,
@@ -98,6 +109,7 @@ export async function POST(req: NextRequest) {
           staffId: null,
           staffName: "Not Assigned Yet",
           approvalStatus: "needs_assignment",
+          areaOrder: rawAreaOrder,
         });
       }
     }

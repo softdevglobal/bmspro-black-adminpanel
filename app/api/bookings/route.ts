@@ -394,6 +394,9 @@ export async function POST(req: NextRequest) {
     
     // ─── Build tasks array from service checklists ───────────────────────────
     let bookingTasks: any[] = [];
+    // Owner-customised area order per service (snapshotted so bookings keep
+    // their area grouping even if the service is later edited).
+    const areaOrderByServiceId: Record<string, string[]> = {};
     try {
       // Collect unique service IDs from the booking
       const serviceIds: string[] = [];
@@ -414,6 +417,15 @@ export async function POST(req: NextRequest) {
         if (!svcDoc.exists) continue;
         const svcData = svcDoc.data();
         const checklist = svcData?.checklist;
+        if (Array.isArray(svcData?.areaOrder)) {
+          areaOrderByServiceId[svcId] = (svcData!.areaOrder as unknown[]).filter(
+            (v) =>
+              v === "interior" ||
+              v === "engine_bay" ||
+              v === "underbody" ||
+              v === "exterior"
+          ) as string[];
+        }
         if (!Array.isArray(checklist) || checklist.length === 0) continue;
 
         const svcName = svcData?.name || "";
@@ -442,6 +454,14 @@ export async function POST(req: NextRequest) {
             completedByStaffName: null,
           });
         }
+      }
+      // Attach the per-service areaOrder snapshot to each service entry so the
+      // booking preview and staff-assignment UIs can render tasks area-wise.
+      if (processedServices && Array.isArray(processedServices)) {
+        processedServices = processedServices.map((svc: any) => {
+          const order = svc?.id ? areaOrderByServiceId[String(svc.id)] : undefined;
+          return order && order.length > 0 ? { ...svc, areaOrder: order } : svc;
+        });
       }
     } catch (taskError) {
       console.error("Failed to build tasks from service checklists:", taskError);

@@ -382,6 +382,17 @@ export async function POST(req: NextRequest) {
           const svcData = svcDoc.data()!;
           const price = rs.price ?? svcData.price ?? 0;
           const duration = rs.duration ?? svcData.duration ?? 0;
+          // Snapshot owner's current area ordering for this service so the
+          // booking preview can group tasks in the owner's chosen order.
+          const areaOrder = Array.isArray(svcData.areaOrder)
+            ? (svcData.areaOrder as unknown[]).filter(
+                (v) =>
+                  v === "interior" ||
+                  v === "engine_bay" ||
+                  v === "underbody" ||
+                  v === "exterior"
+              )
+            : [];
           resolvedServices.push({
             id: rs.serviceId,
             name: rs.serviceName || svcData.name || "",
@@ -391,6 +402,7 @@ export async function POST(req: NextRequest) {
             staffName: rs.staffName || null,
             approvalStatus: rs.staffId ? "pending" : "needs_assignment",
             completionStatus: "pending",
+            ...(areaOrder.length > 0 ? { areaOrder } : {}),
           });
           totalPrice += price;
           totalDuration += duration;

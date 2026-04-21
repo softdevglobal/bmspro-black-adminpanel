@@ -5,6 +5,7 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { createAuditLogServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -137,6 +138,68 @@ export async function PATCH(
       customerResponse,
       timestamp: new Date(),
     });
+
+    // Audit log — keep the call-center path in sync with the owner / branch
+    // admin path so customer-response events show up in the tenant audit
+    // trail regardless of who recorded them.
+    try {
+      const actorRoleLower = (performedByRole || "").toString().toLowerCase();
+      const actorKindLabel =
+        gate.auth.kind === "agent"
+          ? "call-center agent"
+          : actorRoleLower === "workshop_owner"
+            ? "owner"
+            : actorRoleLower === "branch_admin"
+              ? "branch admin"
+              : actorRoleLower === "super_admin"
+                ? "super admin"
+                : "admin";
+      const actionLabel = customerResponse === "accept" ? "accepted" : "declined";
+      const auditClientName = d.client || d.clientName || "Customer";
+      const auditIssueTitle = issue.issueTitle || "Additional work";
+      const auditPriceLabel =
+        issue.price != null ? ` ($${Number(issue.price).toFixed(2)})` : "";
+      const priceSetByName =
+        (issue.priceSetByName || "").toString().trim() || null;
+      const priceSetByUid = (issue.priceSetByUid || "").toString() || null;
+      await createAuditLogServer({
+        ownerUid: d.ownerUid,
+        action: `Customer ${actionLabel} additional work (recorded by ${actor.name} (${actorKindLabel})): "${auditIssueTitle}"${auditPriceLabel}`,
+        actionType: "status_change",
+        entityType: "booking",
+        entityId: bookingId,
+        entityName: d.bookingCode || `Booking for ${auditClientName}`,
+        performedBy: actor.uid,
+        performedByName: actor.name || "Agent",
+        performedByRole: performedByRole || "agent",
+        previousValue: "Awaiting Customer",
+        newValue:
+          customerResponse === "accept"
+            ? "Customer Accepted"
+            : "Customer Declined",
+        details: `Issue: ${auditIssueTitle}${auditPriceLabel} · Customer: ${auditClientName} · Recorded by: ${actor.name} (${actorKindLabel})${priceSetByName ? ` · Price originally set by: ${priceSetByName}` : ""}`,
+        branchId: d.branchId || undefined,
+        branchName: d.branchName || undefined,
+        metadata: {
+          issueId,
+          customerResponse,
+          price: issue.price ?? null,
+          recordedOnBehalfOfCustomer: true,
+          bookingCode: d.bookingCode || null,
+          recordedByUid: actor.uid,
+          recordedByName: actor.name,
+          recordedByRole: performedByRole,
+          recordedBySource: gate.auth.kind,
+          priceSetByUid,
+          priceSetByName,
+        },
+      });
+    } catch (e) {
+      console.error(
+        "[call-center/additional-issues PATCH] audit log failed:",
+        e
+      );
+    }
 
     // Notify the reporting staff member
     if (issue.reportedByStaffUid) {

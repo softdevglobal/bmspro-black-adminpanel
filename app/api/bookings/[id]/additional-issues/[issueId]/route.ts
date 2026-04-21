@@ -11,6 +11,7 @@ import {
 } from "@/lib/notifications";
 import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
 import { sendAdditionalIssuePriceSetEmail } from "@/lib/emailService";
+import { createAuditLogServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -113,6 +114,69 @@ export async function PATCH(
     const clientName = bookingData.client || bookingData.clientName || "Customer";
     const bookingCode = bookingData.bookingCode || null;
     const issueTitle = updatedIssues[issueIndex].issueTitle || "Additional work";
+
+    // Audit log — record that an owner/branch admin set/declined a price for
+    // an additional-work quote so it appears in the tenant audit trail.
+    try {
+      const actorRoleLower = (userData.role || "").toLowerCase();
+      const actorRoleLabel =
+        actorRoleLower === "workshop_owner"
+          ? "owner"
+          : actorRoleLower === "branch_admin"
+            ? "branch admin"
+            : actorRoleLower === "super_admin"
+              ? "super admin"
+              : "admin";
+      const actorName = (userData.name || "").trim() || "Admin";
+      const actorAttribution = `${actorName} (${actorRoleLabel})`;
+      const previousPrice = (existingIssue as any)?.price;
+      const hadPreviousPrice =
+        typeof previousPrice === "number" && !isNaN(previousPrice);
+      const isPriceUpdate =
+        status === "approved" && hadPreviousPrice && previousPrice !== price;
+      const auditAction =
+        status === "rejected"
+          ? `Additional work quote declined by ${actorAttribution}: "${issueTitle}"`
+          : isPriceUpdate
+            ? `Additional work price updated by ${actorAttribution}: "${issueTitle}" ($${Number(previousPrice).toFixed(2)} → $${Number(price).toFixed(2)})`
+            : `Additional work price set by ${actorAttribution}: "${issueTitle}" ($${Number(price).toFixed(2)})`;
+      await createAuditLogServer({
+        ownerUid,
+        action: auditAction,
+        actionType: status === "rejected" ? "status_change" : "update",
+        entityType: "booking",
+        entityId: id,
+        entityName: bookingCode || `Booking for ${clientName}`,
+        performedBy: userData.uid,
+        performedByName: userData.name || "Admin",
+        performedByRole: userData.role,
+        previousValue:
+          status === "rejected"
+            ? "Pending"
+            : hadPreviousPrice
+              ? `$${Number(previousPrice).toFixed(2)}`
+              : "No price",
+        newValue:
+          status === "rejected"
+            ? "Rejected"
+            : `$${Number(price).toFixed(2)}`,
+        details: `Issue: ${issueTitle} · Customer: ${clientName} · Set by: ${actorName} (${userData.role})`,
+        branchId: bookingData.branchId || undefined,
+        branchName: bookingData.branchName || undefined,
+        metadata: {
+          issueId,
+          status,
+          price: status === "approved" ? price : null,
+          previousPrice: hadPreviousPrice ? previousPrice : null,
+          bookingCode: bookingCode || null,
+          priceSetByUid: userData.uid,
+          priceSetByName: actorName,
+          priceSetByRole: userData.role,
+        },
+      });
+    } catch (e) {
+      console.error("Failed to write audit log for additional-issue price:", e);
+    }
 
     // Notify customer only when approved with price (not when rejected)
     if (status === "approved" && price != null) {

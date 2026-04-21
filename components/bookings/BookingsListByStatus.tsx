@@ -446,6 +446,15 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const [issuePriceValue, setIssuePriceValue] = useState("");
   const [issuePriceSaving, setIssuePriceSaving] = useState(false);
 
+  // Customer-response modal (owner/branch admin records the customer's
+  // decision on an additional-work quote after calling the customer).
+  const [customerResponseModal, setCustomerResponseModal] = useState<{
+    bookingId: string;
+    issue: AdditionalIssueRow;
+    action: "accept" | "reject";
+  } | null>(null);
+  const [customerResponseSaving, setCustomerResponseSaving] = useState(false);
+
   // Staff assignment modal state
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
   const [bookingToConfirm, setBookingToConfirm] = useState<Row | null>(null);
@@ -1512,6 +1521,53 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     }
   };
 
+  const handleRecordCustomerResponse = async () => {
+    if (!customerResponseModal) return;
+    const { bookingId, issue, action } = customerResponseModal;
+    try {
+      setCustomerResponseSaving(true);
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/bookings/${bookingId}/additional-issues/${issue.id}/customer-response`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed to record customer response");
+      }
+      const data = await res.json().catch(() => ({}));
+      const updatedIssue = data?.issue;
+      setPreviewRow((prev) => {
+        if (!prev?.additionalIssues) return prev;
+        const updated = prev.additionalIssues.map((i) =>
+          i.id === issue.id
+            ? {
+                ...i,
+                customerResponse:
+                  (updatedIssue?.customerResponse as "accept" | "reject") ||
+                  action,
+              }
+            : i
+        );
+        return { ...prev, additionalIssues: updated };
+      });
+      setCustomerResponseModal(null);
+    } catch (e: any) {
+      alert(e?.message || "Failed to record customer response");
+    } finally {
+      setCustomerResponseSaving(false);
+    }
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-white">
       {/* Mobile Sidebar Overlay */}
@@ -1907,9 +1963,48 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                               );
                                             }
                                             return (
-                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                                <i className="fas fa-clock" /> Awaiting Customer
-                                              </span>
+                                              <>
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                                  <i className="fas fa-clock" /> Awaiting Customer
+                                                </span>
+                                                {!isCompleted && !bookingCompleted && (
+                                                  <div className="flex flex-col gap-1 mt-1">
+                                                    <p className="text-[9px] text-neutral-500 italic">
+                                                      Called the customer? Record their response:
+                                                    </p>
+                                                    <div className="flex gap-1">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setCustomerResponseModal({
+                                                            bookingId: previewRow.id,
+                                                            issue,
+                                                            action: "accept",
+                                                          })
+                                                        }
+                                                        className="px-2 py-1 text-[10px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors inline-flex items-center gap-1"
+                                                        title="Customer accepted the quote on the phone"
+                                                      >
+                                                        <i className="fas fa-check text-[9px]" /> Accepted
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setCustomerResponseModal({
+                                                            bookingId: previewRow.id,
+                                                            issue,
+                                                            action: "reject",
+                                                          })
+                                                        }
+                                                        className="px-2 py-1 text-[10px] font-semibold rounded-md bg-rose-600 text-white hover:bg-rose-700 transition-colors inline-flex items-center gap-1"
+                                                        title="Customer declined the quote on the phone"
+                                                      >
+                                                        <i className="fas fa-times text-[9px]" /> Declined
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </>
                                             );
                                           })()}
                                         </div>
@@ -4100,6 +4195,124 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               )}
             </div>
           </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Record Customer Response Modal (owner / branch admin called customer) ─── */}
+      {customerResponseModal && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => !customerResponseSaving && setCustomerResponseModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(() => {
+              const isAccept = customerResponseModal.action === "accept";
+              const issue = customerResponseModal.issue;
+              const priceStr =
+                issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
+              return (
+                <>
+                  <div
+                    className={`px-6 py-5 ${
+                      isAccept
+                        ? "bg-gradient-to-r from-emerald-500 to-green-600"
+                        : "bg-gradient-to-r from-rose-500 to-red-600"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                        <i
+                          className={`fas ${
+                            isAccept ? "fa-check-circle" : "fa-times-circle"
+                          } text-white text-xl`}
+                        />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white">
+                          {isAccept
+                            ? "Mark as Customer Accepted"
+                            : "Mark as Customer Declined"}
+                        </h3>
+                        <p className="text-white/90 text-sm">
+                          Record the response you took over the phone
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 space-y-4">
+                    <div
+                      className={`rounded-xl border p-4 ${
+                        isAccept
+                          ? "bg-emerald-50 border-emerald-200"
+                          : "bg-rose-50 border-rose-200"
+                      }`}
+                    >
+                      <p className="font-semibold text-neutral-800 text-base">
+                        {issue.issueTitle}
+                      </p>
+                      {priceStr && (
+                        <p
+                          className={`text-sm font-bold mt-1 ${
+                            isAccept ? "text-emerald-700" : "text-rose-700"
+                          }`}
+                        >
+                          Quoted price: {priceStr}
+                        </p>
+                      )}
+                      {issue.description && (
+                        <p className="text-xs text-neutral-600 mt-2">
+                          {issue.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                      <p className="text-xs text-neutral-700 leading-relaxed">
+                        <i className="fas fa-info-circle text-neutral-500 mr-1.5" />
+                        By confirming, you are recording that the customer
+                        <strong>
+                          {isAccept ? " accepted " : " declined "}
+                        </strong>
+                        the additional-work quote during a phone conversation.
+                        The reporting technician and team will be notified.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="px-6 pb-6 flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCustomerResponseModal(null)}
+                      disabled={customerResponseSaving}
+                      className="flex-1 py-2 rounded-lg border border-neutral-200 text-neutral-700 text-sm font-medium hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRecordCustomerResponse}
+                      disabled={customerResponseSaving}
+                      className={`flex-1 py-2 rounded-lg text-white text-sm font-semibold transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isAccept
+                          ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20"
+                          : "bg-rose-600 hover:bg-rose-700 shadow-rose-500/20"
+                      }`}
+                    >
+                      {customerResponseSaving
+                        ? "Saving..."
+                        : isAccept
+                          ? "Confirm – Customer Accepted"
+                          : "Confirm – Customer Declined"}
+                    </button>
+                  </div>
+                </>
               );
             })()}
           </div>

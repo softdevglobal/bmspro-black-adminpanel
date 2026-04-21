@@ -2,8 +2,11 @@
  * Post-completion condition flag a staff member attaches to a task. Persisted
  * on `BookingTask.condition` and rendered across the admin panel, the owner
  * mobile app, and the customer booking engine.
+ *
+ * `good` means "inspected, no work needed — already in good condition",
+ * whereas `completed` means "work was performed and the task is finished".
  */
-export type TaskCondition = "urgent" | "advisory" | "good";
+export type TaskCondition = "urgent" | "advisory" | "good" | "completed";
 
 export type TaskConditionOption = {
   value: TaskCondition;
@@ -37,10 +40,19 @@ export const TASK_CONDITION_OPTIONS: TaskConditionOption[] = [
     dotClass: "bg-emerald-500",
     badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
   },
+  {
+    value: "completed",
+    label: "Completed",
+    emoji: "🔵",
+    dotClass: "bg-blue-500",
+    badgeClass: "bg-blue-50 text-blue-700 border-blue-200",
+  },
 ];
 
 export function isTaskCondition(v: unknown): v is TaskCondition {
-  return v === "urgent" || v === "advisory" || v === "good";
+  return (
+    v === "urgent" || v === "advisory" || v === "good" || v === "completed"
+  );
 }
 
 export function taskConditionOption(

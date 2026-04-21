@@ -1,4 +1,5 @@
 import { isChecklistSection, type ChecklistSection } from "./services";
+import type { TaskCondition } from "./taskCondition";
 
 export type BookingStatus = 
   | "Pending" 
@@ -305,6 +306,8 @@ export interface BookingTask {
   done: boolean;                 // Completion status
   imageUrl: string;              // Photo uploaded by staff after task completion
   staffNote: string;             // Description of work done by staff
+  /** Post-completion condition flag the staff member attached to this task. */
+  condition?: TaskCondition;
   completedAt?: string | null;   // ISO timestamp when completed
   completedByStaffUid?: string | null;
   completedByStaffName?: string | null;

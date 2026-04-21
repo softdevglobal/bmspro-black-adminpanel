@@ -134,12 +134,15 @@ export async function PATCH(
         typeof previousPrice === "number" && !isNaN(previousPrice);
       const isPriceUpdate =
         status === "approved" && hadPreviousPrice && previousPrice !== price;
+      // Keep the headline short — the actor is surfaced in the
+      // side-panel's "Performed By" section, and the `details` line
+      // below preserves the narrative form for anyone who wants it.
       const auditAction =
         status === "rejected"
-          ? `Additional work quote declined by ${actorAttribution}: "${issueTitle}"`
+          ? `Additional work quote declined: ${issueTitle}`
           : isPriceUpdate
-            ? `Additional work price updated by ${actorAttribution}: "${issueTitle}" ($${Number(previousPrice).toFixed(2)} → $${Number(price).toFixed(2)})`
-            : `Additional work price set by ${actorAttribution}: "${issueTitle}" ($${Number(price).toFixed(2)})`;
+            ? `Additional work price updated: ${issueTitle} ($${Number(previousPrice).toFixed(2)} → $${Number(price).toFixed(2)})`
+            : `Additional work priced: ${issueTitle} ($${Number(price).toFixed(2)})`;
       await createAuditLogServer({
         ownerUid,
         action: auditAction,

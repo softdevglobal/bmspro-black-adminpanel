@@ -188,9 +188,12 @@ export async function PATCH(
       const priceSetByName =
         (issue.priceSetByName || "").toString().trim() || null;
       const priceSetByUid = (issue.priceSetByUid || "").toString() || null;
+      // Keep the headline short and scannable; "who recorded it" is
+      // already surfaced via the audit log's `performedBy*` fields and
+      // shown in the side-panel's "Performed By" section.
       await createAuditLogServer({
         ownerUid,
-        action: `Customer ${actionLabel} additional work (recorded by ${actorName} (${actorRoleLabel})): "${auditIssueTitle}"${auditPriceLabel}`,
+        action: `Additional work ${actionLabel}: ${auditIssueTitle}${auditPriceLabel}`,
         actionType: "status_change",
         entityType: "booking",
         entityId: id,

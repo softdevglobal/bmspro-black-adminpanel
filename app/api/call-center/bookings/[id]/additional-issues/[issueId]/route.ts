@@ -162,9 +162,12 @@ export async function PATCH(
       const priceSetByName =
         (issue.priceSetByName || "").toString().trim() || null;
       const priceSetByUid = (issue.priceSetByUid || "").toString() || null;
+      // Short, scannable headline — the "Performed By" side-panel field
+      // already shows the agent / admin who recorded the decision, and
+      // the `details` line below preserves the long-form narrative.
       await createAuditLogServer({
         ownerUid: d.ownerUid,
-        action: `Customer ${actionLabel} additional work (recorded by ${actor.name} (${actorKindLabel})): "${auditIssueTitle}"${auditPriceLabel}`,
+        action: `Additional work ${actionLabel}: ${auditIssueTitle}${auditPriceLabel}`,
         actionType: "status_change",
         entityType: "booking",
         entityId: bookingId,

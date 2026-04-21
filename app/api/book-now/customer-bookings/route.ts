@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { DocumentData } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { isChecklistSection, normalizeAreaOrder, type ChecklistSection } from "@/lib/services";
+import { isTaskCondition, type TaskCondition } from "@/lib/taskCondition";
 
 /** Build `services` payload with stable area ordering: use booking snapshot when non-empty, else live `services/{id}` doc. */
 function buildCustomerServicesPayload(
@@ -110,7 +111,20 @@ export async function GET(req: NextRequest) {
       const d = doc.data();
       const tasks = Array.isArray(d.tasks)
         ? d.tasks.map((t: Record<string, unknown>) => {
-            const base = {
+            const base: {
+              id: string;
+              serviceId: string;
+              serviceName: string;
+              name: string;
+              description: string;
+              done: boolean;
+              imageUrl: string;
+              staffNote: string;
+              completedAt: string | null;
+              completedByStaffName: string | null;
+              section?: ChecklistSection;
+              condition?: TaskCondition;
+            } = {
               id: String(t.id ?? ""),
               serviceId: String(t.serviceId ?? ""),
               serviceName: String(t.serviceName ?? ""),
@@ -122,9 +136,9 @@ export async function GET(req: NextRequest) {
               completedAt: (t.completedAt as string | null | undefined) ?? null,
               completedByStaffName: (t.completedByStaffName as string | null | undefined) ?? null,
             };
-            return isChecklistSection(t.section)
-              ? { ...base, section: t.section as ChecklistSection }
-              : base;
+            if (isChecklistSection(t.section)) base.section = t.section as ChecklistSection;
+            if (isTaskCondition(t.condition)) base.condition = t.condition;
+            return base;
           })
         : null;
       const n = tasks?.length ?? 0;

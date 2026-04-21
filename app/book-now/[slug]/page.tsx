@@ -12,6 +12,10 @@ import {
   groupChecklistItemsWithGlobalNumbers,
   CHECKLIST_SECTION_LABELS,
 } from "@/lib/services";
+import {
+  type TaskCondition,
+  taskConditionOption,
+} from "@/lib/taskCondition";
 
 /** Area strips: light tinted bars + colored border (readable dark text), matching the preferred Book Now look. */
 const BOOK_NOW_SECTION_HEADER: Record<ChecklistSection, string> = {
@@ -68,6 +72,8 @@ type CustomerBookingTask = {
   completedAt?: string | null;
   completedByStaffName?: string | null;
   section?: ChecklistSection;
+  /** Post-completion condition flag chosen by the staff member. */
+  condition?: TaskCondition;
 };
 type CustomerBookingServiceSnap = { id: string; areaOrder: ChecklistSection[] };
 type CustomerAdditionalIssue = {
@@ -159,6 +165,8 @@ type CustomerBookingAreaSegment = {
   label: string;
   total: number;
   done: number;
+  /** Done-flag per task in this area, in the order they appear in the booking. Used to sub-divide the area's segment into one pip per task. */
+  taskDones: boolean[];
 };
 
 /** One progress segment per vehicle area (owner order). Legacy tasks without `section` use per-task bar instead (returns null). */
@@ -169,39 +177,36 @@ function buildCustomerBookingAreaSegments(bk: CustomerBooking): CustomerBookingA
   if (!hasAnySection) return null;
 
   const order = effectiveCustomerBookingAreaOrder(bk);
-  const stats = new Map<ChecklistSection, { total: number; done: number }>();
-  for (const a of order) stats.set(a, { total: 0, done: 0 });
-  let otherTotal = 0;
-  let otherDone = 0;
+  const buckets = new Map<ChecklistSection, boolean[]>();
+  for (const a of order) buckets.set(a, []);
+  const otherDones: boolean[] = [];
 
   for (const t of tasks) {
     if (isChecklistSection(t.section)) {
-      const cur = stats.get(t.section) ?? { total: 0, done: 0 };
-      cur.total += 1;
-      if (t.done) cur.done += 1;
-      stats.set(t.section, cur);
+      buckets.get(t.section)!.push(!!t.done);
     } else {
-      otherTotal += 1;
-      if (t.done) otherDone += 1;
+      otherDones.push(!!t.done);
     }
   }
 
   const segments: CustomerBookingAreaSegment[] = [];
   for (const area of order) {
-    const s = stats.get(area)!;
+    const dones = buckets.get(area)!;
     segments.push({
       key: area,
       label: CHECKLIST_SECTION_LABELS[area],
-      total: s.total,
-      done: s.done,
+      total: dones.length,
+      done: dones.filter(Boolean).length,
+      taskDones: dones,
     });
   }
-  if (otherTotal > 0) {
+  if (otherDones.length > 0) {
     segments.push({
       key: "other",
       label: "Other",
-      total: otherTotal,
-      done: otherDone,
+      total: otherDones.length,
+      done: otherDones.filter(Boolean).length,
+      taskDones: otherDones,
     });
   }
   return segments;
@@ -3391,33 +3396,37 @@ export default function BookingEnginePage() {
                                     </div>
                                   </div>
 
-                                  {/* Segmented bar: one strip per vehicle area (owner order), or one per task when tasks lack `section` */}
+                                  {/* Segmented bar: one strip per vehicle area (owner order),
+                                      each area further sub-divided into one pip per task it contains
+                                      (so Underbody with 2 tasks shows 2 pips, etc.). Falls back to a
+                                      flat per-task bar when tasks lack `section`. */}
                                   {areaSegments ? (
                                     <div className="flex items-stretch gap-1 sm:gap-1.5 relative z-10">
                                       {areaSegments.map((seg) => {
-                                        const segPct =
-                                          seg.total > 0 ? Math.round((seg.done / seg.total) * 100) : 0;
                                         const areaComplete = seg.total > 0 && seg.done === seg.total;
-                                        const partial = seg.done > 0 && !areaComplete;
+                                        // Zero-task area still gets a single empty pip so the area is visible in the bar.
+                                        const pips = seg.total > 0 ? seg.taskDones : [false];
                                         return (
                                           <div
                                             key={seg.key}
                                             className="flex-1 flex flex-col gap-1 min-w-0"
                                             title={`${seg.label}: ${seg.done}/${seg.total} tasks`}
                                           >
-                                            <div className="w-full h-2 rounded-full bg-neutral-200/80 overflow-hidden">
-                                              <div
-                                                className={`h-full rounded-full transition-all duration-500 ${
-                                                  areaComplete
-                                                    ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/25"
-                                                    : partial
-                                                      ? "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
-                                                      : "bg-transparent"
-                                                }`}
-                                                style={{
-                                                  width: areaComplete ? "100%" : `${segPct}%`,
-                                                }}
-                                              />
+                                            <div className="w-full h-2 flex items-stretch gap-[2px]">
+                                              {pips.map((done, pi) => (
+                                                <div
+                                                  key={pi}
+                                                  className={`flex-1 h-full rounded-full transition-all duration-500 ${
+                                                    seg.total === 0
+                                                      ? "bg-neutral-200/80"
+                                                      : done
+                                                        ? areaComplete
+                                                          ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/25"
+                                                          : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                        : "bg-neutral-200/80"
+                                                  }`}
+                                                />
+                                              ))}
                                             </div>
                                             <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400 truncate text-center leading-none px-0.5">
                                               {seg.label}
@@ -3509,6 +3518,18 @@ export default function BookingEnginePage() {
                                                 <i className="fas fa-wrench mr-1 text-[8px]" />{task.serviceName}
                                               </p>
                                             )}
+                                            {(() => {
+                                              const opt = taskConditionOption(task.condition);
+                                              if (!opt) return null;
+                                              return (
+                                                <div className="mt-1.5">
+                                                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold ${opt.badgeClass}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${opt.dotClass}`} />
+                                                    {opt.label}
+                                                  </span>
+                                                </div>
+                                              );
+                                            })()}
                                             {task.staffNote && (
                                               <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
                                                 <p className="text-[11px] text-blue-700">

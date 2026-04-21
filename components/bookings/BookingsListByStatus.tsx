@@ -18,6 +18,11 @@ import { updateBookingStatus } from "@/lib/bookings";
 import BookingsExportModal from "./BookingsExportModal";
 import BookingJobReportPdfViewer from "./BookingJobReportPdfViewer";
 import { bookingJobReportPdfFilename } from "@/lib/bookingPdfFilename";
+import {
+  type TaskCondition,
+  isTaskCondition,
+  taskConditionOption,
+} from "@/lib/taskCondition";
 
 /** Firestore may store mileageRecordedAt as an ISO string or a Timestamp. */
 function parseMileageRecordedAt(value: unknown): Date | null {
@@ -150,6 +155,8 @@ type TaskRow = {
   done: boolean;
   imageUrl: string;
   staffNote: string;
+  /** Post-completion condition flag chosen by the staff member. */
+  condition?: TaskCondition;
   completedAt?: string | null;
   completedByStaffUid?: string | null;
   completedByStaffName?: string | null;
@@ -299,6 +306,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 done: !!t.done,
                 imageUrl: t.imageUrl || "",
                 staffNote: t.staffNote || "",
+                condition: isTaskCondition(t.condition) ? t.condition : undefined,
                 completedAt: t.completedAt || null,
                 completedByStaffUid: t.completedByStaffUid || null,
                 completedByStaffName: t.completedByStaffName || null,
@@ -2264,22 +2272,106 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               </div>
                             </div>
 
-                            {/* Segmented progress steps */}
-                            <div className="flex items-center gap-1 relative z-10">
-                              {previewRow.tasks.map((task, i) => (
-                                <div key={task.id || i} className="flex-1">
-                                  <div
-                                    className={`h-2.5 rounded-full transition-all duration-500 ${
-                                      task.done
-                                        ? isComplete
-                                          ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
-                                          : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
-                                        : "bg-neutral-200/80"
-                                    }`}
-                                  />
+                            {/* Segmented progress — one strip per vehicle area (owner order),
+                                each area sub-divided into one pip per task. Falls back to a flat
+                                per-task bar when no task carries a `section`. */}
+                            {(() => {
+                              const hasAnySection = previewRow.tasks.some((t) => isChecklistSection(t.section));
+                              if (!hasAnySection) {
+                                return (
+                                  <div className="flex items-center gap-1 relative z-10">
+                                    {previewRow.tasks.map((task, i) => (
+                                      <div key={task.id || i} className="flex-1">
+                                        <div
+                                          className={`h-2.5 rounded-full transition-all duration-500 ${
+                                            task.done
+                                              ? isComplete
+                                                ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                              : "bg-neutral-200/80"
+                                          }`}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              // Derive area order from the booking's first service snapshot,
+                              // then fall back to the live-service cache (for legacy bookings
+                              // whose snapshots predate areaOrder), finally default order.
+                              let resolvedOrder: ChecklistSection[] = [...DEFAULT_AREA_ORDER];
+                              const firstSvc = previewRow.services?.[0];
+                              if (firstSvc?.areaOrder && firstSvc.areaOrder.length > 0) {
+                                resolvedOrder = normalizeAreaOrder(firstSvc.areaOrder);
+                              } else {
+                                const firstSvcId = firstSvc?.id
+                                  ? String(firstSvc.id)
+                                  : previewRow.tasks.find((t) => t.serviceId)?.serviceId;
+                                if (firstSvcId) {
+                                  const fb = serviceAreaOrderFallback[String(firstSvcId)];
+                                  if (fb && fb.length > 0) resolvedOrder = fb;
+                                }
+                              }
+                              const buckets = new Map<ChecklistSection, boolean[]>();
+                              for (const a of resolvedOrder) buckets.set(a, []);
+                              const otherDones: boolean[] = [];
+                              for (const t of previewRow.tasks) {
+                                if (isChecklistSection(t.section)) {
+                                  buckets.get(t.section)!.push(!!t.done);
+                                } else {
+                                  otherDones.push(!!t.done);
+                                }
+                              }
+                              type AreaSeg = { key: string; label: string; dones: boolean[] };
+                              const segments: AreaSeg[] = [];
+                              for (const a of resolvedOrder) {
+                                segments.push({
+                                  key: a,
+                                  label: CHECKLIST_SECTION_LABELS[a],
+                                  dones: buckets.get(a)!,
+                                });
+                              }
+                              if (otherDones.length > 0) {
+                                segments.push({ key: "other", label: "Other", dones: otherDones });
+                              }
+                              return (
+                                <div className="flex items-stretch gap-1 sm:gap-1.5 relative z-10">
+                                  {segments.map((seg) => {
+                                    const segTotal = seg.dones.length;
+                                    const segDone = seg.dones.filter(Boolean).length;
+                                    const areaComplete = segTotal > 0 && segDone === segTotal;
+                                    const pips = segTotal > 0 ? seg.dones : [false];
+                                    return (
+                                      <div
+                                        key={seg.key}
+                                        className="flex-1 flex flex-col gap-1 min-w-0"
+                                        title={`${seg.label}: ${segDone}/${segTotal} tasks`}
+                                      >
+                                        <div className="h-2.5 flex items-stretch gap-[2px]">
+                                          {pips.map((done, pi) => (
+                                            <div
+                                              key={pi}
+                                              className={`flex-1 h-full rounded-full transition-all duration-500 ${
+                                                segTotal === 0
+                                                  ? "bg-neutral-200/80"
+                                                  : done
+                                                    ? areaComplete
+                                                      ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                      : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                    : "bg-neutral-200/80"
+                                              }`}
+                                            />
+                                          ))}
+                                        </div>
+                                        <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400 truncate text-center leading-none px-0.5">
+                                          {seg.label}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })()}
 
                             {/* Bottom label */}
                             <div className="flex items-center justify-between mt-2.5 relative z-10">
@@ -2373,6 +2465,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                                         {task.description && (
                                                           <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
                                                         )}
+                                                        {/* Condition pill */}
+                                                        {(() => {
+                                                          const opt = taskConditionOption(task.condition);
+                                                          if (!opt) return null;
+                                                          return (
+                                                            <div className="mt-2">
+                                                              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold ${opt.badgeClass}`}>
+                                                                <span className={`w-1.5 h-1.5 rounded-full ${opt.dotClass}`} />
+                                                                {opt.label}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })()}
                                                         {/* Staff note */}
                                                         {task.staffNote && (
                                                           <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">

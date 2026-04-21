@@ -362,8 +362,11 @@ export async function handleCallCenterBookingStatusChange(
           staffName: (s.staffName as string | undefined) || undefined,
         })),
         branchName: data.branchName as string | undefined,
-        bookingDate: data.date as string | undefined,
-        bookingTime: data.time as string | undefined,
+        // bookingDate / bookingTime are required `string` on the notification
+        // helper. Legacy docs may omit them so fall back to empty strings so
+        // the build stays type-safe without changing runtime behaviour.
+        bookingDate: ((data.date as string | undefined) ?? "").toString(),
+        bookingTime: ((data.time as string | undefined) ?? "").toString(),
         ownerUid,
       });
     } else if (nextStatus === "Canceled") {
@@ -450,17 +453,32 @@ export async function handleCallCenterBookingStatusChange(
           serviceName: data.serviceName as string | undefined,
           services: services.map((s) => ({
             name: (s.name as string) || "Service",
-            staffName: (s.staffName as string | undefined) || null,
-            time: (s.time as string | undefined) || (data.time as string | undefined) || null,
+            staffName: (s.staffName as string | undefined) || undefined,
+            time:
+              (s.time as string | undefined) ||
+              (data.time as string | undefined) ||
+              undefined,
             duration:
               (s.duration as number | undefined) ||
               (data.duration as number | undefined) ||
-              null,
+              undefined,
             price: s.price as number | undefined,
           })),
           staffName: staffName || undefined,
           ...(nextStatus === "Completed"
-            ? { additionalIssues: data.additionalIssues || null }
+            ? {
+                additionalIssues:
+                  (data.additionalIssues as
+                    | Array<{
+                        id?: string;
+                        issueTitle?: string;
+                        status?: string;
+                        price?: number | null;
+                        customerResponse?: string | null;
+                      }>
+                    | null
+                    | undefined) || null,
+              }
             : {}),
         }
       );

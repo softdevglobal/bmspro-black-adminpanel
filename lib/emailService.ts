@@ -2313,3 +2313,160 @@ export async function sendEstimateReplyEmail(data: {
     return { success: false, error: error?.message || "Unknown error" };
   }
 }
+
+/**
+ * Send email to the customer when an admin/owner reschedules the booking.
+ * Unlike status-change emails, this does NOT check/write the hasEmailBeenSent
+ * dedupe record because a booking can be rescheduled multiple times and every
+ * reschedule should trigger a fresh notification.
+ */
+export async function sendBookingRescheduledEmail(data: {
+  bookingId: string;
+  bookingCode?: string | null;
+  customerEmail: string | null | undefined;
+  customerName?: string | null;
+  ownerUid: string;
+  branchName?: string | null;
+  previousDate?: string | null;
+  previousTime?: string | null;
+  previousPickupTime?: string | null;
+  newDate: string;
+  newTime: string;
+  newPickupTime?: string | null;
+  reason?: string | null;
+  serviceName?: string | null;
+  services?: Array<{
+    name?: string;
+    staffName?: string | null;
+    time?: string;
+    duration?: number;
+    price?: number;
+  }>;
+  staffName?: string | null;
+  duration?: number | null;
+  price?: number | null;
+}): Promise<{ success: boolean; error?: string }> {
+  const email = data.customerEmail?.trim()?.toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    console.log(`[EMAIL] sendBookingRescheduledEmail: invalid/missing email for booking ${data.bookingId}`);
+    return { success: false, error: "Invalid or missing customer email" };
+  }
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+
+  try {
+    const workshopName = (await getWorkshopName(data.ownerUid)) || "Workshop";
+    const customerName = (data.customerName || "there").trim();
+
+    const fmtDate = (s?: string | null) => {
+      if (!s) return "";
+      try {
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+      } catch {
+        return s;
+      }
+    };
+
+    const prevLine =
+      data.previousDate || data.previousTime
+        ? `${fmtDate(data.previousDate)}${data.previousTime ? ` · Drop-off ${data.previousTime}` : ""}${data.previousPickupTime ? ` · Pick-up ${data.previousPickupTime}` : ""}`
+        : "";
+    const newLine = `${fmtDate(data.newDate)} · Drop-off ${data.newTime}${data.newPickupTime ? ` · Pick-up ${data.newPickupTime}` : ""}`;
+
+    const servicesHtml = Array.isArray(data.services) && data.services.length > 0
+      ? `
+        <div style="margin-top:18px;padding:14px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
+          <p style="margin:0 0 8px;color:#111827;font-size:13px;font-weight:600;">Services</p>
+          ${data.services
+            .map(
+              (s) =>
+                `<p style="margin:2px 0;color:#374151;font-size:13px;">• ${s?.name || "Service"}${s?.staffName ? ` <span style=\"color:#6b7280;\">— ${s.staffName}</span>` : ""}</p>`
+            )
+            .join("")}
+        </div>`
+      : data.serviceName
+        ? `<p style="margin:16px 0 0;color:#374151;font-size:14px;"><strong>Service:</strong> ${data.serviceName}${data.staffName ? ` <span style=\"color:#6b7280;\">— ${data.staffName}</span>` : ""}</p>`
+        : "";
+
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#f3f4f6;">
+  <table role="presentation" style="width:100%;border-collapse:collapse;background:#f3f4f6;">
+    <tr><td style="padding:40px 20px;">
+      <table role="presentation" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.08);overflow:hidden;">
+        <tr>
+          <td style="padding:0;background:linear-gradient(135deg,#1d4ed8 0%,#2563eb 100%);">
+            <div style="padding:28px 32px;text-align:center;">
+              <div style="font-size:40px;margin-bottom:6px;">📅</div>
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">Your booking has been rescheduled</h1>
+              ${data.bookingCode ? `<p style="margin:8px 0 0;color:rgba(255,255,255,0.9);font-size:13px;">Booking ${data.bookingCode}</p>` : ""}
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:26px 32px;">
+            <p style="margin:0 0 14px;color:#111827;font-size:15px;">Hi ${customerName},</p>
+            <p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.55;">
+              We've updated the schedule for your booking at <strong>${data.branchName || workshopName}</strong>.
+              Here are the new details:
+            </p>
+
+            <div style="background:#eff6ff;border:2px solid #93c5fd;border-radius:10px;padding:16px 18px;margin-bottom:14px;">
+              <p style="margin:0 0 6px;color:#1e3a8a;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;">New schedule</p>
+              <p style="margin:0;color:#1e3a8a;font-size:16px;font-weight:700;">${newLine}</p>
+            </div>
+
+            ${
+              prevLine
+                ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 16px;margin-bottom:14px;">
+                     <p style="margin:0 0 4px;color:#6b7280;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;">Previously</p>
+                     <p style="margin:0;color:#6b7280;font-size:13px;text-decoration:line-through;">${prevLine}</p>
+                   </div>`
+                : ""
+            }
+
+            ${
+              data.reason
+                ? `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:14px;">
+                     <p style="margin:0 0 4px;color:#92400e;font-size:12px;font-weight:700;">Reason</p>
+                     <p style="margin:0;color:#78350f;font-size:13px;">${data.reason}</p>
+                   </div>`
+                : ""
+            }
+
+            ${servicesHtml}
+
+            <p style="margin:22px 0 0;color:#6b7280;font-size:13px;line-height:1.55;">
+              If this new time doesn't work for you, please reply to this email or contact ${data.branchName || workshopName} and we'll be happy to find another slot.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 32px;background:#fafafa;border-top:1px solid #f4f4f5;text-align:center;">
+            <p style="margin:0;font-size:11px;color:#9ca3af;">This message was sent by ${workshopName}.<br/>Powered by <strong>BMS PRO</strong></p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    const subject = data.bookingCode
+      ? `Booking rescheduled - ${workshopName} (${data.bookingCode})`
+      : `Booking rescheduled - ${workshopName}`;
+
+    await sgMail.send({ to: email, from: FROM_EMAIL, subject, html });
+    console.log(`[EMAIL] ✅ Reschedule email sent to ${email} for booking ${data.bookingId}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending reschedule email for ${data.bookingId}:`, error);
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
+  }
+}

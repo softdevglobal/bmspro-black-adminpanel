@@ -588,6 +588,29 @@ export default function BookingEnginePage() {
     });
   };
 
+  // Permanently delete a customer_notifications row (used for additional-work
+  // quotes, estimate replies, reschedule notices, etc.). We optimistically
+  // remove it from local state first so the UI feels instant; if the API call
+  // fails we refetch to restore an accurate view.
+  const dismissCustomerNotification = async (notificationId: string) => {
+    if (!customer?.customerId || !notificationId) return;
+    setCustomerEstimateNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+    try {
+      const res = await fetch("/api/book-now/customer-notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: customer.customerId,
+          notificationIds: [notificationId],
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to delete notification");
+    } catch (err) {
+      console.error("Failed to delete customer notification:", err);
+      fetchCustomerNotifications();
+    }
+  };
+
   const visibleBookings = customerBookings.filter((b) => !dismissedIds.has(b.id));
   const bookingUnreadCount = visibleBookings.filter((b) => !readIds.has(b.id)).length;
   const customerNotifUnreadCount = customerEstimateNotifications.filter((n) => !n.read).length;
@@ -898,12 +921,15 @@ export default function BookingEnginePage() {
   const PICKUP_START = "14:00";
   const PICKUP_END = "17:00";
 
-  // All possible drop-off time slots — branch hours capped at 11:00 AM
+  // All possible drop-off time slots — strictly within the branch's opening
+  // hours for the selected date, then capped at 11:00 AM (morning drop-off).
+  // If we don't know the day's hours (no date picked, or branch is closed that
+  // day), return no slots so the UI prompts the user instead of showing a
+  // misleading 07:00 default.
   const allTimeSlots = useMemo(() => {
-    const openTime = branchDayHours?.open || "07:00";
-    const closeTime = branchDayHours?.close || "19:30";
-    const [openH, openM] = openTime.split(":").map(Number);
-    const [closeH, closeM] = closeTime.split(":").map(Number);
+    if (!branchDayHours) return [];
+    const [openH, openM] = branchDayHours.open.split(":").map(Number);
+    const [closeH, closeM] = branchDayHours.close.split(":").map(Number);
     const openMins = openH * 60 + openM;
     const closeMins = closeH * 60 + closeM;
     const [cutH, cutM] = DROPOFF_CUTOFF.split(":").map(Number);
@@ -1604,13 +1630,34 @@ export default function BookingEnginePage() {
                       const days = Math.floor(hrs / 24);
                       return `${days}d ago`;
                     })();
+                    // Title/icon/accent vary by type so reschedule/estimate/
+                    // additional-work notifications all feel at home in the
+                    // same inbox.
+                    const isReschedule = n.type === "booking_status_changed" && (n.title || "").toLowerCase().includes("reschedul");
+                    const accentColor = isReschedule ? "#3b82f6" : "#f59e0b";
+                    const iconBg = isReschedule ? "bg-blue-100" : "bg-amber-100";
+                    const iconFg = isReschedule ? "text-blue-600" : "text-amber-600";
+                    const iconName = isReschedule
+                      ? "fa-calendar-days"
+                      : isAdditionalQuote
+                        ? "fa-file-invoice-dollar"
+                        : "fa-file-invoice-dollar";
+                    const titleText = isReschedule
+                      ? n.title || "Booking Rescheduled"
+                      : isAdditionalQuote
+                        ? "Additional Work Quote Ready"
+                        : "Estimate Reply";
                     return (
                       <div
                         key={n.id}
-                        className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer"
+                        className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer group"
                         onClick={() => {
                           setShowNotifications(false);
-                          if (isAdditionalQuote) {
+                          if (isReschedule) {
+                            setActiveView("myBookings");
+                            fetchCustomerBookings();
+                            setExpandedBookingId(n.bookingId || null);
+                          } else if (isAdditionalQuote) {
                             setActiveView("myBookings");
                             fetchCustomerBookings();
                             setExpandedBookingId(n.bookingId || null);
@@ -1621,16 +1668,25 @@ export default function BookingEnginePage() {
                           }
                         }}
                       >
-                        <div className="h-[3px] bg-amber-400" />
+                        <div className="h-[3px]" style={{ background: accentColor }} />
                         <div className="px-3.5 pt-3 pb-3">
                           <div className="flex items-start gap-2.5">
-                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                              <i className="fas fa-file-invoice-dollar text-xs text-amber-600" />
+                            <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+                              <i className={`fas ${iconName} text-xs ${iconFg}`} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="text-[11px] font-bold text-neutral-900 leading-snug">
-                                {isAdditionalQuote ? "Additional Work Quote Ready" : "Estimate Reply"}
-                              </h4>
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="text-[11px] font-bold text-neutral-900 leading-snug">
+                                  {titleText}
+                                </h4>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); dismissCustomerNotification(n.id); }}
+                                  title="Remove notification"
+                                  className="opacity-0 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 max-sm:opacity-60 w-5 h-5 flex items-center justify-center rounded-full text-neutral-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                >
+                                  <i className="fas fa-trash-can text-[8px]" />
+                                </button>
+                              </div>
                               <p className="text-[10px] text-neutral-500 leading-relaxed mt-0.5">
                                 {n.message || (isAdditionalQuote ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.` : "You have a new reply to your estimate request.")}
                               </p>

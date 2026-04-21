@@ -112,3 +112,67 @@ export async function PATCH(req: NextRequest) {
     );
   }
 }
+
+/**
+ * Delete one or more customer_notifications that belong to the caller.
+ *
+ * Body (preferred):  { customerId, notificationIds: string[] }
+ * Query (fallback):  ?customerId=...&notificationIds=a,b,c
+ *
+ * A notification is only removed when its `customerId` field matches the
+ * supplied `customerId` — this prevents one customer from deleting another's
+ * notifications via a stolen document id.
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const url = req.nextUrl;
+    let customerId: string | null = url.searchParams.get("customerId");
+    const idsQuery = url.searchParams.get("notificationIds");
+    let notificationIds: string[] = idsQuery
+      ? idsQuery.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    // Prefer JSON body when present (covers clients that can't send a body
+    // with DELETE via query string).
+    try {
+      const body = await req.json();
+      if (body?.customerId) customerId = String(body.customerId);
+      if (Array.isArray(body?.notificationIds)) {
+        notificationIds = body.notificationIds.map((x: unknown) => String(x)).filter(Boolean);
+      }
+    } catch {
+      /* no JSON body; rely on query params */
+    }
+
+    if (!customerId || notificationIds.length === 0) {
+      return NextResponse.json(
+        { error: "Missing customerId or notificationIds" },
+        { status: 400 }
+      );
+    }
+
+    const db = adminDb();
+    const batch = db.batch();
+    let deleted = 0;
+
+    for (const id of notificationIds) {
+      const ref = db.collection("customer_notifications").doc(id);
+      const doc = await ref.get();
+      if (doc.exists && doc.data()?.customerId === customerId) {
+        batch.delete(ref);
+        deleted += 1;
+      }
+    }
+
+    if (deleted > 0) {
+      await batch.commit();
+    }
+    return NextResponse.json({ success: true, deleted });
+  } catch (error: any) {
+    console.error("Error deleting customer notifications:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to delete notifications" },
+      { status: 500 }
+    );
+  }
+}

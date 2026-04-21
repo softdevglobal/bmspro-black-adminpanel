@@ -402,37 +402,53 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     );
   };
 
-  // Get allowed actions per row based on the row's actual status
-  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined, row?: Row): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff"> => {
+  // Once staff tap "Start" on the appointment they record `mileage` on the
+  // booking doc — at that point the job is physically in progress and we
+  // don't allow the slot to be moved.
+  const isJobInProgress = (row?: Row): boolean => {
+    if (!row) return false;
+    return ((row.mileage ?? "") as string).toString().trim() !== "";
+  };
+
+  // Get allowed actions per row based on the row's actual status.
+  // `Reschedule` is allowed for any non-terminal status on bookings that have
+  // not been started by staff yet (i.e. no mileage recorded). Once the job is
+  // in progress the admin must cancel the booking to change its time.
+  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined, row?: Row): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff" | "Reschedule"> => {
     const normalizedStatus = normalizeBookingStatus(rowStatus ?? null);
-    if (normalizedStatus === "Pending") return ["Confirm", "Cancel"];
-    if (normalizedStatus === "AwaitingStaffApproval") {
-      // If some services need staff assignment, show AssignStaff action
-      if (row && hasServicesNeedingAssignment(row)) {
-        return ["AssignStaff", "Cancel"];
-      }
-      return ["Cancel"]; // Admin can only cancel, waiting for staff action
+    const jobInProgress = isJobInProgress(row);
+    let actions: Array<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff" | "Reschedule"> = [];
+    if (normalizedStatus === "Pending") {
+      actions = ["Confirm", "Reschedule", "Cancel"];
+    } else if (normalizedStatus === "AwaitingStaffApproval") {
+      actions = row && hasServicesNeedingAssignment(row)
+        ? ["AssignStaff", "Reschedule", "Cancel"]
+        : ["Reschedule", "Cancel"];
+    } else if (normalizedStatus === "PartiallyApproved") {
+      actions = row && hasServicesNeedingAssignment(row)
+        ? ["AssignStaff", "Reschedule", "Cancel"]
+        : ["Reschedule", "Cancel"];
+    } else if (normalizedStatus === "StaffRejected") {
+      actions = ["Reassign", "Reschedule", "Cancel"];
+    } else if (normalizedStatus === "Confirmed") {
+      actions = ["Complete", "Reschedule", "Cancel"];
+    } else {
+      return [];
     }
-    if (normalizedStatus === "PartiallyApproved") {
-      // If some services need staff assignment, show AssignStaff action
-      if (row && hasServicesNeedingAssignment(row)) {
-        return ["AssignStaff", "Cancel"];
-      }
-      return ["Cancel"]; // Waiting for remaining staff to respond
+    if (jobInProgress) {
+      actions = actions.filter((a) => a !== "Reschedule");
     }
-    if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign rejected service(s) or cancel
-    if (normalizedStatus === "Confirmed") return ["Complete", "Cancel"];
-    return [];
+    return actions;
   };
   
   // For preview panel - use the first status or check if any status allows actions
-  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign">>(() => {
+  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "Reschedule">>(() => {
     const statusArray = Array.isArray(status) ? status : [status];
-    if (statusArray.includes("Pending")) return ["Confirm", "Cancel"];
-    if (statusArray.includes("AwaitingStaffApproval")) return ["Cancel"];
-    if (statusArray.includes("PartiallyApproved")) return ["Cancel"];
-    if (statusArray.includes("StaffRejected")) return ["Reassign", "Cancel"];
-    if (statusArray.includes("Confirmed")) return ["Complete", "Cancel"];
+    if (statusArray.includes("Pending")) return ["Confirm", "Reschedule", "Cancel"];
+    if (statusArray.includes("AwaitingStaffApproval")) return ["Reschedule", "Cancel"];
+    if (statusArray.includes("PartiallyApproved")) return ["Reschedule", "Cancel"];
+    if (statusArray.includes("StaffRejected")) return ["Reassign", "Reschedule", "Cancel"];
+    if (statusArray.includes("Confirmed")) return ["Complete", "Reschedule", "Cancel"];
     return [];
   }, [status]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
@@ -469,6 +485,51 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   // Reassign modal state (for StaffRejected bookings)
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [bookingToReassign, setBookingToReassign] = useState<Row | null>(null);
+
+  // ─── Reschedule (date/time amendment) modal state ──────────────────────
+  // Owner / branch admin can change the date & time of any booking that is
+  // not yet Completed or Canceled. The server enforces the real role gate
+  // and writes a `rescheduleHistory` audit trail on the booking doc.
+  const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
+  const [bookingToReschedule, setBookingToReschedule] = useState<Row | null>(null);
+  const [rescheduleNewDate, setRescheduleNewDate] = useState<string>("");
+  const [rescheduleNewTime, setRescheduleNewTime] = useState<string>("");
+  const [rescheduleNewPickupTime, setRescheduleNewPickupTime] = useState<string>("");
+  const [rescheduleCalendarMonth, setRescheduleCalendarMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  type BranchDayHours = { open?: string; close?: string; closed?: boolean };
+  type BranchLite = {
+    id: string;
+    name?: string;
+    timezone?: string;
+    hours?:
+      | string
+      | Record<string, BranchDayHours | undefined>;
+  };
+  const [rescheduleBranch, setRescheduleBranch] = useState<BranchLite | null>(null);
+  const [rescheduleBranchLoading, setRescheduleBranchLoading] = useState(false);
+  // Ticks every minute so the "branch current time" chip stays fresh.
+  const [rescheduleNowTick, setRescheduleNowTick] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!rescheduleModalOpen) return;
+    const id = window.setInterval(() => setRescheduleNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [rescheduleModalOpen]);
+  const [rescheduleReason, setRescheduleReason] = useState<string>("");
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  // Staff reassignment inside the reschedule modal. Either `rescheduleStaffId`
+  // (single-service booking) or `rescheduleStaffByService` (keyed by service
+  // id) is used depending on the booking shape. Values are compared against
+  // the booking's original assignments to decide whether to send staff
+  // overrides to the API on save.
+  type ReschedStaffOption = { id: string; name: string; branchId?: string; avatar?: string };
+  const [rescheduleStaffOptions, setRescheduleStaffOptions] = useState<ReschedStaffOption[]>([]);
+  const [rescheduleStaffLoading, setRescheduleStaffLoading] = useState(false);
+  const [rescheduleStaffId, setRescheduleStaffId] = useState<string>("");
+  const [rescheduleStaffByService, setRescheduleStaffByService] = useState<Record<string, string>>({});
 
   // Export modal
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -1287,6 +1348,252 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       setUpdatingState((prev) => {
         const next = { ...prev };
         delete next[bookingToReassign!.id];
+        return next;
+      });
+    }
+  };
+
+  // ─── Reschedule handlers ───────────────────────────────────────────────
+  const handleRescheduleClick = (row: Row) => {
+    setBookingToReschedule(row);
+    setRescheduleNewDate(row.date || "");
+    setRescheduleNewTime(row.time || "");
+    setRescheduleNewPickupTime(row.pickupTime || "");
+    setRescheduleReason("");
+    setRescheduleError(null);
+    setRescheduleBranch(null);
+    // Seed the staff pickers from the row's existing assignments. These stay
+    // in sync with the API expectations: single-service bookings use the
+    // top-level `staffId`; multi-service bookings use per-service entries.
+    setRescheduleStaffId((row.staffId || "").toString());
+    const byService: Record<string, string> = {};
+    if (Array.isArray(row.services)) {
+      for (const svc of row.services) {
+        if (svc && svc.id !== undefined && svc.id !== null) {
+          byService[String(svc.id)] = (svc.staffId || "").toString();
+        }
+      }
+    }
+    setRescheduleStaffByService(byService);
+    setRescheduleStaffOptions([]);
+    // Point the calendar at the booking's current month (or today if unknown).
+    const [yStr, mStr] = (row.date || "").split("-");
+    const y = Number(yStr);
+    const m = Number(mStr);
+    if (y && m >= 1 && m <= 12) {
+      setRescheduleCalendarMonth({ year: y, month: m - 1 });
+    } else {
+      const now = new Date();
+      setRescheduleCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
+    }
+    setRescheduleModalOpen(true);
+
+    // Fire-and-forget: fetch the booking's branch so slot constraints can
+    // reflect that branch's hours + timezone. Non-blocking — the modal still
+    // works without it (just without time-window filtering).
+    if (row.branchId) {
+      (async () => {
+        setRescheduleBranchLoading(true);
+        try {
+          const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+          const snap = await getDoc(firestoreDoc(db, "branches", row.branchId as string));
+          if (snap.exists()) {
+            const d = snap.data() as any;
+            setRescheduleBranch({
+              id: snap.id,
+              name: d.name,
+              timezone: d.timezone,
+              hours: d.hours,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to load branch for reschedule modal:", err);
+        } finally {
+          setRescheduleBranchLoading(false);
+        }
+      })();
+    }
+
+    // Load staff for the owner (filtered to the booking's branch when possible)
+    // so the admin can reassign staff alongside the reschedule.
+    (async () => {
+      setRescheduleStaffLoading(true);
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+        const userData = userSnap.data() as any;
+        const userRole = (userData?.role || "").toString();
+        const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
+
+        const { collection, getDocs, query, where } = await import("firebase/firestore");
+        const snap = await getDocs(
+          query(collection(db, "users"), where("ownerUid", "==", ownerUid)),
+        );
+        const list: ReschedStaffOption[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as any;
+          const systemRole = (data?.role || "").toString();
+          if (!["staff", "branch_admin"].includes(systemRole)) return;
+          // Prefer Firebase Auth UID if the user doc tracks it separately;
+          // this must match what the booking's `staffId` uses.
+          const staffId = (data?.authUid || data?.uid || d.id).toString();
+          list.push({
+            id: staffId,
+            name: (data?.displayName || data?.name || "Unknown").toString(),
+            branchId: (data?.branchId || "").toString() || undefined,
+            avatar: data?.avatar,
+          });
+        });
+        // If the booking has a branch, prioritise staff assigned to that
+        // branch at the top but still keep everyone available as a fallback.
+        list.sort((a, b) => {
+          const aMatches = row.branchId && a.branchId === row.branchId ? 0 : 1;
+          const bMatches = row.branchId && b.branchId === row.branchId ? 0 : 1;
+          if (aMatches !== bMatches) return aMatches - bMatches;
+          return a.name.localeCompare(b.name);
+        });
+        setRescheduleStaffOptions(list);
+      } catch (err) {
+        console.error("Failed to load staff for reschedule modal:", err);
+      } finally {
+        setRescheduleStaffLoading(false);
+      }
+    })();
+  };
+
+  const closeRescheduleModal = () => {
+    if (rescheduleSaving) return;
+    setRescheduleModalOpen(false);
+    setBookingToReschedule(null);
+    setRescheduleNewDate("");
+    setRescheduleNewTime("");
+    setRescheduleNewPickupTime("");
+    setRescheduleReason("");
+    setRescheduleError(null);
+    setRescheduleBranch(null);
+    setRescheduleStaffId("");
+    setRescheduleStaffByService({});
+    setRescheduleStaffOptions([]);
+  };
+
+  const confirmReschedule = async () => {
+    if (!bookingToReschedule) return;
+
+    const newDate = rescheduleNewDate.trim();
+    const newTime = rescheduleNewTime.trim();
+    const newPickupTime = rescheduleNewPickupTime.trim();
+    if (!newDate || !newTime) {
+      setRescheduleError("Please pick both a date and a drop-off time.");
+      return;
+    }
+    if (newPickupTime && newPickupTime <= newTime) {
+      setRescheduleError("Pick-up time must be after the drop-off time.");
+      return;
+    }
+
+    // Compute staff changes vs. the booking's current state.
+    const hasServices = Array.isArray(bookingToReschedule.services) && bookingToReschedule.services.length > 0;
+    const origStaffId = (bookingToReschedule.staffId || "").toString();
+    let newStaffId = "";
+    let newStaffName = "";
+    const staffAssignments: Record<string, { staffId: string; staffName?: string }> = {};
+    if (hasServices) {
+      for (const svc of bookingToReschedule.services!) {
+        const sid = String(svc.id);
+        const prev = (svc.staffId || "").toString();
+        const next = (rescheduleStaffByService[sid] || "").toString();
+        if (next && next !== prev) {
+          const picked = rescheduleStaffOptions.find((s) => s.id === next);
+          staffAssignments[sid] = {
+            staffId: next,
+            staffName: picked?.name || svc.staffName || "Staff",
+          };
+        }
+      }
+    } else if (rescheduleStaffId && rescheduleStaffId !== origStaffId) {
+      newStaffId = rescheduleStaffId;
+      const picked = rescheduleStaffOptions.find((s) => s.id === newStaffId);
+      newStaffName = picked?.name || bookingToReschedule.staffName || "Staff";
+    }
+    const staffChanged = !!newStaffId || Object.keys(staffAssignments).length > 0;
+
+    if (
+      bookingToReschedule.date === newDate &&
+      bookingToReschedule.time === newTime &&
+      (bookingToReschedule.pickupTime || "") === newPickupTime &&
+      !staffChanged
+    ) {
+      setRescheduleError("Nothing has changed — update the date, time, or staff.");
+      return;
+    }
+
+    try {
+      setRescheduleSaving(true);
+      setRescheduleError(null);
+      setUpdatingState((prev) => ({
+        ...prev,
+        [bookingToReschedule.id]: "Reschedule",
+      }));
+
+      // Obtain a fresh ID token (mirrors the reassign flow above)
+      let token: string | null = null;
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken(true);
+        } else {
+          const user = await new Promise<any>((resolve) => {
+            const unsubscribe = auth.onAuthStateChanged((u) => {
+              unsubscribe();
+              resolve(u);
+            });
+          });
+          if (user) token = await user.getIdToken(true);
+        }
+      } catch (tokenErr) {
+        console.error("Failed to obtain auth token for reschedule:", tokenErr);
+      }
+
+      const res = await fetch(
+        `/api/bookings/${encodeURIComponent(bookingToReschedule.id)}/reschedule`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            newDate,
+            newTime,
+            newPickupTime: newPickupTime || undefined,
+            reason: rescheduleReason.trim() || undefined,
+            newStaffId: newStaffId || undefined,
+            newStaffName: newStaffName || undefined,
+            staffAssignments: Object.keys(staffAssignments).length > 0 ? staffAssignments : undefined,
+          }),
+        },
+      );
+
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to reschedule booking");
+      }
+
+      setRescheduleModalOpen(false);
+      setBookingToReschedule(null);
+      setRescheduleNewDate("");
+      setRescheduleNewTime("");
+      setRescheduleNewPickupTime("");
+      setRescheduleReason("");
+    } catch (e: any) {
+      console.error("Error rescheduling booking:", e);
+      setRescheduleError(e?.message || "Failed to reschedule booking");
+    } finally {
+      setRescheduleSaving(false);
+      setUpdatingState((prev) => {
+        const next = { ...prev };
+        if (bookingToReschedule) delete next[bookingToReschedule.id];
         return next;
       });
     }
@@ -2793,6 +3100,28 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         {updatingState[previewRow.id] === "Complete" ? "Completing..." : "Complete"}
                       </button>
                     )}
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Reschedule") && (
+                      <button
+                        disabled={!!updatingState[previewRow.id]}
+                        onClick={() => {
+                          closePreview();
+                          handleRescheduleClick(previewRow);
+                        }}
+                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 text-white shadow-sm transition"
+                        style={{ backgroundColor: updatingState[previewRow.id] === "Reschedule" ? "#3b82f6" : "#1d4ed8" }}
+                        onMouseEnter={(e) => {
+                          if (updatingState[previewRow.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1e40af";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (updatingState[previewRow.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1d4ed8";
+                        }}
+                        aria-busy={!!updatingState[previewRow.id]}
+                        title="Change booking date & time"
+                      >
+                        {updatingState[previewRow.id] === "Reschedule" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-calendar-days" />}
+                        {updatingState[previewRow.id] === "Reschedule" ? "Rescheduling..." : "Reschedule"}
+                      </button>
+                    )}
                     {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Cancel") && (
                       <button
                         disabled={!!updatingState[previewRow.id]}
@@ -2968,6 +3297,20 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "AssignStaff" ? "bg-purple-300 text-white" : "bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-sm"}`}>
                             <i className={`fas ${updatingState[r.id] === "AssignStaff" ? "fa-spinner fa-spin" : "fa-user-plus"}`} />
                             {updatingState[r.id] === "AssignStaff" ? "..." : "Assign"}
+                          </button>
+                        )}
+                        {rowActions.includes("Reschedule" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => handleRescheduleClick(r)}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 text-white shadow-sm"
+                            style={{ backgroundColor: updatingState[r.id] === "Reschedule" ? "#3b82f6" : "#1d4ed8" }}
+                            onMouseEnter={(e) => {
+                              if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1e40af";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1d4ed8";
+                            }}>
+                            <i className={`fas ${updatingState[r.id] === "Reschedule" ? "fa-spinner fa-spin" : "fa-calendar-days"}`} />
+                            {updatingState[r.id] === "Reschedule" ? "..." : "Reschedule"}
                           </button>
                         )}
                         {rowActions.includes("Cancel" as any) && (
@@ -3263,15 +3606,42 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   {updatingState[r.id] === "AssignStaff" ? "Assigning..." : "Assign Staff"}
                                 </button>
                               )}
+                              {rowActions.includes("Reschedule" as any) && (
+                                // Icon-only on desktop (solid, dark blue so
+                                // the button reads clearly on white rows).
+                                // Mobile card and the preview side-panel keep
+                                // the full "Reschedule" label.
+                                <button
+                                  disabled={!!updatingState[r.id]}
+                                  onClick={() => handleRescheduleClick(r)}
+                                  aria-label="Reschedule booking"
+                                  title="Reschedule — change date & time"
+                                  className="h-8 w-8 rounded-full inline-flex items-center justify-center transition shadow-sm text-white"
+                                  style={{ backgroundColor: updatingState[r.id] === "Reschedule" ? "#3b82f6" : "#1d4ed8" }}
+                                  onMouseEnter={(e) => {
+                                    if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1e40af";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1d4ed8";
+                                  }}
+                                  aria-busy={!!updatingState[r.id]}
+                                >
+                                  <i className={`fas ${updatingState[r.id] === "Reschedule" ? "fa-spinner fa-spin" : "fa-calendar-days"} text-[13px]`} />
+                                </button>
+                              )}
                               {rowActions.includes("Cancel" as any) && (
+                                // Icon-only on desktop to match Reschedule and
+                                // keep the actions column compact. Mobile and
+                                // preview side-panel keep the full label.
                                 <button
                                   disabled={!!updatingState[r.id]}
                                   onClick={() => onAction(r.id, "Cancel")}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "Cancel" ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
+                                  aria-label="Cancel booking"
+                                  title="Cancel booking"
+                                  className={`h-8 w-8 rounded-full inline-flex items-center justify-center transition shadow-sm ${updatingState[r.id] === "Cancel" ? "bg-rose-400 text-white" : "bg-rose-600 hover:bg-rose-700 text-white"}`}
                                   aria-busy={!!updatingState[r.id]}
                                 >
-                                  {updatingState[r.id] === "Cancel" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
-                                  {updatingState[r.id] === "Cancel" ? "Cancelling..." : "Cancel"}
+                                  <i className={`fas ${updatingState[r.id] === "Cancel" ? "fa-spinner fa-spin" : "fa-ban"} text-[13px]`} />
                                 </button>
                               )}
                               </>
@@ -3887,6 +4257,692 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   <>
                     <i className="fas fa-user-plus"></i>
                     <span>Reassign Booking</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Reschedule Modal — owner / branch admin amend date & time ─── */}
+      {rescheduleModalOpen && bookingToReschedule && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={closeRescheduleModal}
+          />
+
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full animate-scale-in overflow-hidden max-h-[90vh] flex flex-col z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-5 shrink-0" style={{ backgroundColor: "#1d4ed8" }}>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                  <i className="fas fa-calendar-days text-white text-xl" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-white">Reschedule booking</h3>
+                  <p className="text-white/80 text-sm truncate">
+                    {bookingToReschedule.bookingCode || bookingToReschedule.client}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              {/* Current slot */}
+              <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-4">
+                <div className="text-[11px] uppercase tracking-wide font-bold text-neutral-500 mb-1.5">
+                  Current date &amp; time
+                </div>
+                <div className="flex items-center gap-3 text-sm text-neutral-800 flex-wrap">
+                  <i className="fas fa-clock text-neutral-400" />
+                  <span className="font-semibold">
+                    {bookingToReschedule.date || "—"}
+                  </span>
+                  <span className="text-neutral-400">·</span>
+                  <span className="font-semibold inline-flex items-center gap-1">
+                    <i className="fas fa-arrow-right-to-bracket text-[9px] text-amber-500" />
+                    {bookingToReschedule.time || "—"}
+                  </span>
+                  {bookingToReschedule.pickupTime && (
+                    <>
+                      <span className="text-neutral-400">·</span>
+                      <span className="font-semibold inline-flex items-center gap-1">
+                        <i className="fas fa-arrow-right-from-bracket text-[9px] text-emerald-500" />
+                        {bookingToReschedule.pickupTime}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Branch timezone card — mirrors the Book an Appointment modal. */}
+              {rescheduleBranch && (() => {
+                const tz = rescheduleBranch.timezone || "";
+                const tzLabel = tz ? (tz.split("/").pop()?.replace(/_/g, " ") || tz) : "Local time";
+                const now = new Date(rescheduleNowTick);
+                const branchTimeStr = tz
+                  ? new Intl.DateTimeFormat("en-GB", {
+                      timeZone: tz,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    }).format(now)
+                  : `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+                return (
+                  <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-sm">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                          <i className="fas fa-globe text-blue-600 text-xs" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-neutral-800 block">
+                            {rescheduleBranch.name || tzLabel}
+                          </span>
+                          <span className="text-[10px] text-neutral-400">
+                            {tz ? `Branch timezone · ${tzLabel}` : "Branch timezone"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 bg-neutral-900 px-3 py-1.5 rounded-full">
+                        <i className="fas fa-clock text-amber-400 text-[10px]" />
+                        <span className="text-xs font-bold text-white">{branchTimeStr}</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 mt-2 ml-[42px]">
+                      Past time slots are automatically hidden based on branch local time.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* New slot — calendar + time-slot grid styled like the booking engine */}
+              <div className="space-y-3">
+                <div className="text-[11px] uppercase tracking-wide font-bold text-neutral-500">
+                  New date &amp; time
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                  {/* Calendar */}
+                  <div className="flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                      Date <span className="text-red-400">*</span>
+                    </label>
+                    {(() => {
+                      const { year, month } = rescheduleCalendarMonth;
+                      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                      const dayNames = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+                      const firstDay = new Date(year, month, 1);
+                      const lastDay = new Date(year, month + 1, 0);
+                      const startDow = (firstDay.getDay() + 6) % 7;
+                      const daysInMonth = lastDay.getDate();
+                      const today = new Date();
+                      const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                      const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+
+                      const prevMonth = () => setRescheduleCalendarMonth((p) => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 });
+                      const nextMonth = () => setRescheduleCalendarMonth((p) => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 });
+                      const canGoPrev = new Date(year, month, 1) > new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+                      const cells: (number | null)[] = [];
+                      for (let i = 0; i < startDow; i++) cells.push(null);
+                      for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                      while (cells.length % 7 !== 0) cells.push(null);
+
+                      return (
+                        <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white flex-1 flex flex-col">
+                          <div className="flex items-center justify-between px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
+                            <button
+                              type="button"
+                              onClick={prevMonth}
+                              disabled={!canGoPrev || rescheduleSaving}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <i className="fas fa-chevron-left text-[10px]" />
+                            </button>
+                            <span className="text-xs font-bold text-neutral-800">
+                              {monthNames[month]} {year}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={nextMonth}
+                              disabled={rescheduleSaving}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-all disabled:opacity-30"
+                            >
+                              <i className="fas fa-chevron-right text-[10px]" />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-7 px-2 pt-2">
+                            {dayNames.map((d) => (
+                              <div key={d} className="text-center text-[10px] font-bold text-neutral-400 py-1">{d}</div>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-7 px-2 pb-2 gap-y-0.5 flex-1">
+                            {cells.map((day, i) => {
+                              if (day === null) return <div key={`e-${i}`} />;
+                              const cellDate = new Date(year, month, day);
+                              cellDate.setHours(0, 0, 0, 0);
+                              const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                              const isPast = cellDate < todayDate;
+                              // Mark days the branch is closed (strike-through, non-selectable)
+                              let isClosed = false;
+                              if (rescheduleBranch?.hours && typeof rescheduleBranch.hours !== "string") {
+                                let dayName: string;
+                                try {
+                                  dayName = new Intl.DateTimeFormat("en-US", {
+                                    weekday: "long",
+                                    timeZone: rescheduleBranch.timezone || undefined,
+                                  }).format(new Date(`${dateStr}T12:00:00`));
+                                } catch {
+                                  dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${dateStr}T12:00:00`));
+                                }
+                                const dh = rescheduleBranch.hours[dayName];
+                                if (dh?.closed) isClosed = true;
+                              }
+                              const isDisabled = isPast || isClosed;
+                              const isSelected = rescheduleNewDate === dateStr;
+                              const isToday = dateStr === todayStr;
+                              return (
+                                <button
+                                  key={dateStr}
+                                  type="button"
+                                  disabled={isDisabled || rescheduleSaving}
+                                  onClick={() => setRescheduleNewDate(dateStr)}
+                                  title={isClosed ? "Branch closed" : undefined}
+                                  className={`w-full aspect-square rounded-lg flex items-center justify-center text-xs font-semibold transition-all
+                                    ${isDisabled ? "text-neutral-300 cursor-not-allowed" : ""}
+                                    ${isClosed && !isPast ? "line-through decoration-red-300" : ""}
+                                    ${isSelected ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : ""}
+                                    ${isToday && !isSelected && !isDisabled ? "bg-amber-100 text-amber-700 font-bold" : ""}
+                                    ${!isDisabled && !isSelected && !isToday ? "text-neutral-700 hover:bg-neutral-100" : ""}
+                                  `}
+                                >
+                                  {day}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50">
+                            <button
+                              type="button"
+                              onClick={() => setRescheduleNewDate("")}
+                              disabled={rescheduleSaving}
+                              className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors disabled:opacity-50"
+                            >
+                              Clear
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRescheduleCalendarMonth({ year: todayDate.getFullYear(), month: todayDate.getMonth() });
+                                setRescheduleNewDate(todayStr);
+                              }}
+                              disabled={rescheduleSaving}
+                              className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 transition-colors disabled:opacity-50"
+                            >
+                              Today
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {rescheduleNewDate && (
+                      <div className="mt-2 flex items-center gap-2 px-1">
+                        <i className="fas fa-calendar-check text-[10px] text-emerald-500" />
+                        <span className="text-xs font-semibold text-neutral-700">{rescheduleNewDate}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Drop-off time grid (branch-hours-aware) */}
+                  <div className="flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                      <i className="fas fa-arrow-right-to-bracket text-[9px] text-amber-500 mr-1" />
+                      Drop-off Time <span className="text-red-400">*</span>
+                    </label>
+                    {(() => {
+                      // Resolve the booking's total service duration.
+                      const row = bookingToReschedule!;
+                      const totalDuration = (() => {
+                        if (Array.isArray(row.services) && row.services.length > 0) {
+                          return row.services.reduce((sum, s) => sum + (Number(s.duration) || 0), 0) || Number(row.duration || 0) || 60;
+                        }
+                        return Number(row.duration || 0) || 60;
+                      })();
+
+                      // Resolve branch hours for the selected date (if we have a branch loaded).
+                      let branchDayHours: BranchDayHours | null = null;
+                      let branchClosed = false;
+                      if (rescheduleNewDate && rescheduleBranch?.hours && typeof rescheduleBranch.hours !== "string") {
+                        let dayName: string;
+                        try {
+                          dayName = new Intl.DateTimeFormat("en-US", {
+                            weekday: "long",
+                            timeZone: rescheduleBranch.timezone || undefined,
+                          }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                        } catch {
+                          dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                        }
+                        const dh = rescheduleBranch.hours[dayName];
+                        if (dh?.closed) {
+                          branchClosed = true;
+                        } else if (dh?.open && dh?.close) {
+                          branchDayHours = dh;
+                        }
+                      }
+
+                      // Fallback range if branch hours aren't available.
+                      const fallbackOpen = "07:00";
+                      const fallbackClose = "19:30";
+                      const openStr = branchDayHours?.open || fallbackOpen;
+                      const closeStr = branchDayHours?.close || fallbackClose;
+
+                      const toMinutes = (hhmm: string): number => {
+                        const [h, m] = hhmm.split(":").map(Number);
+                        return h * 60 + m;
+                      };
+                      const fmt = (mins: number): string => {
+                        const h = Math.floor(mins / 60);
+                        const m = mins % 60;
+                        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                      };
+
+                      // Current branch-local time (for filtering past slots if date == today).
+                      const now = new Date(rescheduleNowTick);
+                      const branchNowStr = rescheduleBranch?.timezone
+                        ? new Intl.DateTimeFormat("en-CA", {
+                            timeZone: rescheduleBranch.timezone,
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                          }).format(now)
+                        : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+                      const branchNowHHmm = rescheduleBranch?.timezone
+                        ? new Intl.DateTimeFormat("en-GB", {
+                            timeZone: rescheduleBranch.timezone,
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          }).format(now)
+                        : `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+                      const isToday = rescheduleNewDate === branchNowStr;
+
+                      // Drop-off window: branch open → min(11:00, close − totalDuration).
+                      // Mirrors the booking engine's morning-drop-off / afternoon-pick-up model.
+                      const DROPOFF_CUTOFF_MIN = toMinutes("11:00");
+                      const openMin = toMinutes(openStr);
+                      const closeMin = toMinutes(closeStr);
+                      const lastDropoff = Math.min(DROPOFF_CUTOFF_MIN, closeMin - totalDuration);
+
+                      const slots: string[] = [];
+                      if (!branchClosed && lastDropoff >= openMin) {
+                        for (let m = openMin; m <= lastDropoff; m += 30) {
+                          slots.push(fmt(m));
+                        }
+                      }
+
+                      return (
+                        <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white flex-1 flex flex-col">
+                          <div className="px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
+                            <div className="flex items-center gap-2">
+                              <i className="fas fa-clock text-[10px] text-amber-500" />
+                              <span className="text-xs font-bold text-neutral-800">When does the customer drop off?</span>
+                            </div>
+                            {branchDayHours && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <i className="fas fa-store text-[9px] text-neutral-300" />
+                                <span className="text-[10px] font-medium text-neutral-400">
+                                  Drop-off {branchDayHours.open} – 11:00 · service is {totalDuration} min
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5 p-2.5 flex-1 overflow-y-auto max-h-[260px]" style={{ alignContent: "start" }}>
+                            {!rescheduleNewDate ? (
+                              <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
+                                Select a date first to see drop-off times.
+                              </p>
+                            ) : rescheduleBranchLoading && !rescheduleBranch ? (
+                              <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
+                                Loading branch hours…
+                              </p>
+                            ) : branchClosed ? (
+                              <p className="col-span-4 text-center text-[11px] text-rose-500 py-6">
+                                Branch is closed on this day. Please pick another date.
+                              </p>
+                            ) : slots.length === 0 ? (
+                              <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
+                                No drop-off slots fit within opening hours for this service duration.
+                              </p>
+                            ) : (
+                              slots.map((t) => {
+                                const isPast = isToday && t <= branchNowHHmm;
+                                const isSelected = rescheduleNewTime === t;
+                                return (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    disabled={isPast || rescheduleSaving}
+                                    onClick={() => {
+                                      setRescheduleNewTime(t);
+                                      // If the current pick-up is now invalid (<= new drop-off), clear it.
+                                      if (rescheduleNewPickupTime && rescheduleNewPickupTime <= t) {
+                                        setRescheduleNewPickupTime("");
+                                      }
+                                    }}
+                                    className={`relative rounded-lg text-[13px] font-semibold transition-all text-center flex items-center justify-center py-2 min-h-[40px]
+                                      ${isPast
+                                        ? "bg-neutral-100 text-neutral-300 cursor-not-allowed"
+                                        : isSelected
+                                          ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20"
+                                          : "bg-amber-50 text-neutral-700 hover:bg-amber-100 hover:text-neutral-900 border border-amber-200/60"}
+                                    `}
+                                  >
+                                    {t}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {rescheduleNewTime && (
+                      <div className="mt-2 flex items-center gap-2 px-1">
+                        <i className="fas fa-arrow-right-to-bracket text-[10px] text-emerald-500" />
+                        <span className="text-xs font-semibold text-neutral-700">Drop-off: {rescheduleNewTime}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pick-up time grid (shown once a drop-off time is selected) */}
+                {rescheduleNewTime && (() => {
+                  const row = bookingToReschedule!;
+                  const totalDuration = (() => {
+                    if (Array.isArray(row.services) && row.services.length > 0) {
+                      return row.services.reduce((sum, s) => sum + (Number(s.duration) || 0), 0) || Number(row.duration || 0) || 60;
+                    }
+                    return Number(row.duration || 0) || 60;
+                  })();
+
+                  let branchDayHours: BranchDayHours | null = null;
+                  if (rescheduleNewDate && rescheduleBranch?.hours && typeof rescheduleBranch.hours !== "string") {
+                    let dayName: string;
+                    try {
+                      dayName = new Intl.DateTimeFormat("en-US", {
+                        weekday: "long",
+                        timeZone: rescheduleBranch.timezone || undefined,
+                      }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                    } catch {
+                      dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                    }
+                    const dh = rescheduleBranch.hours[dayName];
+                    if (dh?.open && dh?.close && !dh?.closed) branchDayHours = dh;
+                  }
+
+                  const closeStr = branchDayHours?.close || "19:30";
+                  const toMinutes = (hhmm: string): number => {
+                    const [h, m] = hhmm.split(":").map(Number);
+                    return h * 60 + m;
+                  };
+                  const fmt = (mins: number): string => {
+                    const h = Math.floor(mins / 60);
+                    const m = mins % 60;
+                    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                  };
+
+                  const dropoffMin = toMinutes(rescheduleNewTime);
+                  // Pick-up window: max(drop-off + duration, 14:00) → branch close.
+                  const PICKUP_EARLIEST_MIN = toMinutes("14:00");
+                  const earliestPickupMin = Math.max(dropoffMin + totalDuration, PICKUP_EARLIEST_MIN);
+                  const earliestPickup = fmt(earliestPickupMin);
+                  const closeMin = toMinutes(closeStr);
+
+                  const pickupSlots: string[] = [];
+                  for (let m = earliestPickupMin; m <= closeMin; m += 30) {
+                    pickupSlots.push(fmt(m));
+                  }
+
+                  return (
+                    <div className="mt-4 animate-[fadeSlideUp_0.3s_ease-out]">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                        <i className="fas fa-arrow-right-from-bracket text-[9px] text-emerald-500 mr-1" />
+                        Pick-up Time{" "}
+                        <span className="ml-2 text-[10px] font-medium text-neutral-400 normal-case tracking-normal">
+                          earliest: {earliestPickup} — from 14:00 · {totalDuration} min service
+                        </span>
+                      </label>
+                      <div className="border-2 border-emerald-200 rounded-xl overflow-hidden bg-white">
+                        <div className="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-600" />
+                            <span className="text-xs font-bold text-emerald-800">When does the customer pick up?</span>
+                          </div>
+                          {branchDayHours && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <i className="fas fa-store text-[9px] text-emerald-300" />
+                              <span className="text-[10px] font-medium text-emerald-400">
+                                Branch closes at {branchDayHours.close}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        {pickupSlots.length === 0 ? (
+                          <div className="p-4 text-center">
+                            <p className="text-[11px] text-neutral-400">
+                              No pick-up times available for this drop-off time and service duration.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 p-2.5 max-h-[200px] overflow-y-auto" style={{ alignContent: "start" }}>
+                            {pickupSlots.map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => setRescheduleNewPickupTime(t)}
+                                disabled={rescheduleSaving}
+                                className={`h-9 rounded-lg text-xs font-semibold transition-all text-center
+                                  ${rescheduleNewPickupTime === t
+                                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"}
+                                `}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {rescheduleNewPickupTime && (
+                        <div className="mt-2 flex items-center gap-2 px-1">
+                          <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-500" />
+                          <span className="text-xs font-semibold text-neutral-700">Pick-up: {rescheduleNewPickupTime}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Staff reassignment (optional) */}
+              {(() => {
+                if (!bookingToReschedule) return null;
+                const hasServices = Array.isArray(bookingToReschedule.services) && bookingToReschedule.services.length > 0;
+                const options = rescheduleStaffOptions;
+                const renderSelect = (
+                  currentId: string,
+                  value: string,
+                  onChange: (next: string) => void,
+                  currentName?: string | null,
+                ) => {
+                  const currentInOptions = !!currentId && options.some((s) => s.id === currentId);
+                  return (
+                    <select
+                      value={value}
+                      onChange={(e) => onChange(e.target.value)}
+                      disabled={rescheduleSaving || rescheduleStaffLoading}
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 outline-none text-sm bg-white disabled:opacity-60"
+                    >
+                      <option value="">
+                        {rescheduleStaffLoading ? "Loading staff…" : "— Unassigned —"}
+                      </option>
+                      {currentId && !currentInOptions && (
+                        <option value={currentId}>
+                          {currentName || "Current staff"} (current)
+                        </option>
+                      )}
+                      {options.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                          {s.id === currentId ? " (current)" : ""}
+                          {bookingToReschedule?.branchId && s.branchId && s.branchId !== bookingToReschedule.branchId
+                            ? " · other branch"
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                };
+
+                return (
+                  <div className="rounded-xl border border-neutral-200 bg-white p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-neutral-700 inline-flex items-center gap-1.5">
+                        <i className="fas fa-user-gear text-[11px] text-indigo-500" />
+                        Assigned staff
+                      </span>
+                      <span className="text-[10px] text-neutral-400">
+                        Reassigning will notify the new staff.
+                      </span>
+                    </div>
+
+                    {hasServices ? (
+                      <div className="flex flex-col gap-2">
+                        {bookingToReschedule.services!.map((svc) => {
+                          const sid = String(svc.id);
+                          const currentId = (svc.staffId || "").toString();
+                          const value = rescheduleStaffByService[sid] ?? currentId;
+                          return (
+                            <div key={sid} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <div className="sm:w-40 shrink-0">
+                                <div className="text-xs font-semibold text-neutral-800 truncate">
+                                  {svc.name || "Service"}
+                                </div>
+                                <div className="text-[10px] text-neutral-500 truncate">
+                                  Currently: {svc.staffName || "Unassigned"}
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                {renderSelect(
+                                  currentId,
+                                  value,
+                                  (next) =>
+                                    setRescheduleStaffByService((prev) => ({
+                                      ...prev,
+                                      [sid]: next,
+                                    })),
+                                  svc.staffName,
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <div className="sm:w-40 shrink-0">
+                          <div className="text-xs font-semibold text-neutral-800 truncate">
+                            {bookingToReschedule.serviceName || "Service"}
+                          </div>
+                          <div className="text-[10px] text-neutral-500 truncate">
+                            Currently: {bookingToReschedule.staffName || "Unassigned"}
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          {renderSelect(
+                            (bookingToReschedule.staffId || "").toString(),
+                            rescheduleStaffId,
+                            setRescheduleStaffId,
+                            bookingToReschedule.staffName,
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Reason (optional) */}
+              <label className="block">
+                <span className="text-xs font-semibold text-neutral-700 mb-1.5 block">
+                  Reason{" "}
+                  <span className="font-normal text-neutral-400">(optional)</span>
+                </span>
+                <textarea
+                  rows={3}
+                  value={rescheduleReason}
+                  onChange={(e) => setRescheduleReason(e.target.value)}
+                  placeholder="e.g. Customer requested a later slot, staff unavailable, etc."
+                  disabled={rescheduleSaving}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 outline-none text-sm resize-none disabled:opacity-60"
+                />
+              </label>
+
+              {/* Info banner */}
+              <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-800 flex gap-2">
+                <i className="fas fa-info-circle mt-0.5" />
+                <div>
+                  The customer will be emailed the new date &amp; time
+                  (and any staff change), the rescheduling will appear in
+                  their app, and the amendment is recorded in the audit log.
+                </div>
+              </div>
+
+              {rescheduleError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 flex gap-2">
+                  <i className="fas fa-triangle-exclamation mt-0.5" />
+                  <div>{rescheduleError}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-neutral-100 p-4 flex items-center gap-3 bg-neutral-50/60 shrink-0">
+              <button
+                onClick={closeRescheduleModal}
+                disabled={rescheduleSaving}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-neutral-700 bg-white border border-neutral-200 hover:bg-neutral-50 transition disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReschedule}
+                disabled={rescheduleSaving}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                style={{ backgroundColor: "#1d4ed8" }}
+                onMouseEnter={(e) => {
+                  if (!rescheduleSaving) e.currentTarget.style.backgroundColor = "#1e40af";
+                }}
+                onMouseLeave={(e) => {
+                  if (!rescheduleSaving) e.currentTarget.style.backgroundColor = "#1d4ed8";
+                }}
+              >
+                {rescheduleSaving ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-calendar-check" />
+                    Save new date &amp; time
                   </>
                 )}
               </button>

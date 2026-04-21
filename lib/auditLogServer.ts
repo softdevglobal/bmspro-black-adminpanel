@@ -278,6 +278,46 @@ export async function logBookingReassignedServer(
   });
 }
 
+/**
+ * Audit log entry for a booking that was rescheduled (date / time change)
+ * by an owner or branch admin. The `previousValue` / `newValue` fields are
+ * set so the side-panel "Value Change" block renders a clear before → after.
+ */
+export async function logBookingRescheduledServer(
+  ownerUid: string,
+  bookingId: string,
+  bookingCode: string | undefined,
+  clientName: string,
+  performer: { uid: string; name: string; role: string },
+  previous: { date?: string | null; time?: string | null },
+  next: { date: string; time: string },
+  reason?: string | null,
+  branchName?: string,
+) {
+  const fmtSlot = (d?: string | null, t?: string | null) => {
+    const date = (d || "").toString().trim();
+    const time = (t || "").toString().trim();
+    if (!date && !time) return "Unscheduled";
+    return `${date}${date && time ? " · " : ""}${time}`;
+  };
+
+  return createAuditLogServer({
+    ownerUid,
+    action: `Booking rescheduled: ${fmtSlot(previous.date, previous.time)} → ${fmtSlot(next.date, next.time)}`,
+    actionType: "update",
+    entityType: "booking",
+    entityId: bookingId,
+    entityName: bookingCode || `Booking for ${clientName}`,
+    performedBy: performer.uid,
+    performedByName: performer.name,
+    performedByRole: performer.role,
+    previousValue: fmtSlot(previous.date, previous.time),
+    newValue: fmtSlot(next.date, next.time),
+    details: reason && reason.trim().length > 0 ? `Reason: ${reason.trim()}` : undefined,
+    branchName,
+  });
+}
+
 export async function logBookingSentToStaffServer(
   ownerUid: string,
   bookingId: string,

@@ -57,6 +57,8 @@ export default function ToastNotification({
   const handleClick = () => {
     if (type === "owner_booking_completed" && bookingId) {
       router.push("/bookings/completed");
+    } else if (type === "booking_rescheduled" && bookingId) {
+      router.push("/bookings/confirmed");
     } else if (
       type === "staff_clocked_in" ||
       type === "staff_clocked_out" ||
@@ -90,6 +92,8 @@ export default function ToastNotification({
         return "fa-user-check";
       case "owner_booking_completed":
         return "fa-circle-check";
+      case "booking_rescheduled":
+        return "fa-calendar-days";
       case "staff_clocked_in":
         return "fa-right-to-bracket";
       case "staff_clocked_out":
@@ -113,6 +117,8 @@ export default function ToastNotification({
         return "from-amber-500 to-orange-600";
       case "owner_booking_completed":
         return "from-emerald-500 to-teal-600";
+      case "booking_rescheduled":
+        return "from-blue-500 to-indigo-600";
       case "staff_clocked_in":
         return "from-green-500 to-emerald-600";
       case "staff_clocked_out":

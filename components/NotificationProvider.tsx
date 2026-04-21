@@ -34,6 +34,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 /** Firestore notification types that should always surface in the admin bell + toasts (one row per doc). */
 const WORKSHOP_ALERT_TYPES = new Set([
   "owner_booking_completed",
+  "booking_rescheduled",
   "staff_clocked_in",
   "staff_clocked_out",
   "staff_break_started",

@@ -6,7 +6,7 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
-import { shouldBlockSlots, countsTowardDailyLimit } from "@/lib/bookingTypes";
+import { countsTowardDailyLimit } from "@/lib/bookingTypes";
 import {
   branchHoursWindowFromSchedule,
   getDayOfWeekFromYmd,
@@ -25,101 +25,112 @@ function timeToMinutes(timeStr: string): number {
   return parts[0] * 60 + parts[1];
 }
 
-function timeRangesOverlap(
-  start1: number, end1: number,
-  start2: number, end2: number
-): boolean {
-  return start1 < end2 && start2 < end1;
-}
-
-function isAnyStaff(staffId?: string | null): boolean {
-  if (!staffId) return true;
-  const str = String(staffId).trim().toLowerCase();
-  return str === "" || str === "null" || str.includes("any") || str === "not assigned yet";
-}
-
-function isStaffAssignedToBranch(staff: any, branchId: string, dayOfWeek: string): boolean {
-  if (dayOfWeek && staff.weeklySchedule && typeof staff.weeklySchedule === "object") {
-    const daySchedule = staff.weeklySchedule[dayOfWeek];
-    if (daySchedule && daySchedule.branchId) {
-      return daySchedule.branchId === branchId;
-    }
-    if (daySchedule === null || daySchedule === undefined) {
-      return false;
-    }
-  }
-  return staff.branchId === branchId;
-}
-
 /**
- * GET /api/call-center/bookings/availability?ownerUid=X&branchId=Y&date=2026-04-01&serviceIds=svc1,svc2
+ * GET /api/call-center/bookings/availability?ownerUid=X&branchId=Y&date=2026-04-01
  *
- * Check time slot availability before creating a booking.
- * Returns: blocked time slots, daily limit info, and available slots.
- * The call center dashboard should call this BEFORE creating a booking.
+ * Returns the bookable time slots for a branch on a given date. **Booking
+ * creation is only restricted by the branch's daily booking limit** — slot
+ * availability is NOT gated by per-staff conflicts, per-service capacity, or
+ * any overlap logic. As long as the branch is open on that day AND the daily
+ * cap has not been reached, every in-hours 30-min slot is returned as
+ * available.
+ *
+ * `serviceIds` is still accepted for backward-compatibility with existing
+ * call-center clients but is now ignored.
+ *
+ * Response:
+ *   {
+ *     available: boolean,
+ *     reason?: string,
+ *     dayOfWeek: string,
+ *     branch: CallCenterBranchBookingDetails | null,
+ *     branchHours: { open: string, close: string } | null,
+ *     allSlots: string[],            // 30-min slots inside branch hours
+ *     availableSlots: string[],      // same as allSlots when not capped, else []
+ *     blockedSlots: string[],        // empty when not capped, else allSlots
+ *     dailyLimitReached: boolean,
+ *     dailyLimit: number | null,
+ *     currentBookings: number,
+ *     remainingBookings: number | null,
+ *   }
  */
 export async function GET(req: NextRequest) {
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
   if (!gate.success) {
     return NextResponse.json(
       { error: gate.error },
-      { status: gate.status || 401, headers: CORS_HEADERS }
+      { status: gate.status || 401, headers: CORS_HEADERS },
     );
   }
 
   const ownerUid = getTenantId(req);
   const branchId = req.nextUrl.searchParams.get("branchId");
   const date = req.nextUrl.searchParams.get("date");
-  const serviceIdsParam = req.nextUrl.searchParams.get("serviceIds");
 
-  if (!ownerUid || !branchId || !date || !serviceIdsParam) {
+  if (!ownerUid || !branchId || !date) {
     return NextResponse.json(
-      { error: "Missing required params: ownerUid, branchId, date, serviceIds" },
-      { status: 400, headers: CORS_HEADERS }
+      { error: "Missing required params: ownerUid (X-Tenant-Id), branchId, date" },
+      { status: 400, headers: CORS_HEADERS },
     );
   }
 
   if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
     return NextResponse.json(
       { error: "Access denied" },
-      { status: 403, headers: CORS_HEADERS }
+      { status: 403, headers: CORS_HEADERS },
     );
   }
-
-  const serviceIds = serviceIdsParam.split(",").filter(Boolean);
 
   try {
     const db = adminDb();
     const dayOfWeek = getDayOfWeekFromYmd(date);
 
-    const [staffSnapshot, servicesSnapshot, branchDoc, bookingsSnapshot] = await Promise.all([
-      db.collection("users").where("ownerUid", "==", ownerUid).get(),
-      db.collection("services").where("ownerUid", "==", ownerUid).get(),
+    const [branchDoc, bookingsSnapshot] = await Promise.all([
       db.collection("branches").doc(branchId).get(),
-      db.collection("bookings").where("ownerUid", "==", ownerUid).where("date", "==", date).get(),
+      db
+        .collection("bookings")
+        .where("ownerUid", "==", ownerUid)
+        .where("date", "==", date)
+        .get(),
     ]);
 
     const branchData = branchDoc.exists ? branchDoc.data() : null;
-    if (!branchDoc.exists || !branchData || (branchData.ownerUid && branchData.ownerUid !== ownerUid)) {
+    if (
+      !branchDoc.exists ||
+      !branchData ||
+      (branchData.ownerUid && branchData.ownerUid !== ownerUid)
+    ) {
       return NextResponse.json(
         {
-          error: "Branch not found or access denied",
+          available: false,
+          reason: "Branch not found or access denied",
           dayOfWeek,
           branch: null,
-          blockedSlots: [],
+          branchHours: null,
+          allSlots: [],
           availableSlots: [],
+          blockedSlots: [],
           dailyLimitReached: false,
+          dailyLimit: null,
+          currentBookings: 0,
+          remainingBookings: null,
         },
-        { status: 404, headers: CORS_HEADERS }
+        { status: 404, headers: CORS_HEADERS },
       );
     }
 
-    const branch = serializeCallCenterBranchForBooking(branchId, branchData, date);
+    const branch = serializeCallCenterBranchForBooking(
+      branchId,
+      branchData,
+      date,
+    );
     const branchHours =
       branch?.daySchedule != null
         ? branchHoursWindowFromSchedule(branch.daySchedule)
         : null;
+    const bookingLimitPerDay = branch?.bookingLimitPerDay ?? null;
 
+    // Branch closed on this day → nothing bookable regardless of cap.
     if (!branchHours) {
       return NextResponse.json(
         {
@@ -128,36 +139,48 @@ export async function GET(req: NextRequest) {
           dayOfWeek,
           branch,
           branchHours: null,
-          blockedSlots: [],
+          allSlots: [],
           availableSlots: [],
+          blockedSlots: [],
           dailyLimitReached: false,
-          dailyLimit: branch?.bookingLimitPerDay ?? null,
+          dailyLimit: bookingLimitPerDay,
           currentBookings: 0,
+          remainingBookings: null,
         },
-        { headers: CORS_HEADERS }
+        { headers: CORS_HEADERS },
       );
     }
 
-    const bookingLimitPerDay = branch?.bookingLimitPerDay ?? null;
-    const bookingsTowardLimit = bookingsSnapshot.docs
-      .map((d) => ({ id: d.id, ...d.data() } as any))
-      .filter((b: any) => b.branchId === branchId && countsTowardDailyLimit(b.status));
-    const isDailyLimitReached =
-      typeof bookingLimitPerDay === "number" && bookingLimitPerDay > 0
-        ? bookingsTowardLimit.length >= bookingLimitPerDay
-        : false;
-
-    // Generate all 30-min slots
+    // Generate all 30-min slots inside branch hours.
     const openMins = timeToMinutes(branchHours.open);
     const closeMins = timeToMinutes(branchHours.close);
     const allSlots: string[] = [];
     for (let mins = openMins; mins < closeMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
-      allSlots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
+      allSlots.push(
+        `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`,
+      );
     }
 
-    if (isDailyLimitReached) {
+    // Count only bookings that count toward the branch's daily cap.
+    const bookingsTowardLimit = bookingsSnapshot.docs
+      .map((d) => ({ id: d.id, ...d.data() } as any))
+      .filter(
+        (b: any) =>
+          b.branchId === branchId && countsTowardDailyLimit(b.status),
+      );
+
+    const hasLimit =
+      typeof bookingLimitPerDay === "number" && bookingLimitPerDay > 0;
+    const dailyLimitReached = hasLimit
+      ? bookingsTowardLimit.length >= bookingLimitPerDay
+      : false;
+    const remainingBookings = hasLimit
+      ? Math.max(0, bookingLimitPerDay - bookingsTowardLimit.length)
+      : null;
+
+    if (dailyLimitReached) {
       return NextResponse.json(
         {
           available: false,
@@ -165,134 +188,40 @@ export async function GET(req: NextRequest) {
           dayOfWeek,
           branch,
           branchHours,
-          blockedSlots: allSlots,
+          allSlots,
           availableSlots: [],
+          blockedSlots: allSlots,
           dailyLimitReached: true,
           dailyLimit: bookingLimitPerDay,
           currentBookings: bookingsTowardLimit.length,
+          remainingBookings: 0,
         },
-        { headers: CORS_HEADERS }
+        { headers: CORS_HEADERS },
       );
     }
 
-    const allStaff = staffSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const allServicesData = servicesSnapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    const eligibleStaffByService: Record<string, string[]> = {};
-    const serviceDurations: Record<string, number> = {};
-
-    for (const serviceId of serviceIds) {
-      const serviceData: any = allServicesData.find((s) => s.id === serviceId);
-      serviceDurations[serviceId] = serviceData?.duration || 60;
-
-      const eligible = allStaff.filter((st: any) => {
-        const role = (st.role || "").toString().toLowerCase();
-        if (role !== "staff" && role !== "branch_admin") return false;
-        if (st.status && st.status !== "Active") return false;
-        if (serviceData?.staffIds && serviceData.staffIds.length > 0) {
-          const canPerform = serviceData.staffIds.some(
-            (id: string) => String(id) === st.id || String(id) === ((st as any).uid || st.id)
-          );
-          if (!canPerform) return false;
-        }
-        return isStaffAssignedToBranch(st, branchId, dayOfWeek);
-      });
-
-      eligibleStaffByService[serviceId] = eligible.map((s) => s.id);
-    }
-
-    const activeBookings = bookingsSnapshot.docs
-      .map((d) => ({ id: d.id, ...d.data() } as any))
-      .filter((b: any) => b.branchId === branchId && shouldBlockSlots(b.status));
-
-    const blockedSlots: string[] = [];
-
-    for (const slot of allSlots) {
-      let isBlocked = false;
-
-      for (const serviceId of serviceIds) {
-        const eligibleIds = eligibleStaffByService[serviceId] || [];
-        const totalCapacity = eligibleIds.length;
-        if (totalCapacity === 0) continue;
-
-        const duration = serviceDurations[serviceId];
-        const slotStart = timeToMinutes(slot);
-        const slotEnd = slotStart + duration;
-
-        const bookedStaffIds = new Set<string>();
-        let anyStaffOverlapping = 0;
-
-        for (const booking of activeBookings) {
-          if (booking.services && Array.isArray(booking.services) && booking.services.length > 0) {
-            for (const existingSvc of booking.services) {
-              if (!existingSvc.time) continue;
-              const existingStaffId = existingSvc.staffId || booking.staffId || null;
-              const existingStart = timeToMinutes(existingSvc.time);
-              const existingDuration = existingSvc.duration || booking.duration || 60;
-              const existingEnd = existingStart + existingDuration;
-
-              if (!timeRangesOverlap(slotStart, slotEnd, existingStart, existingEnd)) continue;
-
-              if (!isAnyStaff(existingStaffId)) {
-                if (eligibleIds.includes(existingStaffId!)) {
-                  bookedStaffIds.add(existingStaffId!);
-                }
-              } else {
-                anyStaffOverlapping++;
-              }
-            }
-          } else {
-            if (!booking.time) continue;
-            const existingStaffId = booking.staffId || null;
-            const existingStart = timeToMinutes(booking.time);
-            const existingDuration = booking.duration || 60;
-            const existingEnd = existingStart + existingDuration;
-
-            if (!timeRangesOverlap(slotStart, slotEnd, existingStart, existingEnd)) continue;
-
-            if (!isAnyStaff(existingStaffId)) {
-              if (eligibleIds.includes(existingStaffId!)) {
-                bookedStaffIds.add(existingStaffId!);
-              }
-            } else {
-              anyStaffOverlapping++;
-            }
-          }
-        }
-
-        const freeStaff = totalCapacity - bookedStaffIds.size - anyStaffOverlapping;
-        if (freeStaff <= 0) {
-          isBlocked = true;
-        }
-      }
-
-      if (isBlocked) {
-        blockedSlots.push(slot);
-      }
-    }
-
-    const availableSlots = allSlots.filter((s) => !blockedSlots.includes(s));
-
+    // Daily cap not reached → every in-hours slot is bookable.
     return NextResponse.json(
       {
-        available: availableSlots.length > 0,
+        available: allSlots.length > 0,
         dayOfWeek,
         branch,
         branchHours,
         allSlots,
-        blockedSlots,
-        availableSlots,
+        availableSlots: allSlots,
+        blockedSlots: [],
         dailyLimitReached: false,
         dailyLimit: bookingLimitPerDay,
         currentBookings: bookingsTowardLimit.length,
+        remainingBookings,
       },
-      { headers: CORS_HEADERS }
+      { headers: CORS_HEADERS },
     );
   } catch (error: any) {
     console.error("[call-center/bookings/availability] Error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500, headers: CORS_HEADERS }
+      { status: 500, headers: CORS_HEADERS },
     );
   }
 }

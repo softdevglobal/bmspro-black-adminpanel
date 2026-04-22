@@ -6,7 +6,11 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
-import { normalizeBookingStatus, getServiceCompletionProgress } from "@/lib/bookingTypes";
+import {
+  normalizeBookingStatus,
+  getServiceCompletionProgress,
+  countsTowardDailyLimit,
+} from "@/lib/bookingTypes";
 import {
   mergeBookingContactIntoAdditionalIssues,
   serializeAdditionalIssuesForCallCenterApi,
@@ -413,6 +417,41 @@ export async function POST(req: NextRequest) {
       );
     }
     const branchData = branchDoc.data()!;
+
+    // ─── Daily booking limit enforcement ──────────────────────────────────
+    // The ONLY restriction on agent-side booking creation is the branch's
+    // `bookingLimitPerDay`. As long as the count of bookings counting toward
+    // the daily cap (see `countsTowardDailyLimit`) is below that number, the
+    // agent can book any in-hours time slot. Unset / non-positive limits are
+    // treated as "unlimited".
+    const bookingLimitPerDay =
+      typeof branchData.bookingLimitPerDay === "number" &&
+      branchData.bookingLimitPerDay > 0
+        ? branchData.bookingLimitPerDay
+        : null;
+    if (bookingLimitPerDay !== null) {
+      const existingForDay = await db
+        .collection("bookings")
+        .where("ownerUid", "==", ownerUid)
+        .where("branchId", "==", branchId)
+        .where("date", "==", date)
+        .get();
+      const countingBookings = existingForDay.docs.filter((d) =>
+        countsTowardDailyLimit((d.data() as any)?.status),
+      );
+      if (countingBookings.length >= bookingLimitPerDay) {
+        return NextResponse.json(
+          {
+            error: "Daily booking limit reached for this branch on this date.",
+            field: "date",
+            dailyLimit: bookingLimitPerDay,
+            currentBookings: countingBookings.length,
+            remainingBookings: 0,
+          },
+          { status: 409, headers: CORS_HEADERS },
+        );
+      }
+    }
 
     // Resolve service details from catalog
     const resolvedServices: any[] = [];

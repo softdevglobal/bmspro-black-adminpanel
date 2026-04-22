@@ -17,6 +17,8 @@ import {
   createStaffAssignmentNotification,
   getBranchAdminUids,
 } from "@/lib/notifications";
+import { sendCustomerWelcomeEmail } from "@/lib/emailService";
+import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
 
 export const runtime = "nodejs";
 
@@ -342,6 +344,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Customer email + phone are mandatory when creating bookings on behalf
+    // of a customer — the email is used to auto-create their Booking Engine
+    // account (see `ensureCustomerAccount` below) and the phone is required
+    // for workshop contact.
+    const trimmedClientEmail =
+      typeof clientEmail === "string" ? clientEmail.trim() : "";
+    const trimmedClientPhone =
+      typeof clientPhone === "string" ? clientPhone.trim() : "";
+
+    if (!trimmedClientEmail) {
+      return NextResponse.json(
+        { error: "Customer email is required", field: "clientEmail" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedClientEmail)) {
+      return NextResponse.json(
+        { error: "Customer email must be a valid email address", field: "clientEmail" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!trimmedClientPhone) {
+      return NextResponse.json(
+        { error: "Customer phone is required", field: "clientPhone" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+    const phoneDigits = trimmedClientPhone.replace(/\D/g, "");
+    if (phoneDigits.length < 6 || !/^[+\d][\d\s\-()]+$/.test(trimmedClientPhone)) {
+      return NextResponse.json(
+        { error: "Customer phone must be a valid phone number", field: "clientPhone" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
     if (
       !requestedServices ||
       !Array.isArray(requestedServices) ||
@@ -472,6 +511,52 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
 
+    // ─── Resolve / provision customer account BEFORE saving the booking ────
+    // Prefer the caller-supplied `customerId` (already-known customer).
+    // Otherwise, look up by (ownerUid, email). If a customer exists → link
+    // the booking to that existing account and send NO welcome email.
+    // If not → create a new one with the default password "000000" and queue
+    // a welcome email to be sent after the booking is successfully saved.
+    let resolvedCustomerId: string | null = customerId || null;
+    let newCustomerWelcome: {
+      email: string;
+      password: string;
+      name: string;
+    } | null = null;
+    try {
+      const rawEmail = typeof clientEmail === "string" ? clientEmail.trim() : "";
+      if (!resolvedCustomerId && rawEmail) {
+        const ensureResult = await ensureCustomerAccount(db, {
+          ownerUid,
+          email: rawEmail,
+          name: typeof client === "string" ? client : null,
+          phone: typeof clientPhone === "string" ? clientPhone : null,
+        });
+        if (ensureResult) {
+          resolvedCustomerId = ensureResult.customerId;
+          if (ensureResult.created && ensureResult.defaultPassword) {
+            newCustomerWelcome = {
+              email: ensureResult.email,
+              password: ensureResult.defaultPassword,
+              name: String(client || "").trim(),
+            };
+            console.log(
+              `[call-center/bookings] Auto-created customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid})`
+            );
+          } else {
+            console.log(
+              `[call-center/bookings] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid}) — skipping welcome email`
+            );
+          }
+        }
+      }
+    } catch (customerAccountErr: any) {
+      console.error(
+        `[call-center/bookings] ❌ Exception during customer account resolution — proceeding without linked customerId:`,
+        customerAccountErr?.message || customerAccountErr
+      );
+    }
+
     const bookingData: Record<string, any> = {
       ownerUid,
       branchId,
@@ -485,7 +570,7 @@ export async function POST(req: NextRequest) {
       client: (client as string).trim(),
       clientEmail: clientEmail?.trim() || "",
       clientPhone: clientPhone?.trim() || "",
-      customerId: customerId || null,
+      customerId: resolvedCustomerId,
       vehicleNumber: vf.vehicleNumber,
       vehicleMake: vf.vehicleMake || null,
       vehicleModel: vf.vehicleModel || null,
@@ -643,6 +728,57 @@ export async function POST(req: NextRequest) {
       performedByRole: createdByRole,
       timestamp: now,
     });
+
+    // ─── Welcome email for NEWLY-created customer accounts ─────────────────
+    // Existing accounts were already linked via `customerId` on the booking
+    // payload above, so no email is needed for them. Only fire this when a
+    // brand-new customer was provisioned during account resolution.
+    if (newCustomerWelcome) {
+      try {
+        let workshopName = "Workshop";
+        let bookingEngineUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+        try {
+          const ownerData = workshopDoc.exists ? workshopDoc.data() || {} : {};
+          workshopName =
+            (ownerData.workshopName as string) ||
+            (ownerData.salonName as string) ||
+            (ownerData.businessName as string) ||
+            (ownerData.name as string) ||
+            (ownerData.displayName as string) ||
+            "Workshop";
+          bookingEngineUrl = resolveBookingEngineUrl(ownerData);
+        } catch (ownerLookupErr) {
+          console.warn(
+            `[call-center/bookings] Could not resolve workshop metadata for welcome email (owner ${ownerUid}):`,
+            ownerLookupErr
+          );
+        }
+
+        const welcomeResult = await sendCustomerWelcomeEmail({
+          customerEmail: newCustomerWelcome.email,
+          password: newCustomerWelcome.password,
+          customerName: newCustomerWelcome.name,
+          workshopName,
+          bookingEngineUrl,
+        });
+
+        if (welcomeResult.success) {
+          console.log(
+            `[call-center/bookings] ✅ Welcome email sent to new customer ${newCustomerWelcome.email} for booking ${bookingRef.id}`
+          );
+        } else {
+          console.error(
+            `[call-center/bookings] ❌ Welcome email failed for new customer ${newCustomerWelcome.email} on booking ${bookingRef.id}:`,
+            welcomeResult.error
+          );
+        }
+      } catch (welcomeErr: any) {
+        console.error(
+          `[call-center/bookings] ❌ Exception sending welcome email for booking ${bookingRef.id}:`,
+          welcomeErr?.message || welcomeErr
+        );
+      }
+    }
 
     return NextResponse.json(
       {

@@ -289,10 +289,19 @@ export async function PATCH(
     gate.auth.kind === "agent"
       ? gate.auth.user.name || "Call Center Agent"
       : gate.auth.name || "BMS Staff";
+  // Real role for audit/history/traceability. Preserves the actual auth role
+  // (e.g. `super_admin` / `workshop_owner` / `branch_admin`) when a BMS user
+  // uses the Call Center panel via `verifyCallCenterOrTenantAdminAuth`.
   const performerRole =
     gate.auth.kind === "agent"
       ? gate.auth.user.role || "agent"
       : gate.auth.role;
+  // Display role used exclusively for notification copy. Anything that goes
+  // through `/api/call-center/*` is — by definition — a Call Center action,
+  // so the push / inbox message should always read "(Call Center)" instead
+  // of "(Admin)" / "(Super Admin)" / "(Owner)". The REAL role is still
+  // recorded in `rescheduleHistory`, `bookingActivities`, and the audit log.
+  const performerDisplayRole = "call_center_agent";
 
   // ── Build update ────────────────────────────────────────────────────────
   const nowIso = new Date().toISOString();
@@ -652,7 +661,7 @@ export async function PATCH(
         reason: reason || null,
         performerUid,
         performerName,
-        performerRole,
+        performerRole: performerDisplayRole,
       });
     } catch (e) {
       console.error("[call-center/reschedule] owner audit notif failed:", e);
@@ -690,7 +699,7 @@ export async function PATCH(
             reason: reason || null,
             performerUid,
             performerName,
-            performerRole,
+            performerRole: performerDisplayRole,
           });
         } catch (e) {
           console.error(

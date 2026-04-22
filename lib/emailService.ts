@@ -1263,6 +1263,233 @@ export async function sendStaffWelcomeEmail(
 }
 
 /**
+ * Generate HTML for the customer welcome email sent when a customer account is
+ * auto-created as part of a booking (by an Admin, Owner, or Staff member).
+ * Contains login link to the Booking Engine, username (email) and the default
+ * password along with a prompt to change it after the first login.
+ */
+function generateCustomerWelcomeEmailHTML(params: {
+  customerEmail: string;
+  password: string;
+  customerName: string;
+  workshopName: string;
+  bookingEngineUrl: string;
+}): string {
+  const { customerEmail, password, customerName, workshopName, bookingEngineUrl } = params;
+  const greetingName = customerName?.trim() || "there";
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your ${workshopName} Booking Account</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);">
+              <div style="padding: 40px; text-align: center;">
+                <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
+                <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: -0.3px;">Welcome to ${workshopName}</h1>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your booking account has been created</p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="padding: 30px 40px 20px;">
+              <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${greetingName},</p>
+              <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
+                A booking has just been created for you at <strong>${workshopName}</strong>. To make it easy for you to view your bookings and book future services yourself, we've also set up an account on our online Booking Engine — no sign-up required.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Login Credentials Card -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 25px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 20px; color: #78350f; font-size: 18px; font-weight: 600;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #f59e0b; border-radius: 2px; margin-right: 10px; vertical-align: middle;"></span>
+                  Your Login Details
+                </h3>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Username (Email):</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right; word-break: break-all;'>${customerEmail}</td>
+                  </tr>
+                  <tr>
+                    <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Default Password:</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 16px; font-weight: 700; text-align: right; font-family: monospace; letter-spacing: 2px;'>${password}</td>
+                  </tr>
+                </table>
+
+                <div style="background-color: #fff7ed; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 20px;">
+                  <p style='margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;'>
+                    <strong style='color: #78350f;'>⚠️ Important:</strong> This is a default password. For your security, please change it immediately after your first login.
+                  </p>
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Login Button -->
+          <tr>
+            <td style="padding: 0 40px 30px; text-align: center;">
+              <a href="${bookingEngineUrl}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+                Log in to Booking Engine
+              </a>
+              <p style="margin: 15px 0 0; color: #6b7280; font-size: 12px; word-break: break-all;">
+                <a href="${bookingEngineUrl}" style="color: #7c3aed; text-decoration: underline;">${bookingEngineUrl}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- What You Can Do -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #eef2ff; border: 2px solid #6366f1; border-radius: 10px; padding: 25px;">
+                <h3 style="margin: 0 0 15px; color: #312e81; font-size: 18px; font-weight: 600;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #6366f1; border-radius: 2px; margin-right: 10px; vertical-align: middle;"></span>
+                  What you can do next
+                </h3>
+                <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 15px; line-height: 1.8;">
+                  <li style="margin-bottom: 8px;">Log in with the credentials above</li>
+                  <li style="margin-bottom: 8px;"><strong>Change your default password</strong> from your account settings</li>
+                  <li style="margin-bottom: 8px;">View your current and past bookings</li>
+                  <li>Book future services online 24/7</li>
+                </ol>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Additional Info -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; text-align: center;">
+                <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                  You'll receive a separate email shortly confirming your upcoming booking details. If you did not request this, please contact ${workshopName} directly.
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">${workshopName}</p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
+                Powered by BMS PRO BLACK.<br>
+                This is an automated email — please do not reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Send welcome email to a customer whose account was auto-created while a
+ * booking was being made on their behalf. Provides the Booking Engine login
+ * URL, the customer's email (username) and the default password.
+ */
+export async function sendCustomerWelcomeEmail(params: {
+  customerEmail: string;
+  password: string;
+  customerName: string;
+  workshopName?: string;
+  bookingEngineUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { customerEmail, password, customerName } = params;
+  const workshopName = params.workshopName?.trim() || "Workshop";
+  const bookingEngineUrl = params.bookingEngineUrl?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "https://black.bmspros.com.au";
+
+  console.log(`[EMAIL] Attempting to send customer welcome email to: ${customerEmail}`);
+
+  if (!customerEmail || !customerEmail.trim()) {
+    console.error(`[EMAIL] No customer email provided for welcome email`);
+    return { success: false, error: "No customer email provided" };
+  }
+
+  const email = customerEmail.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.error(`[EMAIL] Invalid customer email address: ${email}`);
+    return { success: false, error: "Invalid email address" };
+  }
+
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured — cannot send customer welcome email`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+
+  try {
+    const html = generateCustomerWelcomeEmailHTML({
+      customerEmail: email,
+      password,
+      customerName,
+      workshopName,
+      bookingEngineUrl,
+    });
+
+    const subject = `Welcome to ${workshopName} - Your Booking Account Details`;
+
+    const msg = {
+      to: email,
+      from: FROM_EMAIL,
+      subject,
+      html,
+      trackingSettings: {
+        clickTracking: {
+          enable: false,
+        },
+      },
+    };
+
+    console.log(`[EMAIL] Sending customer welcome email via SendGrid:`, {
+      to: email,
+      from: FROM_EMAIL,
+      subject,
+      workshopName,
+      bookingEngineUrl,
+      clickTracking: false,
+    });
+
+    await sgMail.send(msg);
+
+    console.log(`[EMAIL] ✅ Customer welcome email sent successfully to ${email}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending customer welcome email to ${email}:`, error);
+    console.error(`[EMAIL] Error details:`, {
+      message: error?.message,
+      code: error?.code,
+      response: error?.response?.body,
+      statusCode: error?.response?.statusCode,
+    });
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * Generate HTML for branch admin assignment notification email
  */
 function generateBranchAdminAssignmentEmailHTML(

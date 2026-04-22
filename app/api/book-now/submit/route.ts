@@ -51,6 +51,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Customer email + phone must be valid — consistent with /api/bookings and
+    // /api/call-center/bookings so every booking creation path enforces it.
+    const normalizedCustomerEmail = String(customerEmail).trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedCustomerEmail)) {
+      return NextResponse.json(
+        { error: "Please enter a valid email address.", field: "customerEmail" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedCustomerPhone = String(customerPhone).trim();
+    const phoneDigits = normalizedCustomerPhone.replace(/\D/g, "");
+    if (phoneDigits.length < 6 || !/^[+\d][\d\s\-()]+$/.test(normalizedCustomerPhone)) {
+      return NextResponse.json(
+        { error: "Please enter a valid phone number.", field: "customerPhone" },
+        { status: 400 }
+      );
+    }
+
     const db = adminDb();
 
     // Find the workshop owner by slug (support both roles)

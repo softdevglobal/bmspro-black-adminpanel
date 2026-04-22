@@ -8,7 +8,8 @@ import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders 
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
-import { sendBookingRequestReceivedEmail, sendBookingEmail } from "@/lib/emailService";
+import { sendBookingRequestReceivedEmail, sendBookingEmail, sendCustomerWelcomeEmail } from "@/lib/emailService";
+import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
 
 export const runtime = "nodejs";
 
@@ -224,6 +225,8 @@ export async function POST(req: NextRequest) {
     // Basic validation
     const required: Array<keyof CreateBookingInput> = [
       "client",
+      "clientEmail",
+      "clientPhone",
       "serviceId",
       // "staffId", // Optional for multi-service bookings
       "branchId",
@@ -234,8 +237,36 @@ export async function POST(req: NextRequest) {
     ];
     for (const key of required) {
       if ((body as any)?.[key] === undefined || (body as any)?.[key] === null || (String((body as any)[key]).trim() === "" && typeof (body as any)[key] !== "number")) {
-        return NextResponse.json({ error: `Missing field: ${key}` }, { status: 400 });
+        const label =
+          key === "clientEmail" ? "Customer email"
+          : key === "clientPhone" ? "Customer phone"
+          : key === "client" ? "Customer name"
+          : String(key);
+        return NextResponse.json(
+          { error: `${label} is required`, field: key },
+          { status: 400 }
+        );
       }
+    }
+
+    // Validate email format (email is now required for customer account creation)
+    const emailValue = String(body.clientEmail).trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailValue)) {
+      return NextResponse.json(
+        { error: "Customer email must be a valid email address", field: "clientEmail" },
+        { status: 400 }
+      );
+    }
+
+    // Validate phone looks like a phone number (digits, spaces, +, -, parens only; at least 6 digits)
+    const phoneValue = String(body.clientPhone).trim();
+    const phoneDigits = phoneValue.replace(/\D/g, "");
+    if (phoneDigits.length < 6 || !/^[+\d][\d\s\-()]+$/.test(phoneValue)) {
+      return NextResponse.json(
+        { error: "Customer phone must be a valid phone number", field: "clientPhone" },
+        { status: 400 }
+      );
     }
 
     // Australian booking rule: drop-off by 11 AM, pick-up 2 PM – 5 PM
@@ -468,11 +499,62 @@ export async function POST(req: NextRequest) {
       // Non-blocking: proceed without tasks
     }
 
+    // ─── Resolve / provision customer account BEFORE saving the booking ────
+    // When an admin, owner, or staff member creates a booking, look up the
+    // customer in the `customers` collection (scoped to this workshop). If a
+    // customer already exists for that email, the booking is linked to that
+    // existing account — NO new account is created and NO welcome email is
+    // sent. If no customer exists yet, a new one is provisioned with the
+    // default password ("000000") and a welcome email is queued to be sent
+    // after the booking is successfully saved.
+    let resolvedCustomerId: string | null = null;
+    let newCustomerWelcome: {
+      email: string;
+      password: string;
+      name: string;
+    } | null = null;
+    try {
+      const rawEmail = typeof body.clientEmail === "string"
+        ? body.clientEmail.trim()
+        : "";
+      if (rawEmail) {
+        const ensureResult = await ensureCustomerAccount(db, {
+          ownerUid,
+          email: rawEmail,
+          name: body.client ? String(body.client) : null,
+          phone: body.clientPhone ? String(body.clientPhone) : null,
+        });
+        if (ensureResult) {
+          resolvedCustomerId = ensureResult.customerId;
+          if (ensureResult.created && ensureResult.defaultPassword) {
+            newCustomerWelcome = {
+              email: ensureResult.email,
+              password: ensureResult.defaultPassword,
+              name: String(body.client || "").trim(),
+            };
+            console.log(
+              `[BOOKING] Auto-created customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid})`
+            );
+          } else {
+            console.log(
+              `[BOOKING] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid}) — skipping welcome email`
+            );
+          }
+        }
+      }
+    } catch (customerAccountErr: any) {
+      console.error(
+        `[BOOKING] ❌ Exception during customer account resolution — proceeding without linked customerId:`,
+        customerAccountErr?.message || customerAccountErr
+      );
+    }
+
     const payload: any = {
       ownerUid,
       client: String(body.client),
       clientEmail: body.clientEmail || null,
       clientPhone: body.clientPhone || null,
+      customerId: resolvedCustomerId,
       vehicleNumber: body.vehicleNumber || null,
       vehicleMake: body.vehicleMake || null,
       vehicleModel: body.vehicleModel || null,
@@ -685,7 +767,62 @@ export async function POST(req: NextRequest) {
         });
         // Don't fail the request if email sending fails
       }
-      
+
+      // ─── Welcome email for NEWLY-created customer accounts ───────────────
+      // The customer account lookup happened before the booking was saved, so
+      // `resolvedCustomerId` is already on the booking doc. Here we only need
+      // to send the welcome email when a brand-new account was provisioned.
+      // Existing accounts get no email — they were already linked via
+      // `customerId` on the booking payload above.
+      if (newCustomerWelcome) {
+        try {
+          let workshopName = "Workshop";
+          let bookingEngineUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+          try {
+            const ownerDoc = await db.doc(`users/${ownerUid}`).get();
+            const ownerData = ownerDoc.exists ? ownerDoc.data() || {} : {};
+            workshopName =
+              (ownerData.workshopName as string) ||
+              (ownerData.salonName as string) ||
+              (ownerData.businessName as string) ||
+              (ownerData.name as string) ||
+              (ownerData.displayName as string) ||
+              "Workshop";
+            bookingEngineUrl = resolveBookingEngineUrl(ownerData);
+          } catch (ownerLookupErr) {
+            console.warn(
+              `[BOOKING] Could not resolve workshop metadata for welcome email (owner ${ownerUid}):`,
+              ownerLookupErr
+            );
+          }
+
+          const welcomeResult = await sendCustomerWelcomeEmail({
+            customerEmail: newCustomerWelcome.email,
+            password: newCustomerWelcome.password,
+            customerName: newCustomerWelcome.name,
+            workshopName,
+            bookingEngineUrl,
+          });
+
+          if (welcomeResult.success) {
+            console.log(
+              `[BOOKING] ✅ Welcome email sent to new customer ${newCustomerWelcome.email} for booking ${ref.id}`
+            );
+          } else {
+            console.error(
+              `[BOOKING] ❌ Welcome email failed for new customer ${newCustomerWelcome.email} on booking ${ref.id}:`,
+              welcomeResult.error
+            );
+          }
+        } catch (welcomeErr: any) {
+          console.error(
+            `[BOOKING] ❌ Exception sending welcome email for booking ${ref.id}:`,
+            welcomeErr?.message || welcomeErr
+          );
+          // Non-blocking — the booking is already saved.
+        }
+      }
+
       // Send notifications to assigned staff members (informational - booking confirmed, no approval needed)
       if (finalStatus === "Confirmed") {
         try {

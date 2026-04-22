@@ -837,7 +837,11 @@ export async function createBookingRescheduledAuditNotification(data: {
       ? "Owner"
       : data.performerRole === "branch_admin"
         ? "Branch Admin"
-        : "Admin";
+        : data.performerRole === "agent" ||
+            data.performerRole === "call_center_agent" ||
+            data.performerRole === "call_center_admin"
+          ? "Call Center"
+          : "Admin";
   const performerName = data.performerName?.trim() || performerLabel;
   const newSlot = `${data.bookingDate} at ${data.bookingTime}`;
   const pickup = data.pickupTime ? ` (pick-up at ${data.pickupTime})` : "";

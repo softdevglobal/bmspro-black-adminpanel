@@ -16,6 +16,7 @@ import {
   createCustomerConfirmationNotification,
   createCustomerCancellationNotification,
   createNotification,
+  createStaffAssignmentNotification,
   getNotificationContent,
   notifyOwnerBookingCompletedOnce,
 } from "@/lib/notifications";
@@ -107,9 +108,16 @@ export async function handleCallCenterBookingStatusChange(
     );
   }
 
-  const body = (await req
-    .json()
-    .catch(() => ({}))) as { reason?: string; forceComplete?: boolean };
+  const body = (await req.json().catch(() => ({}))) as {
+    reason?: string;
+    forceComplete?: boolean;
+    // Confirm-only: let the agent assign staff at the same time. Mirrors the
+    // admin panel's confirm dialog + mobile app's `_showConfirmationWithDetailsDialog`.
+    staffId?: string; // Single-service convenience
+    staffName?: string;
+    staffAssignments?: Record<string, { staffId?: string; staffName?: string }>; // Keyed by service id
+    skipStaffValidation?: boolean; // Allow "Any Staff" / unassigned confirm (discouraged)
+  };
 
   const db = adminDb();
 
@@ -222,6 +230,10 @@ export async function handleCallCenterBookingStatusChange(
     updatedAt: FieldValue.serverTimestamp(),
   };
 
+  /** Staff uids that should receive an assignment notification after a
+   *  successful confirm. Populated inside the `confirm` branch below. */
+  let staffIdsToNotify: string[] = [];
+
   const performerUid =
     gate.auth.kind === "agent" ? gate.auth.user.uid : gate.auth.uid;
   const performerName =
@@ -239,15 +251,122 @@ export async function handleCallCenterBookingStatusChange(
     const services = Array.isArray(data.services)
       ? (data.services as Record<string, unknown>[])
       : [];
-    updateData.services = services.map((s) => ({
-      ...s,
-      approvalStatus: "accepted",
-    }));
+
+    // Merge in any staff assignments supplied by the agent. This mirrors the
+    // admin panel + mobile "confirm" dialog, where the operator picks a staff
+    // member per service before the booking can flip to Confirmed.
+    const staffAssignments =
+      body.staffAssignments && typeof body.staffAssignments === "object"
+        ? body.staffAssignments
+        : {};
+    const topLevelStaffId = String(body.staffId || "").trim();
+    const topLevelStaffName = String(body.staffName || "").trim();
+
+    const missingStaffForServices: string[] = [];
+    const staffNotifyIds = new Set<string>();
+
+    const mergedServices = services.map((s) => {
+      const id = String(s.id ?? s.serviceId ?? "");
+      const override = id && staffAssignments[id] ? staffAssignments[id] : null;
+
+      let finalStaffId = String(s.staffId ?? "").trim();
+      let finalStaffName = String(s.staffName ?? "").trim();
+
+      if (override && override.staffId) {
+        finalStaffId = String(override.staffId).trim();
+        if (override.staffName) {
+          finalStaffName = String(override.staffName).trim();
+        }
+      } else if (
+        !finalStaffId &&
+        services.length === 1 &&
+        topLevelStaffId
+      ) {
+        // Single-service booking: accept top-level staffId/staffName.
+        finalStaffId = topLevelStaffId;
+        if (topLevelStaffName) finalStaffName = topLevelStaffName;
+      }
+
+      const looksUnassigned =
+        !finalStaffId ||
+        finalStaffId === "null" ||
+        /^any( staff| available)?$/i.test(finalStaffName);
+
+      if (looksUnassigned && !body.skipStaffValidation) {
+        const label = String(s.name ?? `service ${id || "#?"}`);
+        missingStaffForServices.push(label);
+      }
+
+      if (finalStaffId && finalStaffId !== "null") {
+        staffNotifyIds.add(finalStaffId);
+      }
+
+      return {
+        ...s,
+        ...(finalStaffId ? { staffId: finalStaffId } : {}),
+        ...(finalStaffName ? { staffName: finalStaffName } : {}),
+        approvalStatus: "accepted",
+      };
+    });
+
+    // Legacy single-service bookings (no `services[]` array) — validate the
+    // top-level staffId so they can't be confirmed empty.
+    if (
+      services.length === 0 &&
+      !body.skipStaffValidation &&
+      !topLevelStaffId &&
+      !String(data.staffId ?? "").trim()
+    ) {
+      missingStaffForServices.push(
+        String(data.serviceName ?? "service"),
+      );
+    }
+
+    if (missingStaffForServices.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Staff must be assigned to every service before confirming. Pass `staffAssignments` in the body, or set `skipStaffValidation: true` to override.",
+          missingStaffForServices,
+          hint:
+            'Body shape: { "staffAssignments": { "<serviceId>": { "staffId": "X", "staffName": "Y" } } } — or for a single-service booking { "staffId": "X", "staffName": "Y" }.',
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+
+    updateData.services = mergedServices;
+
+    // Legacy single-service bookings may carry top-level staff fields. Keep
+    // them in sync so downstream listeners (mobile card, email template) see
+    // the newly-assigned staff even if they don't walk the services array.
+    if (services.length === 0 && topLevelStaffId) {
+      updateData.staffId = topLevelStaffId;
+      if (topLevelStaffName) updateData.staffName = topLevelStaffName;
+      staffNotifyIds.add(topLevelStaffId);
+    } else if (services.length === 1) {
+      const only = mergedServices[0] as Record<string, unknown>;
+      if (only.staffId) {
+        updateData.staffId = only.staffId;
+        if (only.staffName) updateData.staffName = only.staffName;
+      }
+    } else if (services.length > 1) {
+      // Multi-service: clear the top-level fields to avoid the admin panel
+      // showing a single "assigned staff" label on a booking with per-service
+      // staff. (Same behaviour as the admin panel's confirm path.)
+      updateData.staffId = FieldValue.delete();
+      updateData.staffName = FieldValue.delete();
+    }
+
     updateData.confirmedBy = performerUid;
     updateData.confirmedByName = performerName;
     updateData.confirmedByRole = performerRole;
     updateData.confirmedAt = FieldValue.serverTimestamp();
     updateData.confirmedVia = "call_center";
+
+    // Stash the staff-to-notify set outside of `updateData` so it doesn't end
+    // up persisted to Firestore (see the post-update block below).
+    staffIdsToNotify = Array.from(staffNotifyIds);
   } else if (action === "cancel") {
     updateData.canceledBy = performerUid;
     updateData.canceledByName = performerName;
@@ -339,13 +458,63 @@ export async function handleCallCenterBookingStatusChange(
   // Customer notifications + email (same paths the in-app flows use).
   try {
     const clientName = String(data.client || data.clientName || "Customer");
-    const services = Array.isArray(data.services)
-      ? (data.services as Record<string, unknown>[])
-      : [];
+    // Prefer the merged services (with newly-assigned staff) from the update
+    // payload so notifications and emails reflect the freshly-picked staff.
+    const services = Array.isArray(updateData.services)
+      ? (updateData.services as Record<string, unknown>[])
+      : Array.isArray(data.services)
+        ? (data.services as Record<string, unknown>[])
+        : [];
     const staffName =
-      (data.staffName as string | undefined) ||
+      ((updateData.staffName as string | undefined) ||
+        (data.staffName as string | undefined)) ||
       (services.find((s) => s.staffName)?.staffName as string | undefined) ||
       null;
+
+    // Fan-out staff assignment notifications for newly-confirmed bookings so
+    // each assigned staff member sees the job in their mobile inbox (matches
+    // the admin panel's confirm flow).
+    if (nextStatus === "Confirmed" && staffIdsToNotify.length > 0) {
+      await Promise.all(
+        staffIdsToNotify.map(async (staffUid) => {
+          try {
+            const matched = services.find(
+              (s) => String(s.staffId ?? "") === staffUid,
+            );
+            await createStaffAssignmentNotification({
+              bookingId,
+              bookingCode: data.bookingCode as string | undefined,
+              staffUid,
+              staffName:
+                (matched?.staffName as string | undefined) ||
+                staffName ||
+                undefined,
+              clientName,
+              clientPhone: data.clientPhone as string | undefined,
+              serviceName:
+                (matched?.name as string | undefined) ||
+                (data.serviceName as string | undefined),
+              services: services.map((s) => ({
+                name: (s.name as string) || "Service",
+                staffName: (s.staffName as string | undefined) || undefined,
+                staffId: (s.staffId as string | undefined) || undefined,
+              })),
+              branchName: data.branchName as string | undefined,
+              bookingDate: ((data.date as string | undefined) ?? "").toString(),
+              bookingTime: ((data.time as string | undefined) ?? "").toString(),
+              duration: data.duration as number | undefined,
+              price: data.price as number | undefined,
+              ownerUid,
+            });
+          } catch (e) {
+            console.error(
+              "[call-center/status] staff assignment notification failed:",
+              e,
+            );
+          }
+        }),
+      );
+    }
 
     if (nextStatus === "Confirmed") {
       await createCustomerConfirmationNotification({

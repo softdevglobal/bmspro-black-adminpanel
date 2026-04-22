@@ -152,8 +152,12 @@ export async function GET(req: NextRequest) {
         branchId: d.branchId || "",
         branchName: d.branchName || "",
         services: services.map((s: any) => ({
+          // `id` is the service id the agent needs when assigning staff via
+          // POST /bookings/{id}/confirm → body.staffAssignments[<id>].
+          id: s.id || s.serviceId || null,
           name: s.name || "",
           price: s.price || 0,
+          staffId: s.staffId || null,
           staffName: s.staffName || null,
           completionStatus: s.completionStatus || "pending",
         })),

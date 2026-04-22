@@ -19,6 +19,7 @@ import {
 } from "@/lib/notifications";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
 import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -595,6 +596,47 @@ export async function POST(req: NextRequest) {
 
     const bookingRef = await db.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
+
+    // ─── Persist the vehicle into the customer's "My Vehicles" list ──────
+    // Mirrors /api/bookings so agents who capture a rego / VIN while taking
+    // the call populate the customer profile for the next booking. Dedupes
+    // against existing vehicles; best-effort — never breaks booking creation.
+    if (resolvedCustomerId) {
+      try {
+        const vehicleResult = await upsertCustomerVehicleFromBooking(db, {
+          customerId: resolvedCustomerId,
+          ownerUid,
+          createdByUid: actor.uid || null,
+          vehicle: {
+            vehicleNumber: vf.vehicleNumber,
+            vehicleMake: vf.vehicleMake,
+            vehicleModel: vf.vehicleModel,
+            vehicleYear: vf.vehicleYear,
+            vehicleMileage: vf.vehicleMileage,
+            vehicleBodyType: vf.vehicleBodyType,
+            vehicleColour: vf.vehicleColour,
+            vehicleVinChassis: vf.vehicleVinChassis,
+            vehicleEngineNumber: vf.vehicleEngineNumber,
+          },
+        });
+        if (vehicleResult.saved) {
+          console.log(
+            `[call-center/bookings] ✅ Vehicle ${vehicleResult.vehicleId} ${
+              vehicleResult.updatedExisting ? "merged into existing" : "added to"
+            } customer ${resolvedCustomerId} from booking ${bookingId}`,
+          );
+        } else {
+          console.log(
+            `[call-center/bookings] ℹ️ Skipped vehicle upsert for booking ${bookingId} — reason: ${vehicleResult.reason}`,
+          );
+        }
+      } catch (vehicleErr: any) {
+        console.error(
+          `[call-center/bookings] ❌ Exception persisting vehicle for booking ${bookingId}:`,
+          vehicleErr?.message || vehicleErr,
+        );
+      }
+    }
 
     const bookingTimeDisplay = pickupTime
       ? `Drop-off: ${String(time)}, Pick-up: ${pickupTime}`

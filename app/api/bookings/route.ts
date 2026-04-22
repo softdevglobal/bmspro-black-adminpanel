@@ -10,6 +10,7 @@ import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 import { sendBookingRequestReceivedEmail, sendBookingEmail, sendCustomerWelcomeEmail } from "@/lib/emailService";
 import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -591,7 +592,52 @@ export async function POST(req: NextRequest) {
 
     try {
       const ref = await adminDb().collection("bookings").add(payload);
-      
+
+      // ─── Persist the vehicle into the customer's "My Vehicles" list ────
+      // When we resolved/created a customer account above, also save the
+      // vehicle captured on this booking to `customers/{id}/vehicles` so it
+      // shows up on the Booking Engine's "My Vehicles" tab and in future
+      // bookings. Dedupes by rego / VIN — existing vehicles are merged, not
+      // duplicated. Best-effort: failures must never break booking creation.
+      if (resolvedCustomerId) {
+        try {
+          const vehicleResult = await upsertCustomerVehicleFromBooking(
+            adminDb(),
+            {
+              customerId: resolvedCustomerId,
+              ownerUid,
+              createdByUid: currentUserId || null,
+              vehicle: {
+                vehicleNumber: body.vehicleNumber,
+                vehicleMake: body.vehicleMake,
+                vehicleModel: body.vehicleModel,
+                vehicleBodyType: body.vehicleBodyType,
+                vehicleColour: body.vehicleColour,
+                vehicleVinChassis: body.vehicleVinChassis,
+                vehicleEngineNumber: body.vehicleEngineNumber,
+                vehicleMileage: body.vehicleMileage,
+              },
+            },
+          );
+          if (vehicleResult.saved) {
+            console.log(
+              `[BOOKING] ✅ Vehicle ${vehicleResult.vehicleId} ${
+                vehicleResult.updatedExisting ? "merged into existing" : "added to"
+              } customer ${resolvedCustomerId} from booking ${ref.id}`,
+            );
+          } else {
+            console.log(
+              `[BOOKING] ℹ️ Skipped vehicle upsert for booking ${ref.id} — reason: ${vehicleResult.reason}`,
+            );
+          }
+        } catch (vehicleErr: any) {
+          console.error(
+            `[BOOKING] ❌ Exception persisting vehicle for booking ${ref.id}:`,
+            vehicleErr?.message || vehicleErr,
+          );
+        }
+      }
+
       // Create booking activity log for new booking
       try {
         await adminDb().collection("bookingActivities").add({

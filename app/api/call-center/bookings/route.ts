@@ -23,7 +23,7 @@ import {
 } from "@/lib/notifications";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
 import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
-import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehicles";
+import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 
 export const runtime = "nodejs";
 

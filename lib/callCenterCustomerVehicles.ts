@@ -7,6 +7,17 @@
  * browser bundle through transitive imports.
  */
 
+import { isVehicleType, type VehicleType } from "./services";
+
+/** Coerce free-form input into a canonical VehicleType size class (small_car, suv, etc.)
+ * so the wrong values never get persisted to Firestore. Returns "" when not valid. */
+export function normalizeVehicleType(raw: unknown): VehicleType | "" {
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return isVehicleType(trimmed) ? (trimmed as VehicleType) : "";
+}
+
 /** Strip spaces/dashes and uppercase — same plate should dedupe across "ABF 3344" vs "abf-3344". */
 export function normalizeVehicleRego(raw: string): string {
   return raw.replace(/[\s-]/g, "").toUpperCase();
@@ -140,6 +151,8 @@ export function parseVehicleDetailsBody(body: Record<string, unknown>): {
   const vin = str(merged, "vin") || str(merged, "vinChassis");
   const vinChassis = str(merged, "vinChassis") || str(merged, "vin");
 
+  const vehicleType = normalizeVehicleType(merged.vehicleType);
+
   const payload: Record<string, unknown> = {
     rego,
     registrationNumber: str(merged, "registrationNumber") || rego,
@@ -149,6 +162,7 @@ export function parseVehicleDetailsBody(body: Record<string, unknown>): {
     year: str(merged, "year"),
     colour: str(merged, "colour"),
     bodyType: str(merged, "bodyType"),
+    vehicleType,
     engineNumber: str(merged, "engineNumber"),
     mileage: str(merged, "mileage"),
     notes: str(merged, "notes"),
@@ -186,6 +200,7 @@ export function mapCustomerVehicleDoc(
     vinChassis: String(d.vinChassis ?? d.vin ?? ""),
     engineNumber: String(d.engineNumber ?? ""),
     bodyType: String(d.bodyType ?? ""),
+    vehicleType: normalizeVehicleType(d.vehicleType),
     mileage: d.mileage != null ? String(d.mileage) : "",
     notes: String((d.notes as string) ?? ""),
     createdAt: d.createdAt ?? null,

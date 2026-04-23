@@ -5,6 +5,7 @@ import {
   dedupeVehiclesByIdentity,
   isSameCustomerVehicle,
   mergeVehicleFirestoreFields,
+  normalizeVehicleType,
 } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
@@ -16,6 +17,8 @@ type VehicleInput = {
   year?: string;
   mileage?: string;
   bodyType?: string;
+  /** Canonical size class used for vehicle-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: string;
   colour?: string;
   vinChassis?: string;
   engineNumber?: string;
@@ -71,6 +74,7 @@ export async function GET(req: NextRequest) {
           year: data.year || "",
           mileage: data.mileage || "",
           bodyType: data.bodyType || "",
+          vehicleType: normalizeVehicleType(data.vehicleType) || "",
           colour: data.colour || "",
           vinChassis: data.vinChassis || "",
           engineNumber: data.engineNumber || "",
@@ -94,7 +98,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as { customerId: string; slug: string } & VehicleInput;
-    const { customerId, slug, registrationNumber, make, model, year, mileage, bodyType, colour, vinChassis, engineNumber } = body;
+    const { customerId, slug, registrationNumber, make, model, year, mileage, bodyType, vehicleType, colour, vinChassis, engineNumber } = body;
+    const normalizedType = normalizeVehicleType(vehicleType);
 
     if (!customerId || !slug) {
       return NextResponse.json({ error: "customerId and slug are required" }, { status: 400 });
@@ -130,6 +135,7 @@ export async function POST(req: NextRequest) {
       year: (year || "").trim() || null,
       mileage: (mileage || "").trim() || null,
       bodyType: (bodyType || "").trim() || null,
+      vehicleType: normalizedType || null,
       colour: (colour || "").trim() || null,
       vinChassis: (vinChassis || "").trim() || null,
       vin: (vinChassis || "").trim() || null,
@@ -169,6 +175,7 @@ export async function POST(req: NextRequest) {
         year: saved.year ?? "",
         mileage: saved.mileage ?? "",
         bodyType: saved.bodyType ?? "",
+        vehicleType: normalizeVehicleType(saved.vehicleType) || "",
         colour: saved.colour ?? "",
         vinChassis: saved.vinChassis ?? "",
         engineNumber: saved.engineNumber ?? "",
@@ -192,6 +199,7 @@ export async function POST(req: NextRequest) {
       year: (year || "").trim(),
       mileage: (mileage || "").trim(),
       bodyType: (bodyType || "").trim(),
+      vehicleType: normalizedType || "",
       colour: (colour || "").trim(),
       vinChassis: (vinChassis || "").trim(),
       engineNumber: (engineNumber || "").trim(),

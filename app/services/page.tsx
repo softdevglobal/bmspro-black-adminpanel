@@ -15,13 +15,20 @@ import {
   updateService,
   normalizeChecklist,
   normalizeAreaOrder,
+  normalizeVehicleTypePricing,
+  minPricingFromVehicleTypePricing,
   DEFAULT_AREA_ORDER,
   CHECKLIST_SECTIONS,
   CHECKLIST_SECTION_LABELS,
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
   isChecklistSection,
   groupChecklistItemsWithGlobalNumbers,
   type ChecklistItem,
   type ChecklistSection,
+  type VehicleType,
+  type VehicleTypePricingMap,
 } from "@/lib/services";
 import {
   DndContext,
@@ -41,6 +48,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { subscribeDefaultServices } from "@/lib/defaultServices";
+import { getErrorMessage } from "@/lib/errorMessage";
+
+type ToastVariant = "success" | "error" | "warning";
 import { nativeSelectInsetChevronClass } from "@/lib/nativeSelectChevron";
 
 type Service = {
@@ -58,6 +68,10 @@ type Service = {
   /** Owner-defined area group order. Normalised on read (always 4 sections). */
   areaOrder: ChecklistSection[];
   sourceTemplateId?: string;
+  /** Vehicle types this service is offered for. Empty = legacy flat pricing. */
+  vehicleTypes: VehicleType[];
+  /** Per-vehicle-type price + duration overrides. Empty when `vehicleTypes` is empty. */
+  vehicleTypePricing: VehicleTypePricingMap;
 };
 
 type DefaultTemplate = {
@@ -322,14 +336,36 @@ export default function ServicesPage() {
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [price, setPrice] = useState<string>("");
-  const [duration, setDuration] = useState<number | "">("");
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Record<string, boolean>>({});
   const [selectedBranches, setSelectedBranches] = useState<Record<string, boolean>>({});
+  // Vehicle-type pricing form state. `vehicleTypeEnabled[vt] === true` means
+  // the owner has ticked that type; `vehicleTypePricingForm[vt]` holds the
+  // raw string input (kept as string so we don't flicker while typing "12.").
+  const [vehicleTypeEnabled, setVehicleTypeEnabled] = useState<
+    Record<VehicleType, boolean>
+  >({
+    small_car: false,
+    sedan_wagon: false,
+    suv: false,
+    ute_van_4wd: false,
+    performance_large: false,
+  });
+  const [vehicleTypePricingForm, setVehicleTypePricingForm] = useState<
+    Record<VehicleType, { price: string; duration: string }>
+  >({
+    small_car: { price: "", duration: "" },
+    sedan_wagon: { price: "", duration: "" },
+    suv: { price: "", duration: "" },
+    ute_van_4wd: { price: "", duration: "" },
+    performance_large: { price: "", duration: "" },
+  });
+  const anyVehicleTypeEnabled = VEHICLE_TYPES.some(
+    (vt) => vehicleTypeEnabled[vt],
+  );
   const [checklistRows, setChecklistRows] = useState<ChecklistRow[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [newChecklistDesc, setNewChecklistDesc] = useState("");
@@ -456,21 +492,33 @@ export default function ServicesPage() {
     });
     const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
       setServices(
-        rows.map((r) => ({
-          id: String(r.id),
-          name: String(r.name || ""),
-          description: r.description ? String(r.description) : undefined,
-          price: Number(r.price || 0),
-          duration: Number(r.duration || 0),
-          icon: String(r.icon || ""),
-          imageUrl: String((r as any).imageUrl || ""),
-          reviews: Number(r.reviews || 0),
-          branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
-          staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
-          checklist: normalizeChecklist((r as any).checklist),
-          areaOrder: normalizeAreaOrder((r as any).areaOrder),
-          sourceTemplateId: r.sourceTemplateId ? String(r.sourceTemplateId) : undefined,
-        }))
+        rows.map((r) => {
+          const vt = normalizeVehicleTypePricing((r as any).vehicleTypePricing);
+          // Derive headline price/duration. Workshop-owner services no
+          // longer persist the flat `price`/`duration` fields — we compute
+          // the "starting from" number from the cheapest tier in
+          // `vehicleTypePricing`. Super-admin default_services clones and
+          // un-migrated docs still have flat fields, so we fall back to
+          // them when the map is empty.
+          const min = minPricingFromVehicleTypePricing(vt.vehicleTypePricing);
+          return {
+            id: String(r.id),
+            name: String(r.name || ""),
+            description: r.description ? String(r.description) : undefined,
+            price: min ? min.price : Number(r.price || 0),
+            duration: min ? min.duration : Number(r.duration || 0),
+            icon: String(r.icon || ""),
+            imageUrl: String((r as any).imageUrl || ""),
+            reviews: Number(r.reviews || 0),
+            branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
+            staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
+            checklist: normalizeChecklist((r as any).checklist),
+            areaOrder: normalizeAreaOrder((r as any).areaOrder),
+            sourceTemplateId: r.sourceTemplateId ? String(r.sourceTemplateId) : undefined,
+            vehicleTypes: vt.vehicleTypes,
+            vehicleTypePricing: vt.vehicleTypePricing,
+          };
+        })
       );
     });
     const unsubDefaults = subscribeDefaultServices((rows) => {
@@ -491,12 +539,15 @@ export default function ServicesPage() {
     };
   }, [ownerUid]);
 
-  // toast
-  const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
-  const showToast = (text: string) => {
-    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setToasts((t) => [...t, { id, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
+  // Toasts must sit above modal overlays (z-50 + backdrop-blur) or they look blurred.
+  const [toasts, setToasts] = useState<
+    Array<{ id: string; text: string; variant: ToastVariant }>
+  >([]);
+  const showToast = (text: string, variant: ToastVariant = "success") => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    setToasts((t) => [...t, { id, text, variant }]);
+    const duration = variant === "error" ? 6500 : variant === "warning" ? 4500 : 3200;
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), duration);
   };
 
   const openModal = () => {
@@ -504,8 +555,6 @@ export default function ServicesPage() {
     setSelectedTemplateId("");
     setName("");
     setDescription("");
-    setPrice("");
-    setDuration("");
     setImageUrl("");
     setImageFile(null);
     setImagePreview(null);
@@ -520,6 +569,20 @@ export default function ServicesPage() {
     branches.forEach((b) => (branchMap[b.id] = false));
     setSelectedStaff(staffMap);
     setSelectedBranches(branchMap);
+    setVehicleTypeEnabled({
+      small_car: false,
+      sedan_wagon: false,
+      suv: false,
+      ute_van_4wd: false,
+      performance_large: false,
+    });
+    setVehicleTypePricingForm({
+      small_car: { price: "", duration: "" },
+      sedan_wagon: { price: "", duration: "" },
+      suv: { price: "", duration: "" },
+      ute_van_4wd: { price: "", duration: "" },
+      performance_large: { price: "", duration: "" },
+    });
     setIsModalOpen(true);
   };
   const closeModal = () => {
@@ -547,8 +610,6 @@ export default function ServicesPage() {
     setEditingServiceId(svc.id);
     setName(svc.name);
     setDescription(svc.description || "");
-    setPrice(String(svc.price));
-    setDuration(svc.duration);
     setImageUrl(svc.imageUrl || "");
     setImagePreview(svc.imageUrl || null);
     setImageFile(null);
@@ -563,6 +624,34 @@ export default function ServicesPage() {
     branches.forEach((b) => (branchMap[b.id] = svc.branches?.includes(b.id) || false));
     setSelectedStaff(staffMap);
     setSelectedBranches(branchMap);
+    // Hydrate vehicle-type form from the stored pricing map, then fill the
+    // rest of the types with blank rows so every tick-box is addressable.
+    const enabled: Record<VehicleType, boolean> = {
+      small_car: false,
+      sedan_wagon: false,
+      suv: false,
+      ute_van_4wd: false,
+      performance_large: false,
+    };
+    const form: Record<VehicleType, { price: string; duration: string }> = {
+      small_car: { price: "", duration: "" },
+      sedan_wagon: { price: "", duration: "" },
+      suv: { price: "", duration: "" },
+      ute_van_4wd: { price: "", duration: "" },
+      performance_large: { price: "", duration: "" },
+    };
+    for (const vt of VEHICLE_TYPES) {
+      const entry = svc.vehicleTypePricing?.[vt];
+      if (entry) {
+        enabled[vt] = true;
+        form[vt] = {
+          price: String(entry.price ?? ""),
+          duration: String(entry.duration ?? ""),
+        };
+      }
+    }
+    setVehicleTypeEnabled(enabled);
+    setVehicleTypePricingForm(form);
     setIsModalOpen(true);
   };
 
@@ -571,12 +660,12 @@ export default function ServicesPage() {
     if (file) {
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        showToast('Please select an image file');
+        showToast("Please select an image file", "warning");
         return;
       }
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
-        showToast('Image size should be less than 5MB');
+        showToast("Image size should be less than 5MB", "warning");
         return;
       }
       setImageFile(file);
@@ -605,7 +694,7 @@ export default function ServicesPage() {
       return downloadURL;
     } catch (error) {
       console.error('Error uploading image:', error);
-      showToast('Failed to upload image');
+      showToast("Failed to upload image", "error");
       return null;
     } finally {
       setUploading(false);
@@ -614,19 +703,14 @@ export default function ServicesPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!name.trim() || price.trim() === "" || !duration) return;
-    const priceNum = Number(price);
-    if (!Number.isFinite(priceNum) || priceNum < 0) {
-      showToast("Enter a valid price");
-      return;
-    }
+    if (!name.trim()) return;
     const qualifiedStaff = Object.keys(selectedStaff).filter((id) => selectedStaff[id]);
     const selectedBrs = Object.keys(selectedBranches).filter((id) => selectedBranches[id]);
     if (!ownerUid) return;
     
     // Validate that at least one branch is selected
     if (selectedBrs.length === 0) {
-      showToast("Please select at least one branch for this service");
+      showToast("Please select at least one branch for this service", "error");
       return;
     }
 
@@ -636,8 +720,54 @@ export default function ServicesPage() {
         (item) => item.name.trim() !== "" && !isChecklistSection(item.section)
       )
     ) {
-      showToast("Please select a vehicle area for every task.");
+      showToast("Please select a vehicle area for every task.", "error");
       return;
+    }
+
+    // Validate vehicle-type pricing rows. Pricing is now the ONLY way to
+    // price a service, so at least one type must be ticked and every ticked
+    // row must have both a non-negative price and a positive duration.
+    const selectedVehicleTypes: VehicleType[] = VEHICLE_TYPES.filter(
+      (vt) => vehicleTypeEnabled[vt],
+    );
+    if (selectedVehicleTypes.length === 0) {
+      showToast(
+        "Select at least one vehicle type and set its price & duration.",
+        "error",
+      );
+      return;
+    }
+    const vehicleTypePricingOut: VehicleTypePricingMap = {};
+    for (const vt of selectedVehicleTypes) {
+      const row = vehicleTypePricingForm[vt];
+      const priceNum = Number(row.price);
+      const durationNum = Number(row.duration);
+      if (
+        row.price.trim() === "" ||
+        !Number.isFinite(priceNum) ||
+        priceNum < 0
+      ) {
+        showToast(
+          `Enter a valid price for ${VEHICLE_TYPE_LABELS[vt]}.`,
+          "error",
+        );
+        return;
+      }
+      if (
+        row.duration.trim() === "" ||
+        !Number.isFinite(durationNum) ||
+        durationNum <= 0
+      ) {
+        showToast(
+          `Enter a valid duration for ${VEHICLE_TYPE_LABELS[vt]}.`,
+          "error",
+        );
+        return;
+      }
+      vehicleTypePricingOut[vt] = {
+        price: priceNum,
+        duration: Math.round(durationNum),
+      };
     }
 
     setSaving(true);
@@ -649,36 +779,39 @@ export default function ServicesPage() {
         if (uploadedUrl) {
           finalImageUrl = uploadedUrl;
         } else {
-          showToast("Failed to upload image");
+          showToast("Failed to upload image", "error");
           setSaving(false);
           return;
         }
       }
-      
+
+      // NOTE: we intentionally don't send `price`/`duration`. Pricing lives
+      // entirely in `vehicleTypePricing`; `updateService` will also scrub
+      // any stale flat fields off the existing doc.
       if (editingServiceId) {
         await updateService(editingServiceId, {
           name: name.trim(),
           description: description.trim(),
-          price: priceNum,
-          duration: Number(duration),
           imageUrl: finalImageUrl || "",
           staffIds: qualifiedStaff,
           branches: selectedBrs,
           checklist: checklistPayload,
           areaOrder,
+          vehicleTypes: selectedVehicleTypes,
+          vehicleTypePricing: vehicleTypePricingOut,
         });
       } else {
         await createServiceForOwner(ownerUid, {
           name: name.trim(),
           description: description.trim(),
-          price: priceNum,
-          duration: Number(duration),
           imageUrl: finalImageUrl || "",
           reviews: 0,
           staffIds: qualifiedStaff,
           branches: selectedBrs,
           checklist: checklistPayload,
           areaOrder,
+          vehicleTypes: selectedVehicleTypes,
+          vehicleTypePricing: vehicleTypePricingOut,
         });
       }
       setIsModalOpen(false);
@@ -687,8 +820,15 @@ export default function ServicesPage() {
       setImagePreview(null);
       showToast(editingServiceId ? "Service updated." : "Service added to catalog!");
     } catch (error) {
-      console.error('Error saving service:', error);
-      showToast(editingServiceId ? "Failed to update service" : "Failed to add service");
+      console.error("Error saving service:", error);
+      const base = editingServiceId
+        ? "Failed to update service"
+        : "Failed to add service";
+      const detail = getErrorMessage(error, "");
+      showToast(
+        detail ? `${base}. ${detail}` : base,
+        "error",
+      );
     } finally {
       setSaving(false);
     }
@@ -705,8 +845,11 @@ export default function ServicesPage() {
       await deleteServiceDoc(deleteTarget.id);
       showToast("Service removed.");
       setDeleteTarget(null);
-    } catch {
-      showToast("Failed to remove service.");
+    } catch (err) {
+      showToast(
+        `Failed to remove service. ${getErrorMessage(err, "Please try again.")}`,
+        "error",
+      );
     } finally {
       setDeleting(false);
     }
@@ -848,16 +991,42 @@ export default function ServicesPage() {
                         {/* Diagonal hazard stripe accent */}
                         <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-amber-500/0 via-amber-500/30 to-amber-500/0" />
 
-                        {/* Price + Duration row */}
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-amber-400 text-sm font-medium">$</span>
-                            <span className="text-3xl font-black text-white tracking-tighter">{s.price}</span>
+                        {/* Price + Duration row.
+                            When the service has vehicle-type pricing, we
+                            stamp a clear "STARTING FROM" label above the
+                            price so the card number matches what the owner
+                            sees in the Pricing by Vehicle Type matrix (the
+                            lowest-priced type). Duration follows the same
+                            "from" treatment for consistency. */}
+                        <div className="flex items-end justify-between mb-4 gap-3">
+                          <div className="flex flex-col min-w-0">
+                            {s.vehicleTypes.length > 0 && (
+                              <span
+                                className="inline-flex items-center gap-1 self-start mb-1.5 px-2 py-0.5 rounded-md bg-amber-400/10 border border-amber-400/25 text-amber-300 text-[10px] font-bold uppercase tracking-[0.14em] leading-none"
+                                title={`Lowest price across ${s.vehicleTypes.length} vehicle type${s.vehicleTypes.length !== 1 ? "s" : ""}`}
+                              >
+                                <i className="fas fa-tag text-[8px]" />
+                                Starting from
+                              </span>
+                            )}
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-amber-400 text-base font-semibold">$</span>
+                              <span className="text-3xl font-black text-white tracking-tighter leading-none tabular-nums">
+                                {s.price.toLocaleString()}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.08] rounded-lg px-3 py-1.5">
-                            <i className="far fa-clock text-amber-400 text-[10px]" />
-                            <span className="text-sm font-bold text-white">{s.duration}</span>
-                            <span className="text-xs text-neutral-500 font-medium">min</span>
+                          <div className="flex flex-col items-end">
+                            {s.vehicleTypes.length > 0 && (
+                              <span className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500 leading-none">
+                                From
+                              </span>
+                            )}
+                            <div className="flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.08] rounded-lg px-3 py-1.5">
+                              <i className="far fa-clock text-amber-400 text-[10px]" />
+                              <span className="text-sm font-bold text-white tabular-nums">{s.duration}</span>
+                              <span className="text-xs text-neutral-500 font-medium">min</span>
+                            </div>
                           </div>
                         </div>
 
@@ -875,6 +1044,12 @@ export default function ServicesPage() {
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-amber-500/10 text-amber-400 px-2.5 py-1.5 rounded-lg border border-amber-500/10">
                               <i className="fas fa-clipboard-check text-[9px]" />
                               {s.checklist.length} Tasks
+                            </span>
+                          )}
+                          {s.vehicleTypes.length > 0 && (
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-indigo-500/10 text-indigo-300 px-2.5 py-1.5 rounded-lg border border-indigo-500/10">
+                              <i className="fas fa-car text-[9px]" />
+                              {s.vehicleTypes.length} Vehicle{s.vehicleTypes.length !== 1 ? "s" : ""}
                             </span>
                           )}
                           {s.sourceTemplateId && (
@@ -940,16 +1115,6 @@ export default function ServicesPage() {
             </div>
           </div>
         </main>
-      </div>
-
-      {/* Toasts */}
-      <div id="toast-container" className="fixed bottom-5 right-5 z-50 space-y-2">
-        {toasts.map((t) => (
-          <div key={t.id} className="toast bg-neutral-800 text-white px-4 py-3 rounded-lg shadow-md border-l-4 border-amber-500 flex items-center gap-2">
-            <i className="fas fa-circle-check text-amber-500" />
-            <span className="text-sm">{t.text}</span>
-          </div>
-        ))}
       </div>
 
       {/* Add Service Modal */}
@@ -1022,58 +1187,133 @@ export default function ServicesPage() {
                         placeholder="Describe what this service includes..."
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-                      <div>
-                        <label className="block text-xs font-bold text-neutral-600 mb-1">Duration (mins)</label>
-                        <select 
-                          value={duration} 
-                          onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} 
-                          required 
-                          className="select-inset-chevron w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none bg-white"
-                        >
-                          <option value="">Select Duration</option>
-                          <option value="15">15 mins</option>
-                          <option value="30">30 mins</option>
-                          <option value="45">45 mins</option>
-                          <option value="60">60 mins</option>
-                          <option value="75">75 mins</option>
-                          <option value="90">90 mins</option>
-                          <option value="105">105 mins</option>
-                          <option value="120">120 mins</option>
-                          <option value="135">135 mins</option>
-                          <option value="150">150 mins</option>
-                          <option value="165">165 mins</option>
-                          <option value="180">180 mins</option>
-                          <option value="195">195 mins</option>
-                          <option value="210">210 mins</option>
-                          <option value="225">225 mins</option>
-                          <option value="240">240 mins</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-neutral-600 mb-1">Price ($)</label>
-                        <input
-                          value={price}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "") {
-                              setPrice("");
-                              return;
-                            }
-                            if (!/^\d*\.?\d*$/.test(v)) return;
-                            setPrice(v);
-                          }}
-                          type="text"
-                          inputMode="decimal"
-                          autoComplete="off"
-                          required
-                          className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none"
-                          placeholder="120"
-                        />
-                      </div>
-                    </div>
                   </div>
                 </div>
+
+                {/* Vehicle Types & Pricing */}
+                <div className="bg-indigo-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-indigo-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-car text-indigo-600" />
+                    Vehicle Types & Pricing
+                    <span className="text-[10px] font-semibold text-rose-600 ml-1">*</span>
+                  </h4>
+                  <p className="text-[10px] text-indigo-700 mb-3">
+                    <i className="fas fa-info-circle mr-1" />
+                    Tick at least one vehicle type this service applies to, and set the price and duration for each selected type.
+                  </p>
+                  <div className="space-y-2">
+                    {VEHICLE_TYPES.map((vt) => {
+                      const enabled = vehicleTypeEnabled[vt];
+                      const row = vehicleTypePricingForm[vt];
+                      return (
+                        <div
+                          key={vt}
+                          className={`rounded-lg border-2 transition-all ${
+                            enabled
+                              ? "border-indigo-400 bg-white shadow-sm"
+                              : "border-indigo-100 bg-white/60"
+                          }`}
+                        >
+                          <label
+                            className={`flex items-center gap-2 p-2.5 sm:p-3 cursor-pointer select-none ${
+                              enabled ? "" : "hover:bg-indigo-50"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={(e) =>
+                                setVehicleTypeEnabled((prev) => ({
+                                  ...prev,
+                                  [vt]: e.target.checked,
+                                }))
+                              }
+                              className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                            />
+                            <i
+                              className={`${VEHICLE_TYPE_ICONS[vt]} text-indigo-500 text-sm w-5 text-center`}
+                            />
+                            <span className="text-xs sm:text-sm font-semibold text-neutral-800 flex-1">
+                              {VEHICLE_TYPE_LABELS[vt]}
+                            </span>
+                            {enabled && row.price && row.duration && (
+                              <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">
+                                ${Number(row.price).toLocaleString()} · {row.duration} min
+                              </span>
+                            )}
+                          </label>
+                          {enabled && (
+                            <div className="border-t border-indigo-100 bg-indigo-50/40 p-2.5 sm:p-3">
+                              <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-neutral-600 mb-1">
+                                    Price ($)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    autoComplete="off"
+                                    value={row.price}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
+                                      setVehicleTypePricingForm((prev) => ({
+                                        ...prev,
+                                        [vt]: { ...prev[vt], price: v },
+                                      }));
+                                    }}
+                                    className="w-full border border-indigo-200 rounded-lg p-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                                    placeholder="e.g. 180"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-neutral-600 mb-1">
+                                    Duration (mins)
+                                  </label>
+                                  <select
+                                    value={row.duration}
+                                    onChange={(e) =>
+                                      setVehicleTypePricingForm((prev) => ({
+                                        ...prev,
+                                        [vt]: { ...prev[vt], duration: e.target.value },
+                                      }))
+                                    }
+                                    className="select-inset-chevron w-full border border-indigo-200 rounded-lg p-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                                  >
+                                    <option value="">Select Duration</option>
+                                    <option value="15">15 mins</option>
+                                    <option value="30">30 mins</option>
+                                    <option value="45">45 mins</option>
+                                    <option value="60">60 mins</option>
+                                    <option value="75">75 mins</option>
+                                    <option value="90">90 mins</option>
+                                    <option value="105">105 mins</option>
+                                    <option value="120">120 mins</option>
+                                    <option value="135">135 mins</option>
+                                    <option value="150">150 mins</option>
+                                    <option value="165">165 mins</option>
+                                    <option value="180">180 mins</option>
+                                    <option value="195">195 mins</option>
+                                    <option value="210">210 mins</option>
+                                    <option value="225">225 mins</option>
+                                    <option value="240">240 mins</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {!anyVehicleTypeEnabled && (
+                    <p className="text-[10px] text-rose-600 mt-2 font-medium">
+                      <i className="fas fa-triangle-exclamation mr-1" />
+                      Select at least one vehicle type to save this service.
+                    </p>
+                  )}
+                </div>
+
                 {/* Service Image Upload */}
                 <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200">
                   <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -1216,7 +1456,7 @@ export default function ServicesPage() {
                           e.preventDefault();
                           if (!newChecklistItem.trim()) return;
                           if (newChecklistSection === "") {
-                            showToast("Please select an area.");
+                            showToast("Please select an area.", "error");
                             return;
                           }
                           setChecklistRows((prev) => [
@@ -1270,7 +1510,7 @@ export default function ServicesPage() {
                       onClick={() => {
                         if (!newChecklistItem.trim()) return;
                         if (newChecklistSection === "") {
-                          showToast("Please select an area.");
+                          showToast("Please select an area.", "error");
                           return;
                         }
                         setChecklistRows((prev) => [
@@ -1589,27 +1829,147 @@ export default function ServicesPage() {
                     </div>
                   )}
 
-                  {/* Price and Duration */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
-                          <i className="fas fa-dollar-sign text-amber-500" />
+                  {/* Flat Price / Duration — only for legacy services that
+                      predate vehicle-type pricing. New services always have
+                      at least one vehicle-type entry and surface pricing
+                      through the matrix below instead. */}
+                  {previewService.vehicleTypes.length === 0 && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
+                            <i className="fas fa-dollar-sign text-amber-500" />
+                          </div>
+                          <div className="text-xs text-neutral-600 font-semibold">Price</div>
                         </div>
-                        <div className="text-xs text-neutral-600 font-semibold">Price</div>
+                        <div className="text-3xl font-bold text-neutral-900">${previewService.price}</div>
                       </div>
-                      <div className="text-3xl font-bold text-neutral-900">${previewService.price}</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                          <i className="fas fa-clock text-blue-600" />
+                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <i className="fas fa-clock text-blue-600" />
+                          </div>
+                          <div className="text-xs text-neutral-600 font-semibold">Duration</div>
                         </div>
-                        <div className="text-xs text-neutral-600 font-semibold">Duration</div>
+                        <div className="text-3xl font-bold text-blue-600">{previewService.duration}<span className="text-lg">min</span></div>
                       </div>
-                      <div className="text-3xl font-bold text-blue-600">{previewService.duration}<span className="text-lg">min</span></div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* "Starting from" summary + Vehicle-type pricing matrix.
+                      Mirrors the card: headline shows the cheapest tier and
+                      shortest duration (both drawn straight from the stored
+                      matrix so there's no drift), then the matrix breaks
+                      the full price list down by vehicle type. The tier
+                      matching the headline is tagged with a small "lowest"
+                      chip so the owner can see what feeds the headline. */}
+                  {previewService.vehicleTypes.length > 0 && (() => {
+                    const entries = previewService.vehicleTypes
+                      .map((vt) => ({
+                        vt,
+                        entry: previewService.vehicleTypePricing[vt],
+                      }))
+                      .filter((x) => !!x.entry) as {
+                      vt: VehicleType;
+                      entry: { price: number; duration: number };
+                    }[];
+                    if (entries.length === 0) return null;
+                    const minPrice = Math.min(...entries.map((e) => e.entry.price));
+                    const minDuration = Math.min(
+                      ...entries.map((e) => e.entry.duration),
+                    );
+                    return (
+                      <div className="space-y-3">
+                        {/* Starting-from headline */}
+                        <div className="bg-gradient-to-br from-amber-50 via-white to-indigo-50 rounded-xl p-4 border-2 border-amber-200">
+                          <div className="flex items-center gap-2 mb-2">
+                            <i className="fas fa-tag text-amber-600 text-xs" />
+                            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
+                              Starting from
+                            </span>
+                          </div>
+                          <div className="flex items-end justify-between gap-3 flex-wrap">
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-2xl font-black text-neutral-400 leading-none">$</span>
+                              <span className="text-4xl font-black text-neutral-900 tracking-tight leading-none tabular-nums">
+                                {minPrice.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+                              <i className="far fa-clock text-blue-600 text-xs" />
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">From</span>
+                              <span className="text-sm font-bold text-blue-900 tabular-nums">{minDuration}</span>
+                              <span className="text-xs text-blue-600 font-medium">min</span>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-neutral-500 mt-2">
+                            Lowest price across {entries.length} configured vehicle
+                            {entries.length !== 1 ? " types" : " type"}. Final price depends on the customer's vehicle.
+                          </p>
+                        </div>
+
+                        {/* Per-vehicle matrix */}
+                        <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl p-4 border-2 border-indigo-200">
+                          <h3 className="text-sm font-bold text-neutral-800 mb-3 flex items-center gap-2">
+                            <i className="fas fa-car text-indigo-600" />
+                            Pricing by Vehicle Type
+                            <span className="ml-auto text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-semibold">
+                              {entries.length} type{entries.length !== 1 ? "s" : ""}
+                            </span>
+                          </h3>
+                          <div className="space-y-2">
+                            {entries.map(({ vt, entry }) => {
+                              const isLowest = entry.price === minPrice;
+                              return (
+                                <div
+                                  key={vt}
+                                  className={`flex items-center gap-3 rounded-lg p-3 transition-all ${
+                                    isLowest
+                                      ? "bg-amber-50 border-2 border-amber-300 shadow-sm"
+                                      : "bg-white border border-indigo-100"
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                                      isLowest ? "bg-amber-100" : "bg-indigo-100"
+                                    }`}
+                                  >
+                                    <i
+                                      className={`${VEHICLE_TYPE_ICONS[vt]} ${
+                                        isLowest ? "text-amber-700" : "text-indigo-600"
+                                      }`}
+                                    />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="text-sm font-semibold text-neutral-800 truncate">
+                                        {VEHICLE_TYPE_LABELS[vt]}
+                                      </p>
+                                      {isLowest && (
+                                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-200/70 rounded-full px-1.5 py-0.5 leading-none">
+                                          Lowest
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-sm font-bold text-neutral-900 tabular-nums">
+                                      ${entry.price.toLocaleString()}
+                                    </span>
+                                    <span className="text-neutral-300">·</span>
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5 tabular-nums">
+                                      <i className="far fa-clock text-[9px]" />
+                                      {entry.duration}m
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Stats */}
                   <div className="grid grid-cols-2 gap-3">
@@ -1830,6 +2190,42 @@ export default function ServicesPage() {
           </div>
         </div>
       )}
+
+      {/* Toasts: z-[200] so they render above modal backdrops (z-50 + blur) */}
+      <div
+        id="toast-container"
+        className="fixed bottom-5 right-5 z-[200] flex max-w-[min(100vw-1.5rem,22rem)] flex-col gap-2 pointer-events-none"
+        aria-live="polite"
+      >
+        {toasts.map((t) => {
+          const isErr = t.variant === "error";
+          const isWarn = t.variant === "warning";
+          return (
+            <div
+              key={t.id}
+              className={
+                isErr
+                  ? "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-red-500 bg-neutral-950 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+                  : isWarn
+                    ? "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-amber-400 bg-neutral-900 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+                    : "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-emerald-500 bg-neutral-900 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+              }
+            >
+              <i
+                className={
+                  isErr
+                    ? "fas fa-circle-exclamation mt-0.5 shrink-0 text-red-400"
+                    : isWarn
+                      ? "fas fa-triangle-exclamation mt-0.5 shrink-0 text-amber-300"
+                      : "fas fa-circle-check mt-0.5 shrink-0 text-emerald-400"
+                }
+                aria-hidden
+              />
+              <span className="min-w-0 break-words">{t.text}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

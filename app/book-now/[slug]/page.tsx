@@ -11,6 +11,14 @@ import {
   normalizeChecklist,
   groupChecklistItemsWithGlobalNumbers,
   CHECKLIST_SECTION_LABELS,
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isVehicleType as isVehicleTypeStr,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  type VehicleType,
+  type VehicleTypePricingMap,
 } from "@/lib/services";
 import {
   type TaskCondition,
@@ -45,7 +53,23 @@ type Branch = {
   hours?: BranchHoursMap | string | null;
   bookingLimitPerDay?: number | null;
 };
-type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
+type Service = {
+  id: string;
+  name: string;
+  /** Headline "starting from" price (cheapest vehicle-type tier, or the
+   *  legacy flat field on un-migrated services). The actual charged price
+   *  is resolved per vehicle type via `resolveServicePricingForVehicleType`. */
+  price: number;
+  /** Headline "starting from" duration. Same caveat as `price`. */
+  duration: number;
+  imageUrl: string;
+  checklist: ChecklistItem[];
+  branches: string[];
+  /** Vehicle types this service is offered for. Empty → legacy flat pricing,
+   *  meaning the service is available for every vehicle type. */
+  vehicleTypes: VehicleType[];
+  vehicleTypePricing: VehicleTypePricingMap;
+};
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
 type CustomerVehicle = {
@@ -56,6 +80,8 @@ type CustomerVehicle = {
   year?: string;
   mileage?: string;
   bodyType?: string;
+  /** Canonical size class used for vehicle-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: VehicleType | "" | null;
   colour?: string;
   vinChassis?: string;
   engineNumber?: string;
@@ -293,6 +319,11 @@ export default function BookingEnginePage() {
   const [prevStep, setPrevStep] = useState(1);
   const [animDir, setAnimDir] = useState<"forward" | "back">("forward");
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  // Vehicle "size class" the customer picks at the top of step 2. Drives
+  // which services are visible (hidden if the service doesn't support this
+  // type) and which price/duration is charged. Null until picked.
+  const [selectedVehicleType, setSelectedVehicleType] =
+    useState<VehicleType | null>(null);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState(""); // drop-off time
@@ -322,6 +353,7 @@ export default function BookingEnginePage() {
   const [vehicleFormYear, setVehicleFormYear] = useState("");
   const [vehicleFormMileage, setVehicleFormMileage] = useState("");
   const [vehicleFormBodyType, setVehicleFormBodyType] = useState("");
+  const [vehicleFormVehicleType, setVehicleFormVehicleType] = useState<VehicleType | "">("");
   const [vehicleFormColour, setVehicleFormColour] = useState("");
   const [vehicleFormVin, setVehicleFormVin] = useState("");
   const [vehicleFormEngine, setVehicleFormEngine] = useState("");
@@ -395,11 +427,16 @@ export default function BookingEnginePage() {
         if (!res.ok) { const data = await res.json(); setError(data.error || "Workshop not found"); return; }
         const data = await res.json();
         setWorkshop(data.workshop); setBranches(data.branches);
-        setAllServices((data.services || []).map((s: any) => ({
-          ...s,
-          checklist: normalizeChecklist(s.checklist),
-          areaOrder: normalizeAreaOrder(s.areaOrder),
-        })));
+        setAllServices((data.services || []).map((s: any) => {
+          const vt = normalizeVehicleTypePricing(s.vehicleTypePricing);
+          return {
+            ...s,
+            checklist: normalizeChecklist(s.checklist),
+            areaOrder: normalizeAreaOrder(s.areaOrder),
+            vehicleTypes: vt.vehicleTypes,
+            vehicleTypePricing: vt.vehicleTypePricing,
+          };
+        }));
       } catch { setError("Failed to load workshop data"); }
       finally { setLoading(false); }
     })();
@@ -447,6 +484,10 @@ export default function BookingEnginePage() {
           setVehicleMake(selectedVehicle.make || ""); setVehicleModel(selectedVehicle.model || ""); setVehicleYear(selectedVehicle.year || ""); setVehicleMileage(selectedVehicle.mileage || "");
           setVehicleBodyType(selectedVehicle.bodyType || ""); setVehicleColour(selectedVehicle.colour || "");
           setVehicleVinChassis(selectedVehicle.vinChassis || ""); setVehicleEngineNumber(selectedVehicle.engineNumber || "");
+          // Pre-select the size class so step 2 prices appear without an extra click.
+          if (selectedVehicle.vehicleType && isVehicleTypeStr(selectedVehicle.vehicleType)) {
+            setSelectedVehicleType(selectedVehicle.vehicleType);
+          }
         } else {
           setSelectedVehicleId("new");
           setVehicleNumber(""); setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
@@ -465,14 +506,16 @@ export default function BookingEnginePage() {
   const openAddVehicle = () => {
     setEditingVehicle(null);
     setVehicleFormRego(""); setVehicleFormMake(""); setVehicleFormModel(""); setVehicleFormYear(""); setVehicleFormMileage("");
-    setVehicleFormBodyType(""); setVehicleFormColour(""); setVehicleFormVin(""); setVehicleFormEngine("");
+    setVehicleFormBodyType(""); setVehicleFormVehicleType(""); setVehicleFormColour(""); setVehicleFormVin(""); setVehicleFormEngine("");
     setVehicleFormOpen(true);
   };
   const openEditVehicle = (v: CustomerVehicle) => {
     setEditingVehicle(v);
     setVehicleFormRego(v.registrationNumber || "");
     setVehicleFormMake(v.make || ""); setVehicleFormModel(v.model || ""); setVehicleFormYear(v.year || ""); setVehicleFormMileage(v.mileage || "");
-    setVehicleFormBodyType(v.bodyType || ""); setVehicleFormColour(v.colour || "");
+    setVehicleFormBodyType(v.bodyType || "");
+    setVehicleFormVehicleType(v.vehicleType && isVehicleTypeStr(v.vehicleType) ? v.vehicleType : "");
+    setVehicleFormColour(v.colour || "");
     setVehicleFormVin(v.vinChassis || ""); setVehicleFormEngine(v.engineNumber || "");
     setVehicleFormOpen(true);
   };
@@ -489,6 +532,7 @@ export default function BookingEnginePage() {
     }
     setVehicleSaving(true);
     try {
+      const vehicleTypePayload = vehicleFormVehicleType || undefined;
       if (editingVehicle) {
         const res = await fetch(`/api/book-now/customer-vehicles/${editingVehicle.id}`, {
           method: "PATCH",
@@ -502,6 +546,7 @@ export default function BookingEnginePage() {
             year: vehicleFormYear?.trim() || undefined,
             mileage: vehicleFormMileage?.trim() || undefined,
             bodyType: vehicleFormBodyType?.trim() || undefined,
+            vehicleType: vehicleTypePayload,
             colour: vehicleFormColour?.trim() || undefined,
             vinChassis: vehicleFormVin?.trim() || undefined,
             engineNumber: vehicleFormEngine?.trim() || undefined,
@@ -521,6 +566,7 @@ export default function BookingEnginePage() {
             year: vehicleFormYear?.trim() || undefined,
             mileage: vehicleFormMileage?.trim() || undefined,
             bodyType: vehicleFormBodyType?.trim() || undefined,
+            vehicleType: vehicleTypePayload,
             colour: vehicleFormColour?.trim() || undefined,
             vinChassis: vehicleFormVin?.trim() || undefined,
             engineNumber: vehicleFormEngine?.trim() || undefined,
@@ -539,6 +585,8 @@ export default function BookingEnginePage() {
         setVehicleColour(vehicleFormColour?.trim() || "");
         setVehicleVinChassis(vehicleFormVin?.trim() || "");
         setVehicleEngineNumber(vehicleFormEngine?.trim() || "");
+        // Re-price the booking using the just-saved size class.
+        if (vehicleFormVehicleType) setSelectedVehicleType(vehicleFormVehicleType);
       }
       closeVehicleForm();
       await fetchCustomerVehicles();
@@ -860,14 +908,81 @@ export default function BookingEnginePage() {
     }
   }, [expandedEstimateId, estimateReplies, markEstimateNotificationsAsRead]);
 
+  // Services that belong to the currently selected branch — the raw pool
+  // before vehicle-type filtering. We still expose this so we can compute
+  // "hidden for your vehicle" counts for the picker UI.
   const branchServices = useMemo(() => {
     if (!selectedBranch) return [];
     return allServices.filter((s) => s.branches.includes(selectedBranch.id));
   }, [selectedBranch, allServices]);
 
-  const selectedServiceDetails = useMemo(() => allServices.filter((s) => selectedServices.includes(s.id)), [selectedServices, allServices]);
-  const totalPrice = useMemo(() => selectedServiceDetails.reduce((sum, s) => sum + s.price, 0), [selectedServiceDetails]);
-  const totalDuration = useMemo(() => selectedServiceDetails.reduce((sum, s) => sum + s.duration, 0), [selectedServiceDetails]);
+  // If the customer changes vehicle type and one of the already-selected
+  // services doesn't offer that type, silently drop it from the selection.
+  // Prevents the "Continue" bar showing a stale service the user can't
+  // actually see anymore.
+  useEffect(() => {
+    if (!selectedVehicleType || selectedServices.length === 0) return;
+    const stillCompatible = new Set(
+      branchServices
+        .filter((s) => {
+          if (!s.vehicleTypes || s.vehicleTypes.length === 0) return true;
+          return s.vehicleTypes.includes(selectedVehicleType);
+        })
+        .map((s) => s.id),
+    );
+    setSelectedServices((prev) => prev.filter((id) => stillCompatible.has(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVehicleType, branchServices]);
+
+  // Services the customer can actually pick. Hidden when the service is
+  // vehicle-type priced AND doesn't offer the customer's selected type.
+  // Services with no vehicle-type pricing (legacy flat-price) remain
+  // visible for every vehicle type.
+  const visibleServices = useMemo(() => {
+    if (!selectedVehicleType) return [];
+    return branchServices.filter((s) => {
+      if (!s.vehicleTypes || s.vehicleTypes.length === 0) return true;
+      return s.vehicleTypes.includes(selectedVehicleType);
+    });
+  }, [branchServices, selectedVehicleType]);
+
+  // Resolve the actual charged price + duration for a service given the
+  // currently selected vehicle type. Used everywhere on this page so a
+  // single change to `selectedVehicleType` repriceseverything in sync.
+  const priceForService = useCallback(
+    (service: Service) => {
+      return resolveServicePricingForVehicleType(
+        {
+          price: service.price,
+          duration: service.duration,
+          vehicleTypePricing: service.vehicleTypePricing,
+        },
+        selectedVehicleType,
+      );
+    },
+    [selectedVehicleType],
+  );
+
+  const selectedServiceDetails = useMemo(
+    () => allServices.filter((s) => selectedServices.includes(s.id)),
+    [selectedServices, allServices],
+  );
+  const totalPrice = useMemo(
+    () =>
+      selectedServiceDetails.reduce(
+        (sum, s) => sum + priceForService(s).price,
+        0,
+      ),
+    [selectedServiceDetails, priceForService],
+  );
+  const totalDuration = useMemo(
+    () =>
+      selectedServiceDetails.reduce(
+        (sum, s) => sum + priceForService(s).duration,
+        0,
+      ),
+    [selectedServiceDetails, priceForService],
+  );
 
   // ─── Real-time clock that ticks every 30s so time slots stay current ───
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -1060,7 +1175,15 @@ export default function BookingEnginePage() {
     return () => { cancelled = true; };
   }, [slug, selectedBranch, selectedServices, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleBranchSelect = (branch: Branch) => { setSelectedBranch(branch); setSelectedServices([]); goToStep(2); };
+  const handleBranchSelect = (branch: Branch) => {
+    setSelectedBranch(branch);
+    setSelectedServices([]);
+    // Force the customer through the vehicle-type picker again when the
+    // branch changes, since service availability by vehicle type can differ
+    // per branch (two branches may have different per-vehicle pricing).
+    setSelectedVehicleType(null);
+    goToStep(2);
+  };
   const toggleService = (serviceId: string) => {
     setSelectedServices((prev) => prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId]);
   };
@@ -1173,6 +1296,10 @@ export default function BookingEnginePage() {
         setVehicleMake(v.make || ""); setVehicleModel(v.model || ""); setVehicleYear(v.year || ""); setVehicleMileage(v.mileage || "");
         setVehicleBodyType(v.bodyType || ""); setVehicleColour(v.colour || "");
         setVehicleVinChassis(v.vinChassis || ""); setVehicleEngineNumber(v.engineNumber || "");
+        // Drive step 2 pricing from the saved vehicle's size class.
+        if (v.vehicleType && isVehicleTypeStr(v.vehicleType)) {
+          setSelectedVehicleType(v.vehicleType);
+        }
       }
     }
   };
@@ -1216,6 +1343,10 @@ export default function BookingEnginePage() {
         body: JSON.stringify({
           slug, branchId: selectedBranch.id, branchName: selectedBranch.name,
           services: selectedServiceDetails.map((s) => ({ id: s.id, time })),
+          // Canonical size class → drives per-service price/duration resolution
+          // on the server. Sent as `null` when no vehicle-type-priced services
+          // were picked, so legacy flat-price services still work.
+          vehicleType: selectedVehicleType,
           customerName, customerEmail, customerPhone, vehicleNumber: effectiveVehicle, notes, date, time, pickupTime,
           customerId: customer?.customerId || null,
           vehicleDetails: {
@@ -1249,6 +1380,7 @@ export default function BookingEnginePage() {
               year: vehicleYear?.trim() || undefined,
               mileage: vehicleMileage?.trim() || undefined,
               bodyType: vehicleBodyType?.trim() || undefined,
+              vehicleType: selectedVehicleType || undefined,
               colour: vehicleColour?.trim() || undefined,
               vinChassis: vehicleVinChassis?.trim() || undefined,
               engineNumber: vehicleEngineNumber?.trim() || undefined,
@@ -2221,7 +2353,11 @@ export default function BookingEnginePage() {
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">Pick your services</h3>
-                <p className="text-neutral-500 text-sm mt-1">Select one or more services for your visit</p>
+                <p className="text-neutral-500 text-sm mt-1">
+                  {selectedVehicleType
+                    ? "Select one or more services for your visit"
+                    : "First, tell us about your vehicle so we can show the right services and price."}
+                </p>
               </div>
               {selectedServices.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200/50 rounded-xl px-4 py-2 flex items-center gap-2">
@@ -2231,7 +2367,96 @@ export default function BookingEnginePage() {
               )}
             </div>
 
-            {branchServices.length === 0 ? (
+            {/* ─── Vehicle-type picker ───
+                Always visible above the service list so the customer can
+                re-pick a different size at any time and instantly see
+                services re-price. The currently chosen tile is highlighted;
+                the other four stay clickable for quick switching. */}
+            <div className="bg-white rounded-2xl border border-neutral-200/80 shadow-sm p-5 sm:p-6 mb-6">
+              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-car-side text-amber-600 text-base" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
+                      {selectedVehicleType ? "Your vehicle type" : "What's your vehicle type?"}
+                    </h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {selectedVehicleType
+                        ? "Tap another size to re-price the services below."
+                        : "Pricing and service times depend on the size of your vehicle."}
+                    </p>
+                  </div>
+                </div>
+                {selectedVehicleType && (
+                  <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-full px-3 py-1 text-[11px] font-bold">
+                    <i className="fas fa-check-circle text-amber-500 text-[10px]" />
+                    {VEHICLE_TYPE_LABELS[selectedVehicleType]}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                {VEHICLE_TYPES.map((vt, i) => {
+                  // How many services at this branch are available for this
+                  // type — purely for a friendly hint under the label.
+                  const availableCount = branchServices.filter((s) => {
+                    if (!s.vehicleTypes || s.vehicleTypes.length === 0) return true;
+                    return s.vehicleTypes.includes(vt);
+                  }).length;
+                  const isActive = selectedVehicleType === vt;
+                  return (
+                    <button
+                      key={vt}
+                      onClick={() => setSelectedVehicleType(vt)}
+                      aria-pressed={isActive}
+                      className={`group relative rounded-xl p-3 sm:p-4 text-left transition-all active:scale-[0.97] border-2 ${
+                        isActive
+                          ? "bg-gradient-to-br from-amber-50 via-amber-50 to-orange-50 border-amber-400 shadow-md shadow-amber-500/10"
+                          : "bg-neutral-50 hover:bg-amber-50/60 border-neutral-200 hover:border-amber-300"
+                      }`}
+                      style={{ animation: `fadeSlideUp 0.35s ease-out ${i * 50}ms both` }}
+                    >
+                      {isActive && (
+                        <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shadow-sm">
+                          <i className="fas fa-check text-white text-[9px]" />
+                        </span>
+                      )}
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center mb-2 transition-colors border ${
+                          isActive
+                            ? "bg-amber-500 border-amber-500"
+                            : "bg-white border-neutral-200 group-hover:bg-amber-100 group-hover:border-amber-300"
+                        }`}
+                      >
+                        <i
+                          className={`${VEHICLE_TYPE_ICONS[vt]} text-sm transition-colors ${
+                            isActive ? "text-white" : "text-neutral-700 group-hover:text-amber-700"
+                          }`}
+                        />
+                      </div>
+                      <p
+                        className={`text-xs sm:text-sm font-bold leading-tight ${
+                          isActive ? "text-amber-900" : "text-neutral-900"
+                        }`}
+                      >
+                        {VEHICLE_TYPE_LABELS[vt]}
+                      </p>
+                      <p
+                        className={`text-[10px] mt-1 ${
+                          isActive ? "text-amber-700" : "text-neutral-500"
+                        }`}
+                      >
+                        {availableCount} service{availableCount !== 1 ? "s" : ""} available
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Service list — only rendered once a vehicle type is picked. */}
+            {selectedVehicleType && branchServices.length === 0 ? (
               <div className="text-center py-20 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
                 <div className="w-20 h-20 bg-neutral-100 rounded-3xl flex items-center justify-center mx-auto mb-5">
                   <i className="fas fa-wrench text-2xl text-neutral-300" />
@@ -2239,11 +2464,31 @@ export default function BookingEnginePage() {
                 <p className="text-neutral-600 font-semibold text-lg">No services available</p>
                 <p className="text-neutral-400 text-sm mt-1.5">This branch doesn&apos;t have services listed yet.</p>
               </div>
-            ) : (
+            ) : selectedVehicleType && visibleServices.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
+                <div className="w-16 h-16 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-circle-exclamation text-amber-500 text-xl" />
+                </div>
+                <p className="text-neutral-800 font-semibold text-base">
+                  No services offered for {VEHICLE_TYPE_LABELS[selectedVehicleType]}
+                </p>
+                <p className="text-neutral-500 text-sm mt-1.5 max-w-sm mx-auto">
+                  This workshop hasn't set pricing for your vehicle type yet. Try a different type, or contact the workshop for a quote.
+                </p>
+                <button
+                  onClick={() => setSelectedVehicleType(null)}
+                  className="mt-5 inline-flex items-center gap-2 text-xs font-bold bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl px-4 py-2.5 transition-colors"
+                >
+                  <i className="fas fa-arrow-left text-[10px]" />
+                  Pick a different vehicle type
+                </button>
+              </div>
+            ) : selectedVehicleType ? (
               <div className="space-y-3">
-                {branchServices.map((service, idx) => {
+                {visibleServices.map((service, idx) => {
                   const isSelected = selectedServices.includes(service.id);
                   const isExpanded = expandedService === service.id;
+                  const resolved = priceForService(service);
                   return (
                     <div
                       key={service.id}
@@ -2292,7 +2537,7 @@ export default function BookingEnginePage() {
                               <div className="flex items-center gap-3 mt-1">
                                 <span className="text-xs text-neutral-400 flex items-center gap-1">
                                   <i className="far fa-clock text-[9px]" />
-                                  {service.duration} min
+                                  {resolved.duration} min
                                 </span>
                                 {service.checklist.length > 0 && (
                                   <span className="text-xs text-amber-600 flex items-center gap-1">
@@ -2303,10 +2548,10 @@ export default function BookingEnginePage() {
                               </div>
                             </div>
 
-                            {/* Price */}
+                            {/* Price — resolved for the customer's vehicle type. */}
                             <div className="flex-shrink-0 text-right">
-                              <p className={`text-xl font-extrabold tracking-tight transition-colors ${isSelected ? "text-neutral-900" : "text-neutral-700"}`}>
-                                ${service.price}
+                              <p className={`text-xl font-extrabold tracking-tight transition-colors tabular-nums ${isSelected ? "text-neutral-900" : "text-neutral-700"}`}>
+                                ${resolved.price.toLocaleString()}
                               </p>
                             </div>
                           </div>
@@ -2392,6 +2637,18 @@ export default function BookingEnginePage() {
                     </div>
                   );
                 })}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-neutral-300 shadow-sm">
+                <div className="w-14 h-14 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <i className="fas fa-arrow-up text-amber-500 text-sm" />
+                </div>
+                <p className="text-neutral-800 font-semibold text-sm">
+                  Pick a vehicle type to see available services
+                </p>
+                <p className="text-neutral-500 text-xs mt-1 max-w-xs mx-auto">
+                  Tap one of the 5 sizes above so we can show you what this workshop offers and the exact price for your vehicle.
+                </p>
               </div>
             )}
 
@@ -2770,11 +3027,14 @@ export default function BookingEnginePage() {
                               className="w-full appearance-none border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 pr-10 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white font-medium"
                             >
                               <option value="new">Add new vehicle</option>
-                              {customerVehicles.map((v) => (
-                                <option key={v.id} value={v.id}>
-                                  {[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"} {v.bodyType ? `(${v.bodyType})` : ""}
-                                </option>
-                              ))}
+                              {customerVehicles.map((v) => {
+                                const typeLabel = v.vehicleType && isVehicleTypeStr(v.vehicleType) ? VEHICLE_TYPE_LABELS[v.vehicleType] : "";
+                                return (
+                                  <option key={v.id} value={v.id}>
+                                    {[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"}{typeLabel ? ` — ${typeLabel}` : ""}
+                                  </option>
+                                );
+                              })}
                             </select>
                             <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400" />
                           </div>
@@ -2817,17 +3077,10 @@ export default function BookingEnginePage() {
                         <input type="text" value={vehicleMileage} onChange={(e) => setVehicleMileage(e.target.value)} placeholder="e.g. 45000 km"
                           className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Body type <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                          <input type="text" value={vehicleBodyType} onChange={(e) => setVehicleBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
-                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                          <input type="text" value={vehicleColour} onChange={(e) => setVehicleColour(e.target.value)} placeholder="e.g. White, Black"
-                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
-                        </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                        <input type="text" value={vehicleColour} onChange={(e) => setVehicleColour(e.target.value)} placeholder="e.g. White, Black"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">VIN / Chassis <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
@@ -2917,7 +3170,9 @@ export default function BookingEnginePage() {
                             <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
                             <span className="text-sm text-neutral-700 truncate">{s.name}</span>
                           </div>
-                          <span className="font-bold text-neutral-900 text-sm ml-2 flex-shrink-0">${s.price}</span>
+                          <span className="font-bold text-neutral-900 text-sm ml-2 flex-shrink-0 tabular-nums">
+                            ${priceForService(s).price.toLocaleString()}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -3084,7 +3339,9 @@ export default function BookingEnginePage() {
                           <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                           {s.name}
                         </span>
-                        <span className="font-semibold text-neutral-900">${s.price}</span>
+                        <span className="font-semibold text-neutral-900 tabular-nums">
+                          ${priceForService(s).price.toLocaleString()}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -3100,7 +3357,7 @@ export default function BookingEnginePage() {
             <div className="mt-8 animate-[fadeSlideUp_0.6s_ease-out_0.6s_both]">
               <button
                 onClick={() => {
-                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
+                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setSelectedVehicleType(null); setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
                 }}
                 className="group bg-neutral-900 text-white font-bold px-8 py-3.5 rounded-xl hover:bg-neutral-800 transition-all text-sm active:scale-[0.97] shadow-xl shadow-neutral-900/15 inline-flex items-center gap-2"
               >
@@ -4104,7 +4361,6 @@ export default function BookingEnginePage() {
                     { label: "Make", value: v.make, icon: "fa-industry" },
                     { label: "Model", value: v.model, icon: "fa-tag" },
                     { label: "Year", value: v.year, icon: "fa-calendar" },
-                    { label: "Body Type", value: v.bodyType, icon: "fa-shapes" },
                     { label: "Colour", value: v.colour, icon: "fa-palette" },
                     { label: "Mileage", value: v.mileage, icon: "fa-gauge-high" },
                     { label: "VIN / Chassis", value: v.vinChassis, icon: "fa-barcode" },
@@ -4124,6 +4380,13 @@ export default function BookingEnginePage() {
                               {[v.make, v.model].filter(Boolean).join(" ") || "Vehicle"}
                               {v.year && <span className="font-normal text-neutral-500 ml-1">({v.year})</span>}
                             </p>
+                            {v.vehicleType && isVehicleTypeStr(v.vehicleType) && (
+                              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800">
+                                <i className={`${VEHICLE_TYPE_ICONS[v.vehicleType]} text-[10px]`} />
+                                {VEHICLE_TYPE_LABELS[v.vehicleType]}
+                                <span className="font-medium text-amber-600/80">· pricing class</span>
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <button
@@ -4220,17 +4483,58 @@ export default function BookingEnginePage() {
                     <input type="text" value={vehicleFormMileage} onChange={(e) => setVehicleFormMileage(e.target.value)} placeholder="e.g. 45000 km"
                       className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Body type <span className="text-neutral-300 text-[10px]">(optional)</span></label>
-                      <input type="text" value={vehicleFormBodyType} onChange={(e) => setVehicleFormBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
-                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+
+                  {/* Vehicle size class — drives per-service pricing in step 2 */}
+                  <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+                        Vehicle type <span className="text-amber-500 text-[10px] normal-case">(used for pricing)</span>
+                      </label>
+                      {vehicleFormVehicleType && (
+                        <button
+                          type="button"
+                          onClick={() => setVehicleFormVehicleType("")}
+                          className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-700 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
                     </div>
-                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px]">(optional)</span></label>
-                      <input type="text" value={vehicleFormColour} onChange={(e) => setVehicleFormColour(e.target.value)} placeholder="e.g. White, Black"
-                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    <p className="text-[10px] text-neutral-500 mb-2">Pick the size class that matches your vehicle. Service prices will use this on the booking page.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                      {VEHICLE_TYPES.map((vt) => {
+                        const active = vehicleFormVehicleType === vt;
+                        return (
+                          <button
+                            key={vt}
+                            type="button"
+                            onClick={() => setVehicleFormVehicleType(active ? "" : vt)}
+                            className={`group relative flex flex-col items-center gap-1 rounded-xl border-2 px-1.5 py-2 text-center transition-all ${
+                              active
+                                ? "border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 shadow-sm"
+                                : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
+                            }`}
+                            aria-pressed={active}
+                          >
+                            <i className={`${VEHICLE_TYPE_ICONS[vt]} text-base ${active ? "text-amber-600" : "text-neutral-500"}`} />
+                            <span className={`text-[10px] font-bold leading-tight ${active ? "text-amber-900" : "text-neutral-700"}`}>
+                              {VEHICLE_TYPE_LABELS[vt]}
+                            </span>
+                            {active && (
+                              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center shadow">
+                                <i className="fas fa-check text-[8px]" />
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
+                  </div>
+
+                  <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                    <input type="text" value={vehicleFormColour} onChange={(e) => setVehicleFormColour(e.target.value)} placeholder="e.g. White, Black"
+                      className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">

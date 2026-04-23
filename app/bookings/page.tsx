@@ -1,10 +1,21 @@
 "use client";
-import React, { useEffect, useState, Suspense } from "react";
+import React, { useEffect, useState, useMemo, useCallback, Suspense } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
-import { subscribeServicesForOwner } from "@/lib/services";
+import {
+  subscribeServicesForOwner,
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  minPricingFromVehicleTypePricing,
+  type VehicleType,
+  type VehicleTypePricingMap,
+} from "@/lib/services";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { createBooking } from "@/lib/bookings";
@@ -39,6 +50,8 @@ function BookingsPageContent() {
   const [bkClientEmail, setBkClientEmail] = useState<string>("");
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
   const [bkVehicleNumber, setBkVehicleNumber] = useState<string>("");
+  /** Canonical vehicle size class that drives per-type pricing for the booking. */
+  const [bkVehicleType, setBkVehicleType] = useState<VehicleType | null>(null);
   const [bkVehicleBodyType, setBkVehicleBodyType] = useState<string>("");
   const [bkVehicleColour, setBkVehicleColour] = useState<string>("");
   const [bkVehicleVinChassis, setBkVehicleVinChassis] = useState<string>("");
@@ -66,7 +79,20 @@ function BookingsPageContent() {
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any; timezone?: string }>>([]);
-  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
+  const [servicesList, setServicesList] = useState<Array<{
+    id: string | number;
+    name: string;
+    price?: number;
+    duration?: number;
+    icon?: string;
+    branches?: string[];
+    staffIds?: string[];
+    imageUrl?: string;
+    /** Canonical size classes this service is offered for. */
+    vehicleTypes?: VehicleType[];
+    /** Per-vehicle-type price/duration overrides. */
+    vehicleTypePricing?: VehicleTypePricingMap;
+  }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string; weeklySchedule?: Record<string, { branchId: string; branchName: string } | null> | null }>>([]);
 
   useEffect(() => {
@@ -957,16 +983,22 @@ function BookingsPageContent() {
       setServicesList(
         rows
           .filter(Boolean)
-          .map((s) => ({
-          id: (s as any).id,
-          name: String((s as any).name || "Service"),
-          price: typeof (s as any).price === "number" ? (s as any).price : undefined,
-          duration: typeof (s as any).duration === "number" ? (s as any).duration : undefined,
-          imageUrl: (s as any).imageUrl || (s as any).image || undefined,
-          icon: String((s as any).icon || "fa-solid fa-star"),
-          branches: Array.isArray((s as any).branches) ? (s as any).branches.map(String) : undefined,
-          staffIds: Array.isArray((s as any).staffIds) ? (s as any).staffIds.map(String) : undefined,
-        }))
+          .map((s) => {
+            const raw = s as any;
+            const typePricing = normalizeVehicleTypePricing(raw.vehicleTypePricing);
+            return {
+              id: raw.id,
+              name: String(raw.name || "Service"),
+              price: typeof raw.price === "number" ? raw.price : undefined,
+              duration: typeof raw.duration === "number" ? raw.duration : undefined,
+              imageUrl: raw.imageUrl || raw.image || undefined,
+              icon: String(raw.icon || "fa-solid fa-star"),
+              branches: Array.isArray(raw.branches) ? raw.branches.map(String) : undefined,
+              staffIds: Array.isArray(raw.staffIds) ? raw.staffIds.map(String) : undefined,
+              vehicleTypes: typePricing.vehicleTypes,
+              vehicleTypePricing: typePricing.vehicleTypePricing,
+            };
+          })
       );
     });
     const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
@@ -1312,6 +1344,51 @@ function BookingsPageContent() {
     }
   };
 
+  /**
+   * Resolve the displayable price / duration for a service given the current
+   * `bkVehicleType` selection:
+   *   - If a vehicle type is selected and the service has a matching tier,
+   *     return that tier's price/duration.
+   *   - Otherwise return the service's cheapest tier ("starting from").
+   *   - Falls back to the legacy flat price/duration if no tiered pricing is
+   *     configured (e.g. default super-admin services).
+   */
+  const resolveServiceDisplayPricing = useCallback(
+    (svc: { price?: number; duration?: number; vehicleTypePricing?: VehicleTypePricingMap | null }) => {
+      if (!svc) return { price: undefined as number | undefined, duration: undefined as number | undefined, isStartingFrom: false };
+      if (bkVehicleType) {
+        const resolved = resolveServicePricingForVehicleType(
+          { price: svc.price, duration: svc.duration, vehicleTypePricing: svc.vehicleTypePricing },
+          bkVehicleType,
+        );
+        if (resolved) return { price: resolved.price, duration: resolved.duration, isStartingFrom: false };
+      }
+      const min = minPricingFromVehicleTypePricing(svc.vehicleTypePricing || null);
+      if (min) return { price: min.price, duration: min.duration, isStartingFrom: true };
+      return { price: svc.price, duration: svc.duration, isStartingFrom: false };
+    },
+    [bkVehicleType],
+  );
+
+  /**
+   * Filter a services list by the currently-selected branch and vehicle type.
+   * Services without any pricing configured for the picked type are excluded
+   * (matches the booking-engine behaviour the user requested).
+   */
+  const availableServicesForWizard = useMemo(() => {
+    return servicesList.filter((srv) => {
+      if (!srv.branches || srv.branches.length === 0) return false;
+      if (bkBranchId && !srv.branches.includes(bkBranchId)) return false;
+      if (bkVehicleType) {
+        const tier = srv.vehicleTypePricing?.[bkVehicleType];
+        const hasTier = tier && typeof tier.price === "number" && typeof tier.duration === "number";
+        const hasLegacyFlatPrice = typeof srv.price === "number" && typeof srv.duration === "number" && (!srv.vehicleTypes || srv.vehicleTypes.length === 0);
+        if (!hasTier && !hasLegacyFlatPrice) return false;
+      }
+      return true;
+    });
+  }, [servicesList, bkBranchId, bkVehicleType]);
+
   const resetWizard = () => {
     setBkStep(1);
     setBkBranchId(null);
@@ -1326,6 +1403,7 @@ function BookingsPageContent() {
     setBkClientEmail("");
     setBkClientPhone("");
     setBkVehicleNumber("");
+    setBkVehicleType(null);
     setBkVehicleBodyType("");
     setBkVehicleColour("");
     setBkVehicleVinChassis("");
@@ -1656,10 +1734,25 @@ function BookingsPageContent() {
       (app ? app.data.services.find((s: any) => String(s.id) === String(id)) : null)
     ).filter(Boolean);
 
-    const serviceName = selectedServiceObjects.map(s => s?.name || "").join(", ");
-    const serviceIds = selectedServiceObjects.map(s => s?.id).join(",");
-    const totalPrice = selectedServiceObjects.reduce((sum, s) => sum + (Number(s?.price) || 0), 0);
-    const totalDuration = selectedServiceObjects.reduce((sum, s) => sum + (Number(s?.duration) || 0), 0);
+    // Resolve per-service price & duration against the selected vehicle type so
+    // the admin-created booking picks up the same tier-based pricing as the
+    // booking engine. The API re-resolves this server-side, but sending the
+    // resolved values here keeps the UI totals consistent with what gets
+    // written to Firestore.
+    const resolvedSelectedServices = selectedServiceObjects.map((s) => {
+      if (!s) return s;
+      const pricing = resolveServiceDisplayPricing(s);
+      return {
+        ...s,
+        resolvedPrice: typeof pricing.price === "number" ? pricing.price : Number(s.price) || 0,
+        resolvedDuration: typeof pricing.duration === "number" ? pricing.duration : Number(s.duration) || 0,
+      };
+    });
+
+    const serviceName = resolvedSelectedServices.map(s => s?.name || "").join(", ");
+    const serviceIds = resolvedSelectedServices.map(s => s?.id).join(",");
+    const totalPrice = resolvedSelectedServices.reduce((sum, s: any) => sum + (Number(s?.resolvedPrice) || 0), 0);
+    const totalDuration = resolvedSelectedServices.reduce((sum, s: any) => sum + (Number(s?.resolvedDuration) || 0), 0);
     
     // Use first service time as main booking time
     const firstServiceId = bkSelectedServices[0];
@@ -1702,24 +1795,26 @@ function BookingsPageContent() {
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
       vehicleNumber: bkVehicleNumber?.trim() || undefined,
+      vehicleType: bkVehicleType || undefined,
       vehicleBodyType: bkVehicleBodyType?.trim() || undefined,
       vehicleColour: bkVehicleColour?.trim() || undefined,
       vehicleVinChassis: bkVehicleVinChassis?.trim() || undefined,
       vehicleEngineNumber: bkVehicleEngineNumber?.trim() || undefined,
       vehicleMileage: bkVehicleMileage?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
-      services: selectedServiceObjects.map((s) => {
+      services: resolvedSelectedServices.map((s: any) => {
         const sId = String(s?.id);
         const stId = bkServiceStaff[sId];
         const stName = stId ? staffList.find(st => st.id === stId)?.name : "Not Assigned Yet";
         return {
           id: s?.id,
           name: s?.name,
-          price: s?.price,
-          duration: s?.duration,
+          price: s?.resolvedPrice,
+          duration: s?.resolvedDuration,
           time: bkServiceTimes[sId],
           staffId: stId || null,
-          staffName: stName
+          staffName: stName,
+          vehicleType: bkVehicleType || undefined,
         };
       })
     };
@@ -1732,6 +1827,7 @@ function BookingsPageContent() {
           clientEmail: newBooking.clientEmail,
           clientPhone: newBooking.clientPhone,
           vehicleNumber: newBooking.vehicleNumber,
+          vehicleType: newBooking.vehicleType,
           vehicleBodyType: newBooking.vehicleBodyType,
           vehicleColour: newBooking.vehicleColour,
           vehicleVinChassis: newBooking.vehicleVinChassis,
@@ -2076,20 +2172,92 @@ function BookingsPageContent() {
                   )}
                 </div>
 
+                {/* Vehicle Type Selection — drives per-type pricing for services below */}
+                <div className={`mt-6 mb-6 transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
+                  <div className="mb-3">
+                    <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight flex items-center gap-2">
+                      <i className="fas fa-car text-amber-500 text-sm" />
+                      Vehicle type
+                    </h3>
+                    <p className="text-neutral-500 text-xs mt-0.5">
+                      Choose the size class so we can show you the right price for each service.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {VEHICLE_TYPES.map((vt) => {
+                      const active = bkVehicleType === vt;
+                      return (
+                        <button
+                          key={vt}
+                          type="button"
+                          onClick={() => {
+                            if (bkVehicleType === vt) return;
+                            setBkVehicleType(vt);
+                            // Drop any service selections that are not offered for the new type.
+                            setBkSelectedServices((prev) =>
+                              prev.filter((id) => {
+                                const s = servicesList.find((x) => String(x.id) === String(id));
+                                if (!s) return false;
+                                const tier = s.vehicleTypePricing?.[vt];
+                                if (tier) return true;
+                                // allow legacy flat-priced services
+                                return (!s.vehicleTypes || s.vehicleTypes.length === 0) && typeof s.price === "number";
+                              }),
+                            );
+                            setBkServiceTimes({});
+                            setBkDate(null);
+                          }}
+                          className={`rounded-2xl border-2 p-3 text-left transition-all ${
+                            active
+                              ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                              : "border-neutral-200/80 bg-white hover:border-neutral-300"
+                          }`}
+                          aria-pressed={active}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                                active ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                              }`}
+                            >
+                              <i className={`${VEHICLE_TYPE_ICONS[vt]} text-sm`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Type</div>
+                              <div className="text-sm font-bold text-neutral-900 truncate">{VEHICLE_TYPE_LABELS[vt]}</div>
+                            </div>
+                            {active && <i className="fas fa-check text-amber-500 text-sm" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Service Selection */}
-                <div className={`transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
+                <div className={`transition-all duration-300 ${!bkBranchId || !bkVehicleType ? "opacity-40 pointer-events-none" : ""}`}>
                   <div className="flex items-start sm:items-center justify-between mb-4 gap-2 flex-col sm:flex-row">
                     <div>
                       {bkBranchId && (
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                           <span className="inline-flex items-center gap-1.5 bg-neutral-900 text-white text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
                             <i className="fas fa-location-dot text-amber-400 text-[8px]" />
                             {branches.find((b: any) => b.id === bkBranchId)?.name}
                           </span>
+                          {bkVehicleType && (
+                            <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
+                              <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                              {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                            </span>
+                          )}
                         </div>
                       )}
                       <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Pick your services</h3>
-                      <p className="text-neutral-500 text-xs mt-0.5">Select one or more services for the booking</p>
+                      <p className="text-neutral-500 text-xs mt-0.5">
+                        {bkVehicleType
+                          ? `Prices shown are for ${VEHICLE_TYPE_LABELS[bkVehicleType]}.`
+                          : "Select a vehicle type to see prices."}
+                      </p>
                     </div>
                     {bkSelectedServices.length > 0 && (
                       <div className="bg-amber-50 border border-amber-200/50 rounded-xl px-3 py-1.5 flex items-center gap-2">
@@ -2110,15 +2278,22 @@ function BookingsPageContent() {
                       <p className="text-neutral-500 font-medium text-sm">Select a branch first</p>
                       <p className="text-neutral-400 text-xs mt-1">Choose a location above to see available services</p>
                     </div>
+                  ) : !bkVehicleType ? (
+                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4 relative">
+                        <i className="fas fa-car text-xl text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[8px]" />
+                        </div>
+                      </div>
+                      <p className="text-neutral-500 font-medium text-sm">Choose a vehicle type</p>
+                      <p className="text-neutral-400 text-xs mt-1">Prices and eligible services depend on the vehicle size class.</p>
+                    </div>
                   ) : (
                     <div className="space-y-2.5">
-                      {servicesList
-                        .filter((srv: any) => {
-                          if (!srv.branches || srv.branches.length === 0) return false;
-                          return srv.branches.includes(bkBranchId);
-                        })
-                        .map((srv: any, idx: number) => {
+                      {availableServicesForWizard.map((srv: any, idx: number) => {
                         const isSelected = bkSelectedServices.includes(srv.id);
+                        const displayPricing = resolveServiceDisplayPricing(srv);
                         return (
                           <div
                             key={srv.id}
@@ -2166,13 +2341,27 @@ function BookingsPageContent() {
                                   )}
                                   <div className="flex-1 min-w-0">
                                     <h4 className="font-bold text-neutral-900 text-sm truncate">{srv.name}</h4>
-                                    <div className="flex items-center gap-3 mt-0.5">
-                                      <span className="text-[10px] text-neutral-400 flex items-center gap-1">
-                                        <i className="far fa-clock text-[8px]" />
-                                        {srv.duration} min
-                                      </span>
-                                      <span className="text-[10px] text-neutral-400">•</span>
-                                      <span className="text-xs font-bold text-neutral-700">${srv.price}</span>
+                                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                      {typeof displayPricing.duration === "number" && (
+                                        <span className="text-[10px] text-neutral-400 flex items-center gap-1">
+                                          <i className="far fa-clock text-[8px]" />
+                                          {displayPricing.duration} min
+                                        </span>
+                                      )}
+                                      {typeof displayPricing.price === "number" && (
+                                        <>
+                                          <span className="text-[10px] text-neutral-400">•</span>
+                                          <span className="text-xs font-bold text-neutral-700">
+                                            {displayPricing.isStartingFrom ? "from " : ""}${displayPricing.price}
+                                          </span>
+                                        </>
+                                      )}
+                                      {bkVehicleType && (
+                                        <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-100 text-amber-700 text-[9px] font-semibold px-1.5 py-0.5 rounded-md">
+                                          <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                                          {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -2181,7 +2370,7 @@ function BookingsPageContent() {
                           </div>
                         );
                       })}
-                      {servicesList.filter((srv: any) => srv.branches && srv.branches.length > 0 && srv.branches.includes(bkBranchId)).length === 0 && (
+                      {availableServicesForWizard.length === 0 && (
                         <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
                           <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                             <i className="fas fa-wrench text-xl text-neutral-300" />
@@ -2203,20 +2392,30 @@ function BookingsPageContent() {
                         <p className="text-neutral-400 text-[10px] font-medium">
                           {bkSelectedServices.length} service{bkSelectedServices.length > 1 ? "s" : ""} · {bkSelectedServices.reduce((sum: number, id) => {
                             const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                            return sum + (Number(s?.duration) || 0);
+                            if (!s) return sum;
+                            const { duration } = resolveServiceDisplayPricing(s);
+                            return sum + (Number(duration) || 0);
                           }, 0)} min
+                          {bkVehicleType && (
+                            <span className="ml-2 inline-flex items-center gap-1 bg-amber-500/20 text-amber-200 px-1.5 py-0.5 rounded-md text-[9px] font-semibold">
+                              <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                              {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                            </span>
+                          )}
                         </p>
                         <p className="text-xl font-extrabold tracking-tight mt-0.5">
                           ${bkSelectedServices.reduce((sum: number, id) => {
                             const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                            return sum + (Number(s?.price) || 0);
+                            if (!s) return sum;
+                            const { price } = resolveServiceDisplayPricing(s);
+                            return sum + (Number(price) || 0);
                           }, 0)}
                         </p>
                       </div>
                       <button
-                        disabled={!bkBranchId || bkSelectedServices.length === 0}
+                        disabled={!bkBranchId || !bkVehicleType || bkSelectedServices.length === 0}
                         onClick={() => setBkStep(2)}
-                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-5 py-2.5 rounded-xl transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2"
+                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-5 py-2.5 rounded-xl transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         Continue
                         <i className="fas fa-arrow-right text-xs group-hover:translate-x-1 transition-transform" />
@@ -2412,7 +2611,8 @@ function BookingsPageContent() {
                       {bkSelectedServices.map((serviceId, sIdx) => {
                         const service = servicesList.find((s) => String(s.id) === String(serviceId));
                         if (!service) return null;
-                        
+
+                        const svcPricing = resolveServiceDisplayPricing(service);
                         const slots = computeSlots(serviceId);
                         const selectedTime = bkServiceTimes[String(serviceId)];
                         
@@ -2440,12 +2640,26 @@ function BookingsPageContent() {
                                     )}
                                     <div>
                                       <h5 className="font-bold text-neutral-900 text-sm">{service.name}</h5>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-[10px] text-neutral-400 flex items-center gap-1">
-                                          <i className="far fa-clock text-[8px]" /> {service.duration} min
-                                        </span>
-                                        <span className="text-[10px] text-neutral-400">•</span>
-                                        <span className="text-xs font-bold text-neutral-700">${service.price}</span>
+                                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                        {typeof svcPricing.duration === "number" && (
+                                          <span className="text-[10px] text-neutral-400 flex items-center gap-1">
+                                            <i className="far fa-clock text-[8px]" /> {svcPricing.duration} min
+                                          </span>
+                                        )}
+                                        {typeof svcPricing.price === "number" && (
+                                          <>
+                                            <span className="text-[10px] text-neutral-400">•</span>
+                                            <span className="text-xs font-bold text-neutral-700">
+                                              {svcPricing.isStartingFrom ? "from " : ""}${svcPricing.price}
+                                            </span>
+                                          </>
+                                        )}
+                                        {bkVehicleType && (
+                                          <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-100 text-amber-700 text-[9px] font-semibold px-1.5 py-0.5 rounded-md">
+                                            <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                                            {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -2718,17 +2932,28 @@ function BookingsPageContent() {
                               placeholder="e.g. ABC 123" required
                             />
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Body type <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                              <input type="text" value={bkVehicleBodyType} onChange={(e) => setBkVehicleBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
-                                className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                          {bkVehicleType && (
+                            <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                                <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-amber-700 text-sm`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Type (pricing class)</div>
+                                <div className="text-sm font-bold text-amber-900 truncate">{VEHICLE_TYPE_LABELS[bkVehicleType]}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setBkStep(1)}
+                                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline"
+                              >
+                                Change
+                              </button>
                             </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                              <input type="text" value={bkVehicleColour} onChange={(e) => setBkVehicleColour(e.target.value)} placeholder="e.g. White, Black"
-                                className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
-                            </div>
+                          )}
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                            <input type="text" value={bkVehicleColour} onChange={(e) => setBkVehicleColour(e.target.value)} placeholder="e.g. White, Black"
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
                           </div>
                           <div>
                             <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">VIN / Chassis <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>

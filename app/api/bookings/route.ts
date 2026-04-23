@@ -11,6 +11,12 @@ import { createStaffAssignmentNotification, createOwnerNotification, getBranchAd
 import { sendBookingRequestReceivedEmail, sendBookingEmail, sendCustomerWelcomeEmail } from "@/lib/emailService";
 import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
+import {
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  type VehicleType,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -139,6 +145,8 @@ type CreateBookingInput = {
   vehicleMake?: string;
   vehicleModel?: string;
   vehicleBodyType?: string;
+  /** Canonical vehicle size class used for per-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: string;
   vehicleColour?: string;
   vehicleVinChassis?: string;
   vehicleEngineNumber?: string;
@@ -500,6 +508,64 @@ export async function POST(req: NextRequest) {
       // Non-blocking: proceed without tasks
     }
 
+    // ─── Apply per-vehicle-type pricing resolution ─────────────────────────
+    // When the caller supplies a canonical `vehicleType` (size class), re-
+    // resolve each service's price/duration from its `vehicleTypePricing`
+    // map so admin-panel / mobile-app bookings use the same tiered pricing
+    // that the customer booking engine uses. Legacy services without a
+    // per-type map fall through to the client-supplied flat price.
+    const resolvedVehicleType: VehicleType | null =
+      body.vehicleType && isVehicleType(body.vehicleType)
+        ? (body.vehicleType as VehicleType)
+        : null;
+    let totalPriceOverride: number | null = null;
+    let totalDurationOverride: number | null = null;
+    if (
+      resolvedVehicleType &&
+      processedServices &&
+      Array.isArray(processedServices) &&
+      processedServices.length > 0
+    ) {
+      const rePriced: any[] = [];
+      for (const svc of processedServices) {
+        const idStr = svc?.id != null ? String(svc.id).trim() : "";
+        let resolvedPrice: number | null = null;
+        let resolvedDuration: number | null = null;
+        if (idStr) {
+          try {
+            const svcDoc = await adminDb().collection("services").doc(idStr).get();
+            if (svcDoc.exists) {
+              const svcData = svcDoc.data();
+              const typePricing = normalizeVehicleTypePricing(svcData?.vehicleTypePricing);
+              const pricing = resolveServicePricingForVehicleType(
+                {
+                  price: typeof svcData?.price === "number" ? svcData.price : undefined,
+                  duration: typeof svcData?.duration === "number" ? svcData.duration : undefined,
+                  vehicleTypePricing: typePricing.vehicleTypePricing,
+                },
+                resolvedVehicleType,
+              );
+              if (pricing) {
+                resolvedPrice = pricing.price;
+                resolvedDuration = pricing.duration;
+              }
+            }
+          } catch (err) {
+            console.warn(`[BOOKING] Failed to resolve per-type pricing for service ${idStr}:`, err);
+          }
+        }
+        rePriced.push({
+          ...svc,
+          ...(resolvedPrice != null ? { price: resolvedPrice } : {}),
+          ...(resolvedDuration != null ? { duration: resolvedDuration } : {}),
+          vehicleType: resolvedVehicleType,
+        });
+      }
+      processedServices = rePriced;
+      totalPriceOverride = rePriced.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+      totalDurationOverride = rePriced.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
+    }
+
     // ─── Resolve / provision customer account BEFORE saving the booking ────
     // When an admin, owner, or staff member creates a booking, look up the
     // customer in the `customers` collection (scoped to this workshop). If a
@@ -560,6 +626,7 @@ export async function POST(req: NextRequest) {
       vehicleMake: body.vehicleMake || null,
       vehicleModel: body.vehicleModel || null,
       vehicleBodyType: body.vehicleBodyType || null,
+      vehicleType: resolvedVehicleType, // canonical size class; null for legacy-priced bookings
       vehicleColour: body.vehicleColour || null,
       vehicleVinChassis: body.vehicleVinChassis || null,
       vehicleEngineNumber: body.vehicleEngineNumber || null,
@@ -576,9 +643,9 @@ export async function POST(req: NextRequest) {
       time: String(body.time), // HH:mm in branch's local timezone - drop-off time
       pickupTime: body.pickupTime || null, // HH:mm in branch's local timezone - pick-up time
       dateTimeUtc: body.dateTimeUtc || null, // UTC ISO string for consistent storage
-      duration: Number(body.duration) || 0,
+      duration: totalDurationOverride != null ? totalDurationOverride : Number(body.duration) || 0,
       status: finalStatus,
-      price: Number(body.price) || 0,
+      price: totalPriceOverride != null ? totalPriceOverride : Number(body.price) || 0,
       services: processedServices,
       bookingSource: bookingSource,
       bookingCode: bookingCode,
@@ -612,6 +679,7 @@ export async function POST(req: NextRequest) {
                 vehicleMake: body.vehicleMake,
                 vehicleModel: body.vehicleModel,
                 vehicleBodyType: body.vehicleBodyType,
+                vehicleType: resolvedVehicleType || null,
                 vehicleColour: body.vehicleColour,
                 vehicleVinChassis: body.vehicleVinChassis,
                 vehicleEngineNumber: body.vehicleEngineNumber,
@@ -770,14 +838,20 @@ export async function POST(req: NextRequest) {
             branchName: branchName || null,
             bookingDate: String(body.date),
             bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
-            duration: Number(body.duration) || null,
-            price: Number(body.price) || null,
+            duration: totalDurationOverride != null ? totalDurationOverride : Number(body.duration) || null,
+            price: totalPriceOverride != null ? totalPriceOverride : Number(body.price) || null,
+            vehicleType: resolvedVehicleType,
+            vehicleNumber: body.vehicleNumber || null,
+            vehicleMake: body.vehicleMake || null,
+            vehicleModel: body.vehicleModel || null,
             serviceName: serviceName || null,
             services: processedServices?.map((s: any) => ({
               name: s.name || "Service",
               staffName: s.staffName || null,
               time: s.time || String(body.time),
               duration: s.duration || Number(body.duration) || null,
+              price: typeof s.price === "number" ? s.price : undefined,
+              vehicleType: s.vehicleType || resolvedVehicleType || undefined,
             })),
             staffName: staffName || null,
           });

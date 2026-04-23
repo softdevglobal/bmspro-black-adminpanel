@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { Firestore } from "firebase-admin/firestore";
+import { normalizeVehicleType } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
 
@@ -12,6 +13,8 @@ type VehicleInput = {
   year?: string;
   mileage?: string;
   bodyType?: string;
+  /** Canonical size class used for vehicle-type pricing. */
+  vehicleType?: string;
   colour?: string;
   vinChassis?: string;
   engineNumber?: string;
@@ -43,7 +46,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id: vehicleId } = await context.params;
     const body = (await req.json()) as { customerId: string; slug: string } & VehicleInput;
-    const { customerId, slug, registrationNumber, make, model, year, mileage, bodyType, colour, vinChassis, engineNumber } = body;
+    const { customerId, slug, registrationNumber, make, model, year, mileage, bodyType, vehicleType, colour, vinChassis, engineNumber } = body;
 
     if (!customerId || !slug || !vehicleId) {
       return NextResponse.json({ error: "customerId, slug, and vehicle id are required" }, { status: 400 });
@@ -63,6 +66,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (year !== undefined) updates.year = (year || "").trim() || null;
     if (mileage !== undefined) updates.mileage = (mileage || "").trim() || null;
     if (bodyType !== undefined) updates.bodyType = (bodyType || "").trim() || null;
+    if (vehicleType !== undefined) updates.vehicleType = normalizeVehicleType(vehicleType) || null;
     if (colour !== undefined) updates.colour = (colour || "").trim() || null;
     if (vinChassis !== undefined) updates.vinChassis = (vinChassis || "").trim() || null;
     if (engineNumber !== undefined) updates.engineNumber = (engineNumber || "").trim() || null;
@@ -78,6 +82,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       year: data?.year || "",
       mileage: data?.mileage || "",
       bodyType: data?.bodyType || "",
+      vehicleType: normalizeVehicleType(data?.vehicleType) || "",
       colour: data?.colour || "",
       vinChassis: data?.vinChassis || "",
       engineNumber: data?.engineNumber || "",

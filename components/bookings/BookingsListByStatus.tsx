@@ -12,6 +12,10 @@ import {
   DEFAULT_AREA_ORDER,
   isChecklistSection,
   normalizeAreaOrder,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isVehicleType,
+  type VehicleType,
 } from "@/lib/services";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
@@ -48,6 +52,8 @@ type ServiceRow = {
   price?: number;
   duration?: number;
   time?: string;
+  /** Canonical size class the price/duration were resolved against (when booking used type-wise pricing). */
+  vehicleType?: VehicleType | null;
   staffId?: string | null;
   staffName?: string | null;
   staffAuthUid?: string | null; // Firebase Auth UID for the assigned staff
@@ -87,6 +93,8 @@ type Row = {
   vehicleMake?: string | null;
   vehicleModel?: string | null;
   vehicleBodyType?: string | null;
+  /** Canonical vehicle size class used for per-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: VehicleType | null;
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
   vehicleEngineNumber?: string | null;
@@ -247,6 +255,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               vehicleMake: d.vehicleMake || null,
               vehicleModel: d.vehicleModel || null,
               vehicleBodyType: d.vehicleBodyType || null,
+              vehicleType: isVehicleType(d.vehicleType) ? (d.vehicleType as VehicleType) : null,
               vehicleColour: d.vehicleColour || null,
               vehicleVinChassis: d.vehicleVinChassis || null,
               vehicleEngineNumber: d.vehicleEngineNumber || null,
@@ -277,6 +286,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 price: s.price,
                 duration: s.duration,
                 time: s.time,
+                vehicleType: isVehicleType(s.vehicleType) ? (s.vehicleType as VehicleType) : null,
                 staffId: s.staffId,
                 staffName: s.staffName,
                 approvalStatus: s.approvalStatus || "pending",
@@ -1997,7 +2007,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   ? [previewRow.vehicleMake, previewRow.vehicleModel].filter(Boolean).join(" ")
                                   : "Vehicle Details"}
                               </p>
-                              {(previewRow.vehicleNumber || previewRow.vehicleBodyType) && (
+                              {(previewRow.vehicleNumber || previewRow.vehicleType || previewRow.vehicleBodyType) && (
                                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                                   {previewRow.vehicleNumber && (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-neutral-800 text-white text-xs font-mono font-semibold">
@@ -2005,7 +2015,16 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       {previewRow.vehicleNumber}
                                     </span>
                                   )}
-                                  {previewRow.vehicleBodyType && (
+                                  {previewRow.vehicleType && isVehicleType(previewRow.vehicleType) && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold"
+                                      title="Vehicle size class used for pricing"
+                                    >
+                                      <i className={`${VEHICLE_TYPE_ICONS[previewRow.vehicleType]} text-[9px]`} />
+                                      {VEHICLE_TYPE_LABELS[previewRow.vehicleType]}
+                                    </span>
+                                  )}
+                                  {!previewRow.vehicleType && previewRow.vehicleBodyType && (
                                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
                                       {previewRow.vehicleBodyType}
                                     </span>
@@ -2021,7 +2040,15 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               {[
                                 { label: "Make", value: previewRow.vehicleMake, icon: "fa-industry" },
                                 { label: "Model", value: previewRow.vehicleModel, icon: "fa-tag" },
-                                { label: "Body Type", value: previewRow.vehicleBodyType, icon: "fa-shapes" },
+                                {
+                                  label: "Vehicle Type",
+                                  value: previewRow.vehicleType && isVehicleType(previewRow.vehicleType)
+                                    ? VEHICLE_TYPE_LABELS[previewRow.vehicleType]
+                                    : previewRow.vehicleBodyType,
+                                  icon: previewRow.vehicleType && isVehicleType(previewRow.vehicleType)
+                                    ? VEHICLE_TYPE_ICONS[previewRow.vehicleType].replace(/^fas /, "")
+                                    : "fa-shapes",
+                                },
                                 { label: "Colour", value: previewRow.vehicleColour, icon: "fa-palette" },
                                 { label: "Registration", value: previewRow.vehicleNumber, icon: "fa-id-card" },
                                 { label: "VIN / Chassis", value: previewRow.vehicleVinChassis, icon: "fa-barcode" },
@@ -2501,6 +2528,20 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                     <i className="far fa-user text-purple-400" />
                                     <span className="font-medium text-neutral-700">{svc.staffName || previewRow.staffName || "Not Assigned Yet"}</span>
                                  </div>
+                                 {(() => {
+                                    // Show which vehicle-type tier this service was priced against (per-service → booking-level fallback).
+                                    const svcVehicleType = ((svc as any).vehicleType as VehicleType | null | undefined) || previewRow.vehicleType || null;
+                                    if (!svcVehicleType || !isVehicleType(svcVehicleType)) return null;
+                                    return (
+                                      <div
+                                        className="flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-2 py-1 rounded-md"
+                                        title="Priced for this vehicle type"
+                                      >
+                                        <i className={`${VEHICLE_TYPE_ICONS[svcVehicleType]} text-[10px] text-amber-600`} />
+                                        <span className="font-semibold text-amber-800">{VEHICLE_TYPE_LABELS[svcVehicleType]}</span>
+                                      </div>
+                                    );
+                                 })()}
                               </div>
                               {/* Show rejection reason if service was rejected */}
                               {approvalStatus === "rejected" && (svc as any).rejectionReason && (
@@ -3199,9 +3240,9 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </div>
                       )}
 
-                      {/* Vehicle (make, model, body type) - 3 lines with labels */}
+                      {/* Vehicle (make, model, type) - 3 lines with labels */}
                       <div className="mt-2 rounded-lg bg-neutral-50 border border-neutral-100 px-3 py-2">
-                        {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
+                        {[r.vehicleMake, r.vehicleModel, r.vehicleType, r.vehicleBodyType].filter(Boolean).length > 0 ? (
                           <div className="space-y-1.5">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 min-w-0 flex items-baseline gap-2">
@@ -3214,8 +3255,15 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               <span className="text-[11px] text-neutral-700 truncate">{r.vehicleModel || "N/A"}</span>
                             </div>
                             <div className="flex items-baseline gap-2 pl-4">
-                              <span className="text-[9px] font-semibold text-neutral-400 uppercase w-10 shrink-0">Body</span>
-                              <span className="text-[11px] text-neutral-600 truncate">{r.vehicleBodyType || "N/A"}</span>
+                              <span className="text-[9px] font-semibold text-neutral-400 uppercase w-10 shrink-0">Type</span>
+                              {r.vehicleType && isVehicleType(r.vehicleType) ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800">
+                                  <i className={`${VEHICLE_TYPE_ICONS[r.vehicleType]} text-[9px]`} />
+                                  {VEHICLE_TYPE_LABELS[r.vehicleType]}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-neutral-600 truncate">{r.vehicleBodyType || "N/A"}</span>
+                              )}
                             </div>
                           </div>
                         ) : (
@@ -3488,7 +3536,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </td>
                         <td className="p-3 align-middle">
                           <div className="min-w-[110px] max-w-[140px] rounded-lg bg-neutral-50 border border-neutral-100 px-2 py-1.5">
-                            {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
+                            {[r.vehicleMake, r.vehicleModel, r.vehicleType, r.vehicleBodyType].filter(Boolean).length > 0 ? (
                               <div className="space-y-1.5 text-[11px]">
                                 <div className="flex items-baseline gap-1.5">
                                   <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Make</span>
@@ -3499,8 +3547,18 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   <span className="text-neutral-700 truncate" title={r.vehicleModel || "N/A"}>{r.vehicleModel || "N/A"}</span>
                                 </div>
                                 <div className="flex items-baseline gap-1.5">
-                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Body</span>
-                                  <span className="text-neutral-600 truncate" title={r.vehicleBodyType || "N/A"}>{r.vehicleBodyType || "N/A"}</span>
+                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Type</span>
+                                  {r.vehicleType && isVehicleType(r.vehicleType) ? (
+                                    <span
+                                      className="inline-flex items-center gap-1 font-semibold text-amber-800 truncate"
+                                      title={VEHICLE_TYPE_LABELS[r.vehicleType]}
+                                    >
+                                      <i className={`${VEHICLE_TYPE_ICONS[r.vehicleType]} text-[9px]`} />
+                                      <span className="truncate">{VEHICLE_TYPE_LABELS[r.vehicleType]}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-neutral-600 truncate" title={r.vehicleBodyType || "N/A"}>{r.vehicleBodyType || "N/A"}</span>
+                                  )}
                                 </div>
                               </div>
                             ) : (

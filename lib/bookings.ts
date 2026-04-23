@@ -55,6 +55,8 @@ export type BookingInput = {
   clientPhone?: string;
   vehicleNumber?: string;
   vehicleBodyType?: string;
+  /** Canonical vehicle size class (small_car | sedan_wagon | suv | ute_van_4wd | performance_large) used for per-type pricing. */
+  vehicleType?: string;
   vehicleColour?: string;
   vehicleVinChassis?: string;
   vehicleEngineNumber?: string;

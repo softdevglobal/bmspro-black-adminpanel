@@ -22,6 +22,9 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+
+type ToastVariant = "success" | "error" | "warning";
+import { getErrorMessage } from "@/lib/errorMessage";
 import {
   createDefaultService,
   updateDefaultService,
@@ -363,12 +366,15 @@ export default function AdminServicesPage() {
     });
   };
 
-  // toast
-  const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
-  const showToast = (text: string) => {
-    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setToasts((t) => [...t, { id, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
+  const [toasts, setToasts] = useState<
+    Array<{ id: string; text: string; variant: ToastVariant }>
+  >([]);
+  const showToast = (text: string, variant: ToastVariant = "success") => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    setToasts((t) => [...t, { id, text, variant }]);
+    const duration =
+      variant === "error" ? 6500 : variant === "warning" ? 4500 : 3200;
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), duration);
   };
 
   // guard: super_admin only
@@ -442,7 +448,7 @@ export default function AdminServicesPage() {
         (item) => item.name.trim() !== "" && !isChecklistSection(item.section)
       )
     ) {
-      showToast("Please select a vehicle area for every task.");
+      showToast("Please select a vehicle area for every task.", "error");
       return;
     }
 
@@ -465,7 +471,11 @@ export default function AdminServicesPage() {
       setEditingId(null);
     } catch (error) {
       console.error("Error saving default service:", error);
-      showToast("Failed to save default service.");
+      const detail = getErrorMessage(error, "");
+      showToast(
+        detail ? `Failed to save default service. ${detail}` : "Failed to save default service.",
+        "error",
+      );
     } finally {
       setSaving(false);
     }
@@ -478,8 +488,11 @@ export default function AdminServicesPage() {
       await deleteDefaultService(deleteTarget.id);
       showToast("Default service removed.");
       setDeleteTarget(null);
-    } catch {
-      showToast("Failed to remove default service.");
+    } catch (err) {
+      showToast(
+        `Failed to remove default service. ${getErrorMessage(err, "Please try again.")}`,
+        "error",
+      );
     } finally {
       setDeleting(false);
     }
@@ -662,16 +675,6 @@ export default function AdminServicesPage() {
         </main>
       </div>
 
-      {/* Toasts */}
-      <div className="fixed bottom-5 right-5 z-50 space-y-2">
-        {toasts.map((t) => (
-          <div key={t.id} className="toast bg-neutral-800 text-white px-4 py-3 rounded-lg shadow-md border-l-4 border-amber-500 flex items-center gap-2">
-            <i className="fas fa-circle-check text-amber-500" />
-            <span className="text-sm">{t.text}</span>
-          </div>
-        ))}
-      </div>
-
       {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
@@ -778,7 +781,7 @@ export default function AdminServicesPage() {
                           e.preventDefault();
                           if (!newChecklistItem.trim()) return;
                           if (newChecklistSection === "") {
-                            showToast("Please select an area.");
+                            showToast("Please select an area.", "error");
                             return;
                           }
                           setChecklistRows((prev) => [
@@ -832,7 +835,7 @@ export default function AdminServicesPage() {
                       onClick={() => {
                         if (!newChecklistItem.trim()) return;
                         if (newChecklistSection === "") {
-                          showToast("Please select an area.");
+                          showToast("Please select an area.", "error");
                           return;
                         }
                         setChecklistRows((prev) => [
@@ -1088,6 +1091,41 @@ export default function AdminServicesPage() {
           </div>
         </div>
       )}
+
+      <div
+        id="toast-container"
+        className="pointer-events-none fixed bottom-5 right-5 z-[200] flex max-w-[min(100vw-1.5rem,22rem)] flex-col gap-2"
+        aria-live="polite"
+      >
+        {toasts.map((t) => {
+          const isErr = t.variant === "error";
+          const isWarn = t.variant === "warning";
+          return (
+            <div
+              key={t.id}
+              className={
+                isErr
+                  ? "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-red-500 bg-neutral-950 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+                  : isWarn
+                    ? "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-amber-400 bg-neutral-900 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+                    : "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-emerald-500 bg-neutral-900 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+              }
+            >
+              <i
+                className={
+                  isErr
+                    ? "fas fa-circle-exclamation mt-0.5 shrink-0 text-red-400"
+                    : isWarn
+                      ? "fas fa-triangle-exclamation mt-0.5 shrink-0 text-amber-300"
+                      : "fas fa-circle-check mt-0.5 shrink-0 text-emerald-400"
+                }
+                aria-hidden
+              />
+              <span className="min-w-0 break-words">{t.text}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

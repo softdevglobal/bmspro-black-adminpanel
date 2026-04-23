@@ -4,6 +4,13 @@ import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingCode } from "@/lib/bookings";
 import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
 import { getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
+import {
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  VEHICLE_TYPE_LABELS,
+  type VehicleType,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -25,12 +32,22 @@ export async function POST(req: NextRequest) {
       customerPhone,
       vehicleNumber,
       vehicleDetails,
+      vehicleType: rawVehicleType,
       notes,
       date,
       time,
       pickupTime,
       customerId,
     } = body;
+
+    // Canonical vehicle type (one of the 5 sizes) used to resolve per-vehicle
+    // price/duration from each service's `vehicleTypePricing` map. Optional
+    // on the wire — legacy flat-price services don't need it, but services
+    // that only have vehicle-type pricing will error out below if it's
+    // missing or doesn't match one of their configured types.
+    const vehicleType: VehicleType | null = isVehicleType(rawVehicleType)
+      ? rawVehicleType
+      : null;
 
     if (!customerId) {
       return NextResponse.json(
@@ -97,41 +114,88 @@ export async function POST(req: NextRequest) {
     const ownerDoc = usersQuery.docs[0];
     const ownerUid = ownerDoc.id;
 
-    // Calculate total price and duration from selected services
+    // Calculate total price and duration from selected services. For each
+    // service we resolve pricing via `resolveServicePricingForVehicleType`:
+    //   - Services with `vehicleTypePricing` → use the entry matching the
+    //     customer's vehicle type (errors out if the service doesn't offer
+    //     that type; the client prevents this by filtering the list, but we
+    //     guard server-side too).
+    //   - Services with only legacy flat fields → use those.
     let totalPrice = 0;
     let totalDuration = 0;
     const serviceDetails: any[] = [];
 
     for (const svc of selectedServices) {
       const serviceDoc = await db.collection("services").doc(svc.id).get();
-      if (serviceDoc.exists) {
-        const serviceData = serviceDoc.data()!;
-        totalPrice += serviceData.price || 0;
-        totalDuration += serviceData.duration || 0;
-        // Snapshot the owner's current area ordering so the booking preview
-        // keeps the same area-wise grouping even if the owner later reorders.
-        const rawAreaOrder = Array.isArray(serviceData.areaOrder)
-          ? serviceData.areaOrder.filter(
-              (v: unknown) =>
-                v === "interior" ||
-                v === "engine_bay" ||
-                v === "underbody" ||
-                v === "exterior"
-            )
-          : [];
-        serviceDetails.push({
-          id: svc.id,
-          serviceId: svc.id,
-          name: serviceData.name || "Service",
-          price: serviceData.price || 0,
-          duration: serviceData.duration || 0,
-          time: svc.time || time,
-          staffId: null,
-          staffName: "Not Assigned Yet",
-          approvalStatus: "needs_assignment",
-          areaOrder: rawAreaOrder,
-        });
+      if (!serviceDoc.exists) continue;
+      const serviceData = serviceDoc.data()!;
+      const vt = normalizeVehicleTypePricing(serviceData.vehicleTypePricing);
+
+      // If the service uses vehicle-type pricing, the customer must have
+      // picked a vehicle type that the service supports — otherwise we'd
+      // silently bill $0 / 0 min.
+      if (vt.vehicleTypes.length > 0) {
+        if (!vehicleType) {
+          return NextResponse.json(
+            {
+              error:
+                "Please select your vehicle type before booking. Pricing depends on the vehicle size.",
+              field: "vehicleType",
+            },
+            { status: 400 },
+          );
+        }
+        if (!vt.vehicleTypes.includes(vehicleType)) {
+          const name = serviceData.name || "this service";
+          return NextResponse.json(
+            {
+              error: `“${name}” isn't offered for ${VEHICLE_TYPE_LABELS[vehicleType]}. Please remove it or pick a different vehicle type.`,
+              field: "vehicleType",
+            },
+            { status: 400 },
+          );
+        }
       }
+
+      const resolved = resolveServicePricingForVehicleType(
+        {
+          price: serviceData.price,
+          duration: serviceData.duration,
+          vehicleTypePricing: vt.vehicleTypePricing,
+        },
+        vehicleType,
+      );
+
+      totalPrice += resolved.price;
+      totalDuration += resolved.duration;
+
+      // Snapshot the owner's current area ordering so the booking preview
+      // keeps the same area-wise grouping even if the owner later reorders.
+      const rawAreaOrder = Array.isArray(serviceData.areaOrder)
+        ? serviceData.areaOrder.filter(
+            (v: unknown) =>
+              v === "interior" ||
+              v === "engine_bay" ||
+              v === "underbody" ||
+              v === "exterior"
+          )
+        : [];
+
+      serviceDetails.push({
+        id: svc.id,
+        serviceId: svc.id,
+        name: serviceData.name || "Service",
+        price: resolved.price,
+        duration: resolved.duration,
+        // Record which vehicle-type tier was picked so audit/refund flows
+        // and invoices can show exactly why this service cost what it did.
+        vehicleType: resolved.matchedVehicleType || null,
+        time: svc.time || time,
+        staffId: null,
+        staffName: "Not Assigned Yet",
+        approvalStatus: "needs_assignment",
+        areaOrder: rawAreaOrder,
+      });
     }
 
     // Get branch timezone and hours
@@ -274,6 +338,11 @@ export async function POST(req: NextRequest) {
       vehicleYear: vehicleDetails?.year || null,
       vehicleMileage: vehicleDetails?.mileage || null,
       vehicleBodyType: vehicleDetails?.bodyType || null,
+      // Canonical "size class" the customer picked for pricing. Distinct
+      // from the free-text `vehicleBodyType` because this one always maps
+      // to one of our 5 `VehicleType` enum values and is what drove the
+      // per-service pricing resolution above.
+      vehicleType: vehicleType || null,
       vehicleColour: vehicleDetails?.colour || null,
       vehicleVinChassis: vehicleDetails?.vinChassis || null,
       vehicleEngineNumber: vehicleDetails?.engineNumber || null,

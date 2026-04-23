@@ -24,6 +24,12 @@ import {
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
 import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
+import {
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  type VehicleType,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -156,6 +162,8 @@ export async function GET(req: NextRequest) {
         clientEmail: d.clientEmail || "",
         clientPhone: d.clientPhone || "",
         vehicleNumber: d.vehicleNumber || "",
+        vehicleType: isVehicleType(d.vehicleType) ? d.vehicleType : null,
+        vehicleBodyType: d.vehicleBodyType || "",
         branchId: d.branchId || "",
         branchName: d.branchName || "",
         services: services.map((s: any) => ({
@@ -167,6 +175,7 @@ export async function GET(req: NextRequest) {
           staffId: s.staffId || null,
           staffName: s.staffName || null,
           completionStatus: s.completionStatus || "pending",
+          vehicleType: isVehicleType(s.vehicleType) ? s.vehicleType : null,
         })),
         totalPrice: d.price || d.totalPrice || 0,
         progress,
@@ -233,6 +242,8 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
   vehicleYear: string;
   vehicleMileage: string;
   vehicleBodyType: string;
+  /** Canonical size class used for per-type pricing — validated against VEHICLE_TYPES. */
+  vehicleType: VehicleType | null;
   vehicleColour: string;
   vehicleVinChassis: string;
   vehicleEngineNumber: string;
@@ -251,6 +262,9 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
     pick("rego") ||
     str(body.vehicleNumber);
 
+  const rawType = pick("vehicleType");
+  const vehicleType: VehicleType | null = rawType && isVehicleType(rawType) ? (rawType as VehicleType) : null;
+
   return {
     vehicleNumber: rego,
     vehicleMake: pick("make"),
@@ -258,6 +272,7 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
     vehicleYear: pick("year"),
     vehicleMileage: pick("mileage"),
     vehicleBodyType: pick("bodyType"),
+    vehicleType,
     vehicleColour: pick("colour", "color"),
     vehicleVinChassis: pick("vinChassis") || pick("vin"),
     vehicleEngineNumber: pick("engineNumber"),
@@ -463,8 +478,29 @@ export async function POST(req: NextRequest) {
         const svcDoc = await db.doc(`services/${rs.serviceId}`).get();
         if (svcDoc.exists && svcDoc.data()?.ownerUid === ownerUid) {
           const svcData = svcDoc.data()!;
-          const price = rs.price ?? svcData.price ?? 0;
-          const duration = rs.duration ?? svcData.duration ?? 0;
+          // If the agent supplied a canonical vehicleType, resolve the
+          // price/duration from the service's vehicleTypePricing map so the
+          // call-center flow stays consistent with the customer booking
+          // engine. Explicit overrides on the request still win.
+          let resolvedPrice: number | null = null;
+          let resolvedDuration: number | null = null;
+          if (vf.vehicleType) {
+            const pricing = resolveServicePricingForVehicleType(
+              {
+                price: typeof svcData.price === "number" ? svcData.price : undefined,
+                duration: typeof svcData.duration === "number" ? svcData.duration : undefined,
+                vehicleTypePricing: normalizeVehicleTypePricing(svcData.vehicleTypePricing)
+                  .vehicleTypePricing,
+              },
+              vf.vehicleType,
+            );
+            if (pricing) {
+              resolvedPrice = pricing.price;
+              resolvedDuration = pricing.duration;
+            }
+          }
+          const price = rs.price ?? resolvedPrice ?? svcData.price ?? 0;
+          const duration = rs.duration ?? resolvedDuration ?? svcData.duration ?? 0;
           // Snapshot owner's current area ordering for this service so the
           // booking preview can group tasks in the owner's chosen order.
           const areaOrder = Array.isArray(svcData.areaOrder)
@@ -485,6 +521,7 @@ export async function POST(req: NextRequest) {
             staffName: rs.staffName || null,
             approvalStatus: rs.staffId ? "pending" : "needs_assignment",
             completionStatus: "pending",
+            ...(vf.vehicleType ? { vehicleType: vf.vehicleType } : {}),
             ...(areaOrder.length > 0 ? { areaOrder } : {}),
           });
           totalPrice += price;
@@ -502,6 +539,7 @@ export async function POST(req: NextRequest) {
           staffName: rs.staffName || null,
           approvalStatus: "needs_assignment",
           completionStatus: "pending",
+          ...(vf.vehicleType ? { vehicleType: vf.vehicleType } : {}),
         });
         totalPrice += price;
         totalDuration += duration;
@@ -616,6 +654,7 @@ export async function POST(req: NextRequest) {
       vehicleModel: vf.vehicleModel || null,
       vehicleYear: vf.vehicleYear || null,
       vehicleBodyType: vf.vehicleBodyType || "",
+      vehicleType: vf.vehicleType, // canonical size class used for per-type pricing; null for legacy
       vehicleColour: vf.vehicleColour || "",
       vehicleVinChassis: vf.vehicleVinChassis || "",
       vehicleEngineNumber: vf.vehicleEngineNumber || "",
@@ -653,6 +692,7 @@ export async function POST(req: NextRequest) {
             vehicleYear: vf.vehicleYear,
             vehicleMileage: vf.vehicleMileage,
             vehicleBodyType: vf.vehicleBodyType,
+            vehicleType: vf.vehicleType,
             vehicleColour: vf.vehicleColour,
             vehicleVinChassis: vf.vehicleVinChassis,
             vehicleEngineNumber: vf.vehicleEngineNumber,

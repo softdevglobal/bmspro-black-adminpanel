@@ -13,6 +13,9 @@ import {
   DEFAULT_AREA_ORDER,
   isChecklistSection,
   normalizeAreaOrder,
+  VEHICLE_TYPE_LABELS,
+  isVehicleType,
+  type VehicleType,
 } from "./services";
 import { taskConditionOption } from "./taskCondition";
 
@@ -52,6 +55,8 @@ interface BookingPDFData {
   clientPhone?: string;
   vehicleNumber?: string | null;
   vehicleBodyType?: string | null;
+  /** Canonical vehicle size class used for per-type pricing. */
+  vehicleType?: VehicleType | null;
   vehicleColour?: string | null;
   vehicleMake: string | null;
   vehicleModel: string | null;
@@ -86,6 +91,8 @@ interface BookingPDFData {
     time?: string;
     duration?: number;
     price?: number;
+    /** Canonical vehicle size class this line item was priced against. */
+    vehicleType?: VehicleType | null;
     completionStatus?: string;
     completedAt?: any;
     completedByStaffName?: string;
@@ -236,6 +243,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     vehicleYear: data.vehicleYear,
     vehicleNumber: data.vehicleNumber || null,
     vehicleBodyType: data.vehicleBodyType || null,
+    vehicleType: isVehicleType(data.vehicleType) ? (data.vehicleType as VehicleType) : null,
     vehicleColour: data.vehicleColour || null,
     vehicleVinChassis: data.vehicleVinChassis || null,
     vehicleEngineNumber: data.vehicleEngineNumber || null,
@@ -265,7 +273,8 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
           const raw = s?.areaOrder;
           const normalized =
             Array.isArray(raw) && raw.length > 0 ? normalizeAreaOrder(raw) : undefined;
-          return { ...s, areaOrder: normalized };
+          const normalizedType = isVehicleType(s?.vehicleType) ? (s.vehicleType as VehicleType) : null;
+          return { ...s, areaOrder: normalized, vehicleType: normalizedType };
         })
       : [],
     tasks: data.tasks || [],
@@ -1493,9 +1502,13 @@ async function buildHTML(
                 <div class="detail-label">Registration</div>
                 <div class="detail-value code">${safeStr(booking.vehicleNumber)}</div>
               </div>` : ""}
-              ${booking.vehicleBodyType ? `
+              ${booking.vehicleType && isVehicleType(booking.vehicleType) ? `
               <div class="detail-cell">
-                <div class="detail-label">Body Type</div>
+                <div class="detail-label">Vehicle Type</div>
+                <div class="detail-value">${safeStr(VEHICLE_TYPE_LABELS[booking.vehicleType])}</div>
+              </div>` : booking.vehicleBodyType ? `
+              <div class="detail-cell">
+                <div class="detail-label">Vehicle Type</div>
                 <div class="detail-value">${safeStr(booking.vehicleBodyType)}</div>
               </div>` : ""}
               ${booking.vehicleColour ? `
@@ -1687,19 +1700,26 @@ async function buildHTML(
           </div>
           <div class="card">
             <div class="services-list">
-              ${pdfServicesList.map((svc, index) => `
+              ${pdfServicesList.map((svc, index) => {
+                // Prefer per-line vehicle-type tier; fall back to booking-level type.
+                const svcTypeRaw = (svc as any).vehicleType;
+                const svcType = isVehicleType(svcTypeRaw) ? svcTypeRaw : (isVehicleType(booking.vehicleType) ? booking.vehicleType : null);
+                const typeChip = svcType ? `<span class="chip">${safeStr(VEHICLE_TYPE_LABELS[svcType as VehicleType])} pricing</span>` : "";
+                return `
                 <div class="service-row">
                   <div class="svc-index">${index + 1}</div>
                   <div class="svc-name">${safeStr(svc.name || "Service")}</div>
                   <div class="svc-meta">
                     <span class="chip staff">${safeStr(svc.staffName || "N/A")}</span>
+                    ${typeChip}
                     ${svc.completedAt ? `<span class="chip">${safeStr(formatTimestampInTimezone(svc.completedAt, booking.branchTimezone))}</span>` : ""}
                     ${svc.duration ? `<span class="chip">${safeStr(formatDuration(svc.duration))}</span>` : ""}
                     ${(svc.completionStatus || "").toLowerCase() === "completed" ? `<span class="done-badge">✓ Completed</span>` : ""}
                   </div>
                   <div class="svc-price">$${(Number(svc.price) || 0).toFixed(2)}</div>
                 </div>
-              `).join("")}
+              `;
+              }).join("")}
               ${pdfBillableIssues.map(issue => `
                 <div class="service-row additional">
                   <div class="svc-index extra">+</div>

@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import {
   isSameCustomerVehicle,
   mergeVehicleFirestoreFields,
+  normalizeVehicleType,
 } from "./callCenterCustomerVehicles";
 
 /**
@@ -19,6 +20,8 @@ export type BookingVehicleInput = {
   vehicleYear?: string | null;
   vehicleMileage?: string | null;
   vehicleBodyType?: string | null;
+  /** Canonical vehicle size class used for per-type pricing. */
+  vehicleType?: string | null;
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
   vehicleEngineNumber?: string | null;
@@ -82,6 +85,7 @@ export async function upsertCustomerVehicleFromBooking(
     return s.length > 0 ? s : null;
   };
 
+  const normalizedType = normalizeVehicleType(vehicle.vehicleType);
   const payload: Record<string, unknown> = {
     rego: rego || null,
     registrationNumber: rego || null,
@@ -91,6 +95,7 @@ export async function upsertCustomerVehicleFromBooking(
     year: trimOrNull(vehicle.vehicleYear),
     mileage: trimOrNull(vehicle.vehicleMileage),
     bodyType: trimOrNull(vehicle.vehicleBodyType),
+    vehicleType: normalizedType || null,
     colour: trimOrNull(vehicle.vehicleColour),
     vin: vin || null,
     vinChassis: vin || null,

@@ -2,6 +2,7 @@ import sgMail from "@sendgrid/mail";
 import { adminDb } from "./firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
+import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
 
 // Initialize SendGrid
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -41,12 +42,19 @@ interface BookingEmailData {
   duration?: number | null;
   price?: number | null;
   serviceName?: string | null;
+  /** Canonical size class the booking was priced against (so the email can call out the tier). */
+  vehicleType?: VehicleType | null;
+  vehicleNumber?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
   services?: Array<{
     name?: string;
     staffName?: string | null;
     time?: string;
     duration?: number;
     price?: number;
+    /** Per-line tier; falls back to booking-level `vehicleType` when rendering. */
+    vehicleType?: VehicleType | null;
   }>;
   staffName?: string | null;
   ownerUid: string;
@@ -169,10 +177,17 @@ function generateEmailHTML(
     hasUnassignedStaff = isAnyStaff(data.staffName);
   }
 
-  // Build services list
+  // Resolve the vehicle-type tier once — used both to label each service line
+  // and to surface a "priced for …" chip in the vehicle block.
+  const bookingVehicleType: VehicleType | null = isVehicleType(data.vehicleType)
+    ? (data.vehicleType as VehicleType)
+    : null;
+  const vehicleTypeLabel = bookingVehicleType ? VEHICLE_TYPE_LABELS[bookingVehicleType] : null;
+
+  // Build services list (includes per-line price + vehicle-type tier when available)
   let servicesList = "";
   if (data.services && data.services.length > 0) {
-    const services = data.services; // Store reference to avoid repeated checks
+    const services = data.services;
     servicesList = "<table style='width: 100%; border-collapse: collapse; margin: 15px 0;'>";
     services.forEach((service, index) => {
       const serviceTime = service.time ? ` at ${service.time}` : "";
@@ -180,18 +195,53 @@ function generateEmailHTML(
       const serviceHasStaff = service.staffName && !isAnyStaff(service.staffName);
       const staffInfo = serviceHasStaff ? ` with ${service.staffName}` : "";
       const borderBottom = index < services.length - 1 ? "border-bottom: 1px solid #e5e7eb;" : "";
+      const hasPrice = typeof service.price === "number" && !Number.isNaN(service.price);
+      const priceHtml = hasPrice
+        ? `<td style='padding: 12px 0; color: #111827; font-size: 15px; font-weight: 600; text-align: right; white-space: nowrap;'>${formatPrice(service.price as number)}</td>`
+        : "";
+      const lineType: VehicleType | null = isVehicleType(service.vehicleType)
+        ? (service.vehicleType as VehicleType)
+        : bookingVehicleType;
+      const tierNote = lineType
+        ? `<div style='margin-top:4px;color:#b45309;font-size:12px;font-weight:500;'>Priced for ${VEHICLE_TYPE_LABELS[lineType]}</div>`
+        : "";
       servicesList += `
         <tr style='${borderBottom}'>
           <td style='padding: 12px 0; color: #374151; font-size: 15px;'>
             <strong style='color: #111827;'>${service.name || "Service"}</strong>${serviceTime}${serviceDuration}${staffInfo}
+            ${tierNote}
           </td>
+          ${priceHtml}
         </tr>
       `;
     });
     servicesList += "</table>";
   } else if (data.serviceName) {
-    servicesList = `<p style='margin: 12px 0; color: #374151; font-size: 15px;'><strong style='color: #111827;'>${data.serviceName}</strong></p>`;
+    const tierNote = vehicleTypeLabel
+      ? `<div style='margin-top:4px;color:#b45309;font-size:12px;font-weight:500;'>Priced for ${vehicleTypeLabel}</div>`
+      : "";
+    servicesList = `<p style='margin: 12px 0; color: #374151; font-size: 15px;'><strong style='color: #111827;'>${data.serviceName}</strong>${tierNote}</p>`;
   }
+
+  // Build vehicle summary block when we know anything about the vehicle.
+  const vehicleTitle = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(" ").trim();
+  const hasVehicleInfo = !!(vehicleTitle || data.vehicleNumber || vehicleTypeLabel);
+  const vehicleInfoHtml = hasVehicleInfo
+    ? `
+      <tr>
+        <td colspan="2" style='padding: 0 0 8px 0;'>
+          <div style='background-color:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;'>
+            <div style='color:#92400e;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;'>Vehicle</div>
+            <div style='margin-top:4px;color:#111827;font-size:15px;font-weight:600;'>${vehicleTitle || "Vehicle"}</div>
+            <div style='margin-top:6px;display:block;color:#78350f;font-size:13px;'>
+              ${data.vehicleNumber ? `<span style='display:inline-block;margin-right:10px;'><strong>Rego:</strong> ${data.vehicleNumber}</span>` : ""}
+              ${vehicleTypeLabel ? `<span style='display:inline-block;'><strong>Type:</strong> ${vehicleTypeLabel} <em style='color:#b45309;font-style:normal;'>(pricing class)</em></span>` : ""}
+            </div>
+          </div>
+        </td>
+      </tr>
+    `
+    : "";
   
   // Staff info - only show if staff is assigned, otherwise show appropriate message
   const staffInfo = data.staffName && !isAnyStaff(data.staffName) ? `
@@ -382,6 +432,7 @@ function generateEmailHTML(
                   ${staffInfo}
                   ${priceInfo}
                 </table>
+                ${vehicleInfoHtml ? `<table style="width: 100%; border-collapse: collapse; margin-top: 16px;"><tbody>${vehicleInfoHtml}</tbody></table>` : ""}
                 ${staffAssignmentMessage}
                 
                 ${servicesList ? `
@@ -635,12 +686,17 @@ export async function sendBookingStatusChangeEmail(
     duration?: number | null;
     price?: number | null;
     serviceName?: string | null;
+    vehicleType?: VehicleType | null;
+    vehicleNumber?: string | null;
+    vehicleMake?: string | null;
+    vehicleModel?: string | null;
     services?: Array<{
       name?: string;
       staffName?: string | null;
       time?: string;
       duration?: number;
       price?: number;
+      vehicleType?: VehicleType | null;
     }>;
     staffName?: string | null;
     additionalIssues?: Array<{
@@ -672,7 +728,77 @@ export async function sendBookingStatusChangeEmail(
   
   // Get workshop name
   const workshopName = await getWorkshopName(ownerUid);
-  
+
+  // Hydrate vehicle info from Firestore when the caller didn't pass it, so
+  // every status-change email (Confirmed / Completed / Canceled) consistently
+  // shows the vehicle and its pricing class without every call site having to
+  // thread those fields through.
+  let hydratedVehicleType: VehicleType | null = bookingData.vehicleType ?? null;
+  let hydratedVehicleNumber: string | null = bookingData.vehicleNumber ?? null;
+  let hydratedVehicleMake: string | null = bookingData.vehicleMake ?? null;
+  let hydratedVehicleModel: string | null = bookingData.vehicleModel ?? null;
+  let hydratedServices = bookingData.services;
+  try {
+    if (
+      !hydratedVehicleType ||
+      !hydratedVehicleNumber ||
+      !hydratedVehicleMake ||
+      !hydratedVehicleModel ||
+      !Array.isArray(hydratedServices)
+    ) {
+      const snap = await adminDb().doc(`bookings/${bookingId}`).get();
+      if (snap.exists) {
+        const d = snap.data() as Record<string, unknown>;
+        if (!hydratedVehicleType && isVehicleType(d.vehicleType)) {
+          hydratedVehicleType = d.vehicleType as VehicleType;
+        }
+        if (!hydratedVehicleNumber && typeof d.vehicleNumber === "string") {
+          hydratedVehicleNumber = d.vehicleNumber;
+        }
+        if (!hydratedVehicleMake && typeof d.vehicleMake === "string") {
+          hydratedVehicleMake = d.vehicleMake;
+        }
+        if (!hydratedVehicleModel && typeof d.vehicleModel === "string") {
+          hydratedVehicleModel = d.vehicleModel;
+        }
+        if (!Array.isArray(hydratedServices) && Array.isArray(d.services)) {
+          hydratedServices = (d.services as Array<Record<string, unknown>>).map((s) => ({
+            name: typeof s.name === "string" ? s.name : "Service",
+            staffName: typeof s.staffName === "string" ? s.staffName : null,
+            time: typeof s.time === "string" ? s.time : undefined,
+            duration: typeof s.duration === "number" ? s.duration : undefined,
+            price: typeof s.price === "number" ? s.price : undefined,
+            vehicleType: isVehicleType(s.vehicleType) ? (s.vehicleType as VehicleType) : null,
+          }));
+        } else if (Array.isArray(hydratedServices) && Array.isArray(d.services)) {
+          // Carry forward vehicleType / price from Firestore onto each line when
+          // the caller supplied a stripped-down services array.
+          const byName = new Map<string, Record<string, unknown>>();
+          for (const s of d.services as Array<Record<string, unknown>>) {
+            if (typeof s.name === "string") byName.set(s.name, s);
+          }
+          hydratedServices = hydratedServices.map((s) => {
+            const match = byName.get(s.name || "");
+            return {
+              ...s,
+              price:
+                typeof s.price === "number"
+                  ? s.price
+                  : match && typeof match.price === "number"
+                  ? (match.price as number)
+                  : undefined,
+              vehicleType:
+                s.vehicleType ??
+                (match && isVehicleType(match.vehicleType) ? (match.vehicleType as VehicleType) : null),
+            };
+          });
+        }
+      }
+    }
+  } catch (hydrateErr) {
+    console.warn(`[EMAIL] Failed to hydrate vehicle/service info for booking ${bookingId}:`, hydrateErr);
+  }
+
   const result = await sendBookingEmail({
     bookingId,
     bookingCode: bookingData.bookingCode || undefined,
@@ -682,6 +808,11 @@ export async function sendBookingStatusChangeEmail(
     ownerUid,
     salonName: workshopName,
     ...bookingData,
+    vehicleType: hydratedVehicleType,
+    vehicleNumber: hydratedVehicleNumber,
+    vehicleMake: hydratedVehicleMake,
+    vehicleModel: hydratedVehicleModel,
+    services: hydratedServices,
   });
   
   if (!result.success) {

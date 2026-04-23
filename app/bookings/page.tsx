@@ -2033,7 +2033,7 @@ function BookingsPageContent() {
             <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
             
-            <div className="relative z-10 p-5 sm:p-6">
+            <div className="relative z-10 p-4 sm:p-5">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/25">
@@ -2055,7 +2055,7 @@ function BookingsPageContent() {
           </div>
 
           {/* Progress Bar - Booking Engine Style */}
-          <div className="px-5 sm:px-6 py-4 bg-white border-b border-neutral-200/80">
+          <div className="px-4 sm:px-5 py-2.5 bg-white border-b border-neutral-200/80">
             <div className="flex items-center">
               {[
                 { n: 1, label: "Location", icon: "fa-location-dot" },
@@ -2104,16 +2104,16 @@ function BookingsPageContent() {
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-5 sm:p-7 bg-neutral-50/50 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-neutral-50/50 custom-scrollbar">
             {/* Step 1 - Branch & Service (Combined) */}
             {bkStep === 1 && (
               <div className="animate-[fadeSlideUp_0.5s_ease-out]">
                 {/* Branch Selection */}
-                <div className="mb-6">
-                  <div className="flex items-end justify-between mb-4">
+                <div className="mb-3">
+                  <div className="flex items-end justify-between mb-2.5">
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Choose a location</h3>
-                      <p className="text-neutral-500 text-xs mt-0.5">
+                      <h3 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">Choose a location</h3>
+                      <p className="text-neutral-500 text-[11px] leading-snug mt-0.5">
                         {userRole === "branch_admin" ? "Your assigned branch is pre-selected" : "Select the workshop branch"}
                       </p>
                     </div>
@@ -2130,7 +2130,7 @@ function BookingsPageContent() {
                       <p className="text-neutral-500 font-medium text-sm">No locations available</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {branches.map((br: any, idx: number) => {
                         const selected = bkBranchId === br.id;
                         const isBranchAdmin = userRole === "branch_admin";
@@ -2139,7 +2139,7 @@ function BookingsPageContent() {
                             key={br.id}
                             onClick={() => !isBranchAdmin && (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
                             disabled={isBranchAdmin}
-                            className={`text-left rounded-2xl border-2 p-4 transition-all duration-300 group ${
+                            className={`text-left rounded-2xl border-2 p-3 transition-all duration-300 group ${
                               isBranchAdmin ? "cursor-not-allowed" : "cursor-pointer"
                             } ${selected
                               ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
@@ -2173,73 +2173,126 @@ function BookingsPageContent() {
                 </div>
 
                 {/* Vehicle Type Selection — drives per-type pricing for services below */}
-                <div className={`mt-6 mb-6 transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
-                  <div className="mb-3">
-                    <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight flex items-center gap-2">
+                <div className={`mt-3 mb-3 transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
+                  <div className="mb-1.5">
+                    <h3 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight flex items-center gap-2">
                       <i className="fas fa-car text-amber-500 text-sm" />
                       Vehicle type
                     </h3>
-                    <p className="text-neutral-500 text-xs mt-0.5">
+                    <p className="text-neutral-500 text-[11px] leading-snug mt-0.5">
                       Choose the size class so we can show you the right price for each service.
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                    {VEHICLE_TYPES.map((vt) => {
-                      const active = bkVehicleType === vt;
-                      return (
-                        <button
-                          key={vt}
-                          type="button"
-                          onClick={() => {
-                            if (bkVehicleType === vt) return;
-                            setBkVehicleType(vt);
-                            // Drop any service selections that are not offered for the new type.
-                            setBkSelectedServices((prev) =>
-                              prev.filter((id) => {
-                                const s = servicesList.find((x) => String(x.id) === String(id));
-                                if (!s) return false;
-                                const tier = s.vehicleTypePricing?.[vt];
-                                if (tier) return true;
-                                // allow legacy flat-priced services
-                                return (!s.vehicleTypes || s.vehicleTypes.length === 0) && typeof s.price === "number";
-                              }),
-                            );
-                            setBkServiceTimes({});
-                            setBkDate(null);
-                          }}
-                          className={`rounded-2xl border-2 p-3 text-left transition-all ${
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {VEHICLE_TYPES.slice(0, 3).map((vt) => {
+                        const active = bkVehicleType === vt;
+                        return (
+                          <button
+                            key={vt}
+                            type="button"
+                            title={VEHICLE_TYPE_LABELS[vt]}
+                            onClick={() => {
+                              if (bkVehicleType === vt) return;
+                              setBkVehicleType(vt);
+                              setBkSelectedServices((prev) =>
+                                prev.filter((id) => {
+                                  const s = servicesList.find((x) => String(x.id) === String(id));
+                                  if (!s) return false;
+                                  const tier = s.vehicleTypePricing?.[vt];
+                                  if (tier) return true;
+                                  return (!s.vehicleTypes || s.vehicleTypes.length === 0) && typeof s.price === "number";
+                                }),
+                              );
+                              setBkServiceTimes({});
+                              setBkDate(null);
+                            }}
+                          className={`rounded-xl border-2 p-1.5 text-left transition-all h-full min-h-0 flex items-center ${
                             active
                               ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
                               : "border-neutral-200/80 bg-white hover:border-neutral-300"
                           }`}
                           aria-pressed={active}
                         >
-                          <div className="flex items-center gap-2.5">
+                          <div className="w-full min-h-0 flex items-center gap-1.5">
                             <div
-                              className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${
                                 active ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
                               }`}
                             >
-                              <i className={`${VEHICLE_TYPE_ICONS[vt]} text-sm`} />
+                              <i className={`${VEHICLE_TYPE_ICONS[vt]} text-[10px]`} />
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Type</div>
-                              <div className="text-sm font-bold text-neutral-900 truncate">{VEHICLE_TYPE_LABELS[vt]}</div>
-                            </div>
-                            {active && <i className="fas fa-check text-amber-500 text-sm" />}
+                            <p className="flex-1 min-w-0 text-xs font-bold text-neutral-900 leading-tight break-words text-balance text-left">
+                              {VEHICLE_TYPE_LABELS[vt]}
+                            </p>
+                            {active && (
+                              <i className="fas fa-check text-amber-500 text-[10px] flex-shrink-0" aria-hidden />
+                            )}
                           </div>
                         </button>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-center">
+                      <div className="grid grid-cols-2 gap-1.5 w-2/3 min-w-0 max-w-full">
+                        {VEHICLE_TYPES.slice(3, 5).map((vt) => {
+                          const active = bkVehicleType === vt;
+                          return (
+                            <button
+                              key={vt}
+                              type="button"
+                              title={VEHICLE_TYPE_LABELS[vt]}
+                              onClick={() => {
+                                if (bkVehicleType === vt) return;
+                                setBkVehicleType(vt);
+                                setBkSelectedServices((prev) =>
+                                  prev.filter((id) => {
+                                    const s = servicesList.find((x) => String(x.id) === String(id));
+                                    if (!s) return false;
+                                    const tier = s.vehicleTypePricing?.[vt];
+                                    if (tier) return true;
+                                    return (!s.vehicleTypes || s.vehicleTypes.length === 0) && typeof s.price === "number";
+                                  }),
+                                );
+                                setBkServiceTimes({});
+                                setBkDate(null);
+                              }}
+                              className={`rounded-xl border-2 p-1.5 text-left transition-all h-full min-h-0 flex items-center ${
+                                active
+                                  ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                                  : "border-neutral-200/80 bg-white hover:border-neutral-300"
+                              }`}
+                              aria-pressed={active}
+                            >
+                              <div className="w-full min-h-0 flex items-center gap-1.5">
+                                <div
+                                  className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${
+                                    active ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                                  }`}
+                                >
+                                  <i className={`${VEHICLE_TYPE_ICONS[vt]} text-[10px]`} />
+                                </div>
+                                <p className="flex-1 min-w-0 text-xs font-bold text-neutral-900 leading-tight break-words text-balance text-left">
+                                  {VEHICLE_TYPE_LABELS[vt]}
+                                </p>
+                                {active && (
+                                  <i className="fas fa-check text-amber-500 text-[10px] flex-shrink-0" aria-hidden />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Service Selection */}
                 <div className={`transition-all duration-300 ${!bkBranchId || !bkVehicleType ? "opacity-40 pointer-events-none" : ""}`}>
-                  <div className="flex items-start sm:items-center justify-between mb-4 gap-2 flex-col sm:flex-row">
+                  <div className="flex items-start sm:items-center justify-between mb-2 gap-1.5 flex-col sm:flex-row">
                     <div>
                       {bkBranchId && (
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="inline-flex items-center gap-1.5 bg-neutral-900 text-white text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
                             <i className="fas fa-location-dot text-amber-400 text-[8px]" />
                             {branches.find((b: any) => b.id === bkBranchId)?.name}
@@ -2252,8 +2305,8 @@ function BookingsPageContent() {
                           )}
                         </div>
                       )}
-                      <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Pick your services</h3>
-                      <p className="text-neutral-500 text-xs mt-0.5">
+                      <h3 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">Pick your services</h3>
+                      <p className="text-neutral-500 text-[11px] leading-snug mt-0.5">
                         {bkVehicleType
                           ? `Prices shown are for ${VEHICLE_TYPE_LABELS[bkVehicleType]}.`
                           : "Select a vehicle type to see prices."}
@@ -2268,29 +2321,29 @@ function BookingsPageContent() {
                   </div>
 
                   {!bkBranchId ? (
-                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
-                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4 relative">
-                        <i className="fas fa-wrench text-xl text-neutral-300" />
-                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
-                          <i className="fas fa-arrow-up text-amber-600 text-[8px]" />
+                    <div className="text-center py-7 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-14 h-14 bg-neutral-100 rounded-xl flex items-center justify-center mx-auto mb-3 relative">
+                        <i className="fas fa-wrench text-lg text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[7px]" />
                         </div>
                       </div>
                       <p className="text-neutral-500 font-medium text-sm">Select a branch first</p>
-                      <p className="text-neutral-400 text-xs mt-1">Choose a location above to see available services</p>
+                      <p className="text-neutral-400 text-xs mt-0.5">Choose a location above to see available services</p>
                     </div>
                   ) : !bkVehicleType ? (
-                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
-                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4 relative">
-                        <i className="fas fa-car text-xl text-neutral-300" />
-                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
-                          <i className="fas fa-arrow-up text-amber-600 text-[8px]" />
+                    <div className="text-center py-7 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-14 h-14 bg-neutral-100 rounded-xl flex items-center justify-center mx-auto mb-3 relative">
+                        <i className="fas fa-car text-lg text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[7px]" />
                         </div>
                       </div>
                       <p className="text-neutral-500 font-medium text-sm">Choose a vehicle type</p>
-                      <p className="text-neutral-400 text-xs mt-1">Prices and eligible services depend on the vehicle size class.</p>
+                      <p className="text-neutral-400 text-xs mt-0.5">Prices and eligible services depend on the vehicle size class.</p>
                     </div>
                   ) : (
-                    <div className="space-y-2.5">
+                    <div className="space-y-1.5">
                       {availableServicesForWizard.map((srv: any, idx: number) => {
                         const isSelected = bkSelectedServices.includes(srv.id);
                         const displayPricing = resolveServiceDisplayPricing(srv);
@@ -2320,7 +2373,7 @@ function BookingsPageContent() {
                             >
                               <div className="flex items-stretch">
                                 <div className={`w-1.5 flex-shrink-0 transition-all duration-300 ${isSelected ? "bg-amber-500" : "bg-transparent group-hover:bg-neutral-200"}`} />
-                                <div className="flex items-center gap-3 p-3.5 sm:p-4 flex-1 min-w-0">
+                                <div className="flex items-center gap-2.5 p-2.5 sm:p-3 flex-1 min-w-0">
                                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
                                     isSelected
                                       ? "bg-neutral-900 shadow-md shadow-neutral-900/20 scale-105"
@@ -2385,7 +2438,7 @@ function BookingsPageContent() {
 
                 {/* Summary Footer + Navigation */}
                 {bkSelectedServices.length > 0 && (
-                  <div className="mt-6 bg-neutral-900 rounded-2xl p-4 text-white relative overflow-hidden">
+                  <div className="mt-3 bg-neutral-900 rounded-2xl p-3 text-white relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
                     <div className="relative z-10 flex items-center justify-between">
                       <div>
@@ -2415,7 +2468,7 @@ function BookingsPageContent() {
                       <button
                         disabled={!bkBranchId || !bkVehicleType || bkSelectedServices.length === 0}
                         onClick={() => setBkStep(2)}
-                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-5 py-2.5 rounded-xl transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-4 py-2 rounded-lg transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         Continue
                         <i className="fas fa-arrow-right text-xs group-hover:translate-x-1 transition-transform" />
@@ -2424,10 +2477,10 @@ function BookingsPageContent() {
                   </div>
                 )}
                 {bkSelectedServices.length === 0 && (
-                  <div className="flex justify-end pt-3 mt-4 border-t border-neutral-200/50">
+                  <div className="flex justify-end pt-2 mt-2 border-t border-neutral-200/50">
                     <button
                       disabled
-                      className="px-5 py-2.5 rounded-xl bg-neutral-200 text-neutral-400 text-sm font-semibold cursor-not-allowed"
+                      className="px-4 py-2 rounded-lg bg-neutral-200 text-neutral-400 text-sm font-semibold cursor-not-allowed"
                     >
                       Continue to Date & Time
                     </button>
@@ -2933,13 +2986,15 @@ function BookingsPageContent() {
                             />
                           </div>
                           {bkVehicleType && (
-                            <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                            <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
                                 <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-amber-700 text-sm`} />
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Type (pricing class)</div>
-                                <div className="text-sm font-bold text-amber-900 truncate">{VEHICLE_TYPE_LABELS[bkVehicleType]}</div>
+                                <div className="text-sm font-bold text-amber-900 leading-snug break-words text-balance">
+                                  {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                                </div>
                               </div>
                               <button
                                 type="button"

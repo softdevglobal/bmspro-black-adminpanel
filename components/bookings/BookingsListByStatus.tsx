@@ -42,6 +42,45 @@ function parseMileageRecordedAt(value: unknown): Date | null {
   return null;
 }
 
+/**
+ * Reschedule / reassign: only staff who work at this branch on the given date
+ * (weekly per-day `branchId` when present, else home `branchId`).
+ */
+function filterStaffToBookingBranchForDate(
+  staffRows: any[],
+  branchId: string | null | undefined,
+  dateYmd: string
+): any[] {
+  const bid = (branchId || "").toString().trim();
+  if (!bid) return staffRows;
+  if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) {
+    return staffRows.filter((s: any) => (s.branchId || "").toString() === bid);
+  }
+  const bookingDate = new Date(`${dateYmd}T12:00:00`);
+  const daysOfWeek = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const dayName = daysOfWeek[bookingDate.getDay()];
+  return staffRows.filter((s: any) => {
+    if (s.weeklySchedule && typeof s.weeklySchedule === "object") {
+      const daySchedule = s.weeklySchedule[dayName];
+      if (daySchedule && daySchedule.branchId) {
+        return (daySchedule.branchId || "").toString() === bid;
+      }
+      if (daySchedule === null || daySchedule === undefined) {
+        return false;
+      }
+    }
+    return (s.branchId || "").toString() === bid;
+  });
+}
+
 type ServiceApprovalStatus = "pending" | "accepted" | "rejected" | "needs_assignment";
 type ServiceCompletionStatus = "pending" | "completed";
 
@@ -536,6 +575,8 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   // the booking's original assignments to decide whether to send staff
   // overrides to the API on save.
   type ReschedStaffOption = { id: string; name: string; branchId?: string; avatar?: string };
+  /** Full user rows (for branch + weeklySchedule filter when date changes). */
+  const [rescheduleStaffRaw, setRescheduleStaffRaw] = useState<any[]>([]);
   const [rescheduleStaffOptions, setRescheduleStaffOptions] = useState<ReschedStaffOption[]>([]);
   const [rescheduleStaffLoading, setRescheduleStaffLoading] = useState(false);
   const [rescheduleStaffId, setRescheduleStaffId] = useState<string>("");
@@ -550,6 +591,35 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   // a lookup on the live `services/{id}` document so the checklist still shows
   // in the owner's customised order rather than the default.
   const [serviceAreaOrderFallback, setServiceAreaOrderFallback] = useState<Record<string, ChecklistSection[]>>({});
+
+  useEffect(() => {
+    if (!rescheduleModalOpen) return;
+    if (!rescheduleStaffRaw.length) {
+      setRescheduleStaffOptions([]);
+      return;
+    }
+    const row = bookingToReschedule;
+    if (!row) return;
+    const dateEff = (rescheduleNewDate || row.date || "").trim();
+    const pool = filterStaffToBookingBranchForDate(
+      rescheduleStaffRaw,
+      row.branchId,
+      dateEff
+    );
+    setRescheduleStaffOptions(
+      pool.map((s: any) => ({
+        id: String(s._rescheduleId || s.id),
+        name: String(s.name || s.displayName || "Unknown"),
+        branchId: s.branchId,
+        avatar: s.avatar,
+      }))
+    );
+  }, [
+    rescheduleModalOpen,
+    bookingToReschedule,
+    rescheduleNewDate,
+    rescheduleStaffRaw,
+  ]);
 
   // Sync mileage edit value when preview row changes
   useEffect(() => {
@@ -1385,6 +1455,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       }
     }
     setRescheduleStaffByService(byService);
+    setRescheduleStaffRaw([]);
     setRescheduleStaffOptions([]);
     // Point the calendar at the booking's current month (or today if unknown).
     const [yStr, mStr] = (row.date || "").split("-");
@@ -1441,30 +1512,29 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         const snap = await getDocs(
           query(collection(db, "users"), where("ownerUid", "==", ownerUid)),
         );
-        const list: ReschedStaffOption[] = [];
+        const raw: any[] = [];
         snap.forEach((d) => {
           const data = d.data() as any;
           const systemRole = (data?.role || "").toString();
           if (!["staff", "branch_admin"].includes(systemRole)) return;
+          const st = (data?.status || "Active").toString();
+          if (st === "Suspended" || st === "suspended") return;
           // Prefer Firebase Auth UID if the user doc tracks it separately;
           // this must match what the booking's `staffId` uses.
           const staffId = (data?.authUid || data?.uid || d.id).toString();
-          list.push({
+          raw.push({
+            _rescheduleId: staffId,
             id: staffId,
             name: (data?.displayName || data?.name || "Unknown").toString(),
-            branchId: (data?.branchId || "").toString() || undefined,
+            displayName: data?.displayName,
+            branchId: data?.branchId,
             avatar: data?.avatar,
+            weeklySchedule: data?.weeklySchedule,
+            status: data?.status,
           });
         });
-        // If the booking has a branch, prioritise staff assigned to that
-        // branch at the top but still keep everyone available as a fallback.
-        list.sort((a, b) => {
-          const aMatches = row.branchId && a.branchId === row.branchId ? 0 : 1;
-          const bMatches = row.branchId && b.branchId === row.branchId ? 0 : 1;
-          if (aMatches !== bMatches) return aMatches - bMatches;
-          return a.name.localeCompare(b.name);
-        });
-        setRescheduleStaffOptions(list);
+        raw.sort((a, b) => a.name.localeCompare(b.name));
+        setRescheduleStaffRaw(raw);
       } catch (err) {
         console.error("Failed to load staff for reschedule modal:", err);
       } finally {
@@ -1485,6 +1555,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     setRescheduleBranch(null);
     setRescheduleStaffId("");
     setRescheduleStaffByService({});
+    setRescheduleStaffRaw([]);
     setRescheduleStaffOptions([]);
   };
 
@@ -4860,9 +4931,6 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         <option key={s.id} value={s.id}>
                           {s.name}
                           {s.id === currentId ? " (current)" : ""}
-                          {bookingToReschedule?.branchId && s.branchId && s.branchId !== bookingToReschedule.branchId
-                            ? " · other branch"
-                            : ""}
                         </option>
                       ))}
                     </select>

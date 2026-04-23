@@ -172,6 +172,7 @@ export async function GET(req: NextRequest) {
           id: s.id || s.serviceId || null,
           name: s.name || "",
           price: s.price || 0,
+          duration: typeof s.duration === "number" ? s.duration : 0,
           staffId: s.staffId || null,
           staffName: s.staffName || null,
           completionStatus: s.completionStatus || "pending",
@@ -909,6 +910,8 @@ export async function POST(req: NextRequest) {
         status: bookingData.status,
         totalPrice,
         totalDuration,
+        vehicleType: vf.vehicleType,
+        services: resolvedServices,
       },
       { status: 201, headers: CORS_HEADERS }
     );

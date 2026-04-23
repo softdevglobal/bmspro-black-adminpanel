@@ -11,6 +11,7 @@ import {
   isChecklistSection,
   type ChecklistSection,
 } from "@/lib/services";
+import { serializeCallCenterServicePricing } from "@/lib/callCenterServicePricing";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,9 @@ function mapChecklistFromDoc(checklistRaw: unknown): Array<{
  *
  * List services for a workshop. Each service includes staff[] and full checklist[]
  * (todo template items: index, name, description, done), plus checklistCount.
+ * Pricing: `vehicleTypePricing` / `pricingByVehicleType` (per size class) and
+ * headline `price`/`duration` (cheapest tier when type pricing is set), same as
+ * the customer book-now API.
  * Optional summary=1 — omit checklist[] and keep only checklistCount (smaller payload).
  */
 export async function GET(req: NextRequest) {
@@ -130,15 +134,17 @@ export async function GET(req: NextRequest) {
     }
 
     const services = serviceDocs.map((doc) => {
-      const d = doc.data();
-      const staffIds: string[] = d.staffIds || [];
+      const d = doc.data() as Record<string, unknown>;
+      const staffIds: string[] = Array.isArray(d.staffIds)
+        ? (d.staffIds as unknown[]).map(String)
+        : [];
       const checklistCount = Array.isArray(d.checklist) ? d.checklist.length : 0;
+      const pricing = serializeCallCenterServicePricing(d);
       const base: Record<string, unknown> = {
         id: doc.id,
         name: d.name || "",
         description: d.description || "",
-        price: d.price || 0,
-        duration: d.duration || 0,
+        ...pricing,
         icon: d.icon || "",
         imageUrl: d.imageUrl || "",
         branches: Array.isArray(d.branches) ? d.branches : [],

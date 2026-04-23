@@ -5,6 +5,7 @@ import {
   canAccessWorkshopForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { serializeCallCenterServicePricing } from "@/lib/callCenterServicePricing";
 
 export const runtime = "nodejs";
 
@@ -258,6 +259,8 @@ export async function GET(
       return a.name.localeCompare(b.name);
     });
 
+    const pricing = serializeCallCenterServicePricing(service);
+
     return NextResponse.json(
       {
         service: {
@@ -265,6 +268,7 @@ export async function GET(
           name: String(service.name || ""),
           hasStaffAllowList: serviceHasAllowList,
           staffIds: allowedStaffIds,
+          ...pricing,
         },
         filter: {
           branchId: branchId || null,

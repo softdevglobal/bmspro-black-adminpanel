@@ -24,6 +24,7 @@ export const CALL_CENTER_PUBLIC_META = {
   notes: [
     "This JSON describes request/response shapes only. It does not grant access to data.",
     "Webhook registration exists at POST /webhooks (CC admin); dispatch to external URLs must be wired separately if not yet in codebase.",
+    "Service pricing: workshop services expose per-vehicle-type maps `vehicleTypePricing` and `pricingByVehicleType` (same object). Top-level `price`/`duration` are headline 'starting from' values when type pricing exists. Resolve a quote with `vehicleType` on POST /bookings + the service catalog, or use the stored line `price`/`duration`/`vehicleType` on booking responses.",
   ],
 } as const;
 
@@ -314,8 +315,17 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             id: "<serviceId>",
             name: "Full Service",
             description: "Complete vehicle service",
-            price: 299,
-            duration: 120,
+            price: 199,
+            duration: 90,
+            vehicleTypes: ["small_car", "suv"],
+            vehicleTypePricing: {
+              small_car: { price: 199, duration: 90 },
+              suv: { price: 249, duration: 120 },
+            },
+            pricingByVehicleType: {
+              small_car: { price: 199, duration: 90 },
+              suv: { price: 249, duration: 120 },
+            },
             icon: "",
             imageUrl: "",
             branches: ["<branchId>"],
@@ -349,8 +359,17 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
           id: "<serviceId>",
           name: "Full Service",
           description: "Complete vehicle service",
-          price: 299,
-          duration: 120,
+          price: 199,
+          duration: 90,
+          vehicleTypes: ["small_car", "suv"],
+          vehicleTypePricing: {
+            small_car: { price: 199, duration: 90 },
+            suv: { price: 249, duration: 120 },
+          },
+          pricingByVehicleType: {
+            small_car: { price: 199, duration: 90 },
+            suv: { price: 249, duration: 120 },
+          },
           icon: "",
           imageUrl: "",
           branches: [{ id: "<branchId>", name: "Main Branch" }],
@@ -445,7 +464,16 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
       date: "YYYY-MM-DD",
       time: "HH:mm",
       pickupTime: "HH:mm|null",
-      services: [{ serviceId: "<id>", serviceName: "", price: 0, duration: 0, staffId: "optional" }],
+      services: [
+        {
+          serviceId: "<id>",
+          serviceName: "",
+          price: 0,
+          duration: 0,
+          staffId: "optional",
+        },
+      ],
+      vehicleType: "small_car|sedan_wagon|suv|ute_van_4wd|performance_large|null",
       client: "Name",
       clientEmail: "",
       clientPhone: "",
@@ -468,7 +496,26 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     },
     responseSuccess: {
       status: 201,
-      bodyExample: { success: true, bookingId: "", bookingCode: "", status: "", totalPrice: 0, totalDuration: 0 },
+      bodyExample: {
+        success: true,
+        bookingId: "",
+        bookingCode: "",
+        status: "",
+        totalPrice: 0,
+        totalDuration: 0,
+        vehicleType: "suv",
+        services: [
+          {
+            id: "",
+            name: "",
+            price: 0,
+            duration: 0,
+            staffId: null,
+            staffName: null,
+            vehicleType: "suv",
+          },
+        ],
+      },
     },
   },
   {

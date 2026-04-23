@@ -9,6 +9,7 @@ import {
   DEFAULT_CHECKLIST_SECTION,
   isChecklistSection,
 } from "@/lib/services";
+import { serializeCallCenterServicePricing } from "@/lib/callCenterServicePricing";
 
 export const runtime = "nodejs";
 
@@ -47,16 +48,19 @@ export async function GET(
       );
     }
 
-    const d = serviceDoc.data()!;
+    const d = serviceDoc.data()! as Record<string, unknown>;
+    const ownerUidField = d.ownerUid;
 
-    if (!canAccessWorkshopForAuth(gate.auth, d.ownerUid)) {
+    if (!canAccessWorkshopForAuth(gate.auth, ownerUidField as string)) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403, headers: CORS_HEADERS }
       );
     }
 
-    const branchIds: string[] = Array.isArray(d.branches) ? d.branches : [];
+    const branchIds: string[] = Array.isArray(d.branches)
+      ? (d.branches as unknown[]).map(String)
+      : [];
     const branches: { id: string; name: string }[] = [];
     for (const bid of branchIds) {
       const branchDoc = await db.doc(`branches/${bid}`).get();
@@ -68,7 +72,9 @@ export async function GET(
       }
     }
 
-    const staffIds: string[] = Array.isArray(d.staffIds) ? d.staffIds : [];
+    const staffIds: string[] = Array.isArray(d.staffIds)
+      ? (d.staffIds as unknown[]).map(String)
+      : [];
     const staff: { id: string; name: string; role: string; branchId: string | null }[] = [];
     if (staffIds.length > 0) {
       const batches: string[][] = [];
@@ -102,16 +108,17 @@ export async function GET(
         }))
       : [];
 
+    const pricing = serializeCallCenterServicePricing(d);
+
     return NextResponse.json(
       {
         service: {
           id: serviceId,
-          name: d.name || "",
-          description: d.description || "",
-          price: d.price || 0,
-          duration: d.duration || 0,
-          icon: d.icon || "",
-          imageUrl: d.imageUrl || "",
+          name: (d.name as string) || "",
+          description: (d.description as string) || "",
+          ...pricing,
+          icon: (d.icon as string) || "",
+          imageUrl: (d.imageUrl as string) || "",
           branches,
           staff,
           checklist,

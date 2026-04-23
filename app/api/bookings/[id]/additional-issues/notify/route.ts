@@ -63,6 +63,12 @@ export async function POST(
 
     const staffName = lastIssue.reportedByStaffName || staffData?.name || staffData?.displayName || "Staff";
     const issueTitle = lastIssue.issueTitle || "Additional work";
+    const lastIssueId =
+      (typeof lastIssue.id === "string" && lastIssue.id.trim()) || null;
+    const lastIssuePrice =
+      typeof lastIssue.price === "number" && Number.isFinite(lastIssue.price)
+        ? lastIssue.price
+        : null;
     const clientName = bookingData.client || bookingData.clientName || "Customer";
     const bookingCode = bookingData.bookingCode || null;
     const branchId = bookingData.branchId || null;
@@ -99,6 +105,15 @@ export async function POST(
             customerPhone: notifyPhone,
             clientEmail: notifyEmail,
             customerEmail: notifyEmail,
+            ...(lastIssueId ? { issueId: lastIssueId } : {}),
+            issueTitle,
+            ...(lastIssuePrice != null ? { price: lastIssuePrice } : {}),
+            ...(lastIssue.status != null
+              ? { issueStatus: String(lastIssue.status) }
+              : {}),
+            ...(typeof lastIssue.description === "string" && lastIssue.description.trim()
+              ? { issueDescription: String(lastIssue.description).trim().slice(0, 2000) }
+              : {}),
           });
         }
       } catch (e) {
@@ -127,6 +142,13 @@ export async function POST(
         customerPhone: notifyPhone,
         clientEmail: notifyEmail,
         customerEmail: notifyEmail,
+        ...(lastIssueId ? { issueId: lastIssueId } : {}),
+        issueTitle,
+        ...(lastIssuePrice != null ? { price: lastIssuePrice } : {}),
+        ...(lastIssue.status != null ? { issueStatus: String(lastIssue.status) } : {}),
+        ...(typeof lastIssue.description === "string" && lastIssue.description.trim()
+          ? { issueDescription: String(lastIssue.description).trim().slice(0, 2000) }
+          : {}),
       } as any);
     } catch (e) {
       console.error("Failed to notify owner:", e);

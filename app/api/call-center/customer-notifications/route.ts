@@ -136,6 +136,9 @@ type MappedNotification = {
   issueId: string | null;
   issueTitle: string | null;
   price: number | null;
+  /** Filled from `bookings` when enriching additional-issue rows */
+  issueStatus: string | null;
+  issueDescription: string | null;
   title: string;
   message: string;
   read: boolean;
@@ -180,6 +183,10 @@ type MappedAdminNotification = {
   issueId: string | null;
   issueTitle: string | null;
   price: number | null;
+  /** Sub-document status on `bookings./additionalIssues[]` (pending, priced, …) */
+  issueStatus: string | null;
+  /** Short text from the issue; truncated when read from Firestore for list payloads */
+  issueDescription: string | null;
   /** Booking / workflow status when present on the notification doc. */
   status: string | null;
   /** Customer contact on staff/ops notifications (e.g. additional_issue_found). */
@@ -231,6 +238,8 @@ function mapCustomerDoc(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
+    issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     title: (d.title as string) || "Notification",
     message: (d.message as string) || "",
     read: d.read === true,
@@ -316,6 +325,8 @@ function mapNotificationsDocToCustomerPanel(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
+    issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     title: (d.title as string) || "Notification",
     message: (d.message as string) || "",
     read: d.read === true,
@@ -474,6 +485,8 @@ function mapAdminPanelDoc(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
+    issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     status: typeof d.status === "string" ? d.status : null,
     customerPhone: phone,
     clientPhone: phone,
@@ -541,6 +554,115 @@ async function enrichAdminPanelAdditionalIssueBookingContact(
       customerName: nm || got.customerName || m.customerName,
     } as UnifiedNotification;
   });
+}
+
+/** Best-effort match an `additionalIssues[]` entry to a notification (id hint, message title, or most recent). */
+function pickAdditionalIssueForNotification(
+  message: string,
+  issueIdOnDoc: string | null,
+  issues: Array<Record<string, unknown>>
+): Record<string, unknown> | null {
+  if (!Array.isArray(issues) || issues.length === 0) return null;
+  const idHint = (issueIdOnDoc || "").trim();
+  if (idHint) {
+    const byId = issues.find((x) => x && String(x.id || "") === idHint);
+    if (byId) return byId;
+  }
+  for (const iss of issues) {
+    const t = String(iss?.issueTitle || "").trim();
+    if (t && message.includes(t)) return iss;
+  }
+  return issues.slice().sort((a, b) => {
+    const ta = new Date(String(a?.reportedAt || 0)).getTime();
+    const tb = new Date(String(b?.reportedAt || 0)).getTime();
+    return tb - ta;
+  })[0];
+}
+
+/**
+ * Fills `issueId` / `issueTitle` / `price` / status / description from `bookings/{id}.additionalIssues`
+ * when those fields were missing on older `additional_issue_found` notification docs.
+ */
+async function enrichAdditionalIssueMetadataFromBookings(
+  db: Firestore,
+  items: UnifiedNotification[]
+): Promise<UnifiedNotification[]> {
+  const hitIdx: { idx: number; bookingId: string }[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const r = items[i];
+    if (r.source !== "admin_panel" && r.source !== "customer_panel") continue;
+    const t = r as MappedAdminNotification | MappedNotification;
+    if (t.type !== "additional_issue_found") continue;
+    const bid = t.bookingId?.trim();
+    if (!bid) continue;
+    hitIdx.push({ idx: i, bookingId: bid });
+  }
+  if (hitIdx.length === 0) return items;
+
+  const uniqueIds = [...new Set(hitIdx.map((h) => h.bookingId))];
+  const bookingData = new Map<string, Record<string, unknown> | null>();
+  for (let i = 0; i < uniqueIds.length; i += 10) {
+    const chunk = uniqueIds.slice(i, i + 10);
+    const snaps = await db.getAll(...chunk.map((id) => db.doc(`bookings/${id}`)));
+    for (let j = 0; j < chunk.length; j++) {
+      const doc = snaps[j];
+      bookingData.set(chunk[j], doc.exists ? (doc.data() as Record<string, unknown>) : null);
+    }
+  }
+
+  const out = [...items];
+  for (const { idx, bookingId } of hitIdx) {
+    const raw = bookingData.get(bookingId);
+    if (!raw) continue;
+    const issues = Array.isArray(raw.additionalIssues)
+      ? (raw.additionalIssues as Array<Record<string, unknown>>)
+      : [];
+    const row = out[idx] as MappedAdminNotification | MappedNotification;
+    const issue = pickAdditionalIssueForNotification(
+      row.message,
+      row.issueId,
+      issues
+    );
+    if (!issue) continue;
+
+    const id = String(issue.id || "").trim() || row.issueId;
+    const issueTitle = String(issue.issueTitle || "").trim() || row.issueTitle;
+    const priceFromIssue =
+      typeof issue.price === "number" && Number.isFinite(issue.price)
+        ? issue.price
+        : null;
+    const price =
+      priceFromIssue != null ? priceFromIssue : row.price != null ? row.price : null;
+    const issueStatus = issue.status != null ? String(issue.status) : null;
+    const descRaw = String(issue.description || "").trim();
+    const issueDescription = descRaw ? descRaw.slice(0, 500) : null;
+    const reportedBy = String(issue.reportedByStaffName || "").trim() || null;
+
+    if (row.source === "admin_panel") {
+      const a = row as MappedAdminNotification;
+      out[idx] = {
+        ...a,
+        issueId: id || a.issueId,
+        issueTitle: issueTitle || a.issueTitle,
+        price,
+        issueStatus: issueStatus ?? a.issueStatus,
+        issueDescription: issueDescription ?? a.issueDescription,
+        staffName: a.staffName || reportedBy,
+        serviceName: a.serviceName || (raw.serviceName != null ? String(raw.serviceName) : null),
+      } as UnifiedNotification;
+    } else {
+      const c = row as MappedNotification;
+      out[idx] = {
+        ...c,
+        issueId: id || c.issueId,
+        issueTitle: issueTitle || c.issueTitle,
+        price,
+        issueStatus: issueStatus ?? c.issueStatus,
+        issueDescription: issueDescription ?? c.issueDescription,
+      } as UnifiedNotification;
+    }
+  }
+  return out;
 }
 
 async function enrichUnifiedNotificationsList(
@@ -824,6 +946,7 @@ export async function GET(req: NextRequest) {
 
       merged = await enrichUnifiedNotificationsList(db, merged);
       merged = await enrichAdminPanelAdditionalIssueBookingContact(db, merged);
+      merged = await enrichAdditionalIssueMetadataFromBookings(db, merged);
 
       if (scopedToWorkshops && scopedToWorkshops.length > 0) {
         const allow = new Set(scopedToWorkshops);
@@ -963,7 +1086,11 @@ export async function GET(req: NextRequest) {
     );
 
     workshopMerged = await enrichUnifiedNotificationsList(db, workshopMerged);
-    workshopMerged = await enrichAdminPanelAdditionalIssueBookingContact(db, workshopMerged);
+    workshopMerged = await enrichAdminPanelAdditionalIssueBookingContact(
+      db,
+      workshopMerged
+    );
+    workshopMerged = await enrichAdditionalIssueMetadataFromBookings(db, workshopMerged);
 
     let filtered = unreadOnly ? workshopMerged.filter((r) => !r.read) : workshopMerged;
 

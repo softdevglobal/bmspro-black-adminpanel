@@ -193,6 +193,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             customerPhone: notifyPhone,
             clientEmail: notifyEmail,
             customerEmail: notifyEmail,
+            issueId: newIssue.id,
+            issueTitle,
+            price: typeof newIssue.price === "number" ? newIssue.price : null,
+            issueStatus: newIssue.status,
+            issueDescription:
+              (newIssue.description && String(newIssue.description).trim()) || undefined,
           });
         }
       } catch (e) {
@@ -223,6 +229,13 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           customerPhone: notifyPhone,
           clientEmail: notifyEmail,
           customerEmail: notifyEmail,
+          issueId: newIssue.id,
+          issueTitle,
+          price: typeof newIssue.price === "number" ? newIssue.price : null,
+          issueStatus: newIssue.status,
+          issueDescription:
+            (newIssue.description && String(newIssue.description).trim()) ||
+            undefined,
         } as any);
       } catch (e) {
         console.error("Failed to notify owner:", e);

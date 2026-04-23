@@ -382,6 +382,9 @@ async function mirrorBookingEngineCustomerInbox(
     issueId: cleanData.issueId ?? null,
     issueTitle: cleanData.issueTitle ?? null,
     price: typeof cleanData.price === "number" ? cleanData.price : null,
+    issueStatus: cleanData.issueStatus ?? null,
+    issueDescription:
+      typeof cleanData.issueDescription === "string" ? cleanData.issueDescription : null,
     customerPhone: resolveCustomerPhoneForStorage(cleanData),
     customerName: resolveCustomerNameForStorage(cleanData),
     ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
@@ -1605,6 +1608,12 @@ export async function createBranchAdminNotification(data: {
   customerPhone?: string;
   clientEmail?: string;
   customerEmail?: string;
+  /** `additional_issue_found` — links notification to `bookings/{id}.additionalIssues[]` */
+  issueId?: string;
+  issueTitle?: string;
+  price?: number | null;
+  issueStatus?: string;
+  issueDescription?: string;
 }): Promise<string> {
   const serviceList = data.services && data.services.length > 0
     ? data.services.map(s => s.name).join(", ")
@@ -1646,6 +1655,26 @@ export async function createBranchAdminNotification(data: {
   if (em) {
     notificationData.customerEmail = em;
     notificationData.clientEmail = em;
+  }
+
+  if (data.issueId !== undefined && data.issueId !== null && String(data.issueId).trim()) {
+    notificationData.issueId = String(data.issueId).trim();
+  }
+  if (data.issueTitle !== undefined && data.issueTitle != null && String(data.issueTitle).trim()) {
+    notificationData.issueTitle = String(data.issueTitle).trim();
+  }
+  if (typeof data.price === "number" && Number.isFinite(data.price)) {
+    notificationData.price = data.price;
+  }
+  if (data.issueStatus !== undefined && data.issueStatus != null && String(data.issueStatus).trim()) {
+    notificationData.issueStatus = String(data.issueStatus).trim();
+  }
+  if (
+    data.issueDescription !== undefined &&
+    data.issueDescription != null &&
+    String(data.issueDescription).trim()
+  ) {
+    notificationData.issueDescription = String(data.issueDescription).trim().slice(0, 2000);
   }
 
   // Ensure branchAdminUid is set (required for mobile app to receive notification)

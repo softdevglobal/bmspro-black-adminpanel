@@ -86,6 +86,7 @@ export async function POST(
       try {
         const branchAdminUids = await getBranchAdminUids(db, branchId, ownerUid);
         for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
           await createBranchAdminNotification({
             bookingId: id,
             bookingCode: bookingCode || undefined,

@@ -396,6 +396,32 @@ async function mirrorBookingEngineCustomerInbox(
 }
 
 /**
+ * Whether a `notifications` row already exists for this booking + additional issue id.
+ * Matches `issueId` (current) and legacy `additionalIssueId`.
+ */
+export async function additionalIssueFoundNotificationExists(
+  db: Firestore,
+  bookingId: string,
+  issueId: string
+): Promise<boolean> {
+  const id = String(issueId || "").trim();
+  const bid = String(bookingId || "").trim();
+  if (!id || !bid) return false;
+  const snap = await db
+    .collection("notifications")
+    .where("bookingId", "==", bid)
+    .where("type", "==", "additional_issue_found")
+    .limit(50)
+    .get();
+  return snap.docs.some((doc) => {
+    const d = doc.data();
+    const a = typeof d.issueId === "string" ? d.issueId.trim() : "";
+    const b = typeof d.additionalIssueId === "string" ? d.additionalIssueId.trim() : "";
+    return a === id || b === id;
+  });
+}
+
+/**
  * Create a notification (generic)
  */
 export async function createNotification(data: Omit<Notification, "id" | "createdAt" | "read">): Promise<string> {

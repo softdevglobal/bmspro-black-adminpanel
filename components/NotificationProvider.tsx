@@ -18,6 +18,8 @@ interface Notification {
   createdAt: Date;
   read: boolean;
   status?: string;
+  /** Present on `additional_issue_found` — used to dedupe duplicate Firestore docs. */
+  issueId?: string;
 }
 
 interface NotificationContextType {
@@ -358,8 +360,20 @@ export default function NotificationProvider({ children }: NotificationProviderP
           return;
         }
 
-        const allNotifs = Array.from(allNotificationsMap.values())
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        const sorted = Array.from(allNotificationsMap.values()).sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+        );
+        const seenAdditionalIssue = new Set<string>();
+        const allNotifs = sorted
+          .filter((n) => {
+            if (n.type !== "additional_issue_found") return true;
+            const iid = (n.issueId || "").trim();
+            if (!n.bookingId || !iid) return true;
+            const key = `${n.bookingId}::${iid}`;
+            if (seenAdditionalIssue.has(key)) return false;
+            seenAdditionalIssue.add(key);
+            return true;
+          })
           .slice(0, 50);
 
         // Find new notifications (IDs that weren't in previous snapshot)
@@ -502,6 +516,10 @@ export default function NotificationProvider({ children }: NotificationProviderP
             continue;
           }
 
+          const issueIdRaw =
+            (typeof data.issueId === "string" && data.issueId.trim()) ||
+            (typeof data.additionalIssueId === "string" && data.additionalIssueId.trim()) ||
+            undefined;
           const notification: Notification = {
             id: notifId,
             bookingId: data.bookingId || "",
@@ -516,6 +534,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt?.seconds * 1000 || Date.now()),
             read: data.read || false,
             status: bookingStatus || data.status,
+            ...(issueIdRaw ? { issueId: issueIdRaw } : {}),
           };
           
           allNotificationsMap.set(notifId, notification);
@@ -988,6 +1007,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
     const dedupeKey = (n: Notification) => {
       if (n.id.startsWith("pending-")) return `pending:${n.bookingId}`;
       if (WORKSHOP_ALERT_TYPES.has(n.type)) return n.id;
+      if (n.type === "additional_issue_found" && n.bookingId && n.issueId) {
+        return `additional_issue:${n.bookingId}:${n.issueId}`;
+      }
       return n.bookingId || n.id;
     };
     const unique = Array.from(

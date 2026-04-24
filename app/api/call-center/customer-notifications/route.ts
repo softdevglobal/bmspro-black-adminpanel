@@ -451,6 +451,25 @@ function strOrNull(v: unknown): string | null {
   return s || null;
 }
 
+/**
+ * Same booking+issue from ensure + POST produced duplicate Firestore docs; keep newest-first row only.
+ */
+function dedupeAdminPanelAdditionalIssueFound(rows: UnifiedNotification[]): UnifiedNotification[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    if (r.source !== "admin_panel") return true;
+    const m = r as MappedAdminNotification;
+    if (m.type !== "additional_issue_found") return true;
+    const bid = m.bookingId?.trim();
+    const iid = (m.issueId || "").trim();
+    if (!bid || !iid) return true;
+    const key = `${bid}::${iid}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function mapAdminPanelDoc(
   doc: QueryDocumentSnapshot,
   ownerNames: Map<string, string>
@@ -482,7 +501,9 @@ function mapAdminPanelDoc(
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
     workshopName: ownerUid ? ownerNames.get(ownerUid) || null : null,
     estimateId: (d.estimateId as string) || null,
-    issueId: (d.issueId as string) || null,
+    issueId:
+      strOrNull(d.issueId) ||
+      strOrNull((d as Record<string, unknown>).additionalIssueId),
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
     issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
@@ -943,6 +964,7 @@ export async function GET(req: NextRequest) {
       merged.sort(
         (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
       );
+      merged = dedupeAdminPanelAdditionalIssueFound(merged);
 
       merged = await enrichUnifiedNotificationsList(db, merged);
       merged = await enrichAdminPanelAdditionalIssueBookingContact(db, merged);
@@ -1084,6 +1106,7 @@ export async function GET(req: NextRequest) {
     workshopMerged.sort(
       (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
     );
+    workshopMerged = dedupeAdminPanelAdditionalIssueFound(workshopMerged);
 
     workshopMerged = await enrichUnifiedNotificationsList(db, workshopMerged);
     workshopMerged = await enrichAdminPanelAdditionalIssueBookingContact(

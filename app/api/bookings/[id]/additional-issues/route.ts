@@ -174,6 +174,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       try {
         const branchAdminUids = await getBranchAdminUids(db, branchId, ownerUid);
         for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
           await createBranchAdminNotification({
             bookingId: id,
             bookingCode: bookingCode || undefined,

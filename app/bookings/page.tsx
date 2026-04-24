@@ -1474,6 +1474,27 @@ function BookingsPageContent() {
     const day = d.getDate().toString().padStart(2, "0");
     return `${y}-${m}-${day}`;
   };
+  /** Calendar date for `d` as it appears in `timeZone` (for comparing to branch "today"). */
+  const formatYmdInTimezone = (d: Date, timeZone: string) => {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    } catch {
+      return formatLocalYmd(d);
+    }
+  };
+  const parseHhmmToMinutes = (time: string): number | null => {
+    const parts = String(time).trim().split(":");
+    if (parts.length < 2) return null;
+    const h = Number(parts[0]);
+    const m = Number(parts[1]);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
   const timeToMinutes = (time: string) => {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
@@ -1622,64 +1643,88 @@ function BookingsPageContent() {
   };
 
   // ─── Pick-up time logic (same as booking engine) ───
-  // Total duration of all selected services
+  // Total duration of all selected services (wizard pricing + same fallback as drop-off slot builder)
   const bkTotalServiceDuration = bkSelectedServices.reduce((sum: number, id) => {
     const s = servicesList.find((srv) => String(srv.id) === String(id));
-    return sum + (Number(s?.duration) || 0);
+    const pr = resolveServiceDisplayPricing(s || {});
+    let d = Number(pr.duration);
+    if (!Number.isFinite(d) || d < 0) d = Number(s?.duration) || 60;
+    return sum + d;
   }, 0);
 
-  // Get branch day hours for the selected date
+  // Get branch day hours for the selected date (weekday in branch TZ, not browser local)
   const bkBranchDayHours = (() => {
     if (!bkDate || !bkBranchId) return null;
     const selectedBranch = branches.find((b) => b.id === bkBranchId);
     if (!selectedBranch?.hours || typeof selectedBranch.hours !== "object" || Array.isArray(selectedBranch.hours)) return null;
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const dayOfWeek = dayNames[bkDate.getDay()];
+    const branchTz = selectedBranch?.timezone || "Australia/Sydney";
+    let dayOfWeek: string;
+    try {
+      dayOfWeek = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: branchTz }).format(bkDate);
+    } catch {
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      dayOfWeek = dayNames[bkDate.getDay()];
+    }
     const dayHours = (selectedBranch.hours as any)[dayOfWeek];
     if (!dayHours || dayHours.closed) return null;
     return { open: dayHours.open || "09:00", close: dayHours.close || "17:00" };
   })();
 
-  // Earliest allowed pick-up time = latest drop-off time + its service duration
+  // Earliest allowed pick-up time = latest (drop-off + duration) across services; duration matches wizard pricing with computeSlots fallback
   const bkEarliestPickupTime = (() => {
-    if (Object.keys(bkServiceTimes).length === 0 || bkTotalServiceDuration === 0) return null;
-    // Find the latest "end time" among all selected services
-    let latestEndMin = 0;
+    if (bkSelectedServices.length === 0) return null;
+    if (Object.keys(bkServiceTimes).length !== bkSelectedServices.length) return null;
+    let latestEndMin: number | null = null;
     for (const serviceId of bkSelectedServices) {
       const t = bkServiceTimes[String(serviceId)];
-      if (!t) return null; // Not all times selected yet
+      if (t == null || String(t).trim() === "") return null;
+      const dropMin = parseHhmmToMinutes(String(t));
+      if (dropMin === null) return null;
       const s = servicesList.find((srv) => String(srv.id) === String(serviceId));
-      const dur = Number(s?.duration) || 0;
-      const [h, m] = t.split(":").map(Number);
-      const endMin = h * 60 + m + dur;
-      if (endMin > latestEndMin) latestEndMin = endMin;
+      const pr = resolveServiceDisplayPricing(s || {});
+      let dur = Number(pr.duration);
+      if (!Number.isFinite(dur) || dur < 0) dur = Number(s?.duration) || 60;
+      const endMin = dropMin + dur;
+      if (!Number.isFinite(endMin)) return null;
+      if (latestEndMin === null || endMin > latestEndMin) latestEndMin = endMin;
     }
-    if (latestEndMin === 0) return null;
+    if (latestEndMin === null || !Number.isFinite(latestEndMin)) return null;
     const pH = Math.floor(latestEndMin / 60);
     const pM = latestEndMin % 60;
     if (pH > 23) return null;
     return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
   })();
 
-  // Pick-up time slots: 2 PM – 5 PM, >= earliest pick-up time, not past for today
+  // Pick-up time slots: 2 PM – branch close, >= earliest pick-up time, not past for today (today = branch calendar date)
   const bkPickupTimeSlots = (() => {
     if (!bkEarliestPickupTime) return [];
+    const hhmmToMins = (t: string) => {
+      const v = parseHhmmToMinutes(t);
+      return v === null ? NaN : v;
+    };
     const PICKUP_START_MINS = 14 * 60; // 14:00
-    const PICKUP_END_MINS = 17 * 60;   // 17:00
+    const fallbackEnd = 17 * 60;
+    let pickupEndMins = bkBranchDayHours ? hhmmToMins(bkBranchDayHours.close) : fallbackEnd;
+    if (!Number.isFinite(pickupEndMins) || pickupEndMins < PICKUP_START_MINS) pickupEndMins = fallbackEnd;
+    const earliestMins = hhmmToMins(bkEarliestPickupTime);
+    if (!Number.isFinite(earliestMins)) return [];
     const slots: string[] = [];
-    for (let mins = PICKUP_START_MINS; mins <= PICKUP_END_MINS; mins += 30) {
+    for (let mins = PICKUP_START_MINS; mins <= pickupEndMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
-    let filtered = slots.filter((t) => t >= bkEarliestPickupTime);
+    let filtered = slots.filter((t) => hhmmToMins(t) >= earliestMins);
     if (bkDate && bkBranchId) {
       const selectedBranch = branches.find((b) => b.id === bkBranchId);
       const branchTimezone = selectedBranch?.timezone || "Australia/Sydney";
       const branchNow = getCurrentDateTimeInTimezone(branchTimezone);
-      const selectedDateStr = formatLocalYmd(bkDate);
+      const selectedDateStr = formatYmdInTimezone(bkDate, branchTimezone);
       if (selectedDateStr === branchNow.date) {
-        filtered = filtered.filter((t) => t > branchNow.time);
+        const nowM = hhmmToMins(branchNow.time);
+        if (Number.isFinite(nowM)) {
+          filtered = filtered.filter((t) => hhmmToMins(t) > nowM);
+        }
       }
     }
     return filtered;

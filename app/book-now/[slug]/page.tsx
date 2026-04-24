@@ -24,6 +24,13 @@ import {
   type TaskCondition,
   taskConditionOption,
 } from "@/lib/taskCondition";
+import { getCurrentDateTimeInTimezone } from "@/lib/timezone";
+
+function hhmmToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+  return h * 60 + m;
+}
 
 /** Area strips: light tinted bars + colored border (readable dark text), matching the preferred Book Now look. */
 const BOOK_NOW_SECTION_HEADER: Record<ChecklistSection, string> = {
@@ -319,11 +326,13 @@ export default function BookingEnginePage() {
   const [prevStep, setPrevStep] = useState(1);
   const [animDir, setAnimDir] = useState<"forward" | "back">("forward");
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
-  // Vehicle "size class" the customer picks at the top of step 2. Drives
-  // which services are visible (hidden if the service doesn't support this
-  // type) and which price/duration is charged. Null until picked.
+  // Vehicle size class: on step 2 (Services) the customer picks a tier to browse/filter services.
+  // On step 3 (Book / details), when a saved vehicle is selected, pricing follows that vehicle's
+  // stored size class; "Add new" restores the tier from step 2 until the vehicle has its own type.
   const [selectedVehicleType, setSelectedVehicleType] =
     useState<VehicleType | null>(null);
+  /** Tier from the Services step (step 2); restored when choosing "Add new" on step 3. */
+  const step1BrowseVehicleTypeRef = useRef<VehicleType | null>(null);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState(""); // drop-off time
@@ -418,6 +427,22 @@ export default function BookingEnginePage() {
     setStep(target);
   }, [step]);
 
+  // Step 3 (Book): pricing tier must match the saved vehicle, not the browse tier from step 2.
+  useEffect(() => {
+    if (step !== 3) return;
+    if (selectedVehicleId === "new") return;
+    const v = customerVehicles.find((x) => x.id === selectedVehicleId);
+    if (v?.vehicleType && isVehicleTypeStr(v.vehicleType)) {
+      setSelectedVehicleType(v.vehicleType);
+    }
+  }, [step, selectedVehicleId, customerVehicles]);
+
+  useEffect(() => {
+    if (step === 2 && selectedVehicleType) {
+      step1BrowseVehicleTypeRef.current = selectedVehicleType;
+    }
+  }, [step, selectedVehicleType]);
+
   useEffect(() => {
     if (!slug) return;
     (async () => {
@@ -484,9 +509,9 @@ export default function BookingEnginePage() {
           setVehicleMake(selectedVehicle.make || ""); setVehicleModel(selectedVehicle.model || ""); setVehicleYear(selectedVehicle.year || ""); setVehicleMileage(selectedVehicle.mileage || "");
           setVehicleBodyType(selectedVehicle.bodyType || ""); setVehicleColour(selectedVehicle.colour || "");
           setVehicleVinChassis(selectedVehicle.vinChassis || ""); setVehicleEngineNumber(selectedVehicle.engineNumber || "");
-          // Pre-select the size class so step 2 prices appear without an extra click.
+          // Seed browse tier from default saved vehicle when none chosen yet (step 1).
           if (selectedVehicle.vehicleType && isVehicleTypeStr(selectedVehicle.vehicleType)) {
-            setSelectedVehicleType(selectedVehicle.vehicleType);
+            setSelectedVehicleType((prev) => (prev != null ? prev : selectedVehicle.vehicleType!));
           }
         } else {
           setSelectedVehicleId("new");
@@ -585,8 +610,9 @@ export default function BookingEnginePage() {
         setVehicleColour(vehicleFormColour?.trim() || "");
         setVehicleVinChassis(vehicleFormVin?.trim() || "");
         setVehicleEngineNumber(vehicleFormEngine?.trim() || "");
-        // Re-price the booking using the just-saved size class.
-        if (vehicleFormVehicleType) setSelectedVehicleType(vehicleFormVehicleType);
+        if (vehicleFormVehicleType && isVehicleTypeStr(vehicleFormVehicleType)) {
+          setSelectedVehicleType(vehicleFormVehicleType);
+        }
       }
       closeVehicleForm();
       await fetchCustomerVehicles();
@@ -994,23 +1020,12 @@ export default function BookingEnginePage() {
   // ─── Branch-timezone-aware "today" date and current time ───
   const branchTimezone = selectedBranch?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const branchToday = useMemo(() => {
-    try {
-      // en-CA locale gives YYYY-MM-DD format
-      return new Intl.DateTimeFormat("en-CA", { timeZone: branchTimezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(nowTick));
-    } catch {
-      return new Date().toISOString().split("T")[0];
-    }
+  const branchNow = useMemo(() => {
+    void nowTick; // tick every 30s so "today" / branch clock stay current
+    return getCurrentDateTimeInTimezone(branchTimezone);
   }, [branchTimezone, nowTick]);
-
-  const branchCurrentTime = useMemo(() => {
-    try {
-      return new Intl.DateTimeFormat("en-GB", { timeZone: branchTimezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(nowTick));
-    } catch {
-      const n = new Date();
-      return `${n.getHours().toString().padStart(2, "0")}:${n.getMinutes().toString().padStart(2, "0")}`;
-    }
-  }, [branchTimezone, nowTick]);
+  const branchToday = branchNow.date;
+  const branchCurrentTime = branchNow.time;
 
   // ─── Branch opening hours for the selected date ───
   const branchDayHours = useMemo<{ open: string; close: string } | null>(() => {
@@ -1031,10 +1046,10 @@ export default function BookingEnginePage() {
     };
   }, [selectedBranch, date, branchTimezone]);
 
-  // Australian booking rule: drop-off till 11 AM, pick-up 2 PM – 5 PM
+  // Australian booking rule: drop-off till 11 AM, pick-up from 2 PM until branch closes
   const DROPOFF_CUTOFF = "11:00";
   const PICKUP_START = "14:00";
-  const PICKUP_END = "17:00";
+  const PICKUP_END_FALLBACK = "17:00";
 
   // All possible drop-off time slots — strictly within the branch's opening
   // hours for the selected date, then capped at 11:00 AM (morning drop-off).
@@ -1064,7 +1079,10 @@ export default function BookingEnginePage() {
     let slots = allTimeSlots;
     // Filter out past times if the selected date is today
     if (date && date === branchToday) {
-      slots = slots.filter(t => t > branchCurrentTime);
+      const nowM = hhmmToMinutes(branchCurrentTime);
+      if (Number.isFinite(nowM)) {
+        slots = slots.filter((t) => hhmmToMinutes(t) > nowM);
+      }
     }
     // Filter out times where service can't finish before branch closes
     if (totalDuration > 0 && branchDayHours) {
@@ -1080,34 +1098,41 @@ export default function BookingEnginePage() {
 
   // Earliest allowed pick-up time = drop-off time + total service duration
   const earliestPickupTime = useMemo(() => {
-    if (!time || totalDuration === 0) return null;
+    if (!time) return null;
+    const dur = totalDuration || 0;
     const [h, m] = time.split(":").map(Number);
-    const totalMins = h * 60 + m + totalDuration;
+    const totalMins = h * 60 + m + dur;
     const pH = Math.floor(totalMins / 60);
     const pM = totalMins % 60;
     if (pH > 23) return null; // past end of day
     return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
   }, [time, totalDuration]);
 
-  // Filtered pick-up time slots: 2 PM – 5 PM, >= earliest pick-up time, and not past for today
+  // Filtered pick-up time slots: 2 PM – branch close, >= earliest pick-up time, and not past for today
   const pickupTimeSlots = useMemo(() => {
     if (!earliestPickupTime) return [];
     const [psH, psM] = PICKUP_START.split(":").map(Number);
-    const [peH, peM] = PICKUP_END.split(":").map(Number);
     const startMins = psH * 60 + psM;
-    const endMins = peH * 60 + peM;
+    const closeStr = branchDayHours?.close ?? PICKUP_END_FALLBACK;
+    let endMins = hhmmToMinutes(closeStr);
+    const fallbackEnd = hhmmToMinutes(PICKUP_END_FALLBACK);
+    if (!Number.isFinite(endMins) || endMins < startMins) endMins = fallbackEnd;
     const slots: string[] = [];
     for (let mins = startMins; mins <= endMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
-    let filtered = slots.filter(t => t >= earliestPickupTime);
+    const earliestMins = hhmmToMinutes(earliestPickupTime);
+    let filtered = slots.filter((t) => hhmmToMinutes(t) >= earliestMins);
     if (date === branchToday) {
-      filtered = filtered.filter(t => t > branchCurrentTime);
+      const nowM = hhmmToMinutes(branchCurrentTime);
+      if (Number.isFinite(nowM)) {
+        filtered = filtered.filter((t) => hhmmToMinutes(t) > nowM);
+      }
     }
     return filtered;
-  }, [earliestPickupTime, date, branchToday, branchCurrentTime]);
+  }, [earliestPickupTime, date, branchToday, branchCurrentTime, branchDayHours]);
 
   // Clear pick-up time if it becomes invalid after drop-off or duration changes
   useEffect(() => {
@@ -1120,8 +1145,12 @@ export default function BookingEnginePage() {
   // Clear drop-off time if it becomes past (e.g. time ticked past selected slot for today)
   // Also clear if the selected time is outside branch hours
   useEffect(() => {
-    if (time && date === branchToday && time <= branchCurrentTime) {
-      setTime("");
+    if (time && date === branchToday) {
+      const nowM = hhmmToMinutes(branchCurrentTime);
+      const tM = hhmmToMinutes(time);
+      if (Number.isFinite(nowM) && Number.isFinite(tM) && tM <= nowM) {
+        setTime("");
+      }
     }
     // Clear time if branch is closed on the selected day
     if (time && branchDayHours === null && date && selectedBranch?.hours && typeof selectedBranch.hours !== "string") {
@@ -1182,6 +1211,7 @@ export default function BookingEnginePage() {
     // branch changes, since service availability by vehicle type can differ
     // per branch (two branches may have different per-vehicle pricing).
     setSelectedVehicleType(null);
+    step1BrowseVehicleTypeRef.current = null;
     goToStep(2);
   };
   const toggleService = (serviceId: string) => {
@@ -1289,6 +1319,8 @@ export default function BookingEnginePage() {
     if (id === "new") {
       setVehicleNumber(""); setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
       setVehicleBodyType(""); setVehicleColour(""); setVehicleVinChassis(""); setVehicleEngineNumber("");
+      const browse = step1BrowseVehicleTypeRef.current;
+      if (browse) setSelectedVehicleType(browse);
     } else {
       const v = customerVehicles.find((x) => x.id === id);
       if (v) {
@@ -1296,7 +1328,6 @@ export default function BookingEnginePage() {
         setVehicleMake(v.make || ""); setVehicleModel(v.model || ""); setVehicleYear(v.year || ""); setVehicleMileage(v.mileage || "");
         setVehicleBodyType(v.bodyType || ""); setVehicleColour(v.colour || "");
         setVehicleVinChassis(v.vinChassis || ""); setVehicleEngineNumber(v.engineNumber || "");
-        // Drive step 2 pricing from the saved vehicle's size class.
         if (v.vehicleType && isVehicleTypeStr(v.vehicleType)) {
           setSelectedVehicleType(v.vehicleType);
         }
@@ -3038,6 +3069,34 @@ export default function BookingEnginePage() {
                             </select>
                             <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400" />
                           </div>
+                          {(() => {
+                            const v = customerVehicles.find((x) => x.id === selectedVehicleId);
+                            const fromVehicle = v?.vehicleType && isVehicleTypeStr(v.vehicleType);
+                            if (selectedVehicleId === "new") {
+                              return selectedVehicleType ? (
+                                <p className="text-[10px] text-neutral-500 mt-1.5 leading-snug">
+                                  New vehicle: pricing uses <span className="font-semibold text-neutral-700">{VEHICLE_TYPE_LABELS[selectedVehicleType]}</span> from the service step until you save this vehicle with a size class.
+                                </p>
+                              ) : null;
+                            }
+                            return (
+                              <p className="text-[10px] text-neutral-500 mt-1.5 leading-snug">
+                                {fromVehicle ? (
+                                  <>
+                                    Prices follow this vehicle&apos;s saved size:{" "}
+                                    <span className="font-semibold text-neutral-700">{VEHICLE_TYPE_LABELS[v!.vehicleType as VehicleType]}</span>.
+                                  </>
+                                ) : selectedVehicleType ? (
+                                  <>
+                                    No size saved on this vehicle — pricing uses{" "}
+                                    <span className="font-semibold text-neutral-700">{VEHICLE_TYPE_LABELS[selectedVehicleType]}</span> from the service step. Edit the vehicle to set a size class.
+                                  </>
+                                ) : (
+                                  "Add a size class to this vehicle (Edit) so we can price the booking correctly."
+                                )}
+                              </p>
+                            );
+                          })()}
                         </div>
                       )}
                       {customer && (
@@ -3158,6 +3217,16 @@ export default function BookingEnginePage() {
                             <i className="fas fa-arrow-right-from-bracket text-emerald-500 text-[10px]" />
                           </div>
                           <span className="text-neutral-600 text-xs">Pick-up: <span className="font-semibold text-neutral-700">{pickupTime}</span></span>
+                        </div>
+                      )}
+                      {selectedVehicleType && (
+                        <div className="flex items-center gap-2.5 text-sm">
+                          <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                            <i className={`${VEHICLE_TYPE_ICONS[selectedVehicleType]} text-amber-600 text-[10px]`} />
+                          </div>
+                          <span className="text-neutral-600 text-xs">
+                            Price tier: <span className="font-semibold text-neutral-800">{VEHICLE_TYPE_LABELS[selectedVehicleType]}</span>
+                          </span>
                         </div>
                       )}
                     </div>
@@ -3357,7 +3426,7 @@ export default function BookingEnginePage() {
             <div className="mt-8 animate-[fadeSlideUp_0.6s_ease-out_0.6s_both]">
               <button
                 onClick={() => {
-                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setSelectedVehicleType(null); setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
+                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setSelectedVehicleType(null); step1BrowseVehicleTypeRef.current = null; setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
                 }}
                 className="group bg-neutral-900 text-white font-bold px-8 py-3.5 rounded-xl hover:bg-neutral-800 transition-all text-sm active:scale-[0.97] shadow-xl shadow-neutral-900/15 inline-flex items-center gap-2"
               >

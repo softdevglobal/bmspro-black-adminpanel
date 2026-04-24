@@ -509,9 +509,10 @@ export default function BookingEnginePage() {
           setVehicleMake(selectedVehicle.make || ""); setVehicleModel(selectedVehicle.model || ""); setVehicleYear(selectedVehicle.year || ""); setVehicleMileage(selectedVehicle.mileage || "");
           setVehicleBodyType(selectedVehicle.bodyType || ""); setVehicleColour(selectedVehicle.colour || "");
           setVehicleVinChassis(selectedVehicle.vinChassis || ""); setVehicleEngineNumber(selectedVehicle.engineNumber || "");
-          // Seed browse tier from default saved vehicle when none chosen yet (step 1).
-          if (selectedVehicle.vehicleType && isVehicleTypeStr(selectedVehicle.vehicleType)) {
-            setSelectedVehicleType((prev) => (prev != null ? prev : selectedVehicle.vehicleType!));
+          // Seed browse tier from default saved vehicle when none chosen yet (services step).
+          const seedVehicleType = selectedVehicle.vehicleType;
+          if (seedVehicleType && isVehicleTypeStr(seedVehicleType)) {
+            setSelectedVehicleType((prev) => (prev != null ? prev : seedVehicleType));
           }
         } else {
           setSelectedVehicleId("new");

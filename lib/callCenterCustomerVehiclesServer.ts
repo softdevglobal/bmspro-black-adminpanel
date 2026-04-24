@@ -30,7 +30,8 @@ export type BookingVehicleInput = {
 /**
  * Add the vehicle captured on a new booking to the customer's `vehicles`
  * subcollection so it shows up in "My Vehicles" on the booking engine and in
- * the customer profile. Dedupes against existing vehicles by rego / VIN using
+ * the customer profile. Dedupes against existing vehicles using rego and/or
+ * VIN plus vehicle size class (`vehicleType`) — see `isSameCustomerVehicle`.
  * the same identity rules as the rest of the system, and merges missing
  * fields into any matching existing record.
  *
@@ -108,6 +109,7 @@ export async function upsertCustomerVehicleFromBooking(
     vehicleNumber: rego,
     vinChassis: vin,
     vin,
+    vehicleType: normalizedType || null,
   };
 
   const col = db.collection(`customers/${customerId}/vehicles`);

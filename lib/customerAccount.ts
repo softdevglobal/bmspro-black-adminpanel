@@ -90,13 +90,12 @@ export async function ensureCustomerAccount(
     const doc = existing.docs[0];
     const data = doc.data() || {};
     const patch: Record<string, unknown> = {};
-    if (!data.name && input.name?.trim()) patch.name = input.name.trim();
-    if (!data.phone && input.phone?.trim()) patch.phone = input.phone.trim();
-    const fromInput = normalizePhoneDigits(input.phone);
+    // Existing portal accounts: do not overwrite name/phone from staff-entered
+    // booking forms (typos must not change the customer profile). Only backfill
+    // phoneNormalized from the stored phone for indexing when missing/stale.
     const fromStored = normalizePhoneDigits(typeof data.phone === "string" ? data.phone : "");
-    const digits = fromInput.length >= 6 ? fromInput : fromStored;
-    if (digits.length >= 6 && data.phoneNormalized !== digits) {
-      patch.phoneNormalized = digits;
+    if (fromStored.length >= 6 && data.phoneNormalized !== fromStored) {
+      patch.phoneNormalized = fromStored;
     }
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = FieldValue.serverTimestamp();
@@ -192,6 +191,32 @@ export async function resolveCustomerForStaffBooking(
   }
 
   return null;
+}
+
+export type CanonicalCustomerContact = {
+  name: string;
+  email: string;
+  phone: string;
+};
+
+/**
+ * Load the workshop-scoped customer profile used on bookings/emails when an
+ * existing portal account is linked (staff-entered contact fields are ignored).
+ */
+export async function getCanonicalCustomerContact(
+  db: Firestore,
+  customerId: string,
+  ownerUid: string
+): Promise<CanonicalCustomerContact | null> {
+  if (!customerId || !ownerUid) return null;
+  const snap = await db.doc(`customers/${customerId}`).get();
+  if (!snap.exists) return null;
+  const d = snap.data() || {};
+  if (String(d.ownerUid) !== ownerUid) return null;
+  const email = String(d.email || "").trim().toLowerCase();
+  const name = String(d.name || d.client || "").trim();
+  const phone = String(d.phone || "").trim();
+  return { name, email, phone };
 }
 
 /**

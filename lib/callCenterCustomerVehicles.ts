@@ -45,21 +45,35 @@ export function regoVinFromVehicleData(d: Record<string, unknown>): {
   };
 }
 
-/** True when two stored / incoming payloads describe the same car (same plate or same VIN). */
+/**
+ * True when `existing` and `incoming` describe the same fleet vehicle for merge/dedupe.
+ * Rules:
+ * - If both have a canonical vehicle size class and they differ → different vehicles.
+ * - If either side has a VIN (≥ min length), both must have a VIN and they must match
+ *   (avoids merging different cars that share a plate or partial data).
+ * - Otherwise same normalized rego counts as the same vehicle (legacy / no VIN).
+ */
 export function isSameCustomerVehicle(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>
 ): boolean {
-  const A = regoVinFromVehicleData(a);
-  const B = regoVinFromVehicleData(b);
-  if (A.rego && B.rego && A.rego === B.rego) return true;
-  if (
-    A.vin.length >= MIN_VIN_LEN_FOR_MATCH &&
-    B.vin.length >= MIN_VIN_LEN_FOR_MATCH &&
-    A.vin === B.vin
-  ) {
-    return true;
+  const E = regoVinFromVehicleData(existing);
+  const I = regoVinFromVehicleData(incoming);
+  const typeE = normalizeVehicleType(existing.vehicleType);
+  const typeI = normalizeVehicleType(incoming.vehicleType);
+
+  if (typeE && typeI && typeE !== typeI) return false;
+
+  const eVinOk = E.vin.length >= MIN_VIN_LEN_FOR_MATCH;
+  const iVinOk = I.vin.length >= MIN_VIN_LEN_FOR_MATCH;
+  const anyVin = eVinOk || iVinOk;
+
+  if (anyVin) {
+    if (!eVinOk || !iVinOk) return false;
+    return E.vin === I.vin;
   }
+
+  if (E.rego && I.rego && E.rego === I.rego) return true;
   return false;
 }
 

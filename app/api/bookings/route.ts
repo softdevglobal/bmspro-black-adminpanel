@@ -9,7 +9,11 @@ import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 import { sendBookingRequestReceivedEmail, sendBookingEmail, sendCustomerWelcomeEmail } from "@/lib/emailService";
-import { resolveCustomerForStaffBooking, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import {
+  resolveCustomerForStaffBooking,
+  resolveBookingEngineUrl,
+  getCanonicalCustomerContact,
+} from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import {
   isVehicleType,
@@ -580,8 +584,9 @@ export async function POST(req: NextRequest) {
       password: string;
       name: string;
     } | null = null;
+    let ensureResult: Awaited<ReturnType<typeof resolveCustomerForStaffBooking>> = null;
     try {
-      const ensureResult = await resolveCustomerForStaffBooking(db, {
+      ensureResult = await resolveCustomerForStaffBooking(db, {
         ownerUid,
         email: body.clientEmail,
         phone: body.clientPhone,
@@ -611,11 +616,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const accountCreatedThisBooking = ensureResult?.created === true;
+    let clientForBooking = String(body.client ?? "").trim() || "Walk-in";
+    let emailForBooking = emailValue;
+    let phoneForBooking = phoneValue;
+    let canonicalCustomerForResponse:
+      | { name: string; email: string; phone: string }
+      | undefined;
+
+    if (resolvedCustomerId && !accountCreatedThisBooking) {
+      try {
+        const canon = await getCanonicalCustomerContact(db, resolvedCustomerId, ownerUid);
+        if (canon) {
+          if (canon.name) clientForBooking = canon.name;
+          if (canon.email) emailForBooking = canon.email;
+          if (canon.phone) phoneForBooking = canon.phone;
+          canonicalCustomerForResponse = {
+            name: clientForBooking,
+            email: emailForBooking,
+            phone: phoneForBooking,
+          };
+        }
+      } catch (canonErr) {
+        console.warn("[BOOKING] Could not load canonical customer contact:", canonErr);
+      }
+    }
+
     const payload: any = {
       ownerUid,
-      client: String(body.client),
-      clientEmail: body.clientEmail || null,
-      clientPhone: body.clientPhone || null,
+      client: clientForBooking,
+      clientEmail: emailForBooking || null,
+      clientPhone: phoneForBooking || null,
       customerId: resolvedCustomerId,
       vehicleNumber: body.vehicleNumber || null,
       vehicleMake: body.vehicleMake || null,
@@ -708,7 +739,7 @@ export async function POST(req: NextRequest) {
           bookingId: ref.id,
           bookingCode: bookingCode,
           activityType: "booking_created",
-          clientName: String(body.client),
+          clientName: clientForBooking,
           serviceName: serviceName,
           branchName: branchName,
           staffName: staffName,
@@ -745,7 +776,7 @@ export async function POST(req: NextRequest) {
           ownerUid,
           ref.id,
           bookingCode,
-          String(body.client),
+          clientForBooking,
           serviceName || "Service",
           branchName || undefined,
           staffName || undefined,
@@ -761,8 +792,8 @@ export async function POST(req: NextRequest) {
             time: String(body.time),
             notes: body.notes || undefined,
             bookingSource: bookingSource,
-            clientEmail: body.clientEmail || undefined,
-            clientPhone: body.clientPhone || undefined,
+            clientEmail: emailForBooking || undefined,
+            clientPhone: phoneForBooking || undefined,
           }
         );
       } catch (auditError) {
@@ -776,12 +807,8 @@ export async function POST(req: NextRequest) {
       // For "Confirmed" status (staff bookings), send "Confirmed" email
       // For "Pending" status, send "Pending" email
       try {
-        // Handle email field from various sources (mobile app might send it differently)
-        let customerEmail: string | null = null;
-        if (body.clientEmail) {
-          const trimmed = String(body.clientEmail).trim();
-          customerEmail = trimmed.length > 0 ? trimmed : null;
-        }
+        const customerEmail: string | null =
+          emailForBooking && emailForBooking.length > 0 ? emailForBooking : null;
         
         // Get user role for logging
         let userRole = 'unknown';
@@ -797,9 +824,7 @@ export async function POST(req: NextRequest) {
         
         console.log(`[BOOKING] Attempting to send email for booking ${ref.id}`, {
           clientEmail: customerEmail,
-          clientEmailRaw: body.clientEmail,
-          clientEmailType: typeof body.clientEmail,
-          client: body.client,
+          clientForBooking,
           bookingCode,
           finalStatus,
           hasEmail: !!customerEmail,
@@ -827,7 +852,7 @@ export async function POST(req: NextRequest) {
             bookingId: ref.id,
             bookingCode: bookingCode || undefined,
             customerEmail: customerEmail,
-            customerName: String(body.client),
+            customerName: clientForBooking,
             status: emailStatus,
             ownerUid,
             branchName: branchName || null,
@@ -867,8 +892,8 @@ export async function POST(req: NextRequest) {
           console.warn(`[BOOKING] ⚠️ No customer email provided for booking ${ref.id}, skipping email`, {
             bookingId: ref.id,
             bookingCode,
-            client: body.client,
-            clientEmail: body.clientEmail,
+            client: clientForBooking,
+            clientEmail: emailForBooking,
           });
         }
       } catch (emailError: any) {
@@ -974,8 +999,8 @@ export async function POST(req: NextRequest) {
               bookingCode: bookingCode,
               staffUid: staff.uid,
               staffName: staff.name,
-              clientName: String(body.client),
-              clientPhone: body.clientPhone || undefined,
+              clientName: clientForBooking,
+              clientPhone: phoneForBooking || undefined,
               serviceName: serviceName || undefined,
               services: processedServices?.map((s: any) => ({
                 name: s.name || "Service",
@@ -1017,7 +1042,7 @@ export async function POST(req: NextRequest) {
             bookingId: ref.id,
             bookingCode: bookingCode,
             ownerUid: ownerUid,
-            clientName: String(body.client),
+            clientName: clientForBooking,
             serviceName: serviceName || undefined,
             services: processedServices?.map((s: any) => ({
               name: s.name || "Service",
@@ -1056,7 +1081,7 @@ export async function POST(req: NextRequest) {
                 bookingCode: bookingCode,
                 branchAdminUid: branchAdminUid,
                 ownerUid: ownerUid,
-                clientName: String(body.client),
+                clientName: clientForBooking,
                 serviceName: serviceName || undefined,
                 services: processedServices?.map((s: any) => ({
                   name: s.name || "Service",
@@ -1125,7 +1150,7 @@ export async function POST(req: NextRequest) {
                 
                 if (branchAdminFcmToken) {
                   const pushTitle = notificationData?.title || "New Booking - Staff Assignment Required";
-                  const pushMessage = notificationData?.message || `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`;
+                  const pushMessage = notificationData?.message || `New booking from ${clientForBooking} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`;
                   
                   console.log(`📱 Booking ${bookingCode}: FCM token found (${branchAdminFcmToken.substring(0, 20)}...), sending push...`);
                   console.log(`📱 Booking ${bookingCode}: Push title: "${pushTitle}"`);
@@ -1166,14 +1191,14 @@ export async function POST(req: NextRequest) {
                   bookingCode: bookingCode,
                   type: "booking_needs_assignment",
                   title: "New Booking - Staff Assignment Required",
-                  message: `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
+                  message: `New booking from ${clientForBooking} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
                   status: finalStatus,
                   ownerUid: ownerUid,
                   branchAdminUid: branchAdminUid, // CRITICAL: Must match user.uid for mobile app query
                   targetAdminUid: branchAdminUid, // Also set for mobile app queries
                   branchId: String(body.branchId), // CRITICAL: Must be set for branch filtering
-                  clientName: String(body.client),
-                  clientPhone: body.clientPhone || null,
+                  clientName: clientForBooking,
+                  clientPhone: phoneForBooking || null,
                   serviceName: serviceName || null,
                   services: processedServices?.map((s: any) => ({
                     name: s.name || "Service",
@@ -1235,7 +1260,7 @@ export async function POST(req: NextRequest) {
               bookingCode: bookingCode,
               branchAdminUid,
               ownerUid,
-              clientName: String(body.client),
+              clientName: clientForBooking,
               serviceName: serviceName || undefined,
               services: processedServices?.map((s: any) => ({
                 name: s.name || "Service",
@@ -1258,7 +1283,12 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      return NextResponse.json({ id: ref.id });
+      return NextResponse.json({
+        id: ref.id,
+        ...(canonicalCustomerForResponse
+          ? { canonicalCustomer: canonicalCustomerForResponse }
+          : {}),
+      });
     } catch (e) {
       if (process.env.NODE_ENV !== "production") {
         // Fall back silently in dev to let client persist

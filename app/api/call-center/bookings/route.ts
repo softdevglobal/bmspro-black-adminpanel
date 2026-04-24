@@ -22,7 +22,11 @@ import {
   getBranchAdminUids,
 } from "@/lib/notifications";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
-import { resolveCustomerForStaffBooking, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import {
+  resolveCustomerForStaffBooking,
+  resolveBookingEngineUrl,
+  getCanonicalCustomerContact,
+} from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import {
   isVehicleType,
@@ -602,9 +606,10 @@ export async function POST(req: NextRequest) {
       password: string;
       name: string;
     } | null = null;
+    let ensureResult: Awaited<ReturnType<typeof resolveCustomerForStaffBooking>> = null;
     try {
       if (!resolvedCustomerId) {
-        const ensureResult = await resolveCustomerForStaffBooking(db, {
+        ensureResult = await resolveCustomerForStaffBooking(db, {
           ownerUid,
           email: typeof clientEmail === "string" ? clientEmail : null,
           phone: typeof clientPhone === "string" ? clientPhone : null,
@@ -635,6 +640,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const accountCreatedThisBooking = ensureResult?.created === true;
+    let clientForBooking = (client as string).trim();
+    let emailForBooking = (typeof clientEmail === "string" ? clientEmail : "").trim();
+    let phoneForBooking = (typeof clientPhone === "string" ? clientPhone : "").trim();
+
+    let canonicalCustomerForResponse:
+      | { name: string; email: string; phone: string }
+      | undefined;
+    if (resolvedCustomerId && !accountCreatedThisBooking) {
+      try {
+        const canon = await getCanonicalCustomerContact(db, resolvedCustomerId, ownerUid);
+        if (canon) {
+          if (canon.name) clientForBooking = canon.name;
+          if (canon.email) emailForBooking = canon.email;
+          if (canon.phone) phoneForBooking = canon.phone;
+          canonicalCustomerForResponse = {
+            name: clientForBooking,
+            email: emailForBooking,
+            phone: phoneForBooking,
+          };
+        }
+      } catch (canonErr) {
+        console.warn("[call-center/bookings] Could not load canonical customer contact:", canonErr);
+      }
+    }
+
     const bookingData: Record<string, any> = {
       ownerUid,
       branchId,
@@ -645,9 +676,9 @@ export async function POST(req: NextRequest) {
       pickupTime: pickupTime || null,
       duration: totalDuration,
       price: totalPrice,
-      client: (client as string).trim(),
-      clientEmail: clientEmail?.trim() || "",
-      clientPhone: clientPhone?.trim() || "",
+      client: clientForBooking,
+      clientEmail: emailForBooking || "",
+      clientPhone: phoneForBooking || "",
       customerId: resolvedCustomerId,
       vehicleNumber: vf.vehicleNumber,
       vehicleMake: vf.vehicleMake || null,
@@ -737,7 +768,7 @@ export async function POST(req: NextRequest) {
           bookingId,
           bookingCode,
           ownerUid,
-          clientName: String(client).trim(),
+          clientName: clientForBooking,
           serviceName: primaryServiceName,
           services: servicesForNotif,
           branchName: bookingData.branchName,
@@ -755,7 +786,7 @@ export async function POST(req: NextRequest) {
             bookingCode,
             branchAdminUid,
             ownerUid,
-            clientName: String(client).trim(),
+            clientName: clientForBooking,
             serviceName: primaryServiceName,
             services: servicesForNotif,
             branchName: bookingData.branchName,
@@ -764,9 +795,9 @@ export async function POST(req: NextRequest) {
             bookingTime: bookingTimeDisplay,
             status: "Pending",
             type: "booking_needs_assignment",
-            clientPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
-            customerPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
-            clientEmail: typeof clientEmail === "string" ? clientEmail.trim() || undefined : undefined,
+            clientPhone: phoneForBooking || undefined,
+            customerPhone: phoneForBooking || undefined,
+            clientEmail: emailForBooking || undefined,
           });
         }
       } else {
@@ -774,7 +805,7 @@ export async function POST(req: NextRequest) {
           bookingId,
           bookingCode,
           ownerUid,
-          clientName: String(client).trim(),
+          clientName: clientForBooking,
           serviceName: primaryServiceName,
           services: servicesForNotif,
           branchName: bookingData.branchName,
@@ -795,7 +826,7 @@ export async function POST(req: NextRequest) {
             bookingCode,
             branchAdminUid,
             ownerUid,
-            clientName: String(client).trim(),
+            clientName: clientForBooking,
             serviceName: primaryServiceName,
             services: servicesForNotif,
             branchName: bookingData.branchName,
@@ -804,8 +835,8 @@ export async function POST(req: NextRequest) {
             bookingTime: bookingTimeDisplay,
             status: "AwaitingStaffApproval",
             type: "branch_booking_created",
-            clientPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
-            clientEmail: typeof clientEmail === "string" ? clientEmail.trim() || undefined : undefined,
+            clientPhone: phoneForBooking || undefined,
+            clientEmail: emailForBooking || undefined,
           });
         }
         const staffSeen = new Set<string>();
@@ -819,8 +850,8 @@ export async function POST(req: NextRequest) {
             bookingCode,
             staffUid: sid,
             staffName: (svc.staffName as string) || "Staff",
-            clientName: String(client).trim(),
-            clientPhone: typeof clientPhone === "string" ? clientPhone.trim() || undefined : undefined,
+            clientName: clientForBooking,
+            clientPhone: phoneForBooking || undefined,
             serviceName: primaryServiceName,
             services: servicesForNotif,
             branchName: bookingData.branchName,
@@ -911,6 +942,9 @@ export async function POST(req: NextRequest) {
         totalDuration,
         vehicleType: vf.vehicleType,
         services: resolvedServices,
+        ...(canonicalCustomerForResponse
+          ? { canonicalCustomer: canonicalCustomerForResponse }
+          : {}),
       },
       { status: 201, headers: CORS_HEADERS }
     );

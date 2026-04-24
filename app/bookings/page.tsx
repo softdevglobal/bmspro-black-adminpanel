@@ -3143,6 +3143,9 @@ function BookingsPageContent() {
                           <div className="space-y-2">
                             {bkSelectedServices.map(id => {
                               const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                              const linePricing = s ? resolveServiceDisplayPricing(s) : null;
+                              const linePrice =
+                                linePricing && typeof linePricing.price === "number" ? linePricing.price : 0;
                               return (
                                 <div key={id} className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-100">
                                   <div className="flex justify-between items-start">
@@ -3152,7 +3155,12 @@ function BookingsPageContent() {
                                         <span className="text-[10px] text-neutral-400">{bkServiceTimes[String(id)]}</span>
                                       </div>
                                     </div>
-                                    <span className="text-sm font-black text-neutral-900 ml-2">${s?.price || 0}</span>
+                                    <span className="text-sm font-black text-neutral-900 ml-2 whitespace-nowrap">
+                                      {linePricing?.isStartingFrom ? (
+                                        <span className="text-[10px] font-semibold text-neutral-500">from </span>
+                                      ) : null}
+                                      ${linePrice}
+                                    </span>
                                   </div>
                                 </div>
                               );
@@ -3166,7 +3174,9 @@ function BookingsPageContent() {
                           <span className="text-xl font-black text-neutral-900">
                             ${bkSelectedServices.reduce((sum: number, id) => {
                               const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                              return sum + (Number(s?.price) || 0);
+                              if (!s) return sum;
+                              const p = resolveServiceDisplayPricing(s);
+                              return sum + (typeof p.price === "number" ? p.price : 0);
                             }, 0)}
                           </span>
                         </div>

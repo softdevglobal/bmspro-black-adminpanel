@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { Firestore } from "firebase-admin/firestore";
-import { resolveCustomerForStaffBooking } from "@/lib/customerAccount";
+import { resolveCustomerForStaffBooking, getCanonicalCustomerContact } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import { isVehicleType } from "@/lib/services";
 
@@ -54,7 +54,9 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    let customerId = (typeof b.customerId === "string" && b.customerId.trim()) || null;
+    const hadCustomerId =
+      (typeof b.customerId === "string" && b.customerId.trim()) || null;
+    let customerId = hadCustomerId;
     const resolution = await resolveCustomerForStaffBooking(db, {
       ownerUid: workshopOwnerUid,
       email: typeof b.clientEmail === "string" ? b.clientEmail : null,
@@ -66,13 +68,34 @@ export async function POST(
     if (!customerId && resolution) {
       customerId = resolution.customerId;
       updates.customerId = customerId;
-      updates.updatedAt = FieldValue.serverTimestamp();
-    }
-    if (Object.keys(updates).length > 0) {
-      await bookingRef.update(updates);
     }
 
     const cid = customerId || resolution?.customerId || null;
+    const accountCreatedThisBooking = resolution?.created === true;
+    let canonicalCustomerForResponse: {
+      name: string;
+      email: string;
+      phone: string;
+    } | null = null;
+
+    if (cid && !accountCreatedThisBooking) {
+      try {
+        const canon = await getCanonicalCustomerContact(db, cid, workshopOwnerUid);
+        if (canon) {
+          canonicalCustomerForResponse = canon;
+          if (canon.name) updates.client = canon.name;
+          if (canon.email) updates.clientEmail = canon.email;
+          if (canon.phone) updates.clientPhone = canon.phone;
+        }
+      } catch (e) {
+        console.warn("[portal-link] canonical contact:", e);
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = FieldValue.serverTimestamp();
+      await bookingRef.update(updates);
+    }
     const vtRaw = b.vehicleType;
     const resolvedVehicleType =
       typeof vtRaw === "string" && isVehicleType(vtRaw) ? vtRaw : null;
@@ -100,7 +123,10 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       customerId: cid,
-      linkedNew: Boolean(updates.customerId),
+      linkedNew: Boolean(resolution && !hadCustomerId && resolution.customerId),
+      ...(canonicalCustomerForResponse
+        ? { canonicalCustomer: canonicalCustomerForResponse }
+        : {}),
     });
   } catch (e: unknown) {
     console.error("[portal-link]", e);

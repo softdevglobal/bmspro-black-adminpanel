@@ -2,91 +2,116 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Super admins - can read own doc only
-    match /super_admins/{adminId} {
-      allow read: if request.auth != null && request.auth.uid == adminId;
-      allow write: if false;
+    // ─── Helpers ────────────────────────────────────────────────────────
+
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Users
-    match /users/{userId} {
-      allow read, write: if request.auth != null;
+    function userDoc() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
     }
 
-    // Bookings
-    match /bookings/{bookingId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Services
-    match /services/{serviceId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Branches
-    match /branches/{branchId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Customers
-    match /customers/{customerId} {
-      allow read, write: if request.auth != null;
-    }
-
-    // Customer deletions (admin-panel: hide deleted customers from list)
-    match /customer_deletions/{ownerUid} {
-      allow read, write: if request.auth != null && request.auth.uid == ownerUid;
-    }
-
-    // Subscription plans (public read for signup)
-    match /subscription_plans/{planId} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // Audit logs
-    match /auditLogs/{logId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if false;
-    }
-
-    // Super admin audit logs
-    match /superAdminAuditLogs/{logId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if false;
-    }
-
-    function currentUserDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
-    // Workshop owner id for this user (branch_admin/staff store ownerUid; owners use their auth uid).
-    function effectiveWorkshopOwnerUid() {
-      let u = currentUserDoc();
-      return ('ownerUid' in u && u.ownerUid is string && u.ownerUid.size() > 0)
+    function workshopOwnerUid() {
+      let u = userDoc();
+      return (u != null
+              && 'ownerUid' in u
+              && u.ownerUid is string
+              && u.ownerUid.size() > 0)
         ? u.ownerUid
         : request.auth.uid;
     }
 
-    // Notifications - users can only read their own (fixes branch admin permission-denied)
-    match /notifications/{notifId} {
-      allow read: if request.auth != null && (
-        resource.data.staffUid == request.auth.uid ||
-        resource.data.ownerUid == request.auth.uid ||
-        resource.data.customerUid == request.auth.uid ||
-        resource.data.branchAdminUid == request.auth.uid ||
-        resource.data.targetAdminUid == request.auth.uid ||
-        resource.data.targetOwnerUid == request.auth.uid ||
-        ('role' in currentUserDoc() && currentUserDoc().role == 'branch_admin' &&
-          resource.data.keys().hasAny(['targetOwnerUid']) &&
-          resource.data.targetOwnerUid == effectiveWorkshopOwnerUid())
+    // Firestore rules do not support Map.get(); use `in` + field access.
+    function canReadNotification() {
+      return signedIn() && (
+        ('staffUid' in resource.data && resource.data.staffUid == request.auth.uid) ||
+        ('ownerUid' in resource.data && resource.data.ownerUid == request.auth.uid) ||
+        ('customerUid' in resource.data && resource.data.customerUid == request.auth.uid) ||
+        ('branchAdminUid' in resource.data && resource.data.branchAdminUid == request.auth.uid) ||
+        ('targetAdminUid' in resource.data && resource.data.targetAdminUid == request.auth.uid) ||
+        ('targetOwnerUid' in resource.data && resource.data.targetOwnerUid == request.auth.uid) ||
+        ('targetStaffUid' in resource.data && resource.data.targetStaffUid == request.auth.uid) ||
+        ('ownerUid' in resource.data && resource.data.ownerUid == workshopOwnerUid()) ||
+        ('targetOwnerUid' in resource.data && resource.data.targetOwnerUid == workshopOwnerUid()) ||
+        ('targetAdminUid' in resource.data && resource.data.targetAdminUid == workshopOwnerUid())
       );
-      allow create, update, delete: if false; // Server (Admin SDK) writes only
     }
 
-    // Catch-all for any other collections used by the app
+    // ─── Collections ────────────────────────────────────────────────────
+
+    match /super_admins/{adminId} {
+      allow read: if signedIn() && request.auth.uid == adminId;
+      allow write: if false;
+    }
+
+    match /users/{userId} {
+      allow read, write: if signedIn();
+    }
+
+    match /bookings/{bookingId} {
+      allow read, write: if signedIn();
+    }
+
+    match /services/{serviceId} {
+      allow read, write: if signedIn();
+    }
+
+    match /branches/{branchId} {
+      allow read, write: if signedIn();
+    }
+
+    match /customers/{customerId} {
+      allow read, write: if signedIn();
+    }
+
+    match /customer_deletions/{ownerUid} {
+      allow read, write: if signedIn() && request.auth.uid == ownerUid;
+    }
+
+    match /subscription_plans/{planId} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /auditLogs/{logId} {
+      allow read, create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /superAdminAuditLogs/{logId} {
+      allow read, create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Call center 1:1 chats — intended: participants read only; writes via Admin SDK.
+    // SECURITY: If you keep `match /{document=**}` below with allow read/write for all
+    // signed-in users, those lines ALSO match this path and access becomes OR’d — so any
+    // signed-in client could still read/write here. Remove or tighten the catch-all for
+    // real isolation; many teams rely on Admin SDK + app code only.
+    match /cc_direct_chats/{chatId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.participantIds;
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/cc_direct_chats/$(chatId)).data.participantIds;
+        allow write: if false;
+      }
+    }
+
+    match /notifications/{notifId} {
+      allow read: if canReadNotification();
+      allow update: if canReadNotification()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow create, delete: if false;
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if signedIn();
     }
   }
 }

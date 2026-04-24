@@ -192,8 +192,18 @@ async function getUserFcmToken(userUid: string): Promise<string | null> {
         return fcmToken;
       }
     }
+
+    const agentDoc = await db.collection("call_center_agents").doc(userUid).get();
+    if (agentDoc.exists) {
+      const agentData = agentDoc.data();
+      const fcmToken = agentData?.fcmToken;
+      if (fcmToken) {
+        console.log(`📱 Found FCM token in call_center_agents for user: ${userUid}`);
+        return fcmToken;
+      }
+    }
     
-    console.log(`⚠️ No FCM token found for user: ${userUid} (checked both users and salon_staff collections)`);
+    console.log(`⚠️ No FCM token found for user: ${userUid} (checked users, salon_staff, call_center_agents)`);
     return null;
   } catch (error) {
     console.error(`❌ Error getting FCM token for user ${userUid}:`, error);
@@ -1739,5 +1749,20 @@ export async function createBranchAdminNotification(data: {
   }
   
   return notificationId;
+}
+
+/** Send FCM to a user's device using `users` / `salon_staff` token lookup. */
+export async function sendPushToUserByUid(
+  userUid: string,
+  title: string,
+  body: string,
+  data?: Record<string, string>
+): Promise<void> {
+  const token = await getUserFcmToken(userUid);
+  if (!token) {
+    console.log(`⚠️ sendPushToUserByUid: no FCM token for ${userUid}`);
+    return;
+  }
+  await sendPushNotification(token, title, body, data);
 }
 

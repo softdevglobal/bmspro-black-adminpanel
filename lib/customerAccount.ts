@@ -9,6 +9,11 @@ import { FieldValue } from "firebase-admin/firestore";
  */
 export const DEFAULT_CUSTOMER_PASSWORD = "000000";
 
+/** Digits-only phone for matching walk-in / portal customers across formatting differences. */
+export function normalizePhoneDigits(phone: string | null | undefined): string {
+  return String(phone ?? "").replace(/\D/g, "");
+}
+
 /**
  * Hash a plain-text password using PBKDF2 (SHA-512, 100k iterations, 64-byte digest).
  * Matches the scheme used by `app/api/book-now/customer-auth/route.ts` so that
@@ -87,6 +92,12 @@ export async function ensureCustomerAccount(
     const patch: Record<string, unknown> = {};
     if (!data.name && input.name?.trim()) patch.name = input.name.trim();
     if (!data.phone && input.phone?.trim()) patch.phone = input.phone.trim();
+    const fromInput = normalizePhoneDigits(input.phone);
+    const fromStored = normalizePhoneDigits(typeof data.phone === "string" ? data.phone : "");
+    const digits = fromInput.length >= 6 ? fromInput : fromStored;
+    if (digits.length >= 6 && data.phoneNormalized !== digits) {
+      patch.phoneNormalized = digits;
+    }
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = FieldValue.serverTimestamp();
       try {
@@ -105,12 +116,14 @@ export async function ensureCustomerAccount(
 
   const password = input.defaultPassword || DEFAULT_CUSTOMER_PASSWORD;
   const { hash, salt } = hashCustomerPassword(password);
+  const phoneDigitsNew = normalizePhoneDigits(input.phone);
 
   const ref = await customersRef.add({
     email: rawEmail,
     name: (input.name || "").trim(),
     client: (input.name || "").trim(),
     phone: (input.phone || "").trim(),
+    ...(phoneDigitsNew.length >= 6 ? { phoneNormalized: phoneDigitsNew } : {}),
     passwordHash: hash,
     salt,
     ownerUid: input.ownerUid,
@@ -126,6 +139,59 @@ export async function ensureCustomerAccount(
     email: rawEmail,
     defaultPassword: password,
   };
+}
+
+/**
+ * Resolve the workshop customer row for staff/admin-created bookings:
+ * 1) Valid email → ensureCustomerAccount (creates or links; updates phoneNormalized).
+ * 2) No usable email but normalized phone (8+ digits) → link to existing customer with same ownerUid + phoneNormalized.
+ *
+ * Returns null only when no email match is possible and no phone match exists (e.g. brand-new walk-in with no email in payload).
+ */
+export async function resolveCustomerForStaffBooking(
+  db: Firestore,
+  input: {
+    ownerUid: string;
+    email?: string | null;
+    phone?: string | null;
+    name?: string | null;
+  }
+): Promise<EnsureCustomerAccountResult | null> {
+  if (!input.ownerUid) return null;
+
+  const rawEmail = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const phoneDigits = normalizePhoneDigits(input.phone);
+
+  if (rawEmail && emailRegex.test(rawEmail)) {
+    return ensureCustomerAccount(db, {
+      ownerUid: input.ownerUid,
+      email: rawEmail,
+      name: input.name,
+      phone: input.phone,
+    });
+  }
+
+  if (phoneDigits.length >= 8) {
+    const snap = await db
+      .collection("customers")
+      .where("ownerUid", "==", input.ownerUid)
+      .where("phoneNormalized", "==", phoneDigits)
+      .limit(1)
+      .get();
+    if (!snap.empty) {
+      const doc = snap.docs[0];
+      const data = doc.data() || {};
+      return {
+        created: false,
+        customerId: doc.id,
+        email: String(data.email || ""),
+        defaultPassword: null,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**

@@ -22,7 +22,7 @@ import {
   getBranchAdminUids,
 } from "@/lib/notifications";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
-import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import { resolveCustomerForStaffBooking, resolveBookingEngineUrl } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import {
   isVehicleType,
@@ -603,13 +603,12 @@ export async function POST(req: NextRequest) {
       name: string;
     } | null = null;
     try {
-      const rawEmail = typeof clientEmail === "string" ? clientEmail.trim() : "";
-      if (!resolvedCustomerId && rawEmail) {
-        const ensureResult = await ensureCustomerAccount(db, {
+      if (!resolvedCustomerId) {
+        const ensureResult = await resolveCustomerForStaffBooking(db, {
           ownerUid,
-          email: rawEmail,
-          name: typeof client === "string" ? client : null,
+          email: typeof clientEmail === "string" ? clientEmail : null,
           phone: typeof clientPhone === "string" ? clientPhone : null,
+          name: typeof client === "string" ? client : null,
         });
         if (ensureResult) {
           resolvedCustomerId = ensureResult.customerId;
@@ -624,7 +623,7 @@ export async function POST(req: NextRequest) {
             );
           } else {
             console.log(
-              `[call-center/bookings] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid}) — skipping welcome email`
+              `[call-center/bookings] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email || "(phone match)"} (workshop ${ownerUid}) — skipping welcome email`
             );
           }
         }

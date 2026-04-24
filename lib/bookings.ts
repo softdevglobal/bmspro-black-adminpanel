@@ -131,6 +131,20 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
       const ref = await addDoc(collection(db, "bookings"), payload as any);
       bookingId = ref.id;
       bookingCode = newCode;
+      try {
+        const base =
+          typeof window !== "undefined"
+            ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin || "").replace(/\/$/, "")
+            : "";
+        if (base && token && bookingId) {
+          await fetch(`${base}/api/bookings/${encodeURIComponent(bookingId)}/portal-link`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        }
+      } catch {
+        /* non-fatal */
+      }
     } else {
       bookingId = String(json?.id);
       bookingCode = json?.bookingCode;
@@ -152,6 +166,21 @@ export async function createBooking(input: BookingInput): Promise<{ id: string }
     const ref = await addDoc(collection(db, "bookings"), payload as any);
     bookingId = ref.id;
     bookingCode = newCode;
+    // Direct Firestore writes skip server-side customer + vehicle linking — repair via API.
+    try {
+      const base =
+        typeof window !== "undefined"
+          ? (process.env.NEXT_PUBLIC_APP_URL || window.location.origin || "").replace(/\/$/, "")
+          : "";
+      if (base && token && bookingId) {
+        await fetch(`${base}/api/bookings/${encodeURIComponent(bookingId)}/portal-link`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    } catch {
+      /* non-fatal */
+    }
   }
 
   // Audit log for booking creation

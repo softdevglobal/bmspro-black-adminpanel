@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
+import { normalizePhoneDigits } from "@/lib/customerAccount";
 
 export const runtime = "nodejs";
 
@@ -111,10 +112,12 @@ export async function POST(req: NextRequest) {
       const { hash, salt } = hashPassword(password);
 
       // Create customer document scoped to this workshop
+      const phoneNorm = normalizePhoneDigits(phone);
       const ref = await customersRef.add({
         email: normalizedEmail,
         name: name.trim(),
         phone: phone.trim(),
+        ...(phoneNorm.length >= 6 ? { phoneNormalized: phoneNorm } : {}),
         passwordHash: hash,
         salt,
         ownerUid,
@@ -157,9 +160,11 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
+    const phoneNorm = normalizePhoneDigits(phone);
     await docRef.update({
       name: name.trim(),
       phone: phone.trim(),
+      ...(phoneNorm.length >= 6 ? { phoneNormalized: phoneNorm } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
 

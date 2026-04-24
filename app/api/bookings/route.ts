@@ -9,7 +9,7 @@ import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
 import { sendBookingRequestReceivedEmail, sendBookingEmail, sendCustomerWelcomeEmail } from "@/lib/emailService";
-import { ensureCustomerAccount, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import { resolveCustomerForStaffBooking, resolveBookingEngineUrl } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import {
   isVehicleType,
@@ -581,32 +581,27 @@ export async function POST(req: NextRequest) {
       name: string;
     } | null = null;
     try {
-      const rawEmail = typeof body.clientEmail === "string"
-        ? body.clientEmail.trim()
-        : "";
-      if (rawEmail) {
-        const ensureResult = await ensureCustomerAccount(db, {
-          ownerUid,
-          email: rawEmail,
-          name: body.client ? String(body.client) : null,
-          phone: body.clientPhone ? String(body.clientPhone) : null,
-        });
-        if (ensureResult) {
-          resolvedCustomerId = ensureResult.customerId;
-          if (ensureResult.created && ensureResult.defaultPassword) {
-            newCustomerWelcome = {
-              email: ensureResult.email,
-              password: ensureResult.defaultPassword,
-              name: String(body.client || "").trim(),
-            };
-            console.log(
-              `[BOOKING] Auto-created customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid})`
-            );
-          } else {
-            console.log(
-              `[BOOKING] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid}) — skipping welcome email`
-            );
-          }
+      const ensureResult = await resolveCustomerForStaffBooking(db, {
+        ownerUid,
+        email: body.clientEmail,
+        phone: body.clientPhone,
+        name: body.client ? String(body.client) : null,
+      });
+      if (ensureResult) {
+        resolvedCustomerId = ensureResult.customerId;
+        if (ensureResult.created && ensureResult.defaultPassword) {
+          newCustomerWelcome = {
+            email: ensureResult.email,
+            password: ensureResult.defaultPassword,
+            name: String(body.client || "").trim(),
+          };
+          console.log(
+            `[BOOKING] Auto-created customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid})`
+          );
+        } else {
+          console.log(
+            `[BOOKING] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email || "(phone match)"} (workshop ${ownerUid}) — skipping welcome email`
+          );
         }
       }
     } catch (customerAccountErr: any) {

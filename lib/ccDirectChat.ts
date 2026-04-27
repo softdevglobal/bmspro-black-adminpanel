@@ -97,6 +97,10 @@ export function serializeCcRoom(chatId: string, d: DocumentData) {
     lastMessageText: d.lastMessageText != null ? String(d.lastMessageText) : null,
     lastMessageAt: iso(d.lastMessageAt as Timestamp),
     lastSenderId: d.lastSenderId != null ? String(d.lastSenderId) : null,
+    /** Workshop-side list / badges: new inbound from agent until tenant opens thread (mark read). */
+    unreadForTenant: d.unreadForTenant === true,
+    /** Call-center list / badges: new inbound from tenant until agent calls mark read. */
+    unreadForAgent: d.unreadForAgent === true,
     createdAt: iso(d.createdAt as Timestamp),
     updatedAt: iso(d.updatedAt as Timestamp),
   };
@@ -152,6 +156,8 @@ export async function ensureCcDirectChat(input: {
       lastMessageText: "",
       lastMessageAt: now,
       lastSenderId: null,
+      unreadForTenant: false,
+      unreadForAgent: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -234,6 +240,9 @@ export async function appendCcDirectMessage(input: {
 
   const msgRef = chatRef.collection("messages").doc();
   const now = FieldValue.serverTimestamp();
+  const tenantUid = String(room.tenantUserUid || "");
+  const agentUid = String(room.agentUid || "");
+  const fromTenant = input.senderUid === tenantUid;
   await db.runTransaction(async (tx) => {
     tx.set(msgRef, {
       messageId: msgRef.id,
@@ -249,6 +258,9 @@ export async function appendCcDirectMessage(input: {
       lastMessageAt: now,
       lastSenderId: input.senderUid,
       updatedAt: now,
+      // Recipient has "new" until they call mark read (clears the matching flag).
+      unreadForTenant: fromTenant ? false : true,
+      unreadForAgent: fromTenant ? true : false,
     });
   });
 
@@ -300,7 +312,8 @@ export async function markCcDirectChatRead(chatId: string, readerUid: string): P
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
-  assertRoomParticipant(chatSnap.data()!, readerUid);
+  const roomData = chatSnap.data()!;
+  assertRoomParticipant(roomData, readerUid);
 
   const recent = await chatRef.collection("messages").orderBy("createdAt", "desc").limit(MARK_READ_SCAN).get();
 
@@ -323,6 +336,15 @@ export async function markCcDirectChatRead(chatId: string, readerUid: string): P
     }
   }
   if (ops > 0) await batch.commit();
+
+  const tenantUid = String(roomData.tenantUserUid || "");
+  const agentUid = String(roomData.agentUid || "");
+  const roomUnreadPatch: { unreadForTenant?: boolean; unreadForAgent?: boolean } = {};
+  if (readerUid === tenantUid) roomUnreadPatch.unreadForTenant = false;
+  if (readerUid === agentUid) roomUnreadPatch.unreadForAgent = false;
+  if (Object.keys(roomUnreadPatch).length > 0) {
+    await chatRef.update(roomUnreadPatch);
+  }
 
   return { updated };
 }

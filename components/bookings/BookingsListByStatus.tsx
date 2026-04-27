@@ -441,6 +441,23 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const { rows, loading, error } = useBookingsByStatus(status);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
+  /** Only workshop owners may use the admin "Complete" action; branch admins use the staff app. */
+  const [actorRole, setActorRole] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const u = auth.currentUser;
+      if (!u) return;
+      const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+      const snap = await getDoc(firestoreDoc(db, "users", u.uid));
+      const d = snap.data() as { role?: string; systemRole?: string } | undefined;
+      if (!cancelled) setActorRole((d?.role || d?.systemRole || "").toString() || null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const canOwnerManualComplete = actorRole === "workshop_owner";
   
   // Check if a booking has services that need staff assignment
   const hasServicesNeedingAssignment = (row: Row): boolean => {
@@ -487,6 +504,9 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     if (jobInProgress) {
       actions = actions.filter((a) => a !== "Reschedule");
     }
+    if (!canOwnerManualComplete) {
+      actions = actions.filter((a) => a !== "Complete");
+    }
     return actions;
   };
   
@@ -497,9 +517,13 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     if (statusArray.includes("AwaitingStaffApproval")) return ["Reschedule", "Cancel"];
     if (statusArray.includes("PartiallyApproved")) return ["Reschedule", "Cancel"];
     if (statusArray.includes("StaffRejected")) return ["Reassign", "Reschedule", "Cancel"];
-    if (statusArray.includes("Confirmed")) return ["Complete", "Reschedule", "Cancel"];
+    if (statusArray.includes("Confirmed")) {
+      return canOwnerManualComplete
+        ? ["Complete", "Reschedule", "Cancel"]
+        : ["Reschedule", "Cancel"];
+    }
     return [];
-  }, [status]);
+  }, [status, canOwnerManualComplete]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null);
@@ -3588,8 +3612,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           </div>
                         </td>
                         <td className="p-3 align-middle">
-                          <div className="flex flex-col gap-1 font-medium text-neutral-700 text-sm whitespace-nowrap">
-                            <i className="far fa-calendar text-neutral-400 text-[11px]" />
+                          <div className="font-medium text-neutral-700 text-sm whitespace-nowrap">
                             {(() => { try { return new Date(r.date + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); } catch { return r.date; } })()}
                           </div>
                           <div className="flex items-center gap-3 mt-1">

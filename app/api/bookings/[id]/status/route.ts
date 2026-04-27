@@ -132,8 +132,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // Get user role to determine permissions
     const userDoc = await db.doc(`users/${callerUid}`).get();
     const userData = userDoc.data();
+    const effectiveRole = (userData?.role || userData?.systemRole || "").toString();
+    const isWorkshopOwner = effectiveRole === "workshop_owner";
     const userRole = (userData?.role || "").toString();
-    const ownerUid = userRole === "workshop_owner" ? callerUid : (userData?.ownerUid || callerUid);
+    const ownerUid = isWorkshopOwner ? callerUid : (userData?.ownerUid || callerUid);
     
     // Try to find booking in "bookings" collection first
     let ref = db.doc(`bookings/${id}`);
@@ -183,6 +185,25 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     
     // For admin reassigning after rejection: StaffRejected -> AwaitingStaffApproval
     const isAdminReassigning = currentStatus === "StaffRejected" && requestedStatus === "AwaitingStaffApproval";
+
+    // Only the business owner may set Completed through this admin API. Branch admins and
+    // staff (including branch admins working jobs) use the staff app / service-complete flow.
+    if (actualNextStatus === "Completed" && currentStatus !== "Completed" && !isWorkshopOwner) {
+      return NextResponse.json(
+        {
+          error:
+            "Only the business owner can mark a booking complete from the admin panel. Complete assigned work in the staff app.",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (body.forceComplete && !isWorkshopOwner) {
+      return NextResponse.json(
+        { error: "Only the business owner can force-complete a booking with incomplete tasks." },
+        { status: 403 }
+      );
+    }
 
     // Guard: booking cannot be completed until all tasks are done,
     // unless the owner explicitly confirmed that staff failed (forceComplete=true).

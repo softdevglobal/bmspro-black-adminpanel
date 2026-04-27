@@ -111,7 +111,7 @@ function BookingsPageContent() {
           const { getDoc, doc } = await import("firebase/firestore");
           const snap = await getDoc(doc(db, "users", user.uid));
           const userData = snap.data();
-          const role = (userData?.role || "").toString();
+          const role = (userData?.role || (userData as { systemRole?: string })?.systemRole || "").toString();
 
           if (role === "workshop_owner") {
             setOwnerUid(user.uid);
@@ -134,6 +134,13 @@ function BookingsPageContent() {
       return () => unsub();
     })();
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as unknown as { __bmsUserRole?: string | null }).__bmsUserRole = userRole;
+    const wapp = (window as unknown as { app?: { renderBookings?: () => void } }).app;
+    if (wapp && typeof wapp.renderBookings === "function") wapp.renderBookings();
+  }, [userRole]);
 
   // Expose the booking app logic to window so JSX handlers can call it
   useEffect(() => {
@@ -282,12 +289,14 @@ function BookingsPageContent() {
           
           const endTime = this.calculateEndTime(b.time, b.duration);
           const statusClass = `status-${b.status}`;
+          const w = typeof window !== "undefined" ? (window as unknown as { __bmsUserRole?: string | null }) : null;
+          const canOwnerComplete = w?.__bmsUserRole === "workshop_owner";
           const statusActions =
             b.status === "Confirmed"
               ? `<div class="flex gap-2 justify-center">
-                   <button onclick="app.updateBookingStatus('${b.id}', 'Completed')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100 hover:border-blue-500 hover:bg-gradient-to-r hover:from-blue-500 hover:to-indigo-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-blue-200 hover:shadow-md transform hover:-translate-y-0.5">
+                   ${canOwnerComplete ? `<button onclick="app.updateBookingStatus('${b.id}', 'Completed')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100 hover:border-blue-500 hover:bg-gradient-to-r hover:from-blue-500 hover:to-indigo-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-blue-200 hover:shadow-md transform hover:-translate-y-0.5">
                      <i class="fas fa-check text-[10px]"></i> <span class="text-xs font-bold">Complete</span>
-                   </button>
+                   </button>` : ""}
                    <button onclick="app.updateBookingStatus('${b.id}', 'Canceled')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-600 border border-rose-100 hover:border-rose-500 hover:bg-gradient-to-r hover:from-rose-500 hover:to-red-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-rose-200 hover:shadow-md transform hover:-translate-y-0.5">
                      <i class="fas fa-times text-[10px]"></i> <span class="text-xs font-bold">Cancel</span>
                    </button>
@@ -330,6 +339,16 @@ function BookingsPageContent() {
         if (booking && (booking.status === "Canceled" || booking.status === "Cancelled" || booking.status === "cancelled" || booking.status === "canceled") && newStatus !== "Canceled") {
           alert("This booking has been cancelled and cannot be updated.");
           return;
+        }
+
+        // Only the business owner can complete from this admin UI (branch admins use the staff app)
+        if (newStatus === "Completed") {
+          const wr = typeof window !== "undefined" ? (window as unknown as { __bmsUserRole?: string | null }).__bmsUserRole : null;
+          if (wr !== "workshop_owner") {
+            // eslint-disable-next-line no-alert
+            alert("Only the business owner can mark a booking complete from here. Use the staff app to complete your assigned work.");
+            return;
+          }
         }
 
         // Block completion if additional issues are pending admin/customer decisions

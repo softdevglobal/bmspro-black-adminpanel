@@ -6,6 +6,9 @@
 **Auth (most routes):** `Authorization: Bearer <Firebase ID token>`  
 Agents are Firebase users with a matching Firestore doc: `call_center_agents/{uid}`.
 
+**Production (`https://black.bmspros.com.au`):** the ID token must be sent in the **`Authorization`** header.  
+`?access_token=` / `?token=` on the URL **do not work** in production (they are only for local `NODE_ENV=development` debugging). If your UI shows “sign in required” or “workshop API”, it usually means **no valid Bearer token** was sent, or the token is from the **wrong Firebase project**, or the user is not in `call_center_agents`.
+
 **Tenant:** Workshop = `ownerUid` (workshop owner’s Firebase UID). Send as `?ownerUid=...` or header `X-Tenant-Id: <ownerUid>`.
 
 **Machine-readable spec (no login):** `GET /api/call-center/public/request-data`  

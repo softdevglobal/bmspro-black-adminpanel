@@ -26,11 +26,18 @@ export function getFirebaseIdTokenFromRequest(req: NextRequest): string | null {
   return null;
 }
 
+/**
+ * 401 text for API clients (call center dashboards, Postman). Production accepts **only**
+ * `Authorization: Bearer <idToken>`. Query `?access_token=` / `?token=` is **dev-only** (see
+ * `getFirebaseIdTokenFromRequest`); on https://black.bmspros.com.au those query params are ignored.
+ */
 export function missingFirebaseTokenMessage(): string {
+  const base =
+    "Send header: Authorization: Bearer <Firebase ID token>. Obtain via Firebase Auth (same project as BMS) after signInWithEmailAndPassword, then user.getIdToken(). Agents need call_center_agents/{uid} in Firestore.";
   if (process.env.NODE_ENV === "development") {
-    return "Missing Firebase ID token: use Authorization Bearer in Postman (Auth tab), or locally append ?access_token=<your_id_token>";
+    return `Missing Firebase ID token. ${base} For local testing only: you may add ?access_token=<token> to the URL.`;
   }
-  return "Missing authorization header";
+  return `Missing or invalid Authorization header. ${base}`;
 }
 
 export const ADMIN_ROLES = ["workshop_owner", "branch_admin", "super_admin"];

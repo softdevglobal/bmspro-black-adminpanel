@@ -179,7 +179,7 @@ export async function verifyCallCenterOrTenantAdminAuth(
     cc.status === 401 || admin.status === 401 ? 401 : cc.status || admin.status || 401;
   const error =
     cc.error === "Not a registered call center agent"
-      ? "Not authorized: use a call center agent account, or sign in as BMS staff (workshop owner, branch admin, or super admin)"
+      ? "Not a call center agent: add Firestore doc call_center_agents/{uid} for this Firebase user, or sign in as BMS staff (workshop_owner, branch_admin, super_admin) with a users/ doc"
       : cc.status === 401
         ? cc.error || "Unauthorized"
         : admin.error || cc.error || "Unauthorized";

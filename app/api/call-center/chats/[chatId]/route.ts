@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCallCenterAuth, CORS_HEADERS, canAccessWorkshop } from "@/lib/callCenterAuth";
+import { verifyCallCenterAuth, CORS_HEADERS } from "@/lib/callCenterAuth";
 import { getCcRoomOrNull, serializeCcRoom, assertRoomParticipant } from "@/lib/ccDirectChat";
 
 export const runtime = "nodejs";
@@ -30,13 +30,6 @@ export async function GET(
     assertRoomParticipant(room, gate.user.uid);
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: CORS_HEADERS });
-  }
-
-  if (!canAccessWorkshop(gate.user, String(room.workshopOwnerUid || ""))) {
-    return NextResponse.json(
-      { error: "Agent is not assigned to this workshop" },
-      { status: 403, headers: CORS_HEADERS }
-    );
   }
 
   return NextResponse.json({ chat: serializeCcRoom(chatId, room) }, { headers: CORS_HEADERS });

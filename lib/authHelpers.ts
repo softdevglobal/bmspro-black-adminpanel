@@ -103,7 +103,7 @@ export async function verifyAdminAuth(
     }
 
     const userData = userDoc.data();
-    const role = (userData?.role || "").toString().toLowerCase();
+    const role = (userData?.role || userData?.systemRole || "").toString().toLowerCase();
     const name = userData?.displayName || userData?.name || "";
     const email = userData?.email || decodedToken.email || "";
     const ownerUid = userData?.ownerUid || uid;

@@ -24,7 +24,7 @@ Authorization: Bearer <firebase_id_token>
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/chats/cc/agents` | Agents assigned to your workshop (`assignedWorkshops` contains your `ownerUid`). |
+| `GET` | `/api/chats/cc/agents` | All active call center agents (no per-workshop assignment required). |
 | `GET` | `/api/chats/cc/rooms?limit=50` | List your threads (same as Firestore query on `tenantUserUid`). |
 | `POST` | `/api/chats/cc/rooms` | Body: `{ "agentUid": "…" }`. Creates thread if needed. Response: `{ chat, created }`. |
 | `GET` | `/api/chats/cc/rooms/:chatId/messages?limit=40&before=<messageId>` | Page messages (optional cursor `before`). |
@@ -40,7 +40,7 @@ CORS is enabled for browser tools (`Access-Control-Allow-Origin: *` on these rou
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/call-center/chats?limit=50` | List threads where you are `agentUid`. |
-| `GET` | `/api/call-center/chats/:chatId` | Room metadata (must be a participant and assigned to `workshopOwnerUid`, unless CC admin). |
+| `GET` | `/api/call-center/chats/:chatId` | Room metadata (must be a participant on the thread). |
 | `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | List messages. |
 | `POST` | `/api/call-center/chats/:chatId/messages` | Body: `{ "text": "…" }`. Sends + **FCM** to the workshop user. |
 | `POST` | `/api/call-center/chats/:chatId/read` | Mark messages from the tenant user as read. |

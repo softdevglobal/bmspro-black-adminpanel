@@ -1,4 +1,9 @@
-import { FieldValue, type DocumentData, type Timestamp } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+  type Timestamp,
+} from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { sendPushToUserByUid } from "@/lib/notifications";
 import { serializeCallCenterAgent, type SerializedCallCenterAgent } from "@/lib/callCenterAgentsCrud";
@@ -13,28 +18,6 @@ const MARK_READ_SCAN = 250;
 export function buildCcChatId(tenantUserUid: string, agentUid: string): string {
   const [a, b] = [tenantUserUid, agentUid].sort((x, y) => x.localeCompare(y));
   return `cc_${a}_${b}`;
-}
-
-function normalizeAssignedWorkshops(data: DocumentData): string[] {
-  const raw = [...(Array.isArray(data.assignedWorkshops) ? data.assignedWorkshops : [])];
-  const legacy = Array.isArray(data.assigned_workshops) ? data.assigned_workshops : [];
-  for (const item of legacy) raw.push(item);
-  const out: string[] = [];
-  for (const item of raw) {
-    if (typeof item === "string") {
-      const s = item.trim();
-      if (s) out.push(s);
-    } else if (
-      item &&
-      typeof item === "object" &&
-      "ownerUid" in item &&
-      typeof (item as { ownerUid: unknown }).ownerUid === "string"
-    ) {
-      const s = (item as { ownerUid: string }).ownerUid.trim();
-      if (s) out.push(s);
-    }
-  }
-  return [...new Set(out)];
 }
 
 export async function resolveDisplayNameForUid(uid: string): Promise<string> {
@@ -54,9 +37,13 @@ export async function resolveDisplayNameForUid(uid: string): Promise<string> {
   return "User";
 }
 
-export async function assertAgentAssignedToWorkshop(
-  agentUid: string,
-  workshopOwnerUid: string
+/**
+ * Eligible = row exists in `call_center_agents`, not suspended.
+ * All docs in this collection are treated as messageable; optional `ccChatDisabled` to opt out.
+ * No `assignedWorkshops` / workshop assignment check.
+ */
+export async function assertCallCenterAgentForDirectChat(
+  agentUid: string
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const db = adminDb();
   const agentDoc = await db.doc(`call_center_agents/${agentUid}`).get();
@@ -67,26 +54,22 @@ export async function assertAgentAssignedToWorkshop(
   if (data.suspended === true) {
     return { ok: false, status: 403, error: "Agent account suspended" };
   }
-  const role = String(data.role || "agent");
-  if (!["agent", "call_center_agent", "call_center_admin"].includes(role)) {
-    return { ok: false, status: 403, error: "Invalid call center role" };
-  }
-  const ws = normalizeAssignedWorkshops(data);
-  if (!ws.includes(workshopOwnerUid)) {
-    return { ok: false, status: 403, error: "Agent is not assigned to this workshop" };
+  if (data.ccChatDisabled === true) {
+    return { ok: false, status: 403, error: "Agent is not available for chat" };
   }
   return { ok: true };
 }
 
-export async function listAgentsForWorkshopChat(workshopOwnerUid: string): Promise<SerializedCallCenterAgent[]> {
+/** All non-suspended `call_center_agents` (Yeastar/legacy `agentType` rows included). */
+export async function listAgentsForWorkshopChat(_workshopOwnerUid: string): Promise<SerializedCallCenterAgent[]> {
   const db = adminDb();
-  const snap = await db
-    .collection("call_center_agents")
-    .where("assignedWorkshops", "array-contains", workshopOwnerUid)
-    .get();
+  const snap = await db.collection("call_center_agents").get();
   return snap.docs
     .map((doc) => serializeCallCenterAgent(doc.id, doc.data()!))
-    .filter((a) => !a.suspended);
+    .filter((a) => {
+      if (a.suspended) return false;
+      return true;
+    });
 }
 
 function iso(ts: Timestamp | null | undefined): string | null {
@@ -137,7 +120,7 @@ export async function ensureCcDirectChat(input: {
   tenantRole: string;
   agentUid: string;
 }): Promise<{ chatId: string; created: boolean }> {
-  const gate = await assertAgentAssignedToWorkshop(input.agentUid, input.workshopOwnerUid);
+  const gate = await assertCallCenterAgentForDirectChat(input.agentUid);
   if (!gate.ok) {
     throw Object.assign(new Error(gate.error), { status: gate.status });
   }
@@ -344,26 +327,61 @@ export async function markCcDirectChatRead(chatId: string, readerUid: string): P
   return { updated };
 }
 
+function lastMessageAtMs(d: DocumentData): number {
+  const t = d.lastMessageAt as Timestamp | undefined;
+  if (t && typeof t.toMillis === "function") return t.toMillis();
+  return 0;
+}
+
+/** Firestore requires a composite index for equality + orderBy; production may not have it deployed yet. */
+function isMissingCompositeIndexError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.includes("FAILED_PRECONDITION") && msg.includes("index");
+}
+
+function sortCcRoomsByLastMessageDesc(docs: QueryDocumentSnapshot[], lim: number) {
+  return docs
+    .map((doc) => ({ id: doc.id, data: doc.data() as DocumentData }))
+    .sort((a, b) => lastMessageAtMs(b.data) - lastMessageAtMs(a.data))
+    .slice(0, lim)
+    .map((x) => serializeCcRoom(x.id, x.data));
+}
+
 export async function listCcChatsForTenantUser(tenantUserUid: string, limit: number) {
   const db = adminDb();
   const lim = Math.min(Math.max(1, limit), 100);
-  const snap = await db
-    .collection(CC_DIRECT_CHATS)
-    .where("tenantUserUid", "==", tenantUserUid)
-    .orderBy("lastMessageAt", "desc")
-    .limit(lim)
-    .get();
-  return snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+  try {
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("tenantUserUid", "==", tenantUserUid)
+      .orderBy("lastMessageAt", "desc")
+      .limit(lim)
+      .get();
+    return snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+  } catch (e) {
+    if (!isMissingCompositeIndexError(e)) throw e;
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("tenantUserUid", "==", tenantUserUid)
+      .get();
+    return sortCcRoomsByLastMessageDesc(snap.docs, lim);
+  }
 }
 
 export async function listCcChatsForAgent(agentUid: string, limit: number) {
   const db = adminDb();
   const lim = Math.min(Math.max(1, limit), 100);
-  const snap = await db
-    .collection(CC_DIRECT_CHATS)
-    .where("agentUid", "==", agentUid)
-    .orderBy("lastMessageAt", "desc")
-    .limit(lim)
-    .get();
-  return snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+  try {
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("agentUid", "==", agentUid)
+      .orderBy("lastMessageAt", "desc")
+      .limit(lim)
+      .get();
+    return snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+  } catch (e) {
+    if (!isMissingCompositeIndexError(e)) throw e;
+    const snap = await db.collection(CC_DIRECT_CHATS).where("agentUid", "==", agentUid).get();
+    return sortCcRoomsByLastMessageDesc(snap.docs, lim);
+  }
 }

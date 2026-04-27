@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCallCenterAuth, CORS_HEADERS, canAccessWorkshop } from "@/lib/callCenterAuth";
+import { verifyCallCenterAuth, CORS_HEADERS } from "@/lib/callCenterAuth";
 import {
   appendCcDirectMessage,
   getCcRoomOrNull,
@@ -34,12 +34,6 @@ export async function GET(
     assertRoomParticipant(room, gate.user.uid);
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: CORS_HEADERS });
-  }
-  if (!canAccessWorkshop(gate.user, String(room.workshopOwnerUid || ""))) {
-    return NextResponse.json(
-      { error: "Agent is not assigned to this workshop" },
-      { status: 403, headers: CORS_HEADERS }
-    );
   }
 
   const limitRaw = req.nextUrl.searchParams.get("limit");
@@ -79,12 +73,6 @@ export async function POST(
     assertRoomParticipant(room, gate.user.uid);
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: CORS_HEADERS });
-  }
-  if (!canAccessWorkshop(gate.user, String(room.workshopOwnerUid || ""))) {
-    return NextResponse.json(
-      { error: "Agent is not assigned to this workshop" },
-      { status: 403, headers: CORS_HEADERS }
-    );
   }
 
   let body: { text?: string };

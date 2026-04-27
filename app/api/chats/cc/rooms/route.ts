@@ -6,6 +6,7 @@ import {
   serializeCcRoom,
   getCcRoomOrNull,
   assertWorkshopUserOwnsRoom,
+  attachDetailsToCcChats,
 } from "@/lib/ccDirectChat";
 
 export const runtime = "nodejs";
@@ -58,7 +59,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to load chat" }, { status: 500 });
     }
     assertWorkshopUserOwnsRoom(room, auth.userData.uid, auth.userData.ownerUid);
-    return NextResponse.json({ chat: serializeCcRoom(chatId, room), created });
+    const [chat] = await attachDetailsToCcChats([serializeCcRoom(chatId, room)], { includeWorkshopUser: false });
+    return NextResponse.json({ chat, created });
   } catch (e: unknown) {
     const status = typeof e === "object" && e !== null && "status" in e ? Number((e as { status: number }).status) : 500;
     const msg = e instanceof Error ? e.message : "Server error";

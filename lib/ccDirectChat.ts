@@ -1,6 +1,8 @@
 import {
   FieldValue,
   type DocumentData,
+  type DocumentReference,
+  type DocumentSnapshot,
   type QueryDocumentSnapshot,
   type Timestamp,
 } from "firebase-admin/firestore";
@@ -116,6 +118,161 @@ export function serializeCcMessage(docId: string, d: DocumentData) {
     seenByRecipient: d.seenByRecipient === true,
     readAt: iso(d.readAt as Timestamp | undefined),
   };
+}
+
+/** From `users/{workshopOwnerUid}` — public-facing workshop / business context for call center. */
+export type CcWorkshopDetails = {
+  ownerUid: string;
+  name: string;
+  displayName: string;
+  slug: string;
+  logoUrl: string;
+  email: string;
+  phone: string;
+  address: string;
+  abn: string;
+  timezone: string;
+  state: string;
+  bookingEngineUrl: string;
+  accountStatus: string;
+};
+
+/** From `users/{tenantUserUid}` — who at the workshop is in the thread. */
+export type CcWorkshopUserDetails = {
+  uid: string;
+  name: string;
+  displayName: string;
+  email: string;
+  role: string;
+  phone: string;
+  branchId: string;
+  branchName: string;
+};
+
+function workshopDetailsFromUserDoc(ownerUid: string, d: DocumentData): CcWorkshopDetails {
+  return {
+    ownerUid,
+    name: String(d.name || d.displayName || "Workshop").trim() || "Workshop",
+    displayName: String(d.displayName || "").trim(),
+    slug: String(d.slug || "").trim(),
+    logoUrl: String(d.logoUrl || "").trim(),
+    email: String(d.email || "").trim(),
+    phone: String(d.contactPhone || d.phone || d.clientPhone || "").trim(),
+    address: String(d.locationText || d.address || "").trim(),
+    abn: String(d.abn || "").trim(),
+    timezone: String(d.timezone || "Australia/Sydney").trim(),
+    state: String(d.state || "").trim(),
+    bookingEngineUrl: String(d.bookingEngineUrl || "").trim(),
+    accountStatus: String(d.accountStatus || d.status || "active").trim(),
+  };
+}
+
+function workshopUserFromUserDoc(uid: string, d: DocumentData): CcWorkshopUserDetails {
+  return {
+    uid,
+    name: String(d.name || "").trim(),
+    displayName: String(d.displayName || "").trim(),
+    email: String(d.email || "").trim(),
+    role: String(d.role || d.systemRole || "").trim(),
+    phone: String(d.phone || d.contactPhone || d.clientPhone || "").trim(),
+    branchId: String(d.branchId || "").trim(),
+    branchName: String(d.branchName || "").trim(),
+  };
+}
+
+export type CcChatWithDetails = ReturnType<typeof serializeCcRoom> & {
+  workshop: CcWorkshopDetails | null;
+  /** The workshop-side account in this thread (call center + GET-by-id). Omitted in workshop-app list. */
+  workshopUser?: CcWorkshopUserDetails | null;
+};
+
+async function getAllDocSnapshots(db: ReturnType<typeof adminDb>, refs: DocumentReference[]): Promise<DocumentSnapshot[]> {
+  if (refs.length === 0) return [];
+  const out: DocumentSnapshot[] = [];
+  const chunk = 20;
+  for (let i = 0; i < refs.length; i += chunk) {
+    const slice = refs.slice(i, i + chunk);
+    // eslint-disable-next-line no-await-in-loop
+    const part = await db.getAll(...slice);
+    out.push(...part);
+  }
+  return out;
+}
+
+/**
+ * Batch-loads `users` + optional `branches` to attach workshop business info and (for agents) the tenant row.
+ */
+export async function attachDetailsToCcChats(
+  rooms: ReturnType<typeof serializeCcRoom>[],
+  options: { includeWorkshopUser: boolean }
+): Promise<CcChatWithDetails[]> {
+  if (rooms.length === 0) return [];
+
+  const db = adminDb();
+  const ownerUids = [...new Set(rooms.map((r) => r.workshopOwnerUid).filter((x) => x.length > 0))];
+  const tenantUids = options.includeWorkshopUser
+    ? [...new Set(rooms.map((r) => r.tenantUserUid).filter((x) => x.length > 0))]
+    : [];
+
+  const ownerRefs = ownerUids.map((uid) => db.doc(`users/${uid}`));
+  const tenantRefs = tenantUids.map((uid) => db.doc(`users/${uid}`));
+
+  const [ownerSnaps, tenantSnaps] = await Promise.all([
+    getAllDocSnapshots(db, ownerRefs),
+    getAllDocSnapshots(db, tenantRefs),
+  ]);
+
+  const byOwner = new Map<string, DocumentData | null>();
+  for (const s of ownerSnaps) {
+    byOwner.set(s.id, s.exists ? s.data()! : null);
+  }
+  const byTenant = new Map<string, DocumentData | null>();
+  for (const s of tenantSnaps) {
+    byTenant.set(s.id, s.exists ? s.data()! : null);
+  }
+
+  const branchIds = options.includeWorkshopUser
+    ? [
+        ...new Set(
+          Array.from(byTenant.values())
+            .map((d) => (d ? String(d.branchId || "").trim() : ""))
+            .filter((x) => x.length > 0)
+        ),
+      ]
+    : [];
+  const branchRefs = branchIds.map((id) => db.doc(`branches/${id}`));
+  const branchSnaps = await getAllDocSnapshots(db, branchRefs);
+  const branchNames = new Map<string, string>();
+  for (const s of branchSnaps) {
+    if (s.exists) {
+      const n = String(s.data()!.name || "").trim();
+      if (n) branchNames.set(s.id, n);
+    }
+  }
+
+  return rooms.map((r) => {
+    const od = r.workshopOwnerUid ? byOwner.get(r.workshopOwnerUid) : null;
+    const workshop: CcWorkshopDetails | null =
+      r.workshopOwnerUid && od ? workshopDetailsFromUserDoc(r.workshopOwnerUid, od) : null;
+
+    let workshopUser: CcWorkshopUserDetails | null = null;
+    if (options.includeWorkshopUser && r.tenantUserUid) {
+      const td = byTenant.get(r.tenantUserUid);
+      if (td) {
+        workshopUser = workshopUserFromUserDoc(r.tenantUserUid, td);
+        const bid = workshopUser.branchId;
+        if (bid && branchNames.has(bid) && !workshopUser.branchName) {
+          workshopUser = { ...workshopUser, branchName: branchNames.get(bid) || "" };
+        }
+      }
+    }
+
+    return {
+      ...r,
+      workshop,
+      ...(options.includeWorkshopUser ? { workshopUser } : {}),
+    } as CcChatWithDetails;
+  });
 }
 
 export async function ensureCcDirectChat(input: {
@@ -369,9 +526,10 @@ function sortCcRoomsByLastMessageDesc(docs: QueryDocumentSnapshot[], lim: number
     .map((x) => serializeCcRoom(x.id, x.data));
 }
 
-export async function listCcChatsForTenantUser(tenantUserUid: string, limit: number) {
+export async function listCcChatsForTenantUser(tenantUserUid: string, limit: number): Promise<CcChatWithDetails[]> {
   const db = adminDb();
   const lim = Math.min(Math.max(1, limit), 100);
+  let rows: ReturnType<typeof serializeCcRoom>[];
   try {
     const snap = await db
       .collection(CC_DIRECT_CHATS)
@@ -379,20 +537,22 @@ export async function listCcChatsForTenantUser(tenantUserUid: string, limit: num
       .orderBy("lastMessageAt", "desc")
       .limit(lim)
       .get();
-    return snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+    rows = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
   } catch (e) {
     if (!isMissingCompositeIndexError(e)) throw e;
     const snap = await db
       .collection(CC_DIRECT_CHATS)
       .where("tenantUserUid", "==", tenantUserUid)
       .get();
-    return sortCcRoomsByLastMessageDesc(snap.docs, lim);
+    rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
   }
+  return attachDetailsToCcChats(rows, { includeWorkshopUser: false });
 }
 
-export async function listCcChatsForAgent(agentUid: string, limit: number) {
+export async function listCcChatsForAgent(agentUid: string, limit: number): Promise<CcChatWithDetails[]> {
   const db = adminDb();
   const lim = Math.min(Math.max(1, limit), 100);
+  let rows: ReturnType<typeof serializeCcRoom>[];
   try {
     const snap = await db
       .collection(CC_DIRECT_CHATS)
@@ -400,10 +560,11 @@ export async function listCcChatsForAgent(agentUid: string, limit: number) {
       .orderBy("lastMessageAt", "desc")
       .limit(lim)
       .get();
-    return snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+    rows = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
   } catch (e) {
     if (!isMissingCompositeIndexError(e)) throw e;
     const snap = await db.collection(CC_DIRECT_CHATS).where("agentUid", "==", agentUid).get();
-    return sortCcRoomsByLastMessageDesc(snap.docs, lim);
+    rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
   }
+  return attachDetailsToCcChats(rows, { includeWorkshopUser: true });
 }

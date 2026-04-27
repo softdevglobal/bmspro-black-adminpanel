@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCallCenterAuth, CORS_HEADERS } from "@/lib/callCenterAuth";
-import { getCcRoomOrNull, serializeCcRoom, assertRoomParticipant } from "@/lib/ccDirectChat";
+import {
+  getCcRoomOrNull,
+  serializeCcRoom,
+  assertRoomParticipant,
+  attachDetailsToCcChats,
+} from "@/lib/ccDirectChat";
 
 export const runtime = "nodejs";
 
@@ -32,5 +37,6 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: CORS_HEADERS });
   }
 
-  return NextResponse.json({ chat: serializeCcRoom(chatId, room) }, { headers: CORS_HEADERS });
+  const [chat] = await attachDetailsToCcChats([serializeCcRoom(chatId, room)], { includeWorkshopUser: true });
+  return NextResponse.json({ chat }, { headers: CORS_HEADERS });
 }

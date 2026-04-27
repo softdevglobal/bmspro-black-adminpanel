@@ -26,7 +26,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ chatId: st
 
   const canAccessWorkshop = (workshopOwnerUid: string) => {
     if (auth.user!.isCCAdmin) return true;
-    return auth.user!.assignedWorkshops.map((x) => x.trim()).includes(workshopOwnerUid.trim());
+    const ids = auth.user!.assignedWorkshops.map((x) => x.trim()).filter((x) => x.length > 0);
+    if (ids.length === 0) return true;
+    return ids.includes(workshopOwnerUid.trim());
   };
 
   try {

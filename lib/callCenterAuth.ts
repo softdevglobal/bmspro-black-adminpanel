@@ -216,6 +216,8 @@ export function canAccessCcDirectChatRoom(
     const w = String(room.workshopOwnerUid ?? "").trim();
     if (!w) return false;
     if (auth.user.isCCAdmin) return true;
+    // Match listCcChatsForAgent: no workshop rows ⇒ full queue.
+    if (auth.user.assignedWorkshops.length === 0) return true;
     return canAccessWorkshop(auth.user, w);
   }
   const w = String(room.workshopOwnerUid ?? "").trim();

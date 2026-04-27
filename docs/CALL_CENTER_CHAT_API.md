@@ -39,7 +39,7 @@ CORS is enabled for browser tools (`Access-Control-Allow-Origin: *` on these rou
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/call-center/chats?limit=50` | Your assigned threads **plus** unclaimed **queue** requests (`queueStatus: pending`) for workshops you can access. |
+| `GET` | `/api/call-center/chats?limit=50` | Your assigned threads **plus** unclaimed **queue** requests (`queueStatus: pending`). **Workshop scope:** if `call_center_agents/{uid}.assignedWorkshops` is **empty**, the agent sees **all** pending queue items; if non-empty, only those whose `workshopOwnerUid` is in the list (CC admins still see all). |
 | `POST` | `/api/call-center/chats/:chatId/claim` | Claim a pending queue chat (body empty). You become `agentUid` on the thread. |
 | `GET` | `/api/call-center/chats/:chatId` | Room metadata (participant, or pending queue for your workshop scope). |
 | `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | List messages. |

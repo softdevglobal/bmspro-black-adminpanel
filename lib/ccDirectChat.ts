@@ -738,10 +738,13 @@ export async function listCcChatsForAgent(
   const db = adminDb();
   const lim = Math.min(Math.max(1, limit), 100);
   const assigned = new Set(scope.assignedWorkshopIds.map((x) => x.trim()).filter((x) => x.length > 0));
+  /** Pending queue: CC admins and workshop-scoped agents; if `assignedWorkshops` is empty, treat as full-queue (typical for dedicated agents). */
   const canSeeWorkshop = (ownerUid: string) => {
     const w = ownerUid.trim();
     if (!w) return false;
-    return scope.isCCAdmin || assigned.has(w);
+    if (scope.isCCAdmin) return true;
+    if (assigned.size === 0) return true;
+    return assigned.has(w);
   };
 
   let mine: ReturnType<typeof serializeCcRoom>[] = [];

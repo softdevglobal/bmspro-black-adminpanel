@@ -26,7 +26,7 @@ Authorization: Bearer <firebase_id_token>
 |--------|------|-------------|
 | `GET` | `/api/chats/cc/agents` | All active call center agents (no per-workshop assignment required). |
 | `GET` | `/api/chats/cc/rooms?limit=50` | List your threads (same as Firestore query on `tenantUserUid`). |
-| `POST` | `/api/chats/cc/rooms` | Body: `{ "agentUid": "…" }`. Creates thread if needed. Response: `{ chat, created }`. |
+| `POST` | `/api/chats/cc/rooms` | Body: `{ "queue": true }` to open the **shared queue** (no agent pick — first agent to claim in admin / `POST /api/call-center/chats/[chatId]/claim`). Or `{ "agentUid": "…" }` for a **specific** agent (legacy). Response: `{ chat, created }`. |
 | `GET` | `/api/chats/cc/rooms/:chatId/messages?limit=40&before=<messageId>` | Page messages (optional cursor `before`). |
 | `POST` | `/api/chats/cc/rooms/:chatId/messages` | Body: `{ "text": "…" }`. Sends message + **FCM** to the agent. |
 | `POST` | `/api/chats/cc/rooms/:chatId/read` | Mark inbound messages as read (read receipts). |
@@ -39,8 +39,9 @@ CORS is enabled for browser tools (`Access-Control-Allow-Origin: *` on these rou
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/call-center/chats?limit=50` | List threads where you are `agentUid`. |
-| `GET` | `/api/call-center/chats/:chatId` | Room metadata (must be a participant on the thread). |
+| `GET` | `/api/call-center/chats?limit=50` | Your assigned threads **plus** unclaimed **queue** requests (`queueStatus: pending`) for workshops you can access. |
+| `POST` | `/api/call-center/chats/:chatId/claim` | Claim a pending queue chat (body empty). You become `agentUid` on the thread. |
+| `GET` | `/api/call-center/chats/:chatId` | Room metadata (participant, or pending queue for your workshop scope). |
 | `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | List messages. |
 | `POST` | `/api/call-center/chats/:chatId/messages` | Body: `{ "text": "…" }`. Sends + **FCM** to the workshop user. |
 | `POST` | `/api/call-center/chats/:chatId/read` | Mark messages from the tenant user as read. |
@@ -57,7 +58,7 @@ When a message is sent via API, the recipient may receive a push with `data` inc
 
 ## Deploy notes
 
-- Deploy updated **`firestore.rules`** and **`firestore.indexes.json`** (composite indexes on `cc_direct_chats` for `tenantUserUid` / `agentUid` + `lastMessageAt`).
+- Deploy updated **`firestore.rules`** and **`firestore.indexes.json`** (composite indexes on `cc_direct_chats` for `tenantUserUid` / `agentUid` / `queueStatus` + `lastMessageAt`).
 
 ## FCM tokens for agents
 

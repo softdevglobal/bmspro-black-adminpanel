@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAdminAuth } from "@/lib/authHelpers";
 import {
   ensureCcDirectChat,
+  ensureCcQueueRequest,
   listCcChatsForTenantUser,
   serializeCcRoom,
   getCcRoomOrNull,
@@ -36,24 +37,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status || 401 });
   }
 
-  let body: { agentUid?: string };
+  let body: { agentUid?: string; queue?: boolean };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   const agentUid = typeof body.agentUid === "string" ? body.agentUid.trim() : "";
-  if (!agentUid) {
-    return NextResponse.json({ error: "agentUid is required" }, { status: 400 });
+  const useQueue = body.queue === true || (!agentUid && body.queue !== false);
+
+  if (!agentUid && !useQueue) {
+    return NextResponse.json(
+      { error: "Send { queue: true } for the shared queue, or { agentUid } to message a specific agent." },
+      { status: 400 }
+    );
   }
 
   try {
-    const { chatId, created } = await ensureCcDirectChat({
-      workshopOwnerUid: auth.userData.ownerUid,
-      tenantUserUid: auth.userData.uid,
-      tenantRole: auth.userData.role,
-      agentUid,
-    });
+    const { chatId, created } = useQueue
+      ? await ensureCcQueueRequest({
+          workshopOwnerUid: auth.userData.ownerUid,
+          tenantUserUid: auth.userData.uid,
+          tenantRole: auth.userData.role,
+        })
+      : await ensureCcDirectChat({
+          workshopOwnerUid: auth.userData.ownerUid,
+          tenantUserUid: auth.userData.uid,
+          tenantRole: auth.userData.role,
+          agentUid: agentUid!,
+        });
     const room = await getCcRoomOrNull(chatId);
     if (!room) {
       return NextResponse.json({ error: "Failed to load chat" }, { status: 500 });

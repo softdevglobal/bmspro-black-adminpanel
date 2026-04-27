@@ -39,7 +39,10 @@ export async function GET(req: NextRequest) {
     const { auth } = gate;
     let chats: CcChatWithDetails[];
     if (auth.kind === "agent") {
-      chats = await listCcChatsForAgent(auth.user.uid, lim);
+      chats = await listCcChatsForAgent(auth.user.uid, lim, {
+        isCCAdmin: auth.user.isCCAdmin,
+        assignedWorkshopIds: auth.user.assignedWorkshops,
+      });
     } else {
       const scope = workshopListScopeForAuth(auth);
       if (scope.mode === "all") {

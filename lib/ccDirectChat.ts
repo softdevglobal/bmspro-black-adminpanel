@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import {
   FieldValue,
   type DocumentData,
@@ -20,6 +21,11 @@ const MARK_READ_SCAN = 250;
 export function buildCcChatId(tenantUserUid: string, agentUid: string): string {
   const [a, b] = [tenantUserUid, agentUid].sort((x, y) => x.localeCompare(y));
   return `cc_${a}_${b}`;
+}
+
+/** New request in the shared queue (no agent chosen by the workshop user). */
+export function buildCcQueueRequestId(): string {
+  return `cc_req_${randomBytes(12).toString("hex")}`;
 }
 
 export async function resolveDisplayNameForUid(uid: string): Promise<string> {
@@ -109,6 +115,8 @@ export function serializeCcRoom(chatId: string, d: DocumentData) {
     chatsReviewedByUid: d.chatsReviewedByUid != null ? String(d.chatsReviewedByUid) : null,
     createdAt: iso(d.createdAt as Timestamp),
     updatedAt: iso(d.updatedAt as Timestamp),
+    /** `pending` = waiting for an agent to claim; `active` = assigned (includes legacy docs without field). */
+    queueStatus: d.queueStatus === "pending" ? "pending" : "active",
   };
 }
 
@@ -342,6 +350,106 @@ export async function ensureCcDirectChat(input: {
   return { chatId, created: false };
 }
 
+/**
+ * Creates a call-center thread in the **shared queue** — no pre-selected agent.
+ * The first agent who claims it (admin / API) becomes the 1:1 peer.
+ */
+export async function ensureCcQueueRequest(input: {
+  workshopOwnerUid: string;
+  tenantUserUid: string;
+  tenantRole: string;
+}): Promise<{ chatId: string; created: boolean }> {
+  const db = adminDb();
+  const chatId = buildCcQueueRequestId();
+  const ref = db.collection(CC_DIRECT_CHATS).doc(chatId);
+  const tenantName = await resolveDisplayNameForUid(input.tenantUserUid);
+  const now = FieldValue.serverTimestamp();
+  await ref.set({
+    chatId,
+    workshopOwnerUid: input.workshopOwnerUid,
+    tenantUserUid: input.tenantUserUid,
+    tenantRole: input.tenantRole,
+    agentUid: "",
+    agentName: "Call center",
+    queueStatus: "pending",
+    participantIds: [input.tenantUserUid],
+    tenantName,
+    lastMessageText: "",
+    lastMessageAt: now,
+    lastSenderId: null,
+    unreadForTenant: false,
+    unreadForAgent: false,
+    chatsReviewed: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { chatId, created: true };
+}
+
+/**
+ * Assigns a pending queue chat to the calling agent. Idempotent for same agent.
+ */
+export async function claimCcQueueChat(
+  chatId: string,
+  agentUid: string,
+  canAccessWorkshop: (workshopOwnerUid: string) => boolean
+): Promise<void> {
+  const db = adminDb();
+  const ref = db.collection(CC_DIRECT_CHATS).doc(chatId);
+  const gate = await assertCallCenterAgentForDirectChat(agentUid);
+  if (!gate.ok) {
+    throw Object.assign(new Error(gate.error), { status: gate.status });
+  }
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) {
+      const err = new Error("Chat not found");
+      (err as Error & { status?: number }).status = 404;
+      throw err;
+    }
+    const d = snap.data()!;
+    const currentAgent = String(d.agentUid || "").trim();
+    const isPending = String(d.queueStatus || "") === "pending";
+    if (!isPending) {
+      if (currentAgent === agentUid) return;
+      if (currentAgent) {
+        const err = new Error("This chat is already assigned to another agent");
+        (err as Error & { status?: number }).status = 409;
+        throw err;
+      }
+      const err = new Error("This chat is not in the unclaimed queue");
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    }
+    const w = String(d.workshopOwnerUid || "").trim();
+    if (!w || !canAccessWorkshop(w)) {
+      const err = new Error("You do not have access to this workshop's queue");
+      (err as Error & { status?: number }).status = 403;
+      throw err;
+    }
+    const agentDoc = await tx.get(db.doc(`call_center_agents/${agentUid}`));
+    const ad = agentDoc.data() || {};
+    const agentName = String(ad.displayName || ad.name || "Agent").trim() || "Agent";
+    const tenantUserUid = String(d.tenantUserUid || "");
+    if (!tenantUserUid) {
+      const err = new Error("Invalid chat data");
+      (err as Error & { status?: number }).status = 500;
+      throw err;
+    }
+    const participantIds = [tenantUserUid, agentUid].sort((a, b) => a.localeCompare(b));
+    const now = FieldValue.serverTimestamp();
+    tx.update(ref, {
+      agentUid,
+      agentName,
+      queueStatus: "active",
+      participantIds,
+      unreadForAgent: true,
+      updatedAt: now,
+    });
+  });
+}
+
 export async function getCcRoomOrNull(chatId: string): Promise<DocumentData | null> {
   const db = adminDb();
   const snap = await db.collection(CC_DIRECT_CHATS).doc(chatId).get();
@@ -428,19 +536,29 @@ export async function appendCcDirectMessage(input: {
     });
   });
 
-  const p = room.participantIds as string[];
-  const recipientUid = p[0] === input.senderUid ? p[1] : p[0];
+  const p = (room.participantIds as string[]) || [];
+  let recipientUid: string | null = null;
+  if (p.length >= 2) {
+    recipientUid = p[0] === input.senderUid ? p[1] : p[0];
+  } else if (p.length === 1) {
+    const only = p[0];
+    if (only !== input.senderUid) recipientUid = only;
+    // Pending queue (only tenant in thread): no agent to push yet.
+  }
+
   const senderName =
     input.senderUid === room.tenantUserUid
       ? String(room.tenantName || "Workshop")
       : String(room.agentName || "Agent");
 
-  await sendPushToUserByUid(recipientUid, senderName, text, {
-    type: "cc_chat_message",
-    chatId: input.chatId,
-    senderUid: input.senderUid,
-    senderName,
-  });
+  if (recipientUid) {
+    await sendPushToUserByUid(recipientUid, senderName, text, {
+      type: "cc_chat_message",
+      chatId: input.chatId,
+      senderUid: input.senderUid,
+      senderName,
+    });
+  }
 
   return { messageId: msgRef.id };
 }
@@ -612,10 +730,21 @@ export async function listCcChatsForTenantUser(tenantUserUid: string, limit: num
   return attachDetailsToCcChats(rows, { includeWorkshopUser: false });
 }
 
-export async function listCcChatsForAgent(agentUid: string, limit: number): Promise<CcChatWithDetails[]> {
+export async function listCcChatsForAgent(
+  agentUid: string,
+  limit: number,
+  scope: { isCCAdmin: boolean; assignedWorkshopIds: string[] }
+): Promise<CcChatWithDetails[]> {
   const db = adminDb();
   const lim = Math.min(Math.max(1, limit), 100);
-  let rows: ReturnType<typeof serializeCcRoom>[];
+  const assigned = new Set(scope.assignedWorkshopIds.map((x) => x.trim()).filter((x) => x.length > 0));
+  const canSeeWorkshop = (ownerUid: string) => {
+    const w = ownerUid.trim();
+    if (!w) return false;
+    return scope.isCCAdmin || assigned.has(w);
+  };
+
+  let mine: ReturnType<typeof serializeCcRoom>[] = [];
   try {
     const snap = await db
       .collection(CC_DIRECT_CHATS)
@@ -623,13 +752,45 @@ export async function listCcChatsForAgent(agentUid: string, limit: number): Prom
       .orderBy("lastMessageAt", "desc")
       .limit(lim)
       .get();
-    rows = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+    mine = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
   } catch (e) {
     if (!isMissingCompositeIndexError(e)) throw e;
     const snap = await db.collection(CC_DIRECT_CHATS).where("agentUid", "==", agentUid).get();
-    rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
+    mine = sortCcRoomsByLastMessageDesc(snap.docs, lim);
   }
-  return attachDetailsToCcChats(rows, { includeWorkshopUser: true });
+
+  let pendingRows: ReturnType<typeof serializeCcRoom>[] = [];
+  try {
+    const ps = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("queueStatus", "==", "pending")
+      .orderBy("lastMessageAt", "desc")
+      .limit(100)
+      .get();
+    pendingRows = ps.docs
+      .map((d) => ({ id: d.id, data: d.data()! }))
+      .filter((x) => canSeeWorkshop(String(x.data.workshopOwnerUid || "")))
+      .map((x) => serializeCcRoom(x.id, x.data));
+  } catch (e) {
+    if (!isMissingCompositeIndexError(e)) throw e;
+    const ps = await db.collection(CC_DIRECT_CHATS).where("queueStatus", "==", "pending").limit(200).get();
+    pendingRows = sortCcRoomsByLastMessageDesc(
+      ps.docs.filter((doc) => canSeeWorkshop(String(doc.data()?.workshopOwnerUid || ""))),
+      100
+    );
+  }
+
+  const byId = new Map<string, ReturnType<typeof serializeCcRoom>>();
+  for (const r of pendingRows) byId.set(r.chatId, r);
+  for (const r of mine) byId.set(r.chatId, r);
+  const merged = [...byId.values()];
+  merged.sort((a, b) => {
+    const as = a.lastMessageAt || "";
+    const bs = b.lastMessageAt || "";
+    return bs.localeCompare(as);
+  });
+  const sliced = merged.slice(0, lim);
+  return attachDetailsToCcChats(sliced, { includeWorkshopUser: true });
 }
 
 /** BMS staff (workshop/branch) or super_admin scoped to a workshop: all 1:1 CC threads for that business. */

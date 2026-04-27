@@ -203,14 +203,21 @@ const participantIdList = (room: { participantIds?: unknown }): string[] =>
 
 /**
  * List/read CC direct chats: the agent or tenant in the thread, or BMS staff for that workshop.
+ * Unclaimed queue requests (`queueStatus === "pending"`) are visible to agents who can access that workshop.
  */
 export function canAccessCcDirectChatRoom(
   auth: CallCenterRequestAuth,
-  room: { workshopOwnerUid?: unknown; participantIds?: unknown },
+  room: { workshopOwnerUid?: unknown; participantIds?: unknown; queueStatus?: unknown },
   requesterUid: string
 ): boolean {
   if (participantIdList(room).includes(requesterUid)) return true;
-  if (auth.kind === "agent") return false;
+  if (auth.kind === "agent") {
+    if (String(room.queueStatus ?? "") !== "pending") return false;
+    const w = String(room.workshopOwnerUid ?? "").trim();
+    if (!w) return false;
+    if (auth.user.isCCAdmin) return true;
+    return canAccessWorkshop(auth.user, w);
+  }
   const w = String(room.workshopOwnerUid ?? "").trim();
   if (!w) return false;
   return canAccessWorkshopForAuth(auth, w);

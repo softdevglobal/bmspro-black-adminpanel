@@ -83,6 +83,14 @@
         { "fieldPath": "agentUid", "order": "ASCENDING" },
         { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "cc_direct_chats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "queueStatus", "order": "ASCENDING" },
+        { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

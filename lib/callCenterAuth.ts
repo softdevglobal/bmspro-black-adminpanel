@@ -39,6 +39,10 @@ export type CallCenterRequestAuth =
       isSuperAdmin: boolean;
     };
 
+export function callCenterRequesterUid(auth: CallCenterRequestAuth): string {
+  return auth.kind === "agent" ? auth.user.uid : auth.uid;
+}
+
 /** Normalize Firestore assigned workshop ids (trim, legacy snake_case, `{ ownerUid }` items). */
 function normalizeAssignedWorkshopIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -192,6 +196,34 @@ export function canAccessWorkshopForAuth(auth: CallCenterRequestAuth, workshopOw
   if (auth.role === "workshop_owner" && auth.uid === id) return true;
   if (auth.role === "branch_admin" && auth.ownerUid === id) return true;
   return false;
+}
+
+const participantIdList = (room: { participantIds?: unknown }): string[] =>
+  Array.isArray(room.participantIds) ? room.participantIds.map((x) => String(x)) : [];
+
+/**
+ * List/read CC direct chats: the agent or tenant in the thread, or BMS staff for that workshop.
+ */
+export function canAccessCcDirectChatRoom(
+  auth: CallCenterRequestAuth,
+  room: { workshopOwnerUid?: unknown; participantIds?: unknown },
+  requesterUid: string
+): boolean {
+  if (participantIdList(room).includes(requesterUid)) return true;
+  if (auth.kind === "agent") return false;
+  const w = String(room.workshopOwnerUid ?? "").trim();
+  if (!w) return false;
+  return canAccessWorkshopForAuth(auth, w);
+}
+
+/**
+ * Post messages / mark read: only the two thread participants.
+ */
+export function isParticipantInCcDirectChatRoom(
+  room: { participantIds?: unknown },
+  requesterUid: string
+): boolean {
+  return participantIdList(room).includes(requesterUid);
 }
 
 /**

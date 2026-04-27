@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCallCenterAuth, CORS_HEADERS } from "@/lib/callCenterAuth";
+import {
+  verifyCallCenterOrTenantAdminAuth,
+  canAccessCcDirectChatRoom,
+  callCenterRequesterUid,
+  CORS_HEADERS,
+} from "@/lib/callCenterAuth";
 import {
   getCcRoomOrNull,
   serializeCcRoom,
-  assertRoomParticipant,
   attachDetailsToCcChats,
 } from "@/lib/ccDirectChat";
 
@@ -18,8 +22,8 @@ export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ chatId: string }> }
 ) {
-  const gate = await verifyCallCenterAuth(req);
-  if (!gate.success || !gate.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
       { error: gate.error },
       { status: gate.status || 401, headers: CORS_HEADERS }
@@ -31,9 +35,9 @@ export async function GET(
   if (!room) {
     return NextResponse.json({ error: "Chat not found" }, { status: 404, headers: CORS_HEADERS });
   }
-  try {
-    assertRoomParticipant(room, gate.user.uid);
-  } catch {
+
+  const requesterUid = callCenterRequesterUid(gate.auth);
+  if (!canAccessCcDirectChatRoom(gate.auth, room, requesterUid)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403, headers: CORS_HEADERS });
   }
 

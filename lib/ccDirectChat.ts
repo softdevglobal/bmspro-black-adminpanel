@@ -449,13 +449,17 @@ export async function listCcMessages(
   chatId: string,
   requesterUid: string,
   limit: number,
-  beforeMessageId?: string | null
+  beforeMessageId?: string | null,
+  options?: { roomReadGatePreenacted?: boolean }
 ): Promise<{ messages: ReturnType<typeof serializeCcMessage>[] } | null> {
   const db = adminDb();
   const chatRef = db.collection(CC_DIRECT_CHATS).doc(chatId);
   const chatSnap = await chatRef.get();
   if (!chatSnap.exists) return null;
-  assertRoomParticipant(chatSnap.data()!, requesterUid);
+  const room = chatSnap.data()!;
+  if (!options?.roomReadGatePreenacted) {
+    assertRoomParticipant(room, requesterUid);
+  }
 
   const lim = Math.min(Math.max(1, limit), LIST_MESSAGES_MAX);
   let q = chatRef.collection("messages").orderBy("createdAt", "desc").limit(lim);
@@ -522,7 +526,7 @@ export async function setCcChatsReviewed(
   chatId: string,
   agentUid: string,
   reviewed: boolean,
-  options?: { isCallCenterAdmin?: boolean }
+  options?: { isCallCenterAdmin?: boolean; allowWorkshopOversight?: boolean }
 ): Promise<{ chatsReviewed: boolean }> {
   const db = adminDb();
   const ref = db.collection(CC_DIRECT_CHATS).doc(chatId);
@@ -533,7 +537,7 @@ export async function setCcChatsReviewed(
     throw err;
   }
   const room = snap.data()!;
-  if (!options?.isCallCenterAdmin) {
+  if (!options?.isCallCenterAdmin && !options?.allowWorkshopOversight) {
     assertRoomParticipant(room, agentUid);
   }
   const now = FieldValue.serverTimestamp();
@@ -573,6 +577,16 @@ function sortCcRoomsByLastMessageDesc(docs: QueryDocumentSnapshot[], lim: number
     .sort((a, b) => lastMessageAtMs(b.data) - lastMessageAtMs(a.data))
     .slice(0, lim)
     .map((x) => serializeCcRoom(x.id, x.data));
+}
+
+function mergeAndSortChatsByLastMessage(rooms: CcChatWithDetails[], lim: number): CcChatWithDetails[] {
+  return rooms
+    .sort((a, b) => {
+      const as = a.lastMessageAt || "";
+      const bs = b.lastMessageAt || "";
+      return bs.localeCompare(as);
+    })
+    .slice(0, lim);
 }
 
 export async function listCcChatsForTenantUser(tenantUserUid: string, limit: number): Promise<CcChatWithDetails[]> {
@@ -616,4 +630,45 @@ export async function listCcChatsForAgent(agentUid: string, limit: number): Prom
     rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
   }
   return attachDetailsToCcChats(rows, { includeWorkshopUser: true });
+}
+
+/** BMS staff (workshop/branch) or super_admin scoped to a workshop: all 1:1 CC threads for that business. */
+export async function listCcChatsForWorkshop(workshopOwnerUid: string, limit: number): Promise<CcChatWithDetails[]> {
+  const w = workshopOwnerUid.trim();
+  if (!w) return [];
+  const db = adminDb();
+  const lim = Math.min(Math.max(1, limit), 100);
+  let rows: ReturnType<typeof serializeCcRoom>[];
+  try {
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("workshopOwnerUid", "==", w)
+      .orderBy("lastMessageAt", "desc")
+      .limit(lim)
+      .get();
+    rows = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+  } catch (e) {
+    if (!isMissingCompositeIndexError(e)) throw e;
+    const snap = await db.collection(CC_DIRECT_CHATS).where("workshopOwnerUid", "==", w).get();
+    rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
+  }
+  return attachDetailsToCcChats(rows, { includeWorkshopUser: true });
+}
+
+/**
+ * For branch_admin / multiple assigned workshops. Fetches in parallel, merges, sorts by `lastMessageAt`, caps at `lim`.
+ */
+export async function listCcChatsForWorkshopIds(
+  ownerUids: string[],
+  limit: number
+): Promise<CcChatWithDetails[]> {
+  const uids = [...new Set(ownerUids.map((x) => x.trim()).filter((x) => x.length > 0))];
+  if (uids.length === 0) return [];
+  if (uids.length === 1) {
+    return listCcChatsForWorkshop(uids[0]!, limit);
+  }
+  const per = Math.min(100, Math.max(limit, 20));
+  const lists = await Promise.all(uids.map((id) => listCcChatsForWorkshop(id, per)));
+  const merged = lists.flat();
+  return mergeAndSortChatsByLastMessage(merged, limit);
 }

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCallCenterAuth, CORS_HEADERS } from "@/lib/callCenterAuth";
+import {
+  verifyCallCenterOrTenantAdminAuth,
+  canAccessWorkshopForAuth,
+  isParticipantInCcDirectChatRoom,
+  callCenterRequesterUid,
+  CORS_HEADERS,
+} from "@/lib/callCenterAuth";
 import { getCcRoomOrNull, setCcChatsReviewed, attachDetailsToCcChats, serializeCcRoom } from "@/lib/ccDirectChat";
 
 export const runtime = "nodejs";
@@ -10,14 +16,14 @@ export async function OPTIONS() {
 
 /**
  * PATCH /api/call-center/chats/[chatId]/reviewed
- * Body: `{ "chatsReviewed": true | false }` — any call center agent who is a participant may update.
+ * Body: `{ "chatsReviewed": true | false }` — call center agent (participant) or BMS staff for that workshop.
  */
 export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ chatId: string }> }
 ) {
-  const gate = await verifyCallCenterAuth(req);
-  if (!gate.success || !gate.user) {
+  const gate = await verifyCallCenterOrTenantAdminAuth(req);
+  if (!gate.success) {
     return NextResponse.json(
       { error: gate.error },
       { status: gate.status || 401, headers: CORS_HEADERS }
@@ -38,9 +44,20 @@ export async function PATCH(
   }
   const reviewed = body.chatsReviewed === true;
 
+  const requesterUid = callCenterRequesterUid(gate.auth);
+  const w = String(room.workshopOwnerUid || "");
+  const isAgentAdmin = gate.auth.kind === "agent" && gate.auth.user.isCCAdmin === true;
+  const isParticipant = isParticipantInCcDirectChatRoom(room, requesterUid);
+  const allowWorkshopOversight =
+    gate.auth.kind === "tenant_admin" &&
+    w.length > 0 &&
+    canAccessWorkshopForAuth(gate.auth, w) &&
+    !isParticipant;
+
   try {
-    await setCcChatsReviewed(chatId, gate.user.uid, reviewed, {
-      isCallCenterAdmin: gate.user.isCCAdmin === true,
+    await setCcChatsReviewed(chatId, requesterUid, reviewed, {
+      isCallCenterAdmin: isAgentAdmin,
+      allowWorkshopOversight,
     });
     const fresh = await getCcRoomOrNull(chatId);
     if (!fresh) {

@@ -103,6 +103,10 @@ export function serializeCcRoom(chatId: string, d: DocumentData) {
     unreadForTenant: d.unreadForTenant === true,
     /** Call-center list / badges: new inbound from tenant until agent calls mark read. */
     unreadForAgent: d.unreadForAgent === true,
+    /** Call center: thread marked reviewed (e.g. handled); any agent with access can set via PATCH. */
+    chatsReviewed: d.chatsReviewed === true,
+    chatsReviewedAt: iso(d.chatsReviewedAt as Timestamp | undefined),
+    chatsReviewedByUid: d.chatsReviewedByUid != null ? String(d.chatsReviewedByUid) : null,
     createdAt: iso(d.createdAt as Timestamp),
     updatedAt: iso(d.updatedAt as Timestamp),
   };
@@ -315,6 +319,7 @@ export async function ensureCcDirectChat(input: {
       lastSenderId: null,
       unreadForTenant: false,
       unreadForAgent: false,
+      chatsReviewed: false,
       createdAt: now,
       updatedAt: now,
     });
@@ -418,6 +423,8 @@ export async function appendCcDirectMessage(input: {
       // Recipient has "new" until they call mark read (clears the matching flag).
       unreadForTenant: fromTenant ? false : true,
       unreadForAgent: fromTenant ? true : false,
+      // New message from workshop → needs call-center review again.
+      ...(fromTenant ? { chatsReviewed: false } : {}),
     });
   });
 
@@ -504,6 +511,48 @@ export async function markCcDirectChatRead(chatId: string, readerUid: string): P
   }
 
   return { updated };
+}
+
+/**
+ * Mark whether call center has reviewed / handled the thread.
+ * - Normal agents: must be a room participant.
+ * - `call_center_admin`: can update any `cc_direct_chats` row (shared queue oversight).
+ */
+export async function setCcChatsReviewed(
+  chatId: string,
+  agentUid: string,
+  reviewed: boolean,
+  options?: { isCallCenterAdmin?: boolean }
+): Promise<{ chatsReviewed: boolean }> {
+  const db = adminDb();
+  const ref = db.collection(CC_DIRECT_CHATS).doc(chatId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    const err = new Error("Chat not found");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  const room = snap.data()!;
+  if (!options?.isCallCenterAdmin) {
+    assertRoomParticipant(room, agentUid);
+  }
+  const now = FieldValue.serverTimestamp();
+  if (reviewed) {
+    await ref.update({
+      chatsReviewed: true,
+      chatsReviewedAt: now,
+      chatsReviewedByUid: agentUid,
+      updatedAt: now,
+    });
+  } else {
+    await ref.update({
+      chatsReviewed: false,
+      chatsReviewedAt: FieldValue.delete(),
+      chatsReviewedByUid: FieldValue.delete(),
+      updatedAt: now,
+    });
+  }
+  return { chatsReviewed: reviewed };
 }
 
 function lastMessageAtMs(d: DocumentData): number {

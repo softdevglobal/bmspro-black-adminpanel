@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { yeastarProbeHint } from "@/lib/yeastarHints";
+
 export const runtime = "nodejs";
 
 const YEASTAR_HEADERS = {
@@ -156,9 +158,12 @@ export async function GET(req: NextRequest) {
 
         probeResult = out;
       } catch (e) {
+        const errText = String(e).slice(0, 500);
+        const hint = yeastarProbeHint(errText);
         probeResult = {
           getTokenOk: false,
-          error: String(e).slice(0, 500),
+          error: errText,
+          ...(hint ? { hint } : {}),
         };
       }
     }

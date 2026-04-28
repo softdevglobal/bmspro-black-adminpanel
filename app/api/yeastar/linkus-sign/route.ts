@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  parseYeastarErrcode,
+  yeastarHintForErrcode,
+} from "@/lib/yeastarHints";
+
 export const runtime = "nodejs";
 
 const LOG_PREFIX = "[api/yeastar/linkus-sign]";
@@ -164,8 +169,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, sign });
   } catch (e) {
     console.error(LOG_PREFIX, e);
+    const message = e instanceof Error ? e.message : String(e);
+    const code = parseYeastarErrcode(message);
+    const hint =
+      code != null ? yeastarHintForErrcode(code) : undefined;
     return NextResponse.json(
-      { success: false, message: e instanceof Error ? e.message : String(e) },
+      {
+        success: false,
+        message,
+        ...(code != null ? { errcode: code } : {}),
+        ...(hint ? { hint } : {}),
+      },
       { status: 502 }
     );
   }

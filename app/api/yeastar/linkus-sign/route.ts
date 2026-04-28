@@ -321,8 +321,9 @@ export async function POST(req: NextRequest) {
     const conn = linkusConnFromPbxBaseUrl(baseUrl);
     const linkusLocalePort =
       Number(process.env.YEASTAR_PBX_LOCALE_PORT?.trim()) || 443;
+    // Cloud RAS: match OpenAPI TLS edge (443). 5060 often blocked from mobile networks.
     const linkusRemotePort =
-      Number(process.env.YEASTAR_PBX_REMOTE_PORT?.trim()) || 5060;
+      Number(process.env.YEASTAR_PBX_REMOTE_PORT?.trim()) || 443;
     return NextResponse.json({
       success: true,
       sign,

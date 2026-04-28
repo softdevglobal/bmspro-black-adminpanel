@@ -275,16 +275,20 @@ export async function POST(req: NextRequest) {
     let token = await fetchYeastarToken(baseUrl, accessId, accessKey);
     let { http, parsed } = await callSignCreate(token);
 
-    // If the cached token was rejected, drop it and try once with a fresh one.
+    const errmsgUpper = (parsed.errmsg ?? "").toString().toUpperCase();
+    // Yeastar often returns errcode 10004 "TOKEN EXPIRED" on sign/create when the OpenAPI
+    // access_token is stale — same fix as HTTP 401: drop cache and get_token again.
     const tokenLikelyBad =
       http === 401 ||
       http === 403 ||
       (parsed.errcode != null &&
         (parsed.errcode === 401 ||
-          (parsed.errcode >= 40000 && parsed.errcode < 41000)));
+          parsed.errcode === 10004 ||
+          (parsed.errcode >= 40000 && parsed.errcode < 41000))) ||
+      errmsgUpper.includes("TOKEN EXPIRED");
     if (tokenLikelyBad) {
       console.warn(
-        `${LOG_PREFIX} cached token rejected (http=${http} errcode=${parsed.errcode}) — refreshing`
+        `${LOG_PREFIX} access token rejected (http=${http} errcode=${parsed.errcode} errmsg=${parsed.errmsg ?? ""}) — clearing cache and refreshing get_token`
       );
       cachedToken = null;
       token = await fetchYeastarToken(baseUrl, accessId, accessKey, {

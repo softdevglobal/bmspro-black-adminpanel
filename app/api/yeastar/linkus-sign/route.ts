@@ -166,10 +166,51 @@ async function fetchYeastarToken(
   }
 }
 
+function pickSignUsername(body: unknown): { ok: true; value: string } | { ok: false; message: string } {
+  if (typeof body !== "object" || body === null) {
+    return { ok: false, message: "Invalid JSON body" };
+  }
+  const o = body as Record<string, unknown>;
+  const username =
+    o.username != null && String(o.username).trim() !== ""
+      ? String(o.username).trim()
+      : "";
+  const email =
+    o.email != null && String(o.email).trim() !== ""
+      ? String(o.email).trim()
+      : "";
+  const extension =
+    o.extension != null && String(o.extension).trim() !== ""
+      ? String(o.extension).trim()
+      : "";
+  const primary = username || email || extension;
+  if (!primary) {
+    return {
+      ok: false,
+      message: "Provide email, extension, or username (PBX sign/create identity)",
+    };
+  }
+  if (primary.includes("@")) {
+    const lower = primary.toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lower)) {
+      return { ok: false, message: "Invalid email" };
+    }
+    return { ok: true, value: lower };
+  }
+  if (/^\d{1,15}$/.test(primary)) {
+    return { ok: true, value: primary };
+  }
+  return {
+    ok: false,
+    message: "Use extension email (with @) or numeric PBX extension (e.g. 1500)",
+  };
+}
+
 /**
  * POST /api/yeastar/linkus-sign
- * Body: `{ "email": "user@example.com" }` — must match Extension Email on PBX.
- * Returns `{ success, sign }` for Linkus SDK login (server holds Linkus SDK AccessID/Key).
+ * Body: `{ "email": "ext@domain.com" }` **or** `{ "extension": "1500" }` or `{ "username": "…" }` —
+ * must match what Yeastar `sign/create` expects for that extension (email or number).
+ * Returns `{ success, sign, … }` for Linkus SDK login.
  */
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -181,22 +222,13 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const emailRaw =
-    typeof body === "object" &&
-    body !== null &&
-    "email" in body &&
-    (body as { email?: unknown }).email != null
-      ? String((body as { email: unknown }).email).trim()
-      : "";
 
-  if (!emailRaw || !emailRaw.includes("@")) {
-    return NextResponse.json(
-      { success: false, message: "Valid email is required" },
-      { status: 400 }
-    );
+  const picked = pickSignUsername(body);
+  if (!picked.ok) {
+    return NextResponse.json({ success: false, message: picked.message }, { status: 400 });
   }
 
-  const email = emailRaw.toLowerCase();
+  const signUsername = picked.value;
   const { baseUrl, accessId, accessKey, configured } = resolveYeastarEnv();
   if (!configured) {
     return NextResponse.json(
@@ -220,7 +252,7 @@ export async function POST(req: NextRequest) {
         method: "POST",
         headers: { ...YEASTAR_HEADERS },
         body: JSON.stringify({
-          username: email,
+          username: signUsername,
           sign_type: "sdk",
           expire_time: 0,
         }),
@@ -263,7 +295,7 @@ export async function POST(req: NextRequest) {
 
     if (parsed.errcode != null && parsed.errcode !== 0) {
       console.warn(
-        `${LOG_PREFIX} sign/create errcode=${parsed.errcode} email=${email}`
+        `${LOG_PREFIX} sign/create errcode=${parsed.errcode} username=${signUsername}`
       );
       return NextResponse.json(
         {

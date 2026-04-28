@@ -18,6 +18,48 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+/** Match Flutter [normalizeYeastarPbxOpenApiBaseUrl] — strip `/openapi` suffix. */
+function normalizeOpenApiBaseUrl(raw: string): string {
+  let s = raw.trim().replace(/\/+$/, "");
+  const lower = s.toLowerCase();
+  if (lower.endsWith("/openapi")) {
+    s = s.slice(0, -"/openapi".length).replace(/\/+$/, "");
+  }
+  return s;
+}
+
+/**
+ * Linkus SDK needs SIP/TLS hosts; derive from PBX OpenAPI base (same rules as the app).
+ */
+function linkusConnFromPbxBaseUrl(rawBase: string): {
+  pbxOpenApiBaseUrl: string;
+  linkusRemoteIp: string;
+  linkusLocaleIp: string;
+} {
+  const pbxOpenApiBaseUrl = normalizeOpenApiBaseUrl(rawBase);
+  if (!pbxOpenApiBaseUrl) {
+    return { pbxOpenApiBaseUrl: "", linkusRemoteIp: "", linkusLocaleIp: "" };
+  }
+  const href = pbxOpenApiBaseUrl.includes("://")
+    ? pbxOpenApiBaseUrl
+    : `https://${pbxOpenApiBaseUrl}`;
+  let host = "";
+  try {
+    host = new URL(href).hostname;
+  } catch {
+    return { pbxOpenApiBaseUrl, linkusRemoteIp: "", linkusLocaleIp: "" };
+  }
+  if (!host) {
+    return { pbxOpenApiBaseUrl, linkusRemoteIp: "", linkusLocaleIp: "" };
+  }
+  const isRas = host.toLowerCase().includes(".ras.yeastar.com");
+  return {
+    pbxOpenApiBaseUrl,
+    linkusRemoteIp: host,
+    linkusLocaleIp: isRas ? host : "",
+  };
+}
+
 function resolveYeastarEnv(): {
   baseUrl: string;
   accessId: string;
@@ -240,7 +282,18 @@ export async function POST(req: NextRequest) {
         { status: 502 }
       );
     }
-    return NextResponse.json({ success: true, sign });
+    const conn = linkusConnFromPbxBaseUrl(baseUrl);
+    const linkusLocalePort =
+      Number(process.env.YEASTAR_PBX_LOCALE_PORT?.trim()) || 443;
+    const linkusRemotePort =
+      Number(process.env.YEASTAR_PBX_REMOTE_PORT?.trim()) || 5061;
+    return NextResponse.json({
+      success: true,
+      sign,
+      ...conn,
+      linkusLocalePort,
+      linkusRemotePort,
+    });
   } catch (e) {
     console.error(LOG_PREFIX, e);
     const message = e instanceof Error ? e.message : String(e);

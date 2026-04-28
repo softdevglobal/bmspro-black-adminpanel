@@ -322,7 +322,7 @@ export async function POST(req: NextRequest) {
     const linkusLocalePort =
       Number(process.env.YEASTAR_PBX_LOCALE_PORT?.trim()) || 443;
     const linkusRemotePort =
-      Number(process.env.YEASTAR_PBX_REMOTE_PORT?.trim()) || 5061;
+      Number(process.env.YEASTAR_PBX_REMOTE_PORT?.trim()) || 5060;
     return NextResponse.json({
       success: true,
       sign,

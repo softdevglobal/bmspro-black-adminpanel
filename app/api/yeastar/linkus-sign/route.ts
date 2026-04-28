@@ -45,33 +45,83 @@ function resolveYeastarEnv(): {
   };
 }
 
+/**
+ * Module-level cache so repeated `linkus-sign` calls from the app reuse one
+ * Yeastar OpenAPI access token. Yeastar caps the number of active tokens per
+ * PBX (`errcode 60002 MAX LIMITATION EXCEEDED`); each `get_token` issues a new
+ * one without invalidating old ones, so caching is essential.
+ */
+type TokenCacheEntry = {
+  token: string;
+  expiresAt: number;
+  baseUrl: string;
+  accessId: string;
+};
+let cachedToken: TokenCacheEntry | null = null;
+let inflightToken: Promise<string> | null = null;
+const TOKEN_SAFETY_MS = 60_000;
+
+function readCachedToken(baseUrl: string, accessId: string): string | null {
+  const c = cachedToken;
+  if (!c) return null;
+  if (c.baseUrl !== baseUrl || c.accessId !== accessId) return null;
+  if (Date.now() + TOKEN_SAFETY_MS >= c.expiresAt) return null;
+  return c.token;
+}
+
 async function fetchYeastarToken(
   baseUrl: string,
   accessId: string,
-  accessKey: string
+  accessKey: string,
+  { forceRefresh = false }: { forceRefresh?: boolean } = {}
 ): Promise<string> {
-  const uri = `${normalizeBaseUrl(baseUrl)}/openapi/v1.0/get_token`;
-  const res = await fetch(uri, {
-    method: "POST",
-    headers: { ...YEASTAR_HEADERS },
-    body: JSON.stringify({ username: accessId, password: accessKey }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`get_token HTTP ${res.status}: ${text.slice(0, 400)}`);
+  if (!forceRefresh) {
+    const hit = readCachedToken(baseUrl, accessId);
+    if (hit) return hit;
   }
-  const data = JSON.parse(text) as {
-    errcode?: number;
-    errmsg?: string;
-    access_token?: string;
-  };
-  if (data.errcode != null && data.errcode !== 0) {
-    throw new Error(`get_token errcode=${data.errcode} ${data.errmsg ?? ""}`);
+  if (!forceRefresh && inflightToken) return inflightToken;
+
+  const p = (async () => {
+    const uri = `${normalizeBaseUrl(baseUrl)}/openapi/v1.0/get_token`;
+    const res = await fetch(uri, {
+      method: "POST",
+      headers: { ...YEASTAR_HEADERS },
+      body: JSON.stringify({ username: accessId, password: accessKey }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`get_token HTTP ${res.status}: ${text.slice(0, 400)}`);
+    }
+    const data = JSON.parse(text) as {
+      errcode?: number;
+      errmsg?: string;
+      access_token?: string;
+      access_token_expire_time?: number;
+    };
+    if (data.errcode != null && data.errcode !== 0) {
+      throw new Error(`get_token errcode=${data.errcode} ${data.errmsg ?? ""}`);
+    }
+    const t = data.access_token?.trim();
+    if (!t) throw new Error("get_token: missing access_token");
+    const ttlSec =
+      typeof data.access_token_expire_time === "number"
+        ? data.access_token_expire_time
+        : 1800;
+    cachedToken = {
+      token: t,
+      baseUrl,
+      accessId,
+      expiresAt: Date.now() + ttlSec * 1000,
+    };
+    return t;
+  })();
+  inflightToken = p;
+  try {
+    return await p;
+  } finally {
+    inflightToken = null;
   }
-  const t = data.access_token?.trim();
-  if (!t) throw new Error("get_token: missing access_token");
-  return t;
 }
 
 /**
@@ -119,32 +169,56 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const token = await fetchYeastarToken(baseUrl, accessId, accessKey);
-    const signUrl = new URL(
-      `${normalizeBaseUrl(baseUrl)}/openapi/v1.0/sign/create`
-    );
-    signUrl.searchParams.set("access_token", token);
-    const sr = await fetch(signUrl.toString(), {
-      method: "POST",
-      headers: { ...YEASTAR_HEADERS },
-      body: JSON.stringify({
-        username: email,
-        sign_type: "sdk",
-        expire_time: 0,
-      }),
-      signal: AbortSignal.timeout(25_000),
-    });
-    const st = await sr.text();
-    let parsed: {
-      errcode?: number;
-      errmsg?: string;
-      data?: { sign?: string };
+    const callSignCreate = async (token: string) => {
+      const signUrl = new URL(
+        `${normalizeBaseUrl(baseUrl)}/openapi/v1.0/sign/create`
+      );
+      signUrl.searchParams.set("access_token", token);
+      const sr = await fetch(signUrl.toString(), {
+        method: "POST",
+        headers: { ...YEASTAR_HEADERS },
+        body: JSON.stringify({
+          username: email,
+          sign_type: "sdk",
+          expire_time: 0,
+        }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      const st = await sr.text();
+      let parsed: {
+        errcode?: number;
+        errmsg?: string;
+        data?: { sign?: string };
+      };
+      try {
+        parsed = JSON.parse(st) as typeof parsed;
+      } catch {
+        throw new Error(`sign/create: invalid JSON ${st.slice(0, 200)}`);
+      }
+      return { http: sr.status, parsed };
     };
-    try {
-      parsed = JSON.parse(st) as typeof parsed;
-    } catch {
-      throw new Error(`sign/create: invalid JSON ${st.slice(0, 200)}`);
+
+    let token = await fetchYeastarToken(baseUrl, accessId, accessKey);
+    let { http, parsed } = await callSignCreate(token);
+
+    // If the cached token was rejected, drop it and try once with a fresh one.
+    const tokenLikelyBad =
+      http === 401 ||
+      http === 403 ||
+      (parsed.errcode != null &&
+        (parsed.errcode === 401 ||
+          (parsed.errcode >= 40000 && parsed.errcode < 41000)));
+    if (tokenLikelyBad) {
+      console.warn(
+        `${LOG_PREFIX} cached token rejected (http=${http} errcode=${parsed.errcode}) — refreshing`
+      );
+      cachedToken = null;
+      token = await fetchYeastarToken(baseUrl, accessId, accessKey, {
+        forceRefresh: true,
+      });
+      ({ http, parsed } = await callSignCreate(token));
     }
+
     if (parsed.errcode != null && parsed.errcode !== 0) {
       console.warn(
         `${LOG_PREFIX} sign/create errcode=${parsed.errcode} email=${email}`

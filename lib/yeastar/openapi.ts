@@ -7,9 +7,20 @@
  * mobile login burns the quota in minutes. This module owns a single
  * cross-route in-memory cache + an in-flight singleflight to coalesce
  * concurrent token fetches.
+ *
+ * **Firestore cache:** Vercel/serverless and `next dev` reloads each get an
+ * empty in-memory cache; without shared storage every cold start calls
+ * `get_token` and trips Yeastar **60002**. We mirror a valid token to
+ * `yeastar_internal/openapi_access_token` so all instances reuse one slot.
  */
 
+import { FieldValue } from "firebase-admin/firestore";
+
+import { adminDb } from "@/lib/firebaseAdmin";
 import { parseYeastarErrcode, yeastarHintForErrcode } from "@/lib/yeastarHints";
+
+/** Server-only doc; never exposed to clients (Admin SDK in API routes only). */
+const TOKEN_CACHE_FS_PATH = "yeastar_internal/openapi_access_token";
 
 const YEASTAR_HEADERS = {
   "Content-Type": "application/json",
@@ -107,6 +118,64 @@ type TokenCacheEntry = {
 let cachedToken: TokenCacheEntry | null = null;
 let inflightToken: Promise<string> | null = null;
 
+async function readFirestoreTokenCache(
+  env: YeastarEnv,
+): Promise<TokenCacheEntry | null> {
+  try {
+    const snap = await adminDb().doc(TOKEN_CACHE_FS_PATH).get();
+    if (!snap.exists) return null;
+    const d = snap.data() ?? {};
+    const token = (d.access_token as string | undefined)?.trim();
+    const expiresAtMs = d.expiresAtMs as number | undefined;
+    const storedBase = (d.baseUrl as string | undefined) ?? "";
+    const storedId = (d.accessId as string | undefined) ?? "";
+    if (!token || typeof expiresAtMs !== "number") return null;
+    if (normalizeBaseUrl(storedBase) !== normalizeBaseUrl(env.baseUrl))
+      return null;
+    if (storedId !== env.accessId) return null;
+    if (Date.now() + TOKEN_SAFETY_MS >= expiresAtMs) return null;
+    return {
+      token,
+      expiresAt: expiresAtMs,
+      baseUrl: env.baseUrl,
+      accessId: env.accessId,
+    };
+  } catch (e) {
+    console.warn("[yeastar/openapi] Firestore token cache read failed", e);
+    return null;
+  }
+}
+
+async function writeFirestoreTokenCache(
+  env: YeastarEnv,
+  entry: TokenCacheEntry,
+): Promise<void> {
+  try {
+    await adminDb()
+      .doc(TOKEN_CACHE_FS_PATH)
+      .set(
+        {
+          access_token: entry.token,
+          expiresAtMs: entry.expiresAt,
+          baseUrl: normalizeBaseUrl(env.baseUrl),
+          accessId: env.accessId,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+  } catch (e) {
+    console.warn("[yeastar/openapi] Firestore token cache write failed", e);
+  }
+}
+
+async function deleteFirestoreTokenCacheBestEffort(): Promise<void> {
+  try {
+    await adminDb().doc(TOKEN_CACHE_FS_PATH).delete();
+  } catch {
+    /* ignore */
+  }
+}
+
 function readCachedToken(baseUrl: string, accessId: string): string | null {
   const c = cachedToken;
   if (!c) return null;
@@ -117,6 +186,7 @@ function readCachedToken(baseUrl: string, accessId: string): string | null {
 
 export function clearAccessTokenCache(): void {
   cachedToken = null;
+  void deleteFirestoreTokenCacheBestEffort();
 }
 
 export async function getAccessToken(
@@ -129,7 +199,21 @@ export async function getAccessToken(
   if (!forceRefresh) {
     const hit = readCachedToken(env.baseUrl, env.accessId);
     if (hit) return hit;
+
+    const fromFs = await readFirestoreTokenCache(env);
+    if (fromFs) {
+      cachedToken = {
+        token: fromFs.token,
+        expiresAt: fromFs.expiresAt,
+        baseUrl: env.baseUrl,
+        accessId: env.accessId,
+      };
+      return fromFs.token;
+    }
+
     if (inflightToken) return inflightToken;
+  } else if (inflightToken) {
+    return inflightToken;
   }
 
   const fetchTokenOnce = async (): Promise<string> => {
@@ -171,16 +255,37 @@ export async function getAccessToken(
       typeof data.access_token_expire_time === "number"
         ? data.access_token_expire_time
         : 1800;
-    cachedToken = {
+    const entry: TokenCacheEntry = {
       token: t,
       baseUrl: env.baseUrl,
       accessId: env.accessId,
       expiresAt: Date.now() + ttlSec * 1000,
     };
+    cachedToken = entry;
+    await writeFirestoreTokenCache(env, entry);
     return t;
   };
 
-  const p = fetchTokenOnce();
+  const p = (async () => {
+    try {
+      return await fetchTokenOnce();
+    } catch (e) {
+      if (e instanceof YeastarOpenApiError && e.errcode === 60002) {
+        const salvage = await readFirestoreTokenCache(env);
+        if (salvage) {
+          cachedToken = {
+            token: salvage.token,
+            expiresAt: salvage.expiresAt,
+            baseUrl: env.baseUrl,
+            accessId: env.accessId,
+          };
+          return salvage.token;
+        }
+      }
+      throw e;
+    }
+  })();
+
   inflightToken = p;
   try {
     return await p;
@@ -271,11 +376,20 @@ export async function createSdkSign(
   return { sign, host: env.linkusHost, port: env.linkusPort };
 }
 
+export type SetPushTokenResult = {
+  /** False when the PBX returns 10001 / interface absent — not a server failure. */
+  applied: boolean;
+};
+
 /**
  * Registers a mobile push token with the PBX so it can deliver call invites
  * when the SDK is backgrounded. Yeastar exposes this on
  * `POST /openapi/v1.0/push/set` (P-Series 37.x+); older firmwares use
  * `extension/set_push`. We try the modern path first, fall back on 404.
+ *
+ * Cloud / some editions return **10001 INTERFACE NOT EXISTED** — we return
+ * `{ applied: false }` so the HTTP route can still **200** and the app keeps
+ * working for foreground SIP.
  *
  * `device_type` per Yeastar docs: 0 = Android (FCM), 1 = iOS (APNs alert),
  * 2 = iOS (VoIP / PushKit). We don't issue `2` from this route — PushKit
@@ -284,7 +398,7 @@ export async function createSdkSign(
 export async function setPushToken(
   args: RegisterPushArgs,
   env: YeastarEnv = getEnv(),
-): Promise<void> {
+): Promise<SetPushTokenResult> {
   if (!env.configured) {
     throw new YeastarOpenApiError("Yeastar OpenAPI env not configured");
   }
@@ -354,6 +468,14 @@ export async function setPushToken(
   }
 
   if (result.parsed.errcode != null && result.parsed.errcode !== 0) {
+    const code = result.parsed.errcode;
+    const msg = (result.parsed.errmsg ?? "").toString().toUpperCase();
+    if (code === 10001 || msg.includes("INTERFACE NOT EXIST")) {
+      console.warn(
+        "[yeastar/openapi] PBX push OpenAPI not available (10001); skipping push/set",
+      );
+      return { applied: false };
+    }
     const hint = yeastarHintForErrcode(result.parsed.errcode);
     throw new YeastarOpenApiError(
       `push/set errcode=${result.parsed.errcode} ${result.parsed.errmsg ?? ""}`.trim(),
@@ -361,6 +483,8 @@ export async function setPushToken(
       hint,
     );
   }
+
+  return { applied: true };
 }
 
 /** Convenience wrapper for the `linkus-sign` legacy POST handler. */

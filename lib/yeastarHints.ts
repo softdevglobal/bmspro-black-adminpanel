@@ -12,6 +12,17 @@ export function parseYeastarErrcode(message: string): number | null {
 /** Human-readable fix hints for operators (PBX admin / networking). */
 export function yeastarHintForErrcode(errcode: number): string | undefined {
   switch (errcode) {
+    case 60002:
+      return (
+        "MAX LIMITATION EXCEEDED (60002): the PBX has reached the concurrent OpenAPI access_token cap. " +
+        "Revoke idle API sessions in the Yeastar web UI, wait for tokens to expire, or ensure only one backend " +
+        "instance issues tokens (this app caches via Firestore across Vercel/serverless workers)."
+      );
+    case 10001:
+      return (
+        "INTERFACE NOT EXISTED (10001): this firmware/edition does not expose the push/set OpenAPI on your PBX. " +
+        "Linkus in-app (foreground) calling can still work; background push wake may require a different API or PBX option."
+      );
     case 70087:
       return (
         "IP FORBIDDEN (70087): Yeastar OpenAPI has IP restriction enabled and blocked this server's address. " +

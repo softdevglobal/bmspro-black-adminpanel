@@ -117,6 +117,50 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+/**
+ * Vercel/serverless egress is often blocked by Yeastar cloud (**70087**). When
+ * `YEASTAR_OPENAPI_EDGE_PROXY_URL` + `YEASTAR_OPENAPI_EDGE_PROXY_SECRET` are set,
+ * all OpenAPI HTTP calls use that HTTPS origin (a tiny relay on a VPS / fixed IP)
+ * instead of `env.baseUrl`.
+ */
+function openApiRequestOrigin(env: YeastarEnv): string {
+  const relay = process.env.YEASTAR_OPENAPI_EDGE_PROXY_URL?.trim();
+  const secret = process.env.YEASTAR_OPENAPI_EDGE_PROXY_SECRET?.trim();
+  // Require **both** — origin-only relay would send requests without Bearer and always fail.
+  if (relay && secret) return normalizeBaseUrl(relay);
+  return normalizeBaseUrl(env.baseUrl);
+}
+
+function openApiRequestHeaders(): HeadersInit {
+  const relay = process.env.YEASTAR_OPENAPI_EDGE_PROXY_URL?.trim();
+  const secret = process.env.YEASTAR_OPENAPI_EDGE_PROXY_SECRET?.trim();
+  if (relay && secret) {
+    return {
+      ...YEASTAR_HEADERS,
+      Authorization: `Bearer ${secret}`,
+    };
+  }
+  return { ...YEASTAR_HEADERS };
+}
+
+/** Headers for OpenAPI requests (adds proxy auth when relay is configured). */
+export function getYeastarOpenApiFetchHeaders(): HeadersInit {
+  return openApiRequestHeaders();
+}
+
+/** Origin used for OpenAPI HTTP (PBX base URL or edge relay). Exported for diagnostics. */
+export function getYeastarOpenApiHttpOrigin(env: YeastarEnv): string {
+  return openApiRequestOrigin(env);
+}
+
+/** True when OpenAPI calls are routed through the edge relay. */
+export function isOpenApiEdgeProxyConfigured(): boolean {
+  return !!(
+    process.env.YEASTAR_OPENAPI_EDGE_PROXY_URL?.trim() &&
+    process.env.YEASTAR_OPENAPI_EDGE_PROXY_SECRET?.trim()
+  );
+}
+
 type TokenCacheEntry = {
   token: string;
   expiresAt: number;
@@ -226,10 +270,10 @@ export async function getAccessToken(
   }
 
   const fetchTokenOnce = async (): Promise<string> => {
-    const uri = `${normalizeBaseUrl(env.baseUrl)}/openapi/v1.0/get_token`;
+    const uri = `${openApiRequestOrigin(env)}/openapi/v1.0/get_token`;
     const res = await fetch(uri, {
       method: "POST",
-      headers: { ...YEASTAR_HEADERS },
+      headers: openApiRequestHeaders(),
       body: JSON.stringify({ username: env.accessId, password: env.accessKey }),
       signal: AbortSignal.timeout(25_000),
     });
@@ -321,12 +365,12 @@ export async function createSdkSign(
 
   const callOnce = async (token: string) => {
     const url = new URL(
-      `${normalizeBaseUrl(env.baseUrl)}/openapi/v1.0/sign/create`,
+      `${openApiRequestOrigin(env)}/openapi/v1.0/sign/create`,
     );
     url.searchParams.set("access_token", token);
     const res = await fetch(url.toString(), {
       method: "POST",
-      headers: { ...YEASTAR_HEADERS },
+      headers: openApiRequestHeaders(),
       body: JSON.stringify({
         username: trimmed,
         sign_type: "sdk",
@@ -423,7 +467,7 @@ export async function setPushToken(
         : 1; // iOS FCM is treated as APNs alert by the PBX
 
   const callOnce = async (token: string, path: string) => {
-    const url = new URL(`${normalizeBaseUrl(env.baseUrl)}${path}`);
+    const url = new URL(`${openApiRequestOrigin(env)}${path}`);
     url.searchParams.set("access_token", token);
     const body = {
       extension,
@@ -435,7 +479,7 @@ export async function setPushToken(
     };
     const res = await fetch(url.toString(), {
       method: "POST",
-      headers: { ...YEASTAR_HEADERS },
+      headers: openApiRequestHeaders(),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(25_000),
     });

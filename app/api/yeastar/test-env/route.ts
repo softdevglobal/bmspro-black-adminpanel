@@ -1,49 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getEnv } from "@/lib/yeastar/openapi";
+import {
+  YeastarOpenApiError,
+  getAccessToken,
+  getEnv,
+  getYeastarOpenApiFetchHeaders,
+  getYeastarOpenApiHttpOrigin,
+  isOpenApiEdgeProxyConfigured,
+} from "@/lib/yeastar/openapi";
 import { yeastarProbeHint } from "@/lib/yeastarHints";
 
 export const runtime = "nodejs";
 
-const YEASTAR_HEADERS = {
-  "Content-Type": "application/json",
-  "User-Agent": "OpenAPI",
-} as const;
-
-function normalizeBaseUrl(url: string): string {
-  return url.replace(/\/+$/, "");
-}
-
-async function fetchYeastarToken(
-  baseUrl: string,
-  accessId: string,
-  accessKey: string
-): Promise<string> {
-  const uri = `${normalizeBaseUrl(baseUrl)}/openapi/v1.0/get_token`;
-  const res = await fetch(uri, {
-    method: "POST",
-    headers: { ...YEASTAR_HEADERS },
-    body: JSON.stringify({ username: accessId, password: accessKey }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`get_token HTTP ${res.status}: ${text.slice(0, 400)}`);
-  }
-  const data = JSON.parse(text) as {
-    errcode?: number;
-    errmsg?: string;
-    access_token?: string;
-  };
-  if (data.errcode != null && data.errcode !== 0) {
-    throw new Error(`get_token errcode=${data.errcode} ${data.errmsg ?? ""}`);
-  }
-  const t = data.access_token?.trim();
-  if (!t) throw new Error("get_token: missing access_token");
-  return t;
-}
-
-/** Public IPv4 this Node runtime uses for outbound HTTPS (same path as `get_token` → Yeastar). */
+/** Public IPv4 this Node runtime uses for outbound HTTPS (ignored for Yeastar when edge proxy is on). */
 async function fetchOpenapiCallerEgressIpv4(): Promise<string | null> {
   try {
     const res = await fetch("https://api.ipify.org?format=json", {
@@ -86,7 +55,7 @@ export async function GET(req: NextRequest) {
     const openapiCallerEgressIpv4 = await fetchOpenapiCallerEgressIpv4();
     const probeEmail =
       req.nextUrl.searchParams.get("probeEmail")?.trim().toLowerCase() ?? "";
-    const { baseUrl, accessId, accessKey, configured } = env;
+    const { configured } = env;
     if (!configured) {
       probeResult = {
         skipped: true,
@@ -99,9 +68,11 @@ export async function GET(req: NextRequest) {
       };
     } else {
       try {
-        const token = await fetchYeastarToken(baseUrl, accessId, accessKey);
+        const usesOpenApiEdgeProxy = isOpenApiEdgeProxyConfigured();
+        const token = await getAccessToken(env, { forceRefresh: true });
         const out: Record<string, unknown> = {
           getTokenOk: true,
+          usesOpenApiEdgeProxy,
           ...(openapiCallerEgressIpv4
             ? { openapiCallerEgressIpv4 }
             : {}),
@@ -114,12 +85,12 @@ export async function GET(req: NextRequest) {
 
         if (probeEmail.includes("@")) {
           const signUrl = new URL(
-            `${normalizeBaseUrl(baseUrl)}/openapi/v1.0/sign/create`
+            `${getYeastarOpenApiHttpOrigin(env)}/openapi/v1.0/sign/create`,
           );
           signUrl.searchParams.set("access_token", token);
           const sr = await fetch(signUrl.toString(), {
             method: "POST",
-            headers: { ...YEASTAR_HEADERS },
+            headers: getYeastarOpenApiFetchHeaders(),
             body: JSON.stringify({
               username: probeEmail,
               sign_type: "sdk",
@@ -155,20 +126,35 @@ export async function GET(req: NextRequest) {
         const hint = yeastarProbeHint(errText);
         probeResult = {
           getTokenOk: false,
+          usesOpenApiEdgeProxy: isOpenApiEdgeProxyConfigured(),
           error: errText,
           ...(openapiCallerEgressIpv4
             ? { openapiCallerEgressIpv4 }
             : {}),
           ...(hint ? { hint } : {}),
+          ...(e instanceof YeastarOpenApiError && e.errcode != null
+            ? { openApiErrcode: e.errcode }
+            : {}),
+          ...(e instanceof YeastarOpenApiError && e.hint
+            ? { openApiHint: e.hint }
+            : {}),
         };
       }
     }
   }
 
+  const proxyUrl = process.env.YEASTAR_OPENAPI_EDGE_PROXY_URL?.trim() ?? "";
+  const proxySecret =
+    process.env.YEASTAR_OPENAPI_EDGE_PROXY_SECRET?.trim() ?? "";
+  const openApiEdgeProxyPartial =
+    (proxyUrl.length > 0) !== (proxySecret.length > 0);
+
   return NextResponse.json({
     hasBaseUrl,
     hasAccessId,
     hasAccessKey,
+    openApiEdgeProxyConfigured: isOpenApiEdgeProxyConfigured(),
+    openApiEdgeProxyPartial,
     probeRequested: req.nextUrl.searchParams.has("probe")
       ? probeRaw ?? ""
       : null,

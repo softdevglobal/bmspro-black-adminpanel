@@ -69,12 +69,31 @@ async function fetchYeastarToken(
   return t;
 }
 
+/** Public IPv4 this Node runtime uses for outbound HTTPS (same path as `get_token` → Yeastar). */
+async function fetchOpenapiCallerEgressIpv4(): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.ipify.org?format=json", {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { ip?: string };
+    const ip = data.ip?.trim();
+    return ip && ip.length > 0 ? ip : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GET /api/yeastar/test-env — env flags only
  * GET /api/yeastar/test-env?probe=1 — get_token + optional sign/create (Linkus SDK flow)
  *
  * For full probe add **probeEmail** = an extension email that exists on PBX:
  * `?probe=1&probeEmail=user@example.com`
+ *
+ * With `probe=1`, the JSON includes **openapiCallerEgressIpv4** — add this exact address
+ * under Yeastar **OpenAPI IP restriction** (errcode 70087). This is the hosting egress IP,
+ * not the mobile client IP and not `YEASTAR_LINKUS_HOST`.
  */
 export async function GET(req: NextRequest) {
   const hasBaseUrl = !!(
@@ -99,6 +118,7 @@ export async function GET(req: NextRequest) {
   let probeResult: Record<string, unknown> | undefined;
 
   if (probe) {
+    const openapiCallerEgressIpv4 = await fetchOpenapiCallerEgressIpv4();
     const probeEmail =
       req.nextUrl.searchParams.get("probeEmail")?.trim().toLowerCase() ?? "";
     const { baseUrl, accessId, accessKey, configured } = resolveYeastarEnv();
@@ -106,12 +126,18 @@ export async function GET(req: NextRequest) {
       probeResult = {
         skipped: true,
         reason: "Yeastar env incomplete (base URL + Access ID + Access Key)",
+        ...(openapiCallerEgressIpv4
+          ? { openapiCallerEgressIpv4 }
+          : {}),
       };
     } else {
       try {
         const token = await fetchYeastarToken(baseUrl, accessId, accessKey);
         const out: Record<string, unknown> = {
           getTokenOk: true,
+          ...(openapiCallerEgressIpv4
+            ? { openapiCallerEgressIpv4 }
+            : {}),
           signCreateTested: false,
           hint:
             probeEmail.length > 0
@@ -163,6 +189,9 @@ export async function GET(req: NextRequest) {
         probeResult = {
           getTokenOk: false,
           error: errText,
+          ...(openapiCallerEgressIpv4
+            ? { openapiCallerEgressIpv4 }
+            : {}),
           ...(hint ? { hint } : {}),
         };
       }

@@ -29,7 +29,8 @@ export function yeastarHintForErrcode(errcode: number): string | undefined {
         "Fix in PBX web UI: Integrations → API (or Settings → PBX → General → API) → either disable IP restriction for API, " +
         "or add allowed IPs for your hosting provider. Vercel uses many rotating egress IPs — whitelist Vercel ranges " +
         "(see https://vercel.com/guides/how-to-allowlist-deployment-ip-address ) or use a fixed-IP proxy. " +
-        "Alternatively keep token/sign calls only from the mobile app (device IP), not from Vercel."
+        "Deploy the latest admin panel and open GET /api/yeastar/test-env?probe=1 — the JSON field openapiCallerEgressIpv4 is the IPv4 to allow. " +
+        "That is your API host's egress address, not the phone IP and not YEASTAR_LINKUS_HOST."
       );
     default:
       return undefined;

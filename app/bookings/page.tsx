@@ -1,10 +1,21 @@
 "use client";
-import React, { useEffect, useState, Suspense } from "react";
+import React, { useEffect, useState, useMemo, useCallback, Suspense } from "react";
 import Sidebar from "@/components/Sidebar";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
-import { subscribeServicesForOwner } from "@/lib/services";
+import {
+  subscribeServicesForOwner,
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  minPricingFromVehicleTypePricing,
+  type VehicleType,
+  type VehicleTypePricingMap,
+} from "@/lib/services";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { createBooking } from "@/lib/bookings";
@@ -39,6 +50,8 @@ function BookingsPageContent() {
   const [bkClientEmail, setBkClientEmail] = useState<string>("");
   const [bkClientPhone, setBkClientPhone] = useState<string>("");
   const [bkVehicleNumber, setBkVehicleNumber] = useState<string>("");
+  /** Canonical vehicle size class that drives per-type pricing for the booking. */
+  const [bkVehicleType, setBkVehicleType] = useState<VehicleType | null>(null);
   const [bkVehicleBodyType, setBkVehicleBodyType] = useState<string>("");
   const [bkVehicleColour, setBkVehicleColour] = useState<string>("");
   const [bkVehicleVinChassis, setBkVehicleVinChassis] = useState<string>("");
@@ -66,7 +79,20 @@ function BookingsPageContent() {
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [branches, setBranches] = useState<Array<{ id: string; name: string; address?: string; hours?: any; timezone?: string }>>([]);
-  const [servicesList, setServicesList] = useState<Array<{ id: string | number; name: string; price?: number; duration?: number; icon?: string; branches?: string[]; staffIds?: string[]; imageUrl?: string }>>([]);
+  const [servicesList, setServicesList] = useState<Array<{
+    id: string | number;
+    name: string;
+    price?: number;
+    duration?: number;
+    icon?: string;
+    branches?: string[];
+    staffIds?: string[];
+    imageUrl?: string;
+    /** Canonical size classes this service is offered for. */
+    vehicleTypes?: VehicleType[];
+    /** Per-vehicle-type price/duration overrides. */
+    vehicleTypePricing?: VehicleTypePricingMap;
+  }>>([]);
   const [staffList, setStaffList] = useState<Array<{ id: string; name: string; role?: string; status?: string; avatar?: string; branchId?: string; branch?: string; weeklySchedule?: Record<string, { branchId: string; branchName: string } | null> | null }>>([]);
 
   useEffect(() => {
@@ -85,7 +111,7 @@ function BookingsPageContent() {
           const { getDoc, doc } = await import("firebase/firestore");
           const snap = await getDoc(doc(db, "users", user.uid));
           const userData = snap.data();
-          const role = (userData?.role || "").toString();
+          const role = (userData?.role || (userData as { systemRole?: string })?.systemRole || "").toString();
 
           if (role === "workshop_owner") {
             setOwnerUid(user.uid);
@@ -108,6 +134,13 @@ function BookingsPageContent() {
       return () => unsub();
     })();
   }, [router]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as unknown as { __bmsUserRole?: string | null }).__bmsUserRole = userRole;
+    const wapp = (window as unknown as { app?: { renderBookings?: () => void } }).app;
+    if (wapp && typeof wapp.renderBookings === "function") wapp.renderBookings();
+  }, [userRole]);
 
   // Expose the booking app logic to window so JSX handlers can call it
   useEffect(() => {
@@ -256,12 +289,14 @@ function BookingsPageContent() {
           
           const endTime = this.calculateEndTime(b.time, b.duration);
           const statusClass = `status-${b.status}`;
+          const w = typeof window !== "undefined" ? (window as unknown as { __bmsUserRole?: string | null }) : null;
+          const canOwnerComplete = w?.__bmsUserRole === "workshop_owner";
           const statusActions =
             b.status === "Confirmed"
               ? `<div class="flex gap-2 justify-center">
-                   <button onclick="app.updateBookingStatus('${b.id}', 'Completed')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100 hover:border-blue-500 hover:bg-gradient-to-r hover:from-blue-500 hover:to-indigo-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-blue-200 hover:shadow-md transform hover:-translate-y-0.5">
+                   ${canOwnerComplete ? `<button onclick="app.updateBookingStatus('${b.id}', 'Completed')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-100 hover:border-blue-500 hover:bg-gradient-to-r hover:from-blue-500 hover:to-indigo-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-blue-200 hover:shadow-md transform hover:-translate-y-0.5">
                      <i class="fas fa-check text-[10px]"></i> <span class="text-xs font-bold">Complete</span>
-                   </button>
+                   </button>` : ""}
                    <button onclick="app.updateBookingStatus('${b.id}', 'Canceled')" class="group flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 text-rose-600 border border-rose-100 hover:border-rose-500 hover:bg-gradient-to-r hover:from-rose-500 hover:to-red-500 hover:text-white transition-all duration-300 shadow-sm hover:shadow-rose-200 hover:shadow-md transform hover:-translate-y-0.5">
                      <i class="fas fa-times text-[10px]"></i> <span class="text-xs font-bold">Cancel</span>
                    </button>
@@ -304,6 +339,16 @@ function BookingsPageContent() {
         if (booking && (booking.status === "Canceled" || booking.status === "Cancelled" || booking.status === "cancelled" || booking.status === "canceled") && newStatus !== "Canceled") {
           alert("This booking has been cancelled and cannot be updated.");
           return;
+        }
+
+        // Only the business owner can complete from this admin UI (branch admins use the staff app)
+        if (newStatus === "Completed") {
+          const wr = typeof window !== "undefined" ? (window as unknown as { __bmsUserRole?: string | null }).__bmsUserRole : null;
+          if (wr !== "workshop_owner") {
+            // eslint-disable-next-line no-alert
+            alert("Only the business owner can mark a booking complete from here. Use the staff app to complete your assigned work.");
+            return;
+          }
         }
 
         // Block completion if additional issues are pending admin/customer decisions
@@ -565,164 +610,11 @@ function BookingsPageContent() {
         const isToday = date === today.toISOString().split('T')[0];
         const currentMinutes = isToday ? (today.getHours() * 60 + today.getMinutes()) : -1;
         
-        // Get all bookings for this date (excluding cancelled, completed, rejected)
-        // Use centralized helper to ensure consistency
-        // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
-        // so it's automatically excluded from relevantBookings, making the slot available again in real-time
-        const allDateBookings = this.data.bookings.filter((b: any) => {
-          return b.date === date && shouldBlockSlots(b.status);
-        });
-        
-        // Helper to check if a staff ID represents "any staff"
-        const isAnyStaff = (sid: any): boolean => {
-          if (!sid) return true; // null, undefined
-          const str = String(sid).trim();
-          return str === "" || str === "any" || str === "null" || str.toLowerCase() === "any available" || str.toLowerCase() === "any staff" || str.toLowerCase() === "not assigned yet";
-        };
-        
-        const isAnyStaffSelected = isAnyStaff(staffId);
-        
-        // Get selected service ID for eligible staff computation
-        const selectedServiceId = serviceSelect?.value || "";
-        
-        // For "Any Staff" bookings, get all eligible staff IDs for this service+branch
-        const eligibleStaffIds: string[] = (() => {
-          if (!isAnyStaffSelected || !selectedServiceId) return [];
-          
-          const serviceData = this.data.services.find((s: any) => String(s.id) === String(selectedServiceId));
-          const svcStaffIds: string[] = (serviceData?.staffIds ?? []).map(String);
-          const svcHasStaffAssigned = svcStaffIds.length > 0;
-          
-          const selBranchName = selectedBranch?.name;
-          
-          return (this.data.staff || []).filter((st: any) => {
-            if (st.status && st.status !== "Active") return false;
-            if (svcHasStaffAssigned && !svcStaffIds.includes(String(st.id))) return false;
-            // Check branch assignment
-            if (branchId) {
-              if (dayOfWeek && st.weeklySchedule && typeof st.weeklySchedule === 'object') {
-                const daySchedule = st.weeklySchedule[dayOfWeek];
-                if (!daySchedule) return false;
-                if (daySchedule.branchId !== branchId && daySchedule.branchName !== selBranchName) return false;
-              } else {
-                if (String(st.branchId || "") !== branchId && String(st.branch || "") !== selBranchName) return false;
-              }
-            }
-            return true;
-          }).map((st: any) => st.id);
-        })();
-        
-        // Helper function to check if a booking involves a specific staff member
-        const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
-          // Check root-level staffId
-          if (booking.staffId === targetStaffId) return true;
-          
-          // Check services array for multi-service bookings
-          if (Array.isArray(booking.services)) {
-            for (const svc of booking.services) {
-              if (svc && svc.staffId === targetStaffId) {
-                return true;
-              }
-            }
-          }
-          
-          return false;
-        };
-        
-        // Filter bookings to only those relevant
-        const relevantBookings = (() => {
-          if (isAnyStaffSelected) {
-            if (eligibleStaffIds.length === 0) return allDateBookings;
-            return allDateBookings.filter((b: any) =>
-              eligibleStaffIds.some((sid: string) => bookingInvolvesStaff(b, sid))
-            );
-          }
-          if (!staffId) return [];
-          return allDateBookings.filter((b: any) => bookingInvolvesStaff(b, staffId));
-        })();
-        
-        // Helper: Check if a specific staff member has a conflicting booking at a given time slot
-        const ttm = this.timeToMinutes.bind(this);
-        const isStaffOccupiedAtSlot = (slotStartMin: number, targetStaffId: string): boolean => {
-          const newServiceEndMin = slotStartMin + duration;
-          
-          for (const booking of relevantBookings) {
-            if (Array.isArray(booking.services) && booking.services.length > 0) {
-              for (const svc of booking.services) {
-                if (svc && svc.staffId === targetStaffId && svc.time) {
-                  const svcStartMin = ttm(svc.time);
-                  const svcDuration = svc.duration || 60;
-                  const svcEndMin = svcStartMin + svcDuration;
-                  if (slotStartMin < svcEndMin && svcStartMin < newServiceEndMin) {
-                    return true;
-                  }
-                }
-              }
-            } else {
-              if (booking.staffId === targetStaffId && booking.time) {
-                const bStartMin = ttm(booking.time);
-                const bEndMin = bStartMin + (booking.duration || 60);
-                if (slotStartMin < bEndMin && bStartMin < newServiceEndMin) {
-                  return true;
-                }
-              }
-            }
-          }
-          return false;
-        };
-        
-        // Helper to check if a slot time is occupied by any booking for this staff
-        const isSlotOccupied = (slotMinutes: number): boolean => {
-          if (isAnyStaffSelected) {
-            // "Any Staff" mode: slot is occupied only if ALL eligible staff members are booked
-            if (eligibleStaffIds.length === 0) return false;
-            return eligibleStaffIds.every((sid: string) => isStaffOccupiedAtSlot(slotMinutes, sid));
-          }
-          
-          // Specific staff selected - check bookings involving this staff
-          if (!staffId) return false;
-          const newServiceEndMin = slotMinutes + duration;
-          
-          for (const booking of relevantBookings) {
-            // Check if booking has individual services (multi-service booking)
-            if (Array.isArray(booking.services) && booking.services.length > 0) {
-              for (const svc of booking.services) {
-                if (!svc || !svc.time) continue;
-                
-                // Check if this service involves our staff
-                const svcStaffId = svc.staffId || booking.staffId || null;
-                if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffId) {
-                  continue; // Different staff, skip
-                }
-                
-                const svcStartMin = ttm(svc.time);
-                const svcDuration = svc.duration || booking.duration || 60;
-                const svcEndMin = svcStartMin + svcDuration;
-                // Check for overlap
-                if (slotMinutes < svcEndMin && svcStartMin < newServiceEndMin) {
-                  return true;
-                }
-              }
-            } else {
-              // Single service booking - check main staffId
-              if (!booking.time) continue;
-              
-              const bookingStaffId = booking.staffId || null;
-              if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffId) {
-                continue; // Different staff, skip
-              }
-              
-              const bStartMin = ttm(booking.time);
-              const bDuration = booking.duration || 60;
-              const bEndMin = bStartMin + bDuration;
-              // Check for overlap
-              if (slotMinutes < bEndMin && bStartMin < newServiceEndMin) {
-                return true;
-              }
-            }
-          }
-          return false;
-        };
+        // Staff-wise slot capacity has been intentionally removed — see the
+        // React slot-builder above for the full explanation. This legacy
+        // helper now always treats every slot as free so bookings are only
+        // gated by branch hours / daily limit.
+        const isSlotOccupied = (_slotMinutes: number): boolean => false;
         
         const formatTime = (minutes: number) => {
           const h = Math.floor(minutes / 60) % 24;
@@ -1110,16 +1002,22 @@ function BookingsPageContent() {
       setServicesList(
         rows
           .filter(Boolean)
-          .map((s) => ({
-          id: (s as any).id,
-          name: String((s as any).name || "Service"),
-          price: typeof (s as any).price === "number" ? (s as any).price : undefined,
-          duration: typeof (s as any).duration === "number" ? (s as any).duration : undefined,
-          imageUrl: (s as any).imageUrl || (s as any).image || undefined,
-          icon: String((s as any).icon || "fa-solid fa-star"),
-          branches: Array.isArray((s as any).branches) ? (s as any).branches.map(String) : undefined,
-          staffIds: Array.isArray((s as any).staffIds) ? (s as any).staffIds.map(String) : undefined,
-        }))
+          .map((s) => {
+            const raw = s as any;
+            const typePricing = normalizeVehicleTypePricing(raw.vehicleTypePricing);
+            return {
+              id: raw.id,
+              name: String(raw.name || "Service"),
+              price: typeof raw.price === "number" ? raw.price : undefined,
+              duration: typeof raw.duration === "number" ? raw.duration : undefined,
+              imageUrl: raw.imageUrl || raw.image || undefined,
+              icon: String(raw.icon || "fa-solid fa-star"),
+              branches: Array.isArray(raw.branches) ? raw.branches.map(String) : undefined,
+              staffIds: Array.isArray(raw.staffIds) ? raw.staffIds.map(String) : undefined,
+              vehicleTypes: typePricing.vehicleTypes,
+              vehicleTypePricing: typePricing.vehicleTypePricing,
+            };
+          })
       );
     });
     const unsubStaff = subscribeSalonStaffForOwner(ownerUid, (rows) => {
@@ -1465,6 +1363,51 @@ function BookingsPageContent() {
     }
   };
 
+  /**
+   * Resolve the displayable price / duration for a service given the current
+   * `bkVehicleType` selection:
+   *   - If a vehicle type is selected and the service has a matching tier,
+   *     return that tier's price/duration.
+   *   - Otherwise return the service's cheapest tier ("starting from").
+   *   - Falls back to the legacy flat price/duration if no tiered pricing is
+   *     configured (e.g. default super-admin services).
+   */
+  const resolveServiceDisplayPricing = useCallback(
+    (svc: { price?: number; duration?: number; vehicleTypePricing?: VehicleTypePricingMap | null }) => {
+      if (!svc) return { price: undefined as number | undefined, duration: undefined as number | undefined, isStartingFrom: false };
+      if (bkVehicleType) {
+        const resolved = resolveServicePricingForVehicleType(
+          { price: svc.price, duration: svc.duration, vehicleTypePricing: svc.vehicleTypePricing },
+          bkVehicleType,
+        );
+        if (resolved) return { price: resolved.price, duration: resolved.duration, isStartingFrom: false };
+      }
+      const min = minPricingFromVehicleTypePricing(svc.vehicleTypePricing || null);
+      if (min) return { price: min.price, duration: min.duration, isStartingFrom: true };
+      return { price: svc.price, duration: svc.duration, isStartingFrom: false };
+    },
+    [bkVehicleType],
+  );
+
+  /**
+   * Filter a services list by the currently-selected branch and vehicle type.
+   * Services without any pricing configured for the picked type are excluded
+   * (matches the booking-engine behaviour the user requested).
+   */
+  const availableServicesForWizard = useMemo(() => {
+    return servicesList.filter((srv) => {
+      if (!srv.branches || srv.branches.length === 0) return false;
+      if (bkBranchId && !srv.branches.includes(bkBranchId)) return false;
+      if (bkVehicleType) {
+        const tier = srv.vehicleTypePricing?.[bkVehicleType];
+        const hasTier = tier && typeof tier.price === "number" && typeof tier.duration === "number";
+        const hasLegacyFlatPrice = typeof srv.price === "number" && typeof srv.duration === "number" && (!srv.vehicleTypes || srv.vehicleTypes.length === 0);
+        if (!hasTier && !hasLegacyFlatPrice) return false;
+      }
+      return true;
+    });
+  }, [servicesList, bkBranchId, bkVehicleType]);
+
   const resetWizard = () => {
     setBkStep(1);
     setBkBranchId(null);
@@ -1479,6 +1422,7 @@ function BookingsPageContent() {
     setBkClientEmail("");
     setBkClientPhone("");
     setBkVehicleNumber("");
+    setBkVehicleType(null);
     setBkVehicleBodyType("");
     setBkVehicleColour("");
     setBkVehicleVinChassis("");
@@ -1549,6 +1493,27 @@ function BookingsPageContent() {
     const day = d.getDate().toString().padStart(2, "0");
     return `${y}-${m}-${day}`;
   };
+  /** Calendar date for `d` as it appears in `timeZone` (for comparing to branch "today"). */
+  const formatYmdInTimezone = (d: Date, timeZone: string) => {
+    try {
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(d);
+    } catch {
+      return formatLocalYmd(d);
+    }
+  };
+  const parseHhmmToMinutes = (time: string): number | null => {
+    const parts = String(time).trim().split(":");
+    if (parts.length < 2) return null;
+    const h = Number(parts[0]);
+    const m = Number(parts[1]);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
   const timeToMinutes = (time: string) => {
     const [h, m] = time.split(":").map(Number);
     return h * 60 + m;
@@ -1567,270 +1532,26 @@ function BookingsPageContent() {
     const isAnyStaffSelected = !staffIdForService || staffIdForService === "any";
     const dateStr = formatLocalYmd(bkDate);
     
-    // For "Any Staff" bookings, get all eligible staff IDs for this service+branch.
-    // A slot is only blocked when ALL eligible staff are occupied at that time.
-    const eligibleStaffIds: string[] = (() => {
-      if (!isAnyStaffSelected || !forServiceId) return [];
-      
-      const service = servicesList.find((s) => String(s.id) === String(forServiceId)) ||
-        (app ? app.data.services.find((s: any) => String(s.id) === String(forServiceId)) : null);
-      const svcStaffIds: string[] = ((service as any)?.staffIds ?? []).map(String);
-      const svcHasStaffAssigned = svcStaffIds.length > 0;
-      
-      const selBranch = branches.find((b: any) => b.id === bkBranchId) || app?.data.branches?.find((b: any) => b.id === bkBranchId);
-      const selBranchName = selBranch?.name;
-      const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      const selDayName = bkDate ? days[bkDate.getDay()] : null;
-      
-      return staffList.filter(st => {
-        // Filter out suspended staff
-        if (st.status === "Suspended" || st.status === "suspended") return false;
-        // If service has specific staff assigned, ONLY include those
-        if (svcHasStaffAssigned && !svcStaffIds.includes(String(st.id))) return false;
-        // Check branch assignment
-        if (bkBranchId) {
-          if (selDayName && st.weeklySchedule) {
-            const daySchedule = st.weeklySchedule[selDayName];
-            if (!daySchedule) return false; // Staff is off this day
-            if (daySchedule.branchId !== bkBranchId && daySchedule.branchName !== selBranchName) return false;
-          } else {
-            if (String(st.branchId || "") !== bkBranchId && String((st as any).branch || "") !== selBranchName) return false;
-          }
-        }
-        return true;
-      }).map(st => st.id);
-    })();
-    
-    // Get all bookings for this date (excluding cancelled, completed, rejected)
-    // Use centralized helper to ensure consistency
-    // NOTE: When a booking is cancelled, its status changes to "Canceled" and shouldBlockSlots returns false,
-    // so it's automatically excluded from relevantBookings, making the slot available again in real-time
-    const allDateBookings = app ? app.data.bookings.filter((b: any) => {
-      return b.date === dateStr && shouldBlockSlots(b.status);
-    }) : [];
-    
-    // Helper function to check if a booking involves a specific staff member
-    const bookingInvolvesStaff = (booking: any, targetStaffId: string): boolean => {
-      // Check root-level staffId
-      if (booking.staffId === targetStaffId) return true;
-      
-      // Check services array for multi-service bookings
-      if (Array.isArray(booking.services)) {
-        for (const svc of booking.services) {
-          if (svc && svc.staffId === targetStaffId) {
-            return true;
-          }
-        }
-      }
-      
-      return false;
-    };
-    
-    // Filter bookings to only those relevant to the selected staff (or all eligible staff for "Any Staff")
-    const relevantBookings = (() => {
-      if (isAnyStaffSelected) {
-        // "Any Staff" mode: get ALL active bookings involving ANY eligible staff member
-        // so we can check if all staff are occupied at a given time
-        if (eligibleStaffIds.length === 0) return allDateBookings; // fallback: use all bookings
-        return allDateBookings.filter((b: any) =>
-          eligibleStaffIds.some(sid => bookingInvolvesStaff(b, sid))
-        );
-      }
-      // Specific staff mode: only bookings involving the selected staff
-      if (!staffIdForService) return [];
-      return allDateBookings.filter((b: any) => bookingInvolvesStaff(b, staffIdForService));
-    })();
-    
-    // Helper: Check if a specific staff member has a conflicting booking at a given time slot
-    const isStaffOccupiedAtSlot = (slotStartMin: number, targetStaffId: string): boolean => {
-      const newServiceEndMin = slotStartMin + serviceDuration;
-      
-      for (const booking of relevantBookings) {
-        if (Array.isArray(booking.services) && booking.services.length > 0) {
-          for (const svc of booking.services) {
-            if (svc && svc.staffId === targetStaffId && svc.time) {
-              const svcStartMin = timeToMinutes(svc.time);
-              const svcDuration = svc.duration || 60;
-              const svcEndMin = svcStartMin + svcDuration;
-              if (slotStartMin < svcEndMin && svcStartMin < newServiceEndMin) {
-                return true;
-              }
-            }
-          }
-        } else {
-          if (booking.staffId === targetStaffId && booking.time) {
-            const bStartMin = timeToMinutes(booking.time);
-            const bEndMin = bStartMin + (booking.duration || 60);
-            if (slotStartMin < bEndMin && bStartMin < newServiceEndMin) {
-              return true;
-            }
-          }
-        }
-      }
-      
-      return false;
-    };
-    
-    // Check if a specific slot time is occupied by any booking for the selected staff
-    // Also checks if the NEW service would OVERLAP with any existing booking
-    const isSlotOccupied = (slotMinutes: number): { occupied: boolean; reason?: string } => {
-      if (isAnyStaffSelected) {
-        // "Any Staff" mode: slot is occupied only if ALL eligible staff members are booked
-        // If at least one staff member is free, the slot remains available
-        if (eligibleStaffIds.length === 0) return { occupied: false };
-        
-        const allStaffOccupied = eligibleStaffIds.every(sid => isStaffOccupiedAtSlot(slotMinutes, sid));
-        if (allStaffOccupied) {
-          return { occupied: true, reason: 'all_staff_booked' };
-        }
-        return { occupied: false };
-      }
-      
-      // Specific staff mode (existing logic)
-      if (!staffIdForService) return { occupied: false };
-      
-      // Calculate when this new service would END
-      const newServiceEndMin = slotMinutes + serviceDuration;
-      
-      for (const booking of relevantBookings) {
-        // Check if booking has individual services (multi-service booking)
-        if (Array.isArray(booking.services) && booking.services.length > 0) {
-          for (const svc of booking.services) {
-            if (!svc || !svc.time) continue;
-            
-            // Check if this service involves our staff
-            const svcStaffId = svc.staffId || booking.staffId || null;
-            if (svcStaffId && svcStaffId !== "any" && svcStaffId !== "" && svcStaffId !== staffIdForService) {
-              continue; // Different staff, skip
-            }
-            
-            const svcStartMin = timeToMinutes(svc.time);
-            const svcDuration = svc.duration || booking.duration || 60;
-            const svcEndMin = svcStartMin + svcDuration;
-            
-            // Check for ANY overlap between the new service and existing service
-            if (slotMinutes < svcEndMin && svcStartMin < newServiceEndMin) {
-              if (slotMinutes >= svcStartMin && slotMinutes < svcEndMin) {
-                return { occupied: true, reason: 'booked' };
-              } else {
-                return { occupied: true, reason: 'insufficient_time' };
-              }
-            }
-          }
-        } else {
-          // Single service booking
-          if (!booking.time) continue;
-          
-          const bookingStaffId = booking.staffId || null;
-          if (bookingStaffId && bookingStaffId !== "any" && bookingStaffId !== "" && bookingStaffId !== staffIdForService) {
-            continue; // Different staff, skip
-          }
-          
-          const bStartMin = timeToMinutes(booking.time);
-          const bDuration = booking.duration || 60;
-          const bEndMin = bStartMin + bDuration;
-          
-          if (slotMinutes < bEndMin && bStartMin < newServiceEndMin) {
-            if (slotMinutes >= bStartMin && slotMinutes < bEndMin) {
-              return { occupied: true, reason: 'booked' };
-            } else {
-              return { occupied: true, reason: 'insufficient_time' };
-            }
-          }
-        }
-      }
+    // Staff-wise slot capacity has been intentionally removed.
+    //
+    // Previously, "Any Staff" services were blocked once all eligible staff
+    // for the service/branch were occupied at a time (the "2 staff = max 2
+    // bookings" cap), and specific-staff services were blocked when that
+    // same staff had an overlapping booking or was being double-booked
+    // within the current booking session. Both checks have been removed —
+    // staff assignment is now handled manually by owner/branch admin and
+    // only the branch's daily booking limit + opening hours restrict slots.
+    //
+    // The two helpers below are retained as no-ops so the existing callers
+    // in the slot-building loop compile unchanged.
+    const isSlotOccupied = (_slotMinutes: number): { occupied: boolean; reason?: string } => {
       return { occupied: false };
     };
-    
-    // Check if a slot is blocked by OTHER services in the CURRENT booking session (same staff)
-    // Also checks if the NEW service would OVERLAP with other selected services
-    const isSlotBlockedByCurrentSelection = (slotMinutes: number): { blocked: boolean; reason?: string } => {
-      if (!forServiceId) return { blocked: false };
-      
-      if (isAnyStaffSelected) {
-        // "Any Staff" mode: check if enough free staff remain after accounting for
-        // existing bookings AND other services selected in the current booking session
-        if (eligibleStaffIds.length === 0) return { blocked: false };
-        
-        const newServiceEndMin = slotMinutes + serviceDuration;
-        
-        // Count how many eligible staff are already occupied by existing bookings
-        const occupiedByExisting = eligibleStaffIds.filter(sid => isStaffOccupiedAtSlot(slotMinutes, sid)).length;
-        
-        // Count how many other services in this session overlap with this slot
-        // and could consume from the same staff pool
-        let overlappingCurrentServices = 0;
-        for (const otherServiceId of bkSelectedServices) {
-          if (String(otherServiceId) === String(forServiceId)) continue;
-          
-          const otherTime = bkServiceTimes[String(otherServiceId)];
-          if (!otherTime) continue;
-          
-          const otherStaffId = bkServiceStaff[String(otherServiceId)];
-          const otherIsAnyStaff = !otherStaffId || otherStaffId === "any";
-          
-          // Only count if the other service competes for the same staff pool
-          if (!otherIsAnyStaff && !eligibleStaffIds.includes(otherStaffId)) continue;
-          
-          const otherService = servicesList.find((s) => String(s.id) === String(otherServiceId)) ||
-            (app ? app.data.services.find((s: any) => String(s.id) === String(otherServiceId)) : null);
-          const otherDuration = Number((otherService as any)?.duration) || 60;
-          
-          const otherStartMin = timeToMinutes(otherTime);
-          const otherEndMin = otherStartMin + otherDuration;
-          
-          // Check for overlap
-          if (slotMinutes < otherEndMin && otherStartMin < newServiceEndMin) {
-            overlappingCurrentServices++;
-          }
-        }
-        
-        // Free staff = total eligible - occupied by existing bookings
-        const freeStaff = eligibleStaffIds.length - occupiedByExisting;
-        
-        // We need at least one free staff for this service
-        // (overlappingCurrentServices already consume free staff slots)
-        if (freeStaff <= overlappingCurrentServices) {
-          return { blocked: true, reason: 'all_staff_booked' };
-        }
-        
-        return { blocked: false };
-      }
-      
-      // Specific staff mode (existing logic)
-      if (!staffIdForService) return { blocked: false };
-      
-      // Calculate when this new service would END
-      const newServiceEndMin = slotMinutes + serviceDuration;
-      
-      for (const otherServiceId of bkSelectedServices) {
-        if (String(otherServiceId) === String(forServiceId)) continue;
-        
-        const otherStaffId = bkServiceStaff[String(otherServiceId)];
-        if (otherStaffId !== staffIdForService) continue;
-        
-        const otherTime = bkServiceTimes[String(otherServiceId)];
-        if (!otherTime) continue;
-        
-        const otherService = servicesList.find((s) => String(s.id) === String(otherServiceId)) ||
-          (app ? app.data.services.find((s: any) => String(s.id) === String(otherServiceId)) : null);
-        const otherDuration = Number((otherService as any)?.duration) || 60;
-        
-        const otherStartMin = timeToMinutes(otherTime);
-        const otherEndMin = otherStartMin + otherDuration;
-        
-        // Check for ANY overlap between the new service and the other selected service
-        if (slotMinutes < otherEndMin && otherStartMin < newServiceEndMin) {
-          if (slotMinutes >= otherStartMin && slotMinutes < otherEndMin) {
-            return { blocked: true, reason: 'selected' };
-          } else {
-            return { blocked: true, reason: 'insufficient_time_selected' };
-          }
-        }
-      }
+
+    const isSlotBlockedByCurrentSelection = (_slotMinutes: number): { blocked: boolean; reason?: string } => {
       return { blocked: false };
     };
-    
+
     // Get branch hours for the selected date
     const selectedBranch = branches.find((b: any) => b.id === bkBranchId) || app?.data.branches?.find((b: any) => b.id === bkBranchId);
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -1941,64 +1662,88 @@ function BookingsPageContent() {
   };
 
   // ─── Pick-up time logic (same as booking engine) ───
-  // Total duration of all selected services
+  // Total duration of all selected services (wizard pricing + same fallback as drop-off slot builder)
   const bkTotalServiceDuration = bkSelectedServices.reduce((sum: number, id) => {
     const s = servicesList.find((srv) => String(srv.id) === String(id));
-    return sum + (Number(s?.duration) || 0);
+    const pr = resolveServiceDisplayPricing(s || {});
+    let d = Number(pr.duration);
+    if (!Number.isFinite(d) || d < 0) d = Number(s?.duration) || 60;
+    return sum + d;
   }, 0);
 
-  // Get branch day hours for the selected date
+  // Get branch day hours for the selected date (weekday in branch TZ, not browser local)
   const bkBranchDayHours = (() => {
     if (!bkDate || !bkBranchId) return null;
     const selectedBranch = branches.find((b) => b.id === bkBranchId);
     if (!selectedBranch?.hours || typeof selectedBranch.hours !== "object" || Array.isArray(selectedBranch.hours)) return null;
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const dayOfWeek = dayNames[bkDate.getDay()];
+    const branchTz = selectedBranch?.timezone || "Australia/Sydney";
+    let dayOfWeek: string;
+    try {
+      dayOfWeek = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: branchTz }).format(bkDate);
+    } catch {
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      dayOfWeek = dayNames[bkDate.getDay()];
+    }
     const dayHours = (selectedBranch.hours as any)[dayOfWeek];
     if (!dayHours || dayHours.closed) return null;
     return { open: dayHours.open || "09:00", close: dayHours.close || "17:00" };
   })();
 
-  // Earliest allowed pick-up time = latest drop-off time + its service duration
+  // Earliest allowed pick-up time = latest (drop-off + duration) across services; duration matches wizard pricing with computeSlots fallback
   const bkEarliestPickupTime = (() => {
-    if (Object.keys(bkServiceTimes).length === 0 || bkTotalServiceDuration === 0) return null;
-    // Find the latest "end time" among all selected services
-    let latestEndMin = 0;
+    if (bkSelectedServices.length === 0) return null;
+    if (Object.keys(bkServiceTimes).length !== bkSelectedServices.length) return null;
+    let latestEndMin: number | null = null;
     for (const serviceId of bkSelectedServices) {
       const t = bkServiceTimes[String(serviceId)];
-      if (!t) return null; // Not all times selected yet
+      if (t == null || String(t).trim() === "") return null;
+      const dropMin = parseHhmmToMinutes(String(t));
+      if (dropMin === null) return null;
       const s = servicesList.find((srv) => String(srv.id) === String(serviceId));
-      const dur = Number(s?.duration) || 0;
-      const [h, m] = t.split(":").map(Number);
-      const endMin = h * 60 + m + dur;
-      if (endMin > latestEndMin) latestEndMin = endMin;
+      const pr = resolveServiceDisplayPricing(s || {});
+      let dur = Number(pr.duration);
+      if (!Number.isFinite(dur) || dur < 0) dur = Number(s?.duration) || 60;
+      const endMin = dropMin + dur;
+      if (!Number.isFinite(endMin)) return null;
+      if (latestEndMin === null || endMin > latestEndMin) latestEndMin = endMin;
     }
-    if (latestEndMin === 0) return null;
+    if (latestEndMin === null || !Number.isFinite(latestEndMin)) return null;
     const pH = Math.floor(latestEndMin / 60);
     const pM = latestEndMin % 60;
     if (pH > 23) return null;
     return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
   })();
 
-  // Pick-up time slots: 2 PM – 5 PM, >= earliest pick-up time, not past for today
+  // Pick-up time slots: 2 PM – branch close, >= earliest pick-up time, not past for today (today = branch calendar date)
   const bkPickupTimeSlots = (() => {
     if (!bkEarliestPickupTime) return [];
+    const hhmmToMins = (t: string) => {
+      const v = parseHhmmToMinutes(t);
+      return v === null ? NaN : v;
+    };
     const PICKUP_START_MINS = 14 * 60; // 14:00
-    const PICKUP_END_MINS = 17 * 60;   // 17:00
+    const fallbackEnd = 17 * 60;
+    let pickupEndMins = bkBranchDayHours ? hhmmToMins(bkBranchDayHours.close) : fallbackEnd;
+    if (!Number.isFinite(pickupEndMins) || pickupEndMins < PICKUP_START_MINS) pickupEndMins = fallbackEnd;
+    const earliestMins = hhmmToMins(bkEarliestPickupTime);
+    if (!Number.isFinite(earliestMins)) return [];
     const slots: string[] = [];
-    for (let mins = PICKUP_START_MINS; mins <= PICKUP_END_MINS; mins += 30) {
+    for (let mins = PICKUP_START_MINS; mins <= pickupEndMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
-    let filtered = slots.filter((t) => t >= bkEarliestPickupTime);
+    let filtered = slots.filter((t) => hhmmToMins(t) >= earliestMins);
     if (bkDate && bkBranchId) {
       const selectedBranch = branches.find((b) => b.id === bkBranchId);
       const branchTimezone = selectedBranch?.timezone || "Australia/Sydney";
       const branchNow = getCurrentDateTimeInTimezone(branchTimezone);
-      const selectedDateStr = formatLocalYmd(bkDate);
+      const selectedDateStr = formatYmdInTimezone(bkDate, branchTimezone);
       if (selectedDateStr === branchNow.date) {
-        filtered = filtered.filter((t) => t > branchNow.time);
+        const nowM = hhmmToMins(branchNow.time);
+        if (Number.isFinite(nowM)) {
+          filtered = filtered.filter((t) => hhmmToMins(t) > nowM);
+        }
       }
     }
     return filtered;
@@ -2053,10 +1798,25 @@ function BookingsPageContent() {
       (app ? app.data.services.find((s: any) => String(s.id) === String(id)) : null)
     ).filter(Boolean);
 
-    const serviceName = selectedServiceObjects.map(s => s?.name || "").join(", ");
-    const serviceIds = selectedServiceObjects.map(s => s?.id).join(",");
-    const totalPrice = selectedServiceObjects.reduce((sum, s) => sum + (Number(s?.price) || 0), 0);
-    const totalDuration = selectedServiceObjects.reduce((sum, s) => sum + (Number(s?.duration) || 0), 0);
+    // Resolve per-service price & duration against the selected vehicle type so
+    // the admin-created booking picks up the same tier-based pricing as the
+    // booking engine. The API re-resolves this server-side, but sending the
+    // resolved values here keeps the UI totals consistent with what gets
+    // written to Firestore.
+    const resolvedSelectedServices = selectedServiceObjects.map((s) => {
+      if (!s) return s;
+      const pricing = resolveServiceDisplayPricing(s);
+      return {
+        ...s,
+        resolvedPrice: typeof pricing.price === "number" ? pricing.price : Number(s.price) || 0,
+        resolvedDuration: typeof pricing.duration === "number" ? pricing.duration : Number(s.duration) || 0,
+      };
+    });
+
+    const serviceName = resolvedSelectedServices.map(s => s?.name || "").join(", ");
+    const serviceIds = resolvedSelectedServices.map(s => s?.id).join(",");
+    const totalPrice = resolvedSelectedServices.reduce((sum, s: any) => sum + (Number(s?.resolvedPrice) || 0), 0);
+    const totalDuration = resolvedSelectedServices.reduce((sum, s: any) => sum + (Number(s?.resolvedDuration) || 0), 0);
     
     // Use first service time as main booking time
     const firstServiceId = bkSelectedServices[0];
@@ -2099,24 +1859,26 @@ function BookingsPageContent() {
       clientEmail: bkClientEmail?.trim() || undefined,
       clientPhone: bkClientPhone?.trim() || undefined,
       vehicleNumber: bkVehicleNumber?.trim() || undefined,
+      vehicleType: bkVehicleType || undefined,
       vehicleBodyType: bkVehicleBodyType?.trim() || undefined,
       vehicleColour: bkVehicleColour?.trim() || undefined,
       vehicleVinChassis: bkVehicleVinChassis?.trim() || undefined,
       vehicleEngineNumber: bkVehicleEngineNumber?.trim() || undefined,
       vehicleMileage: bkVehicleMileage?.trim() || undefined,
       notes: bkNotes?.trim() || undefined,
-      services: selectedServiceObjects.map((s) => {
+      services: resolvedSelectedServices.map((s: any) => {
         const sId = String(s?.id);
         const stId = bkServiceStaff[sId];
         const stName = stId ? staffList.find(st => st.id === stId)?.name : "Not Assigned Yet";
         return {
           id: s?.id,
           name: s?.name,
-          price: s?.price,
-          duration: s?.duration,
+          price: s?.resolvedPrice,
+          duration: s?.resolvedDuration,
           time: bkServiceTimes[sId],
           staffId: stId || null,
-          staffName: stName
+          staffName: stName,
+          vehicleType: bkVehicleType || undefined,
         };
       })
     };
@@ -2129,6 +1891,7 @@ function BookingsPageContent() {
           clientEmail: newBooking.clientEmail,
           clientPhone: newBooking.clientPhone,
           vehicleNumber: newBooking.vehicleNumber,
+          vehicleType: newBooking.vehicleType,
           vehicleBodyType: newBooking.vehicleBodyType,
           vehicleColour: newBooking.vehicleColour,
           vehicleVinChassis: newBooking.vehicleVinChassis,
@@ -2334,7 +2097,7 @@ function BookingsPageContent() {
             <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/4" />
             
-            <div className="relative z-10 p-5 sm:p-6">
+            <div className="relative z-10 p-4 sm:p-5">
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/25">
@@ -2356,7 +2119,7 @@ function BookingsPageContent() {
           </div>
 
           {/* Progress Bar - Booking Engine Style */}
-          <div className="px-5 sm:px-6 py-4 bg-white border-b border-neutral-200/80">
+          <div className="px-4 sm:px-5 py-2.5 bg-white border-b border-neutral-200/80">
             <div className="flex items-center">
               {[
                 { n: 1, label: "Location", icon: "fa-location-dot" },
@@ -2405,16 +2168,16 @@ function BookingsPageContent() {
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-5 sm:p-7 bg-neutral-50/50 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-neutral-50/50 custom-scrollbar">
             {/* Step 1 - Branch & Service (Combined) */}
             {bkStep === 1 && (
               <div className="animate-[fadeSlideUp_0.5s_ease-out]">
                 {/* Branch Selection */}
-                <div className="mb-6">
-                  <div className="flex items-end justify-between mb-4">
+                <div className="mb-3">
+                  <div className="flex items-end justify-between mb-2.5">
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Choose a location</h3>
-                      <p className="text-neutral-500 text-xs mt-0.5">
+                      <h3 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">Choose a location</h3>
+                      <p className="text-neutral-500 text-[11px] leading-snug mt-0.5">
                         {userRole === "branch_admin" ? "Your assigned branch is pre-selected" : "Select the workshop branch"}
                       </p>
                     </div>
@@ -2431,7 +2194,7 @@ function BookingsPageContent() {
                       <p className="text-neutral-500 font-medium text-sm">No locations available</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {branches.map((br: any, idx: number) => {
                         const selected = bkBranchId === br.id;
                         const isBranchAdmin = userRole === "branch_admin";
@@ -2440,7 +2203,7 @@ function BookingsPageContent() {
                             key={br.id}
                             onClick={() => !isBranchAdmin && (setBkBranchId(br.id), setBkSelectedServices([]), setBkServiceStaff({}), setBkDate(null), setBkServiceTimes({}))}
                             disabled={isBranchAdmin}
-                            className={`text-left rounded-2xl border-2 p-4 transition-all duration-300 group ${
+                            className={`text-left rounded-2xl border-2 p-3 transition-all duration-300 group ${
                               isBranchAdmin ? "cursor-not-allowed" : "cursor-pointer"
                             } ${selected
                               ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
@@ -2473,20 +2236,145 @@ function BookingsPageContent() {
                   )}
                 </div>
 
+                {/* Vehicle Type Selection — drives per-type pricing for services below */}
+                <div className={`mt-3 mb-3 transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
+                  <div className="mb-1.5">
+                    <h3 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight flex items-center gap-2">
+                      <i className="fas fa-car text-amber-500 text-sm" />
+                      Vehicle type
+                    </h3>
+                    <p className="text-neutral-500 text-[11px] leading-snug mt-0.5">
+                      Choose the size class so we can show you the right price for each service.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {VEHICLE_TYPES.slice(0, 3).map((vt) => {
+                        const active = bkVehicleType === vt;
+                        return (
+                          <button
+                            key={vt}
+                            type="button"
+                            title={VEHICLE_TYPE_LABELS[vt]}
+                            onClick={() => {
+                              if (bkVehicleType === vt) return;
+                              setBkVehicleType(vt);
+                              setBkSelectedServices((prev) =>
+                                prev.filter((id) => {
+                                  const s = servicesList.find((x) => String(x.id) === String(id));
+                                  if (!s) return false;
+                                  const tier = s.vehicleTypePricing?.[vt];
+                                  if (tier) return true;
+                                  return (!s.vehicleTypes || s.vehicleTypes.length === 0) && typeof s.price === "number";
+                                }),
+                              );
+                              setBkServiceTimes({});
+                              setBkDate(null);
+                            }}
+                          className={`rounded-xl border-2 p-1.5 text-left transition-all h-full min-h-0 flex items-center ${
+                            active
+                              ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                              : "border-neutral-200/80 bg-white hover:border-neutral-300"
+                          }`}
+                          aria-pressed={active}
+                        >
+                          <div className="w-full min-h-0 flex items-center gap-1.5">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${
+                                active ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                              }`}
+                            >
+                              <i className={`${VEHICLE_TYPE_ICONS[vt]} text-[10px]`} />
+                            </div>
+                            <p className="flex-1 min-w-0 text-xs font-bold text-neutral-900 leading-tight break-words text-balance text-left">
+                              {VEHICLE_TYPE_LABELS[vt]}
+                            </p>
+                            {active && (
+                              <i className="fas fa-check text-amber-500 text-[10px] flex-shrink-0" aria-hidden />
+                            )}
+                          </div>
+                        </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-center">
+                      <div className="grid grid-cols-2 gap-1.5 w-2/3 min-w-0 max-w-full">
+                        {VEHICLE_TYPES.slice(3, 5).map((vt) => {
+                          const active = bkVehicleType === vt;
+                          return (
+                            <button
+                              key={vt}
+                              type="button"
+                              title={VEHICLE_TYPE_LABELS[vt]}
+                              onClick={() => {
+                                if (bkVehicleType === vt) return;
+                                setBkVehicleType(vt);
+                                setBkSelectedServices((prev) =>
+                                  prev.filter((id) => {
+                                    const s = servicesList.find((x) => String(x.id) === String(id));
+                                    if (!s) return false;
+                                    const tier = s.vehicleTypePricing?.[vt];
+                                    if (tier) return true;
+                                    return (!s.vehicleTypes || s.vehicleTypes.length === 0) && typeof s.price === "number";
+                                  }),
+                                );
+                                setBkServiceTimes({});
+                                setBkDate(null);
+                              }}
+                              className={`rounded-xl border-2 p-1.5 text-left transition-all h-full min-h-0 flex items-center ${
+                                active
+                                  ? "border-neutral-900 bg-white shadow-xl shadow-neutral-900/[0.08]"
+                                  : "border-neutral-200/80 bg-white hover:border-neutral-300"
+                              }`}
+                              aria-pressed={active}
+                            >
+                              <div className="w-full min-h-0 flex items-center gap-1.5">
+                                <div
+                                  className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all ${
+                                    active ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
+                                  }`}
+                                >
+                                  <i className={`${VEHICLE_TYPE_ICONS[vt]} text-[10px]`} />
+                                </div>
+                                <p className="flex-1 min-w-0 text-xs font-bold text-neutral-900 leading-tight break-words text-balance text-left">
+                                  {VEHICLE_TYPE_LABELS[vt]}
+                                </p>
+                                {active && (
+                                  <i className="fas fa-check text-amber-500 text-[10px] flex-shrink-0" aria-hidden />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Service Selection */}
-                <div className={`transition-all duration-300 ${!bkBranchId ? "opacity-40 pointer-events-none" : ""}`}>
-                  <div className="flex items-start sm:items-center justify-between mb-4 gap-2 flex-col sm:flex-row">
+                <div className={`transition-all duration-300 ${!bkBranchId || !bkVehicleType ? "opacity-40 pointer-events-none" : ""}`}>
+                  <div className="flex items-start sm:items-center justify-between mb-2 gap-1.5 flex-col sm:flex-row">
                     <div>
                       {bkBranchId && (
-                        <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="inline-flex items-center gap-1.5 bg-neutral-900 text-white text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
                             <i className="fas fa-location-dot text-amber-400 text-[8px]" />
                             {branches.find((b: any) => b.id === bkBranchId)?.name}
                           </span>
+                          {bkVehicleType && (
+                            <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 text-[10px] font-semibold px-2.5 py-0.5 rounded-full">
+                              <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                              {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                            </span>
+                          )}
                         </div>
                       )}
-                      <h3 className="text-lg sm:text-xl font-bold text-neutral-900 tracking-tight">Pick your services</h3>
-                      <p className="text-neutral-500 text-xs mt-0.5">Select one or more services for the booking</p>
+                      <h3 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">Pick your services</h3>
+                      <p className="text-neutral-500 text-[11px] leading-snug mt-0.5">
+                        {bkVehicleType
+                          ? `Prices shown are for ${VEHICLE_TYPE_LABELS[bkVehicleType]}.`
+                          : "Select a vehicle type to see prices."}
+                      </p>
                     </div>
                     {bkSelectedServices.length > 0 && (
                       <div className="bg-amber-50 border border-amber-200/50 rounded-xl px-3 py-1.5 flex items-center gap-2">
@@ -2497,25 +2385,32 @@ function BookingsPageContent() {
                   </div>
 
                   {!bkBranchId ? (
-                    <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
-                      <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4 relative">
-                        <i className="fas fa-wrench text-xl text-neutral-300" />
-                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
-                          <i className="fas fa-arrow-up text-amber-600 text-[8px]" />
+                    <div className="text-center py-7 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-14 h-14 bg-neutral-100 rounded-xl flex items-center justify-center mx-auto mb-3 relative">
+                        <i className="fas fa-wrench text-lg text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[7px]" />
                         </div>
                       </div>
                       <p className="text-neutral-500 font-medium text-sm">Select a branch first</p>
-                      <p className="text-neutral-400 text-xs mt-1">Choose a location above to see available services</p>
+                      <p className="text-neutral-400 text-xs mt-0.5">Choose a location above to see available services</p>
+                    </div>
+                  ) : !bkVehicleType ? (
+                    <div className="text-center py-7 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
+                      <div className="w-14 h-14 bg-neutral-100 rounded-xl flex items-center justify-center mx-auto mb-3 relative">
+                        <i className="fas fa-car text-lg text-neutral-300" />
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white">
+                          <i className="fas fa-arrow-up text-amber-600 text-[7px]" />
+                        </div>
+                      </div>
+                      <p className="text-neutral-500 font-medium text-sm">Choose a vehicle type</p>
+                      <p className="text-neutral-400 text-xs mt-0.5">Prices and eligible services depend on the vehicle size class.</p>
                     </div>
                   ) : (
-                    <div className="space-y-2.5">
-                      {servicesList
-                        .filter((srv: any) => {
-                          if (!srv.branches || srv.branches.length === 0) return false;
-                          return srv.branches.includes(bkBranchId);
-                        })
-                        .map((srv: any, idx: number) => {
+                    <div className="space-y-1.5">
+                      {availableServicesForWizard.map((srv: any, idx: number) => {
                         const isSelected = bkSelectedServices.includes(srv.id);
+                        const displayPricing = resolveServiceDisplayPricing(srv);
                         return (
                           <div
                             key={srv.id}
@@ -2542,7 +2437,7 @@ function BookingsPageContent() {
                             >
                               <div className="flex items-stretch">
                                 <div className={`w-1.5 flex-shrink-0 transition-all duration-300 ${isSelected ? "bg-amber-500" : "bg-transparent group-hover:bg-neutral-200"}`} />
-                                <div className="flex items-center gap-3 p-3.5 sm:p-4 flex-1 min-w-0">
+                                <div className="flex items-center gap-2.5 p-2.5 sm:p-3 flex-1 min-w-0">
                                   <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
                                     isSelected
                                       ? "bg-neutral-900 shadow-md shadow-neutral-900/20 scale-105"
@@ -2563,13 +2458,27 @@ function BookingsPageContent() {
                                   )}
                                   <div className="flex-1 min-w-0">
                                     <h4 className="font-bold text-neutral-900 text-sm truncate">{srv.name}</h4>
-                                    <div className="flex items-center gap-3 mt-0.5">
-                                      <span className="text-[10px] text-neutral-400 flex items-center gap-1">
-                                        <i className="far fa-clock text-[8px]" />
-                                        {srv.duration} min
-                                      </span>
-                                      <span className="text-[10px] text-neutral-400">•</span>
-                                      <span className="text-xs font-bold text-neutral-700">${srv.price}</span>
+                                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                      {typeof displayPricing.duration === "number" && (
+                                        <span className="text-[10px] text-neutral-400 flex items-center gap-1">
+                                          <i className="far fa-clock text-[8px]" />
+                                          {displayPricing.duration} min
+                                        </span>
+                                      )}
+                                      {typeof displayPricing.price === "number" && (
+                                        <>
+                                          <span className="text-[10px] text-neutral-400">•</span>
+                                          <span className="text-xs font-bold text-neutral-700">
+                                            {displayPricing.isStartingFrom ? "from " : ""}${displayPricing.price}
+                                          </span>
+                                        </>
+                                      )}
+                                      {bkVehicleType && (
+                                        <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-100 text-amber-700 text-[9px] font-semibold px-1.5 py-0.5 rounded-md">
+                                          <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                                          {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                                        </span>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -2578,7 +2487,7 @@ function BookingsPageContent() {
                           </div>
                         );
                       })}
-                      {servicesList.filter((srv: any) => srv.branches && srv.branches.length > 0 && srv.branches.includes(bkBranchId)).length === 0 && (
+                      {availableServicesForWizard.length === 0 && (
                         <div className="text-center py-12 bg-white rounded-2xl border border-neutral-200/80 shadow-sm">
                           <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                             <i className="fas fa-wrench text-xl text-neutral-300" />
@@ -2593,27 +2502,37 @@ function BookingsPageContent() {
 
                 {/* Summary Footer + Navigation */}
                 {bkSelectedServices.length > 0 && (
-                  <div className="mt-6 bg-neutral-900 rounded-2xl p-4 text-white relative overflow-hidden">
+                  <div className="mt-3 bg-neutral-900 rounded-2xl p-3 text-white relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />
                     <div className="relative z-10 flex items-center justify-between">
                       <div>
                         <p className="text-neutral-400 text-[10px] font-medium">
                           {bkSelectedServices.length} service{bkSelectedServices.length > 1 ? "s" : ""} · {bkSelectedServices.reduce((sum: number, id) => {
                             const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                            return sum + (Number(s?.duration) || 0);
+                            if (!s) return sum;
+                            const { duration } = resolveServiceDisplayPricing(s);
+                            return sum + (Number(duration) || 0);
                           }, 0)} min
+                          {bkVehicleType && (
+                            <span className="ml-2 inline-flex items-center gap-1 bg-amber-500/20 text-amber-200 px-1.5 py-0.5 rounded-md text-[9px] font-semibold">
+                              <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                              {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                            </span>
+                          )}
                         </p>
                         <p className="text-xl font-extrabold tracking-tight mt-0.5">
                           ${bkSelectedServices.reduce((sum: number, id) => {
                             const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                            return sum + (Number(s?.price) || 0);
+                            if (!s) return sum;
+                            const { price } = resolveServiceDisplayPricing(s);
+                            return sum + (Number(price) || 0);
                           }, 0)}
                         </p>
                       </div>
                       <button
-                        disabled={!bkBranchId || bkSelectedServices.length === 0}
+                        disabled={!bkBranchId || !bkVehicleType || bkSelectedServices.length === 0}
                         onClick={() => setBkStep(2)}
-                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-5 py-2.5 rounded-xl transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2"
+                        className="group bg-amber-500 hover:bg-amber-400 text-neutral-900 font-bold px-4 py-2 rounded-lg transition-all text-sm active:scale-[0.97] shadow-lg shadow-amber-500/25 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         Continue
                         <i className="fas fa-arrow-right text-xs group-hover:translate-x-1 transition-transform" />
@@ -2622,10 +2541,10 @@ function BookingsPageContent() {
                   </div>
                 )}
                 {bkSelectedServices.length === 0 && (
-                  <div className="flex justify-end pt-3 mt-4 border-t border-neutral-200/50">
+                  <div className="flex justify-end pt-2 mt-2 border-t border-neutral-200/50">
                     <button
                       disabled
-                      className="px-5 py-2.5 rounded-xl bg-neutral-200 text-neutral-400 text-sm font-semibold cursor-not-allowed"
+                      className="px-4 py-2 rounded-lg bg-neutral-200 text-neutral-400 text-sm font-semibold cursor-not-allowed"
                     >
                       Continue to Date & Time
                     </button>
@@ -2809,7 +2728,8 @@ function BookingsPageContent() {
                       {bkSelectedServices.map((serviceId, sIdx) => {
                         const service = servicesList.find((s) => String(s.id) === String(serviceId));
                         if (!service) return null;
-                        
+
+                        const svcPricing = resolveServiceDisplayPricing(service);
                         const slots = computeSlots(serviceId);
                         const selectedTime = bkServiceTimes[String(serviceId)];
                         
@@ -2837,12 +2757,26 @@ function BookingsPageContent() {
                                     )}
                                     <div>
                                       <h5 className="font-bold text-neutral-900 text-sm">{service.name}</h5>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-[10px] text-neutral-400 flex items-center gap-1">
-                                          <i className="far fa-clock text-[8px]" /> {service.duration} min
-                                        </span>
-                                        <span className="text-[10px] text-neutral-400">•</span>
-                                        <span className="text-xs font-bold text-neutral-700">${service.price}</span>
+                                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                        {typeof svcPricing.duration === "number" && (
+                                          <span className="text-[10px] text-neutral-400 flex items-center gap-1">
+                                            <i className="far fa-clock text-[8px]" /> {svcPricing.duration} min
+                                          </span>
+                                        )}
+                                        {typeof svcPricing.price === "number" && (
+                                          <>
+                                            <span className="text-[10px] text-neutral-400">•</span>
+                                            <span className="text-xs font-bold text-neutral-700">
+                                              {svcPricing.isStartingFrom ? "from " : ""}${svcPricing.price}
+                                            </span>
+                                          </>
+                                        )}
+                                        {bkVehicleType && (
+                                          <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-100 text-amber-700 text-[9px] font-semibold px-1.5 py-0.5 rounded-md">
+                                            <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-[8px]`} />
+                                            {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -3115,17 +3049,30 @@ function BookingsPageContent() {
                               placeholder="e.g. ABC 123" required
                             />
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                              <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Body type <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                              <input type="text" value={bkVehicleBodyType} onChange={(e) => setBkVehicleBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
-                                className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
+                          {bkVehicleType && (
+                            <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                <i className={`${VEHICLE_TYPE_ICONS[bkVehicleType]} text-amber-700 text-sm`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Type (pricing class)</div>
+                                <div className="text-sm font-bold text-amber-900 leading-snug break-words text-balance">
+                                  {VEHICLE_TYPE_LABELS[bkVehicleType]}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setBkStep(1)}
+                                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline"
+                              >
+                                Change
+                              </button>
                             </div>
-                            <div>
-                              <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                              <input type="text" value={bkVehicleColour} onChange={(e) => setBkVehicleColour(e.target.value)} placeholder="e.g. White, Black"
-                                className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
-                            </div>
+                          )}
+                          <div>
+                            <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                            <input type="text" value={bkVehicleColour} onChange={(e) => setBkVehicleColour(e.target.value)} placeholder="e.g. White, Black"
+                              className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-2.5 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-white placeholder:text-neutral-300 font-medium" />
                           </div>
                           <div>
                             <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">VIN / Chassis <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
@@ -3215,6 +3162,9 @@ function BookingsPageContent() {
                           <div className="space-y-2">
                             {bkSelectedServices.map(id => {
                               const s = servicesList.find((srv: any) => String(srv.id) === String(id));
+                              const linePricing = s ? resolveServiceDisplayPricing(s) : null;
+                              const linePrice =
+                                linePricing && typeof linePricing.price === "number" ? linePricing.price : 0;
                               return (
                                 <div key={id} className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-100">
                                   <div className="flex justify-between items-start">
@@ -3224,7 +3174,12 @@ function BookingsPageContent() {
                                         <span className="text-[10px] text-neutral-400">{bkServiceTimes[String(id)]}</span>
                                       </div>
                                     </div>
-                                    <span className="text-sm font-black text-neutral-900 ml-2">${s?.price || 0}</span>
+                                    <span className="text-sm font-black text-neutral-900 ml-2 whitespace-nowrap">
+                                      {linePricing?.isStartingFrom ? (
+                                        <span className="text-[10px] font-semibold text-neutral-500">from </span>
+                                      ) : null}
+                                      ${linePrice}
+                                    </span>
                                   </div>
                                 </div>
                               );
@@ -3238,7 +3193,9 @@ function BookingsPageContent() {
                           <span className="text-xl font-black text-neutral-900">
                             ${bkSelectedServices.reduce((sum: number, id) => {
                               const s = servicesList.find((srv: any) => String(srv.id) === String(id));
-                              return sum + (Number(s?.price) || 0);
+                              if (!s) return sum;
+                              const p = resolveServiceDisplayPricing(s);
+                              return sum + (typeof p.price === "number" ? p.price : 0);
                             }, 0)}
                           </span>
                         </div>

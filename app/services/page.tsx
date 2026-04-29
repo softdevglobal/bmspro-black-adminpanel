@@ -8,8 +8,50 @@ import { doc, getDoc } from "firebase/firestore";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
-import { createServiceForOwner, deleteService as deleteServiceDoc, subscribeServicesForOwner, updateService, type ChecklistItem, normalizeChecklist } from "@/lib/services";
+import {
+  createServiceForOwner,
+  deleteService as deleteServiceDoc,
+  subscribeServicesForOwner,
+  updateService,
+  normalizeChecklist,
+  normalizeAreaOrder,
+  normalizeVehicleTypePricing,
+  minPricingFromVehicleTypePricing,
+  DEFAULT_AREA_ORDER,
+  CHECKLIST_SECTIONS,
+  CHECKLIST_SECTION_LABELS,
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isChecklistSection,
+  groupChecklistItemsWithGlobalNumbers,
+  type ChecklistItem,
+  type ChecklistSection,
+  type VehicleType,
+  type VehicleTypePricingMap,
+} from "@/lib/services";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { subscribeDefaultServices } from "@/lib/defaultServices";
+import { getErrorMessage } from "@/lib/errorMessage";
+
+type ToastVariant = "success" | "error" | "warning";
+import { nativeSelectInsetChevronClass } from "@/lib/nativeSelectChevron";
 
 type Service = {
   id: string;
@@ -23,17 +65,256 @@ type Service = {
   staffIds: string[];
   branches: string[];
   checklist?: ChecklistItem[];
+  /** Owner-defined area group order. Normalised on read (always 4 sections). */
+  areaOrder: ChecklistSection[];
   sourceTemplateId?: string;
+  /** Vehicle types this service is offered for. Empty = legacy flat pricing. */
+  vehicleTypes: VehicleType[];
+  /** Per-vehicle-type price + duration overrides. Empty when `vehicleTypes` is empty. */
+  vehicleTypePricing: VehicleTypePricingMap;
 };
 
 type DefaultTemplate = {
   id: string;
   name: string;
   checklist: ChecklistItem[];
+  areaOrder: ChecklistSection[];
+};
+
+/** dnd-kit id prefix used on the area chips so drag-end can tell chips apart from task rows. */
+const CHIP_ID_PREFIX = "area-chip:";
+const chipId = (s: ChecklistSection) => `${CHIP_ID_PREFIX}${s}` as const;
+const sectionFromChipId = (id: string): ChecklistSection | null => {
+  if (!id.startsWith(CHIP_ID_PREFIX)) return null;
+  const raw = id.slice(CHIP_ID_PREFIX.length);
+  return isChecklistSection(raw) ? raw : null;
 };
 
 type Staff = { id: string; name: string; role: string; branch: string; status: "Active" | "Suspended"; avatar: string };
 type Branch = { id: string; name: string };
+
+type ChecklistRow = ChecklistItem & { rowId: string };
+
+function newChecklistRowId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function rowsFromChecklist(items: ChecklistItem[]): ChecklistRow[] {
+  return items.map((c) => ({ ...c, rowId: newChecklistRowId() }));
+}
+
+function checklistPayloadFromRows(rows: ChecklistRow[]): ChecklistItem[] {
+  return rows
+    .map(({ rowId: _rowId, ...item }) => item)
+    .filter((item) => item.name.trim() !== "");
+}
+
+/** Preview drawer — light area bars + dark text (same look as Book Now). */
+const CHECKLIST_SECTION_BADGE: Record<ChecklistSection, string> = {
+  interior: "border-blue-300 bg-blue-50 text-blue-900",
+  engine_bay: "border-neutral-400 bg-white text-neutral-900",
+  underbody: "border-violet-300 bg-violet-50 text-violet-900",
+  exterior: "border-emerald-300 bg-emerald-50 text-emerald-900",
+};
+
+const CHECKLIST_SECTION_ICON: Record<ChecklistSection, string> = {
+  interior: "fas fa-car-side",
+  engine_bay: "fas fa-gears",
+  underbody: "fas fa-wrench",
+  exterior: "fas fa-car",
+};
+
+/** Small pastel palette for the draggable chips. Active ring matches the area accent. */
+const AREA_CHIP_THEME: Record<ChecklistSection, { base: string; active: string; dropTint: string; dot: string }> = {
+  interior: {
+    base: "border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100",
+    active: "border-blue-500 bg-blue-100 text-blue-900 ring-2 ring-blue-300",
+    dropTint: "border-blue-500 bg-blue-100 text-blue-900 ring-2 ring-blue-400 ring-offset-1",
+    dot: "bg-blue-500",
+  },
+  engine_bay: {
+    base: "border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100",
+    active: "border-neutral-600 bg-neutral-100 text-neutral-900 ring-2 ring-neutral-400",
+    dropTint: "border-neutral-600 bg-neutral-100 text-neutral-900 ring-2 ring-neutral-500 ring-offset-1",
+    dot: "bg-neutral-700",
+  },
+  underbody: {
+    base: "border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100",
+    active: "border-violet-500 bg-violet-100 text-violet-900 ring-2 ring-violet-300",
+    dropTint: "border-violet-500 bg-violet-100 text-violet-900 ring-2 ring-violet-400 ring-offset-1",
+    dot: "bg-violet-500",
+  },
+  exterior: {
+    base: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+    active: "border-emerald-500 bg-emerald-100 text-emerald-900 ring-2 ring-emerald-300",
+    dropTint: "border-emerald-500 bg-emerald-100 text-emerald-900 ring-2 ring-emerald-400 ring-offset-1",
+    dot: "bg-emerald-500",
+  },
+};
+
+function SortableAreaChip({
+  section,
+  count,
+  active,
+  draggingRow,
+  onClick,
+}: {
+  section: ChecklistSection;
+  count: number;
+  active: boolean;
+  draggingRow: boolean;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
+    id: chipId(section),
+  });
+  const theme = AREA_CHIP_THEME[section];
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.85 : 1,
+    zIndex: isDragging ? 30 : undefined,
+    position: "relative" as const,
+  };
+  const highlight = draggingRow && isOver
+    ? theme.dropTint
+    : active
+      ? theme.active
+      : theme.base;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex w-full items-center justify-between gap-2 rounded-lg border-2 px-3 py-2 text-xs font-semibold shadow-sm select-none transition-colors ${highlight} ${
+        isDragging ? "cursor-grabbing" : "cursor-grab"
+      }`}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      role="button"
+      aria-pressed={active}
+      aria-label={`${CHECKLIST_SECTION_LABELS[section]} (${count} task${count !== 1 ? "s" : ""})`}
+      title="Drag to reorder • Drop a task here to move it into this area • Click to quick-pick for next task"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <i className="fas fa-grip-vertical text-[10px] text-neutral-400" aria-hidden />
+        <i className={`${CHECKLIST_SECTION_ICON[section]} text-[11px] opacity-80`} />
+        <span className="truncate">{CHECKLIST_SECTION_LABELS[section]}</span>
+      </div>
+      <span className={`inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded ${theme.dot} px-1.5 text-[10px] font-bold text-white tabular-nums`}>
+        {count}
+      </span>
+    </div>
+  );
+}
+
+/** dnd-kit id prefix for row drag items so we can tell them apart from chip ids. */
+const ROW_ID_PREFIX = "row:";
+const rowDndId = (rowId: string) => `${ROW_ID_PREFIX}${rowId}`;
+const rowIdFromDndId = (id: string): string | null =>
+  id.startsWith(ROW_ID_PREFIX) ? id.slice(ROW_ID_PREFIX.length) : null;
+
+function SortableChecklistRow({
+  row,
+  index,
+  onNameChange,
+  onDescriptionChange,
+  onSectionChange,
+  onRemove,
+}: {
+  row: ChecklistRow;
+  index: number;
+  onNameChange: (name: string) => void;
+  onDescriptionChange: (description: string) => void;
+  onSectionChange: (section: ChecklistSection) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: rowDndId(row.rowId),
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.92 : 1,
+    zIndex: isDragging ? 20 : undefined,
+    position: "relative" as const,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`bg-white rounded-xl border overflow-hidden group ${
+        isDragging ? "border-amber-400 shadow-lg ring-2 ring-amber-200" : "border-amber-200"
+      }`}
+    >
+      <div className="flex items-start gap-2 p-3">
+        <button
+          type="button"
+          className="mt-0.5 flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 active:cursor-grabbing"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <i className="fas fa-grip-vertical text-[11px]" />
+        </button>
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+          <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <input
+            type="text"
+            value={row.name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="Task name"
+            className="w-full border-none bg-transparent p-0 text-xs font-semibold text-neutral-800 focus:outline-none focus:ring-0 sm:text-sm"
+          />
+          <textarea
+            value={row.description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            placeholder="Description (optional)"
+            rows={2}
+            className="w-full resize-none rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-[11px] text-neutral-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 sm:text-xs"
+          />
+          <div className="pt-0.5">
+            <select
+              value={isChecklistSection(row.section) ? row.section : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) onSectionChange(v as ChecklistSection);
+              }}
+              aria-label="Select area"
+              className={`${nativeSelectInsetChevronClass} w-full rounded-md border border-neutral-200 py-1.5 text-[11px] focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 sm:text-xs ${
+                isChecklistSection(row.section) ? "text-neutral-700" : "text-neutral-400"
+              }`}
+            >
+              <option value="" disabled hidden>
+                Select area
+              </option>
+              {CHECKLIST_SECTIONS.map((s) => (
+                <option key={s} value={s}>
+                  {CHECKLIST_SECTION_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-400 opacity-0 transition-all hover:bg-red-100 hover:text-red-600 group-hover:opacity-100"
+          aria-label="Remove task"
+        >
+          <i className="fas fa-trash-can text-[9px]" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function ServicesPage() {
   const router = useRouter();
@@ -55,17 +336,107 @@ export default function ServicesPage() {
   const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [price, setPrice] = useState<number | "">("");
-  const [duration, setDuration] = useState<number | "">("");
   const [imageUrl, setImageUrl] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<Record<string, boolean>>({});
   const [selectedBranches, setSelectedBranches] = useState<Record<string, boolean>>({});
-  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
+  // Vehicle-type pricing form state. `vehicleTypeEnabled[vt] === true` means
+  // the owner has ticked that type; `vehicleTypePricingForm[vt]` holds the
+  // raw string input (kept as string so we don't flicker while typing "12.").
+  const [vehicleTypeEnabled, setVehicleTypeEnabled] = useState<
+    Record<VehicleType, boolean>
+  >({
+    small_car: false,
+    sedan_wagon: false,
+    suv: false,
+    ute_van_4wd: false,
+    performance_large: false,
+  });
+  const [vehicleTypePricingForm, setVehicleTypePricingForm] = useState<
+    Record<VehicleType, { price: string; duration: string }>
+  >({
+    small_car: { price: "", duration: "" },
+    sedan_wagon: { price: "", duration: "" },
+    suv: { price: "", duration: "" },
+    ute_van_4wd: { price: "", duration: "" },
+    performance_large: { price: "", duration: "" },
+  });
+  const anyVehicleTypeEnabled = VEHICLE_TYPES.some(
+    (vt) => vehicleTypeEnabled[vt],
+  );
+  const [checklistRows, setChecklistRows] = useState<ChecklistRow[]>([]);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [newChecklistDesc, setNewChecklistDesc] = useState("");
+  const [newChecklistSection, setNewChecklistSection] = useState<ChecklistSection | "">("");
+  const [areaOrder, setAreaOrder] = useState<ChecklistSection[]>(DEFAULT_AREA_ORDER);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const draggingRow = !!activeDragId && activeDragId.startsWith(ROW_ID_PREFIX);
+  const [showFormPreview, setShowFormPreview] = useState(false);
+
+  /** Live counts per area for the chips badge. */
+  const areaCounts = React.useMemo(() => {
+    const counts: Record<ChecklistSection, number> = {
+      interior: 0,
+      engine_bay: 0,
+      underbody: 0,
+      exterior: 0,
+    };
+    for (const r of checklistRows) {
+      if (isChecklistSection(r.section)) counts[r.section]++;
+    }
+    return counts;
+  }, [checklistRows]);
+
+  const checklistSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const onChecklistDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragId(null);
+    if (!over) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const activeChipSection = sectionFromChipId(activeId);
+    const overChipSection = sectionFromChipId(overId);
+
+    // Reordering area chips
+    if (activeChipSection && overChipSection) {
+      if (activeChipSection === overChipSection) return;
+      setAreaOrder((prev) => {
+        const from = prev.indexOf(activeChipSection);
+        const to = prev.indexOf(overChipSection);
+        if (from < 0 || to < 0) return prev;
+        return arrayMove(prev, from, to);
+      });
+      return;
+    }
+
+    // Dragging a task row
+    const activeRowId = rowIdFromDndId(activeId);
+    if (!activeRowId) return;
+
+    // Row dropped onto a chip → reassign that row's area
+    if (overChipSection) {
+      setChecklistRows((rows) =>
+        rows.map((r) => (r.rowId === activeRowId ? { ...r, section: overChipSection } : r))
+      );
+      return;
+    }
+
+    // Row reorder within the list
+    const overRowId = rowIdFromDndId(overId);
+    if (!overRowId || activeRowId === overRowId) return;
+    setChecklistRows((items) => {
+      const oldIndex = items.findIndex((r) => r.rowId === activeRowId);
+      const newIndex = items.findIndex((r) => r.rowId === overRowId);
+      if (oldIndex < 0 || newIndex < 0) return items;
+      return arrayMove(items, oldIndex, newIndex);
+    });
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // guard
@@ -121,20 +492,33 @@ export default function ServicesPage() {
     });
     const unsubServices = subscribeServicesForOwner(ownerUid, (rows) => {
       setServices(
-        rows.map((r) => ({
-          id: String(r.id),
-          name: String(r.name || ""),
-          description: r.description ? String(r.description) : undefined,
-          price: Number(r.price || 0),
-          duration: Number(r.duration || 0),
-          icon: String(r.icon || ""),
-          imageUrl: String((r as any).imageUrl || ""),
-          reviews: Number(r.reviews || 0),
-          branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
-          staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
-          checklist: normalizeChecklist((r as any).checklist),
-          sourceTemplateId: r.sourceTemplateId ? String(r.sourceTemplateId) : undefined,
-        }))
+        rows.map((r) => {
+          const vt = normalizeVehicleTypePricing((r as any).vehicleTypePricing);
+          // Derive headline price/duration. Workshop-owner services no
+          // longer persist the flat `price`/`duration` fields — we compute
+          // the "starting from" number from the cheapest tier in
+          // `vehicleTypePricing`. Super-admin default_services clones and
+          // un-migrated docs still have flat fields, so we fall back to
+          // them when the map is empty.
+          const min = minPricingFromVehicleTypePricing(vt.vehicleTypePricing);
+          return {
+            id: String(r.id),
+            name: String(r.name || ""),
+            description: r.description ? String(r.description) : undefined,
+            price: min ? min.price : Number(r.price || 0),
+            duration: min ? min.duration : Number(r.duration || 0),
+            icon: String(r.icon || ""),
+            imageUrl: String((r as any).imageUrl || ""),
+            reviews: Number(r.reviews || 0),
+            branches: (Array.isArray(r.branches) ? r.branches : []).map(String),
+            staffIds: (Array.isArray(r.staffIds) ? r.staffIds : []).map(String),
+            checklist: normalizeChecklist((r as any).checklist),
+            areaOrder: normalizeAreaOrder((r as any).areaOrder),
+            sourceTemplateId: r.sourceTemplateId ? String(r.sourceTemplateId) : undefined,
+            vehicleTypes: vt.vehicleTypes,
+            vehicleTypePricing: vt.vehicleTypePricing,
+          };
+        })
       );
     });
     const unsubDefaults = subscribeDefaultServices((rows) => {
@@ -143,6 +527,7 @@ export default function ServicesPage() {
           id: String(r.id),
           name: String(r.name || ""),
           checklist: normalizeChecklist(r.checklist as any[]),
+          areaOrder: normalizeAreaOrder((r as any).areaOrder),
         }))
       );
     });
@@ -154,12 +539,15 @@ export default function ServicesPage() {
     };
   }, [ownerUid]);
 
-  // toast
-  const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([]);
-  const showToast = (text: string) => {
-    const id = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    setToasts((t) => [...t, { id, text }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
+  // Toasts must sit above modal overlays (z-50 + backdrop-blur) or they look blurred.
+  const [toasts, setToasts] = useState<
+    Array<{ id: string; text: string; variant: ToastVariant }>
+  >([]);
+  const showToast = (text: string, variant: ToastVariant = "success") => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    setToasts((t) => [...t, { id, text, variant }]);
+    const duration = variant === "error" ? 6500 : variant === "warning" ? 4500 : 3200;
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), duration);
   };
 
   const openModal = () => {
@@ -167,20 +555,34 @@ export default function ServicesPage() {
     setSelectedTemplateId("");
     setName("");
     setDescription("");
-    setPrice("");
-    setDuration("");
     setImageUrl("");
     setImageFile(null);
     setImagePreview(null);
-    setChecklist([]);
+    setChecklistRows([]);
     setNewChecklistItem("");
     setNewChecklistDesc("");
+    setNewChecklistSection("");
+    setAreaOrder(DEFAULT_AREA_ORDER);
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = false));
     branches.forEach((b) => (branchMap[b.id] = false));
     setSelectedStaff(staffMap);
     setSelectedBranches(branchMap);
+    setVehicleTypeEnabled({
+      small_car: false,
+      sedan_wagon: false,
+      suv: false,
+      ute_van_4wd: false,
+      performance_large: false,
+    });
+    setVehicleTypePricingForm({
+      small_car: { price: "", duration: "" },
+      sedan_wagon: { price: "", duration: "" },
+      suv: { price: "", duration: "" },
+      ute_van_4wd: { price: "", duration: "" },
+      performance_large: { price: "", duration: "" },
+    });
     setIsModalOpen(true);
   };
   const closeModal = () => {
@@ -193,13 +595,14 @@ export default function ServicesPage() {
     setSelectedTemplateId(templateId);
     if (!templateId) {
       setName("");
-      setChecklist([]);
+      setChecklistRows([]);
       return;
     }
     const tpl = defaultTemplates.find((t) => t.id === templateId);
     if (tpl) {
       setName(tpl.name);
-      setChecklist(tpl.checklist.map((c) => ({ ...c })));
+      setChecklistRows(rowsFromChecklist(tpl.checklist));
+      setAreaOrder(tpl.areaOrder);
     }
   };
 
@@ -207,20 +610,48 @@ export default function ServicesPage() {
     setEditingServiceId(svc.id);
     setName(svc.name);
     setDescription(svc.description || "");
-    setPrice(svc.price);
-    setDuration(svc.duration);
     setImageUrl(svc.imageUrl || "");
     setImagePreview(svc.imageUrl || null);
     setImageFile(null);
-    setChecklist(svc.checklist || []);
+    setChecklistRows(rowsFromChecklist(svc.checklist || []));
     setNewChecklistItem("");
     setNewChecklistDesc("");
+    setNewChecklistSection("");
+    setAreaOrder(normalizeAreaOrder(svc.areaOrder));
     const staffMap: Record<string, boolean> = {};
     const branchMap: Record<string, boolean> = {};
     staff.forEach((s) => (staffMap[s.id] = svc.staffIds?.includes(s.id) || false));
     branches.forEach((b) => (branchMap[b.id] = svc.branches?.includes(b.id) || false));
     setSelectedStaff(staffMap);
     setSelectedBranches(branchMap);
+    // Hydrate vehicle-type form from the stored pricing map, then fill the
+    // rest of the types with blank rows so every tick-box is addressable.
+    const enabled: Record<VehicleType, boolean> = {
+      small_car: false,
+      sedan_wagon: false,
+      suv: false,
+      ute_van_4wd: false,
+      performance_large: false,
+    };
+    const form: Record<VehicleType, { price: string; duration: string }> = {
+      small_car: { price: "", duration: "" },
+      sedan_wagon: { price: "", duration: "" },
+      suv: { price: "", duration: "" },
+      ute_van_4wd: { price: "", duration: "" },
+      performance_large: { price: "", duration: "" },
+    };
+    for (const vt of VEHICLE_TYPES) {
+      const entry = svc.vehicleTypePricing?.[vt];
+      if (entry) {
+        enabled[vt] = true;
+        form[vt] = {
+          price: String(entry.price ?? ""),
+          duration: String(entry.duration ?? ""),
+        };
+      }
+    }
+    setVehicleTypeEnabled(enabled);
+    setVehicleTypePricingForm(form);
     setIsModalOpen(true);
   };
 
@@ -229,12 +660,12 @@ export default function ServicesPage() {
     if (file) {
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        showToast('Please select an image file');
+        showToast("Please select an image file", "warning");
         return;
       }
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
-        showToast('Image size should be less than 5MB');
+        showToast("Image size should be less than 5MB", "warning");
         return;
       }
       setImageFile(file);
@@ -263,7 +694,7 @@ export default function ServicesPage() {
       return downloadURL;
     } catch (error) {
       console.error('Error uploading image:', error);
-      showToast('Failed to upload image');
+      showToast("Failed to upload image", "error");
       return null;
     } finally {
       setUploading(false);
@@ -272,17 +703,73 @@ export default function ServicesPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!name.trim() || !price || !duration) return;
+    if (!name.trim()) return;
     const qualifiedStaff = Object.keys(selectedStaff).filter((id) => selectedStaff[id]);
     const selectedBrs = Object.keys(selectedBranches).filter((id) => selectedBranches[id]);
     if (!ownerUid) return;
     
     // Validate that at least one branch is selected
     if (selectedBrs.length === 0) {
-      showToast("Please select at least one branch for this service");
+      showToast("Please select at least one branch for this service", "error");
       return;
     }
-    
+
+    const checklistPayload = checklistPayloadFromRows(checklistRows);
+    if (
+      checklistPayload.some(
+        (item) => item.name.trim() !== "" && !isChecklistSection(item.section)
+      )
+    ) {
+      showToast("Please select a vehicle area for every task.", "error");
+      return;
+    }
+
+    // Validate vehicle-type pricing rows. Pricing is now the ONLY way to
+    // price a service, so at least one type must be ticked and every ticked
+    // row must have both a non-negative price and a positive duration.
+    const selectedVehicleTypes: VehicleType[] = VEHICLE_TYPES.filter(
+      (vt) => vehicleTypeEnabled[vt],
+    );
+    if (selectedVehicleTypes.length === 0) {
+      showToast(
+        "Select at least one vehicle type and set its price & duration.",
+        "error",
+      );
+      return;
+    }
+    const vehicleTypePricingOut: VehicleTypePricingMap = {};
+    for (const vt of selectedVehicleTypes) {
+      const row = vehicleTypePricingForm[vt];
+      const priceNum = Number(row.price);
+      const durationNum = Number(row.duration);
+      if (
+        row.price.trim() === "" ||
+        !Number.isFinite(priceNum) ||
+        priceNum < 0
+      ) {
+        showToast(
+          `Enter a valid price for ${VEHICLE_TYPE_LABELS[vt]}.`,
+          "error",
+        );
+        return;
+      }
+      if (
+        row.duration.trim() === "" ||
+        !Number.isFinite(durationNum) ||
+        durationNum <= 0
+      ) {
+        showToast(
+          `Enter a valid duration for ${VEHICLE_TYPE_LABELS[vt]}.`,
+          "error",
+        );
+        return;
+      }
+      vehicleTypePricingOut[vt] = {
+        price: priceNum,
+        duration: Math.round(durationNum),
+      };
+    }
+
     setSaving(true);
     try {
       // Upload image if a new file is selected
@@ -292,34 +779,39 @@ export default function ServicesPage() {
         if (uploadedUrl) {
           finalImageUrl = uploadedUrl;
         } else {
-          showToast("Failed to upload image");
+          showToast("Failed to upload image", "error");
           setSaving(false);
           return;
         }
       }
-      
+
+      // NOTE: we intentionally don't send `price`/`duration`. Pricing lives
+      // entirely in `vehicleTypePricing`; `updateService` will also scrub
+      // any stale flat fields off the existing doc.
       if (editingServiceId) {
         await updateService(editingServiceId, {
           name: name.trim(),
           description: description.trim(),
-          price: Number(price),
-          duration: Number(duration),
           imageUrl: finalImageUrl || "",
           staffIds: qualifiedStaff,
           branches: selectedBrs,
-          checklist: checklist.filter(item => item.name.trim() !== ""),
+          checklist: checklistPayload,
+          areaOrder,
+          vehicleTypes: selectedVehicleTypes,
+          vehicleTypePricing: vehicleTypePricingOut,
         });
       } else {
         await createServiceForOwner(ownerUid, {
           name: name.trim(),
           description: description.trim(),
-          price: Number(price),
-          duration: Number(duration),
           imageUrl: finalImageUrl || "",
           reviews: 0,
           staffIds: qualifiedStaff,
           branches: selectedBrs,
-          checklist: checklist.filter(item => item.name.trim() !== ""),
+          checklist: checklistPayload,
+          areaOrder,
+          vehicleTypes: selectedVehicleTypes,
+          vehicleTypePricing: vehicleTypePricingOut,
         });
       }
       setIsModalOpen(false);
@@ -328,8 +820,15 @@ export default function ServicesPage() {
       setImagePreview(null);
       showToast(editingServiceId ? "Service updated." : "Service added to catalog!");
     } catch (error) {
-      console.error('Error saving service:', error);
-      showToast(editingServiceId ? "Failed to update service" : "Failed to add service");
+      console.error("Error saving service:", error);
+      const base = editingServiceId
+        ? "Failed to update service"
+        : "Failed to add service";
+      const detail = getErrorMessage(error, "");
+      showToast(
+        detail ? `${base}. ${detail}` : base,
+        "error",
+      );
     } finally {
       setSaving(false);
     }
@@ -346,8 +845,11 @@ export default function ServicesPage() {
       await deleteServiceDoc(deleteTarget.id);
       showToast("Service removed.");
       setDeleteTarget(null);
-    } catch {
-      showToast("Failed to remove service.");
+    } catch (err) {
+      showToast(
+        `Failed to remove service. ${getErrorMessage(err, "Please try again.")}`,
+        "error",
+      );
     } finally {
       setDeleting(false);
     }
@@ -489,16 +991,42 @@ export default function ServicesPage() {
                         {/* Diagonal hazard stripe accent */}
                         <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-amber-500/0 via-amber-500/30 to-amber-500/0" />
 
-                        {/* Price + Duration row */}
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-amber-400 text-sm font-medium">$</span>
-                            <span className="text-3xl font-black text-white tracking-tighter">{s.price}</span>
+                        {/* Price + Duration row.
+                            When the service has vehicle-type pricing, we
+                            stamp a clear "STARTING FROM" label above the
+                            price so the card number matches what the owner
+                            sees in the Pricing by Vehicle Type matrix (the
+                            lowest-priced type). Duration follows the same
+                            "from" treatment for consistency. */}
+                        <div className="flex items-end justify-between mb-4 gap-3">
+                          <div className="flex flex-col min-w-0">
+                            {s.vehicleTypes.length > 0 && (
+                              <span
+                                className="inline-flex items-center gap-1 self-start mb-1.5 px-2 py-0.5 rounded-md bg-amber-400/10 border border-amber-400/25 text-amber-300 text-[10px] font-bold uppercase tracking-[0.14em] leading-none"
+                                title={`Lowest price across ${s.vehicleTypes.length} vehicle type${s.vehicleTypes.length !== 1 ? "s" : ""}`}
+                              >
+                                <i className="fas fa-tag text-[8px]" />
+                                Starting from
+                              </span>
+                            )}
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-amber-400 text-base font-semibold">$</span>
+                              <span className="text-3xl font-black text-white tracking-tighter leading-none tabular-nums">
+                                {s.price.toLocaleString()}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.08] rounded-lg px-3 py-1.5">
-                            <i className="far fa-clock text-amber-400 text-[10px]" />
-                            <span className="text-sm font-bold text-white">{s.duration}</span>
-                            <span className="text-xs text-neutral-500 font-medium">min</span>
+                          <div className="flex flex-col items-end">
+                            {s.vehicleTypes.length > 0 && (
+                              <span className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500 leading-none">
+                                From
+                              </span>
+                            )}
+                            <div className="flex items-center gap-1.5 bg-white/[0.06] border border-white/[0.08] rounded-lg px-3 py-1.5">
+                              <i className="far fa-clock text-amber-400 text-[10px]" />
+                              <span className="text-sm font-bold text-white tabular-nums">{s.duration}</span>
+                              <span className="text-xs text-neutral-500 font-medium">min</span>
+                            </div>
                           </div>
                         </div>
 
@@ -516,6 +1044,12 @@ export default function ServicesPage() {
                             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-amber-500/10 text-amber-400 px-2.5 py-1.5 rounded-lg border border-amber-500/10">
                               <i className="fas fa-clipboard-check text-[9px]" />
                               {s.checklist.length} Tasks
+                            </span>
+                          )}
+                          {s.vehicleTypes.length > 0 && (
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-indigo-500/10 text-indigo-300 px-2.5 py-1.5 rounded-lg border border-indigo-500/10">
+                              <i className="fas fa-car text-[9px]" />
+                              {s.vehicleTypes.length} Vehicle{s.vehicleTypes.length !== 1 ? "s" : ""}
                             </span>
                           )}
                           {s.sourceTemplateId && (
@@ -583,16 +1117,6 @@ export default function ServicesPage() {
         </main>
       </div>
 
-      {/* Toasts */}
-      <div id="toast-container" className="fixed bottom-5 right-5 z-50 space-y-2">
-        {toasts.map((t) => (
-          <div key={t.id} className="toast bg-neutral-800 text-white px-4 py-3 rounded-lg shadow-md border-l-4 border-amber-500 flex items-center gap-2">
-            <i className="fas fa-circle-check text-amber-500" />
-            <span className="text-sm">{t.text}</span>
-          </div>
-        ))}
-      </div>
-
       {/* Add Service Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4">
@@ -630,7 +1154,7 @@ export default function ServicesPage() {
                     <select
                       value={selectedTemplateId}
                       onChange={(e) => handleTemplateSelect(e.target.value)}
-                      className="w-full border border-amber-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white font-medium"
+                      className="select-inset-chevron w-full border border-amber-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white font-medium"
                     >
                       <option value="">— Start from scratch —</option>
                       {defaultTemplates.map((tpl) => (
@@ -663,41 +1187,133 @@ export default function ServicesPage() {
                         placeholder="Describe what this service includes..."
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
-                      <div>
-                        <label className="block text-xs font-bold text-neutral-600 mb-1">Duration (mins)</label>
-                        <select 
-                          value={duration} 
-                          onChange={(e) => setDuration(e.target.value === "" ? "" : Number(e.target.value))} 
-                          required 
-                          className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none bg-white"
-                        >
-                          <option value="">Select Duration</option>
-                          <option value="15">15 mins</option>
-                          <option value="30">30 mins</option>
-                          <option value="45">45 mins</option>
-                          <option value="60">60 mins</option>
-                          <option value="75">75 mins</option>
-                          <option value="90">90 mins</option>
-                          <option value="105">105 mins</option>
-                          <option value="120">120 mins</option>
-                          <option value="135">135 mins</option>
-                          <option value="150">150 mins</option>
-                          <option value="165">165 mins</option>
-                          <option value="180">180 mins</option>
-                          <option value="195">195 mins</option>
-                          <option value="210">210 mins</option>
-                          <option value="225">225 mins</option>
-                          <option value="240">240 mins</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-neutral-600 mb-1">Price ($)</label>
-                        <input value={price} onChange={(e) => setPrice(e.target.value === "" ? "" : Number(e.target.value))} type="number" required className="w-full border border-neutral-300 rounded-lg p-2 sm:p-2.5 text-xs sm:text-sm focus:ring-2 focus:ring-neutral-900 focus:outline-none" placeholder="120" />
-                      </div>
-                    </div>
                   </div>
                 </div>
+
+                {/* Vehicle Types & Pricing */}
+                <div className="bg-indigo-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-indigo-200">
+                  <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
+                    <i className="fas fa-car text-indigo-600" />
+                    Vehicle Types & Pricing
+                    <span className="text-[10px] font-semibold text-rose-600 ml-1">*</span>
+                  </h4>
+                  <p className="text-[10px] text-indigo-700 mb-3">
+                    <i className="fas fa-info-circle mr-1" />
+                    Tick at least one vehicle type this service applies to, and set the price and duration for each selected type.
+                  </p>
+                  <div className="space-y-2">
+                    {VEHICLE_TYPES.map((vt) => {
+                      const enabled = vehicleTypeEnabled[vt];
+                      const row = vehicleTypePricingForm[vt];
+                      return (
+                        <div
+                          key={vt}
+                          className={`rounded-lg border-2 transition-all ${
+                            enabled
+                              ? "border-indigo-400 bg-white shadow-sm"
+                              : "border-indigo-100 bg-white/60"
+                          }`}
+                        >
+                          <label
+                            className={`flex items-center gap-2 p-2.5 sm:p-3 cursor-pointer select-none ${
+                              enabled ? "" : "hover:bg-indigo-50"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={(e) =>
+                                setVehicleTypeEnabled((prev) => ({
+                                  ...prev,
+                                  [vt]: e.target.checked,
+                                }))
+                              }
+                              className="rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                            />
+                            <i
+                              className={`${VEHICLE_TYPE_ICONS[vt]} text-indigo-500 text-sm w-5 text-center`}
+                            />
+                            <span className="text-xs sm:text-sm font-semibold text-neutral-800 flex-1">
+                              {VEHICLE_TYPE_LABELS[vt]}
+                            </span>
+                            {enabled && row.price && row.duration && (
+                              <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">
+                                ${Number(row.price).toLocaleString()} · {row.duration} min
+                              </span>
+                            )}
+                          </label>
+                          {enabled && (
+                            <div className="border-t border-indigo-100 bg-indigo-50/40 p-2.5 sm:p-3">
+                              <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-neutral-600 mb-1">
+                                    Price ($)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    autoComplete="off"
+                                    value={row.price}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      if (v !== "" && !/^\d*\.?\d*$/.test(v)) return;
+                                      setVehicleTypePricingForm((prev) => ({
+                                        ...prev,
+                                        [vt]: { ...prev[vt], price: v },
+                                      }));
+                                    }}
+                                    className="w-full border border-indigo-200 rounded-lg p-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                                    placeholder="e.g. 180"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-neutral-600 mb-1">
+                                    Duration (mins)
+                                  </label>
+                                  <select
+                                    value={row.duration}
+                                    onChange={(e) =>
+                                      setVehicleTypePricingForm((prev) => ({
+                                        ...prev,
+                                        [vt]: { ...prev[vt], duration: e.target.value },
+                                      }))
+                                    }
+                                    className="select-inset-chevron w-full border border-indigo-200 rounded-lg p-2 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white"
+                                  >
+                                    <option value="">Select Duration</option>
+                                    <option value="15">15 mins</option>
+                                    <option value="30">30 mins</option>
+                                    <option value="45">45 mins</option>
+                                    <option value="60">60 mins</option>
+                                    <option value="75">75 mins</option>
+                                    <option value="90">90 mins</option>
+                                    <option value="105">105 mins</option>
+                                    <option value="120">120 mins</option>
+                                    <option value="135">135 mins</option>
+                                    <option value="150">150 mins</option>
+                                    <option value="165">165 mins</option>
+                                    <option value="180">180 mins</option>
+                                    <option value="195">195 mins</option>
+                                    <option value="210">210 mins</option>
+                                    <option value="225">225 mins</option>
+                                    <option value="240">240 mins</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {!anyVehicleTypeEnabled && (
+                    <p className="text-[10px] text-rose-600 mt-2 font-medium">
+                      <i className="fas fa-triangle-exclamation mr-1" />
+                      Select at least one vehicle type to save this service.
+                    </p>
+                  )}
+                </div>
+
                 {/* Service Image Upload */}
                 <div className="bg-neutral-50 rounded-lg sm:rounded-xl p-3 sm:p-4 border border-neutral-200">
                   <h4 className="text-xs sm:text-sm font-bold text-neutral-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -771,64 +1387,66 @@ export default function ServicesPage() {
                     <i className="fas fa-clipboard-list text-amber-600" />
                     Service Todo List
                   </h4>
-                  <p className="text-[10px] text-amber-700 mb-3">
+                  <p className="text-[10px] text-amber-700 mb-1.5">
                     <i className="fas fa-info-circle mr-1" />
-                    Add tasks that staff must complete for this service. Each item has a name and optional description.
+                    Add tasks staff must complete. For each task, pick which part of the vehicle it belongs to: Interior, Engine Bay, Underbody, or Exterior.
                   </p>
-                  
-                  {/* Existing todo items */}
-                  {checklist.length > 0 && (
-                    <div className="space-y-2.5 mb-3">
-                      {checklist.map((item, index) => (
-                        <div key={index} className="bg-white rounded-xl border border-amber-200 overflow-hidden group">
-                          <div className="flex items-start gap-2.5 p-3">
-                            <div className="w-6 h-6 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <span className="text-[10px] font-bold text-amber-700">{index + 1}</span>
-                            </div>
-                            <div className="flex-1 min-w-0 space-y-1.5">
-                              <input
-                                type="text"
-                                value={item.name}
-                                onChange={(e) => {
-                                  const updated = [...checklist];
-                                  updated[index] = { ...updated[index], name: e.target.value };
-                                  setChecklist(updated);
-                                }}
-                                placeholder="Task name"
-                                className="w-full text-xs sm:text-sm font-semibold text-neutral-800 bg-transparent focus:outline-none focus:ring-0 border-none p-0"
-                              />
-                              <textarea
-                                value={item.description}
-                                onChange={(e) => {
-                                  const updated = [...checklist];
-                                  updated[index] = { ...updated[index], description: e.target.value };
-                                  setChecklist(updated);
-                                }}
-                                placeholder="Description (optional)"
-                                rows={2}
-                                className="w-full text-[11px] sm:text-xs text-neutral-500 bg-neutral-50 rounded-lg border border-neutral-200 p-2 focus:outline-none focus:ring-1 focus:ring-amber-400 focus:border-amber-400 resize-none"
-                              />
-                              {/* Image upload placeholder */}
-                              <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
-                                <i className="fas fa-camera text-[9px]" />
-                                <span>Task photo upload — <span className="font-semibold text-amber-600">coming soon</span></span>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setChecklist(checklist.filter((_, i) => i !== index))}
-                              className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition-all flex-shrink-0 mt-0.5"
-                            >
-                              <i className="fas fa-trash-can text-[9px]" />
-                            </button>
-                          </div>
+                  <p className="text-[10px] text-neutral-500 mb-3">
+                    <i className="fas fa-arrows-alt-v mr-1" />
+                    Drag the grip handle to reorder tasks. Use the <strong>Area order</strong> panel below to reorder areas (drag chips) or reassign tasks (drop a task onto a chip).
+                  </p>
+
+                  <DndContext
+                    sensors={checklistSensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={(ev) => setActiveDragId(String(ev.active.id))}
+                    onDragCancel={() => setActiveDragId(null)}
+                    onDragEnd={onChecklistDragEnd}
+                  >
+                    {checklistRows.length > 0 && (
+                      <SortableContext
+                        items={checklistRows.map((r) => rowDndId(r.rowId))}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="space-y-2.5 mb-3">
+                          {checklistRows.map((row, index) => (
+                            <SortableChecklistRow
+                              key={row.rowId}
+                              row={row}
+                              index={index}
+                              onNameChange={(value) =>
+                                setChecklistRows((prev) =>
+                                  prev.map((r) =>
+                                    r.rowId === row.rowId ? { ...r, name: value } : r
+                                  )
+                                )
+                              }
+                              onDescriptionChange={(value) =>
+                                setChecklistRows((prev) =>
+                                  prev.map((r) =>
+                                    r.rowId === row.rowId ? { ...r, description: value } : r
+                                  )
+                                )
+                              }
+                              onSectionChange={(value) =>
+                                setChecklistRows((prev) =>
+                                  prev.map((r) =>
+                                    r.rowId === row.rowId ? { ...r, section: value } : r
+                                  )
+                                )
+                              }
+                              onRemove={() =>
+                                setChecklistRows((prev) =>
+                                  prev.filter((r) => r.rowId !== row.rowId)
+                                )
+                              }
+                            />
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {/* Add new item */}
-                  <div className="bg-white rounded-xl border border-dashed border-amber-300 p-3 space-y-2">
+                      </SortableContext>
+                    )}
+
+                    <div className="bg-white rounded-xl border border-dashed border-amber-300 p-3 space-y-2">
                     <input
                       type="text"
                       value={newChecklistItem}
@@ -836,11 +1454,24 @@ export default function ServicesPage() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          if (newChecklistItem.trim()) {
-                            setChecklist([...checklist, { name: newChecklistItem.trim(), description: newChecklistDesc.trim(), done: false, imageUrl: "" }]);
-                            setNewChecklistItem("");
-                            setNewChecklistDesc("");
+                          if (!newChecklistItem.trim()) return;
+                          if (newChecklistSection === "") {
+                            showToast("Please select an area.", "error");
+                            return;
                           }
+                          setChecklistRows((prev) => [
+                            ...prev,
+                            {
+                              rowId: newChecklistRowId(),
+                              name: newChecklistItem.trim(),
+                              description: newChecklistDesc.trim(),
+                              done: false,
+                              section: newChecklistSection,
+                            },
+                          ]);
+                          setNewChecklistItem("");
+                          setNewChecklistDesc("");
+                          setNewChecklistSection("");
                         }
                       }}
                       placeholder="Task name — e.g. Oil & filter change"
@@ -853,14 +1484,48 @@ export default function ServicesPage() {
                       rows={2}
                       className="w-full border border-neutral-200 rounded-lg p-2 text-[11px] sm:text-xs text-neutral-500 focus:ring-1 focus:ring-amber-400 focus:outline-none resize-none"
                     />
+                    <select
+                      value={newChecklistSection}
+                      onChange={(e) =>
+                        setNewChecklistSection(
+                          e.target.value === "" ? "" : (e.target.value as ChecklistSection)
+                        )
+                      }
+                      aria-label="Select area"
+                      className={`${nativeSelectInsetChevronClass} w-full rounded-md border border-neutral-200 py-1.5 text-[11px] focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400 sm:text-xs ${
+                        newChecklistSection === "" ? "text-neutral-400" : "text-neutral-700"
+                      }`}
+                    >
+                      <option value="" disabled hidden>
+                        Select area
+                      </option>
+                      {CHECKLIST_SECTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {CHECKLIST_SECTION_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => {
-                        if (newChecklistItem.trim()) {
-                          setChecklist([...checklist, { name: newChecklistItem.trim(), description: newChecklistDesc.trim(), done: false, imageUrl: "" }]);
-                          setNewChecklistItem("");
-                          setNewChecklistDesc("");
+                        if (!newChecklistItem.trim()) return;
+                        if (newChecklistSection === "") {
+                          showToast("Please select an area.", "error");
+                          return;
                         }
+                        setChecklistRows((prev) => [
+                          ...prev,
+                          {
+                            rowId: newChecklistRowId(),
+                            name: newChecklistItem.trim(),
+                            description: newChecklistDesc.trim(),
+                            done: false,
+                            section: newChecklistSection,
+                          },
+                        ]);
+                        setNewChecklistItem("");
+                        setNewChecklistDesc("");
+                        setNewChecklistSection("");
                       }}
                       className="w-full py-2 bg-neutral-900 text-white rounded-lg hover:bg-neutral-800 transition-all text-xs sm:text-sm font-medium flex items-center justify-center gap-1.5"
                     >
@@ -868,14 +1533,133 @@ export default function ServicesPage() {
                       Add Task
                     </button>
                   </div>
-                  
-                  {checklist.length > 0 && (
-                    <div className="mt-2 text-[10px] text-amber-600 font-medium">
-                      <i className="fas fa-list-check mr-1" />
-                      {checklist.length} task{checklist.length !== 1 ? "s" : ""} in todo list
-                    </div>
-                  )}
 
+                    {checklistRows.length > 0 && (
+                      <div className="mt-2 text-[10px] text-amber-600 font-medium">
+                        <i className="fas fa-list-check mr-1" />
+                        {checklistRows.length} task{checklistRows.length !== 1 ? "s" : ""} in todo list
+                      </div>
+                    )}
+
+                    {/* Area order — stacked below the Add Task card. Drag chips
+                        to reorder (this is the order customers see), drop a
+                        task onto a chip to move it into that area, or click
+                        a chip to quick-pick the area for the next new task. */}
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-white/70 p-2.5">
+                      <div className="mb-2 flex items-center justify-between px-0.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                          <i className="fas fa-arrows-alt-v mr-1" />
+                          Area order
+                        </span>
+                        <span className="text-[9px] text-neutral-500">Drag to reorder • Drop tasks here</span>
+                      </div>
+                      <SortableContext
+                        items={areaOrder.map((s) => chipId(s))}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <div className="flex flex-col gap-2">
+                          {areaOrder.map((s) => (
+                            <SortableAreaChip
+                              key={s}
+                              section={s}
+                              count={areaCounts[s]}
+                              active={newChecklistSection === s}
+                              draggingRow={draggingRow}
+                              onClick={() => setNewChecklistSection(s)}
+                            />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </div>
+                  </DndContext>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowFormPreview((v) => !v)}
+                    disabled={checklistPayloadFromRows(checklistRows).length === 0}
+                    aria-expanded={showFormPreview}
+                    className={`mt-3 w-full flex items-center justify-center gap-2 rounded-lg border-2 border-amber-400 bg-white py-2 text-xs sm:text-sm font-semibold text-amber-700 transition-all ${
+                      checklistPayloadFromRows(checklistRows).length === 0
+                        ? "opacity-50 cursor-not-allowed"
+                        : "hover:bg-amber-100 active:scale-[0.98]"
+                    }`}
+                  >
+                    <i className={`fas ${showFormPreview ? "fa-chevron-up" : "fa-eye"} text-xs`} />
+                    {showFormPreview ? "Hide preview" : "Preview customer view"}
+                  </button>
+
+                  {/* Inline preview — expands smoothly in place (no modal).
+                      Mounts only when open so there's no reserved empty area
+                      when collapsed; the fade+slide keyframe supplies the
+                      opening animation (see globals.css .animate-previewExpand). */}
+                  {showFormPreview && (() => {
+                    const items = checklistPayloadFromRows(checklistRows);
+                    if (items.length === 0) return null;
+                    return (
+                      <div className="animate-previewExpand mt-3 rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3 sm:p-4">
+                        <div className="mb-3 flex items-center gap-2">
+                          <i className="fas fa-eye text-amber-600" />
+                          <div className="flex min-w-0 flex-col">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                              Customer preview
+                            </span>
+                            <span className="truncate text-xs font-bold text-neutral-800">
+                              {name.trim() || "Unnamed service"}
+                            </span>
+                          </div>
+                          <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            {items.length} task{items.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        <div className="space-y-4">
+                          {groupChecklistItemsWithGlobalNumbers(items, areaOrder).map((group) => (
+                            <div key={group.key} className="space-y-2">
+                              <div
+                                className={
+                                  group.key === "unset"
+                                    ? "flex items-center gap-2 rounded-lg border-2 border-neutral-300 bg-neutral-50 px-2.5 py-1.5 text-neutral-800"
+                                    : `flex items-center gap-2 rounded-lg border-2 px-2.5 py-1.5 ${CHECKLIST_SECTION_BADGE[group.key as ChecklistSection]}`
+                                }
+                              >
+                                {group.key === "unset" ? (
+                                  <>
+                                    <i className="fas fa-question-circle text-[10px] text-neutral-500" />
+                                    <span className="text-[11px] font-bold">Area not set</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <i className={`${CHECKLIST_SECTION_ICON[group.key]} text-[10px] opacity-90`} />
+                                    <span className="text-[11px] font-bold">
+                                      {CHECKLIST_SECTION_LABELS[group.key as ChecklistSection]}
+                                    </span>
+                                  </>
+                                )}
+                                <span className="ml-auto text-[10px] font-semibold text-neutral-600">
+                                  {group.items.length} task{group.items.length !== 1 ? "s" : ""}
+                                </span>
+                              </div>
+                              {group.items.map(({ item, num }) => (
+                                <div
+                                  key={`${group.key}-${num}-${item.name}`}
+                                  className="flex items-start gap-2.5 rounded-lg border border-amber-100 bg-white p-3"
+                                >
+                                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 shadow-sm shadow-amber-500/40 tabular-nums">
+                                    <span className="text-[10px] font-black leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{num}</span>
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-semibold text-neutral-800">{item.name}</p>
+                                    {item.description && (
+                                      <p className="mt-0.5 text-xs text-neutral-500">{item.description}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Available Branches */}
@@ -1045,27 +1829,147 @@ export default function ServicesPage() {
                     </div>
                   )}
 
-                  {/* Price and Duration */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
-                          <i className="fas fa-dollar-sign text-amber-500" />
+                  {/* Flat Price / Duration — only for legacy services that
+                      predate vehicle-type pricing. New services always have
+                      at least one vehicle-type entry and surface pricing
+                      through the matrix below instead. */}
+                  {previewService.vehicleTypes.length === 0 && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-neutral-50 rounded-xl p-4 border-2 border-neutral-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center">
+                            <i className="fas fa-dollar-sign text-amber-500" />
+                          </div>
+                          <div className="text-xs text-neutral-600 font-semibold">Price</div>
                         </div>
-                        <div className="text-xs text-neutral-600 font-semibold">Price</div>
+                        <div className="text-3xl font-bold text-neutral-900">${previewService.price}</div>
                       </div>
-                      <div className="text-3xl font-bold text-neutral-900">${previewService.price}</div>
-                    </div>
-                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                          <i className="fas fa-clock text-blue-600" />
+                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <i className="fas fa-clock text-blue-600" />
+                          </div>
+                          <div className="text-xs text-neutral-600 font-semibold">Duration</div>
                         </div>
-                        <div className="text-xs text-neutral-600 font-semibold">Duration</div>
+                        <div className="text-3xl font-bold text-blue-600">{previewService.duration}<span className="text-lg">min</span></div>
                       </div>
-                      <div className="text-3xl font-bold text-blue-600">{previewService.duration}<span className="text-lg">min</span></div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* "Starting from" summary + Vehicle-type pricing matrix.
+                      Mirrors the card: headline shows the cheapest tier and
+                      shortest duration (both drawn straight from the stored
+                      matrix so there's no drift), then the matrix breaks
+                      the full price list down by vehicle type. The tier
+                      matching the headline is tagged with a small "lowest"
+                      chip so the owner can see what feeds the headline. */}
+                  {previewService.vehicleTypes.length > 0 && (() => {
+                    const entries = previewService.vehicleTypes
+                      .map((vt) => ({
+                        vt,
+                        entry: previewService.vehicleTypePricing[vt],
+                      }))
+                      .filter((x) => !!x.entry) as {
+                      vt: VehicleType;
+                      entry: { price: number; duration: number };
+                    }[];
+                    if (entries.length === 0) return null;
+                    const minPrice = Math.min(...entries.map((e) => e.entry.price));
+                    const minDuration = Math.min(
+                      ...entries.map((e) => e.entry.duration),
+                    );
+                    return (
+                      <div className="space-y-3">
+                        {/* Starting-from headline */}
+                        <div className="bg-gradient-to-br from-amber-50 via-white to-indigo-50 rounded-xl p-4 border-2 border-amber-200">
+                          <div className="flex items-center gap-2 mb-2">
+                            <i className="fas fa-tag text-amber-600 text-xs" />
+                            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
+                              Starting from
+                            </span>
+                          </div>
+                          <div className="flex items-end justify-between gap-3 flex-wrap">
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-2xl font-black text-neutral-400 leading-none">$</span>
+                              <span className="text-4xl font-black text-neutral-900 tracking-tight leading-none tabular-nums">
+                                {minPrice.toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+                              <i className="far fa-clock text-blue-600 text-xs" />
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-700">From</span>
+                              <span className="text-sm font-bold text-blue-900 tabular-nums">{minDuration}</span>
+                              <span className="text-xs text-blue-600 font-medium">min</span>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-neutral-500 mt-2">
+                            Lowest price across {entries.length} configured vehicle
+                            {entries.length !== 1 ? " types" : " type"}. Final price depends on the customer's vehicle.
+                          </p>
+                        </div>
+
+                        {/* Per-vehicle matrix */}
+                        <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl p-4 border-2 border-indigo-200">
+                          <h3 className="text-sm font-bold text-neutral-800 mb-3 flex items-center gap-2">
+                            <i className="fas fa-car text-indigo-600" />
+                            Pricing by Vehicle Type
+                            <span className="ml-auto text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-semibold">
+                              {entries.length} type{entries.length !== 1 ? "s" : ""}
+                            </span>
+                          </h3>
+                          <div className="space-y-2">
+                            {entries.map(({ vt, entry }) => {
+                              const isLowest = entry.price === minPrice;
+                              return (
+                                <div
+                                  key={vt}
+                                  className={`flex items-center gap-3 rounded-lg p-3 transition-all ${
+                                    isLowest
+                                      ? "bg-amber-50 border-2 border-amber-300 shadow-sm"
+                                      : "bg-white border border-indigo-100"
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                                      isLowest ? "bg-amber-100" : "bg-indigo-100"
+                                    }`}
+                                  >
+                                    <i
+                                      className={`${VEHICLE_TYPE_ICONS[vt]} ${
+                                        isLowest ? "text-amber-700" : "text-indigo-600"
+                                      }`}
+                                    />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="text-sm font-semibold text-neutral-800 truncate">
+                                        {VEHICLE_TYPE_LABELS[vt]}
+                                      </p>
+                                      {isLowest && (
+                                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-200/70 rounded-full px-1.5 py-0.5 leading-none">
+                                          Lowest
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-sm font-bold text-neutral-900 tabular-nums">
+                                      ${entry.price.toLocaleString()}
+                                    </span>
+                                    <span className="text-neutral-300">·</span>
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5 tabular-nums">
+                                      <i className="far fa-clock text-[9px]" />
+                                      {entry.duration}m
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Stats */}
                   <div className="grid grid-cols-2 gap-3">
@@ -1142,18 +2046,49 @@ export default function ServicesPage() {
                           {previewService.checklist.length} task{previewService.checklist.length !== 1 ? "s" : ""}
                         </span>
                       </h3>
-                      <div className="space-y-2">
-                        {previewService.checklist.map((item, index) => (
-                          <div key={index} className="flex items-start gap-2.5 bg-white rounded-lg p-3 border border-amber-100">
-                            <div className="w-6 h-6 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <span className="text-[10px] font-bold text-white">{index + 1}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-neutral-800 font-semibold">{item.name}</p>
-                              {item.description && (
-                                <p className="text-xs text-neutral-500 mt-0.5">{item.description}</p>
+                      <div className="space-y-4">
+                        {groupChecklistItemsWithGlobalNumbers(previewService.checklist, previewService.areaOrder).map((group) => (
+                          <div key={group.key} className="space-y-2">
+                            <div
+                              className={
+                                group.key === "unset"
+                                  ? "flex items-center gap-2 rounded-lg border-2 border-neutral-300 bg-neutral-50 px-2.5 py-1.5 text-neutral-800"
+                                  : `flex items-center gap-2 rounded-lg border-2 px-2.5 py-1.5 ${CHECKLIST_SECTION_BADGE[group.key as ChecklistSection]}`
+                              }
+                            >
+                              {group.key === "unset" ? (
+                                <>
+                                  <i className="fas fa-question-circle text-[10px] text-neutral-500" />
+                                  <span className="text-[11px] font-bold">Area not set</span>
+                                </>
+                              ) : (
+                                <>
+                                  <i className={`${CHECKLIST_SECTION_ICON[group.key]} text-[10px] opacity-90`} />
+                                  <span className="text-[11px] font-bold">
+                                    {CHECKLIST_SECTION_LABELS[group.key as ChecklistSection]}
+                                  </span>
+                                </>
                               )}
+                              <span className="ml-auto text-[10px] font-semibold text-neutral-600">
+                                {group.items.length} task{group.items.length !== 1 ? "s" : ""}
+                              </span>
                             </div>
+                            {group.items.map(({ item, num }) => (
+                              <div
+                                key={`${group.key}-${num}-${item.name}`}
+                                className="flex items-start gap-2.5 bg-white rounded-lg p-3 border border-amber-100"
+                              >
+                                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 shadow-sm shadow-amber-500/40 tabular-nums">
+                                  <span className="text-[10px] font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{num}</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-neutral-800 font-semibold">{item.name}</p>
+                                  {item.description && (
+                                    <p className="text-xs text-neutral-500 mt-0.5">{item.description}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         ))}
                       </div>
@@ -1211,6 +2146,7 @@ export default function ServicesPage() {
         </aside>
       </div>
 
+      {/* Preview on the unsaved edit form */}
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-neutral-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1254,6 +2190,42 @@ export default function ServicesPage() {
           </div>
         </div>
       )}
+
+      {/* Toasts: z-[200] so they render above modal backdrops (z-50 + blur) */}
+      <div
+        id="toast-container"
+        className="fixed bottom-5 right-5 z-[200] flex max-w-[min(100vw-1.5rem,22rem)] flex-col gap-2 pointer-events-none"
+        aria-live="polite"
+      >
+        {toasts.map((t) => {
+          const isErr = t.variant === "error";
+          const isWarn = t.variant === "warning";
+          return (
+            <div
+              key={t.id}
+              className={
+                isErr
+                  ? "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-red-500 bg-neutral-950 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+                  : isWarn
+                    ? "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-amber-400 bg-neutral-900 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+                    : "pointer-events-auto flex items-start gap-3 rounded-lg border-l-4 border-emerald-500 bg-neutral-900 px-4 py-3 text-sm font-medium leading-snug text-white shadow-2xl ring-1 ring-white/10"
+              }
+            >
+              <i
+                className={
+                  isErr
+                    ? "fas fa-circle-exclamation mt-0.5 shrink-0 text-red-400"
+                    : isWarn
+                      ? "fas fa-triangle-exclamation mt-0.5 shrink-0 text-amber-300"
+                      : "fas fa-circle-check mt-0.5 shrink-0 text-emerald-400"
+                }
+                aria-hidden
+              />
+              <span className="min-w-0 break-words">{t.text}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

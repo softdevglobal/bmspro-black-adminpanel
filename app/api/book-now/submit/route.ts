@@ -3,45 +3,16 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingCode } from "@/lib/bookings";
 import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
-import { shouldBlockSlots } from "@/lib/bookingTypes";
 import { getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
+import {
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  VEHICLE_TYPE_LABELS,
+  type VehicleType,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
-
-function getDayOfWeek(dateStr: string): string {
-  const dateObj = new Date(dateStr + "T12:00:00");
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return days[dateObj.getDay()];
-}
-
-function isStaffAssignedToBranch(staff: any, branchId: string, dayOfWeek: string): boolean {
-  if (dayOfWeek && staff.weeklySchedule && typeof staff.weeklySchedule === "object") {
-    const daySchedule = staff.weeklySchedule[dayOfWeek];
-    if (daySchedule && daySchedule.branchId) {
-      return daySchedule.branchId === branchId;
-    }
-    if (daySchedule === null || daySchedule === undefined) {
-      return false;
-    }
-  }
-  return staff.branchId === branchId;
-}
-
-function isAnyStaffId(staffId?: string | null): boolean {
-  if (!staffId) return true;
-  const str = String(staffId).trim().toLowerCase();
-  return str === "" || str === "null" || str.includes("any") || str === "not assigned yet";
-}
-
-function timeToMinutes(timeStr: string): number {
-  const parts = timeStr.split(":").map(Number);
-  if (parts.length < 2) return 0;
-  return parts[0] * 60 + parts[1];
-}
-
-function timeRangesOverlap(s1: number, e1: number, s2: number, e2: number): boolean {
-  return s1 < e2 && s2 < e1;
-}
 
 /**
  * Public API: Submit a booking from the booking engine.
@@ -61,12 +32,22 @@ export async function POST(req: NextRequest) {
       customerPhone,
       vehicleNumber,
       vehicleDetails,
+      vehicleType: rawVehicleType,
       notes,
       date,
       time,
       pickupTime,
       customerId,
     } = body;
+
+    // Canonical vehicle type (one of the 5 sizes) used to resolve per-vehicle
+    // price/duration from each service's `vehicleTypePricing` map. Optional
+    // on the wire — legacy flat-price services don't need it, but services
+    // that only have vehicle-type pricing will error out below if it's
+    // missing or doesn't match one of their configured types.
+    const vehicleType: VehicleType | null = isVehicleType(rawVehicleType)
+      ? rawVehicleType
+      : null;
 
     if (!customerId) {
       return NextResponse.json(
@@ -83,6 +64,26 @@ export async function POST(req: NextRequest) {
     if (!slug || !branchId || !selectedServices?.length || !customerName || !customerPhone || !customerEmail?.trim() || !date || !time || !pickupTime) {
       return NextResponse.json(
         { error: "Missing required fields. Please fill in all required fields." },
+        { status: 400 }
+      );
+    }
+
+    // Customer email + phone must be valid — consistent with /api/bookings and
+    // /api/call-center/bookings so every booking creation path enforces it.
+    const normalizedCustomerEmail = String(customerEmail).trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedCustomerEmail)) {
+      return NextResponse.json(
+        { error: "Please enter a valid email address.", field: "customerEmail" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedCustomerPhone = String(customerPhone).trim();
+    const phoneDigits = normalizedCustomerPhone.replace(/\D/g, "");
+    if (phoneDigits.length < 6 || !/^[+\d][\d\s\-()]+$/.test(normalizedCustomerPhone)) {
+      return NextResponse.json(
+        { error: "Please enter a valid phone number.", field: "customerPhone" },
         { status: 400 }
       );
     }
@@ -113,29 +114,88 @@ export async function POST(req: NextRequest) {
     const ownerDoc = usersQuery.docs[0];
     const ownerUid = ownerDoc.id;
 
-    // Calculate total price and duration from selected services
+    // Calculate total price and duration from selected services. For each
+    // service we resolve pricing via `resolveServicePricingForVehicleType`:
+    //   - Services with `vehicleTypePricing` → use the entry matching the
+    //     customer's vehicle type (errors out if the service doesn't offer
+    //     that type; the client prevents this by filtering the list, but we
+    //     guard server-side too).
+    //   - Services with only legacy flat fields → use those.
     let totalPrice = 0;
     let totalDuration = 0;
     const serviceDetails: any[] = [];
 
     for (const svc of selectedServices) {
       const serviceDoc = await db.collection("services").doc(svc.id).get();
-      if (serviceDoc.exists) {
-        const serviceData = serviceDoc.data()!;
-        totalPrice += serviceData.price || 0;
-        totalDuration += serviceData.duration || 0;
-        serviceDetails.push({
-          id: svc.id,
-          serviceId: svc.id,
-          name: serviceData.name || "Service",
-          price: serviceData.price || 0,
-          duration: serviceData.duration || 0,
-          time: svc.time || time,
-          staffId: null,
-          staffName: "Not Assigned Yet",
-          approvalStatus: "needs_assignment",
-        });
+      if (!serviceDoc.exists) continue;
+      const serviceData = serviceDoc.data()!;
+      const vt = normalizeVehicleTypePricing(serviceData.vehicleTypePricing);
+
+      // If the service uses vehicle-type pricing, the customer must have
+      // picked a vehicle type that the service supports — otherwise we'd
+      // silently bill $0 / 0 min.
+      if (vt.vehicleTypes.length > 0) {
+        if (!vehicleType) {
+          return NextResponse.json(
+            {
+              error:
+                "Please select your vehicle type before booking. Pricing depends on the vehicle size.",
+              field: "vehicleType",
+            },
+            { status: 400 },
+          );
+        }
+        if (!vt.vehicleTypes.includes(vehicleType)) {
+          const name = serviceData.name || "this service";
+          return NextResponse.json(
+            {
+              error: `“${name}” isn't offered for ${VEHICLE_TYPE_LABELS[vehicleType]}. Please remove it or pick a different vehicle type.`,
+              field: "vehicleType",
+            },
+            { status: 400 },
+          );
+        }
       }
+
+      const resolved = resolveServicePricingForVehicleType(
+        {
+          price: serviceData.price,
+          duration: serviceData.duration,
+          vehicleTypePricing: vt.vehicleTypePricing,
+        },
+        vehicleType,
+      );
+
+      totalPrice += resolved.price;
+      totalDuration += resolved.duration;
+
+      // Snapshot the owner's current area ordering so the booking preview
+      // keeps the same area-wise grouping even if the owner later reorders.
+      const rawAreaOrder = Array.isArray(serviceData.areaOrder)
+        ? serviceData.areaOrder.filter(
+            (v: unknown) =>
+              v === "interior" ||
+              v === "engine_bay" ||
+              v === "underbody" ||
+              v === "exterior"
+          )
+        : [];
+
+      serviceDetails.push({
+        id: svc.id,
+        serviceId: svc.id,
+        name: serviceData.name || "Service",
+        price: resolved.price,
+        duration: resolved.duration,
+        // Record which vehicle-type tier was picked so audit/refund flows
+        // and invoices can show exactly why this service cost what it did.
+        vehicleType: resolved.matchedVehicleType || null,
+        time: svc.time || time,
+        staffId: null,
+        staffName: "Not Assigned Yet",
+        approvalStatus: "needs_assignment",
+        areaOrder: rawAreaOrder,
+      });
     }
 
     // Get branch timezone and hours
@@ -216,82 +276,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Capacity check: ensure not all eligible staff are booked at the requested time
-    try {
-      const dayOfWeek = getDayOfWeek(date);
-
-      const [staffSnapshot, servicesSnapshot, bookingsSnapshot] = await Promise.all([
-        db.collection("users").where("ownerUid", "==", ownerUid).get(),
-        db.collection("services").where("ownerUid", "==", ownerUid).get(),
-        db.collection("bookings").where("ownerUid", "==", ownerUid).where("date", "==", date).get(),
-      ]);
-
-      const allStaff = staffSnapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-      const allServicesData = servicesSnapshot.docs.map((d: any) => ({ id: d.id, ...d.data() }));
-      const activeBookings = bookingsSnapshot.docs
-        .map((d: any) => ({ id: d.id, ...d.data() }))
-        .filter((b: any) => b.branchId === branchId && shouldBlockSlots(b.status));
-
-      for (const svc of serviceDetails) {
-        const serviceData: any = allServicesData.find((s: any) => String(s.id) === String(svc.id));
-        const eligible = allStaff.filter((st: any) => {
-          const role = (st.role || "").toString().toLowerCase();
-          if (role !== "staff" && role !== "branch_admin") return false;
-          if (st.status && st.status !== "Active") return false;
-          if (serviceData?.staffIds?.length > 0) {
-            if (!serviceData.staffIds.some((id: string) => String(id) === st.id || String(id) === (st.uid || st.id))) return false;
-          }
-          return isStaffAssignedToBranch(st, branchId, dayOfWeek);
-        });
-
-        if (eligible.length === 0) continue;
-
-        const svcDuration = svc.duration || totalDuration || 60;
-        const newStart = timeToMinutes(svc.time || time);
-        const newEnd = newStart + svcDuration;
-
-        const bookedStaffIds = new Set<string>();
-        let anyStaffOverlapping = 0;
-
-        for (const booking of activeBookings) {
-          if (booking.services && Array.isArray(booking.services) && booking.services.length > 0) {
-            for (const existingSvc of booking.services) {
-              if (!existingSvc.time) continue;
-              const existingStaffId = existingSvc.staffId || booking.staffId || null;
-              const existingStart = timeToMinutes(existingSvc.time);
-              const existingEnd = existingStart + (existingSvc.duration || booking.duration || 60);
-              if (!timeRangesOverlap(newStart, newEnd, existingStart, existingEnd)) continue;
-              if (!isAnyStaffId(existingStaffId)) {
-                if (eligible.some((s: any) => s.id === existingStaffId)) bookedStaffIds.add(existingStaffId!);
-              } else {
-                anyStaffOverlapping++;
-              }
-            }
-          } else {
-            if (!booking.time) continue;
-            const existingStaffId = booking.staffId || null;
-            const existingStart = timeToMinutes(booking.time);
-            const existingEnd = existingStart + (booking.duration || 60);
-            if (!timeRangesOverlap(newStart, newEnd, existingStart, existingEnd)) continue;
-            if (!isAnyStaffId(existingStaffId)) {
-              if (eligible.some((s: any) => s.id === existingStaffId)) bookedStaffIds.add(existingStaffId!);
-            } else {
-              anyStaffOverlapping++;
-            }
-          }
-        }
-
-        const freeStaff = eligible.length - bookedStaffIds.size - anyStaffOverlapping;
-        if (freeStaff <= 0) {
-          return NextResponse.json(
-            { error: `The ${svc.time || time} time slot is fully booked for ${svc.name}. All ${eligible.length} available staff are occupied. Please choose a different time.` },
-            { status: 409 }
-          );
-        }
-      }
-    } catch (capErr) {
-      console.error("Capacity check error (non-blocking):", capErr);
-    }
+    // NOTE: Staff-wise capacity checks have been intentionally removed.
+    // The booking engine no longer caps bookings by the number of eligible
+    // staff on shift — the workshop decides how many bookings to accept and
+    // handles staff assignment manually. The only remaining quota is the
+    // branch's optional `bookingLimitPerDay` (enforced in the availability
+    // endpoint by blocking all slots for the day once it is reached).
 
     // Build tasks array from service checklists
     let bookingTasks: any[] = [];
@@ -307,12 +297,22 @@ export async function POST(req: NextRequest) {
         if (!Array.isArray(checklist) || checklist.length === 0) continue;
         const svcName = svcData?.name || svc.name || "";
         for (const item of checklist) {
+          const rawSection =
+            typeof item === "string" ? undefined : (item as any)?.section;
+          const section =
+            rawSection === "interior" ||
+            rawSection === "engine_bay" ||
+            rawSection === "underbody" ||
+            rawSection === "exterior"
+              ? rawSection
+              : "interior";
           bookingTasks.push({
             id: `task_${taskIndex++}`,
             serviceId: svcId,
             serviceName: svcName,
             name: typeof item === "string" ? item : (item.name || ""),
             description: typeof item === "string" ? "" : (item.description || ""),
+            section,
             done: false,
             imageUrl: "",
             staffNote: "",
@@ -338,6 +338,11 @@ export async function POST(req: NextRequest) {
       vehicleYear: vehicleDetails?.year || null,
       vehicleMileage: vehicleDetails?.mileage || null,
       vehicleBodyType: vehicleDetails?.bodyType || null,
+      // Canonical "size class" the customer picked for pricing. Distinct
+      // from the free-text `vehicleBodyType` because this one always maps
+      // to one of our 5 `VehicleType` enum values and is what drove the
+      // per-service pricing resolution above.
+      vehicleType: vehicleType || null,
       vehicleColour: vehicleDetails?.colour || null,
       vehicleVinChassis: vehicleDetails?.vinChassis || null,
       vehicleEngineNumber: vehicleDetails?.engineNumber || null,

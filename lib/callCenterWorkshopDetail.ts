@@ -1,4 +1,6 @@
 import type { Firestore } from "firebase-admin/firestore";
+import type { VehicleType, VehicleTypePricingMap } from "@/lib/services";
+import { serializeCallCenterServicePricing } from "@/lib/callCenterServicePricing";
 
 export type WorkshopFullBundle = {
   workshop: {
@@ -30,6 +32,9 @@ export type WorkshopFullBundle = {
     description: string;
     price: number;
     duration: number;
+    vehicleTypes: VehicleType[];
+    vehicleTypePricing: VehicleTypePricingMap;
+    pricingByVehicleType: VehicleTypePricingMap;
     branches: string[];
     checklist: unknown[];
   }>;
@@ -84,14 +89,14 @@ export async function fetchWorkshopFullDetail(
   });
 
   const services = servicesSnap.docs.map((doc) => {
-    const d = doc.data();
+    const d = doc.data() as Record<string, unknown>;
+    const pricing = serializeCallCenterServicePricing(d);
     return {
       id: doc.id,
-      name: d.name || "",
-      description: d.description || "",
-      price: d.price || 0,
-      duration: d.duration || 0,
-      branches: Array.isArray(d.branches) ? d.branches : [],
+      name: (d.name as string) || "",
+      description: (d.description as string) || "",
+      ...pricing,
+      branches: Array.isArray(d.branches) ? (d.branches as string[]) : [],
       checklist: Array.isArray(d.checklist) ? d.checklist : [],
     };
   });

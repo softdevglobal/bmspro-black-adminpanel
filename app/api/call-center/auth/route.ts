@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
  *   email: string,
  *   password: string,
  *   name: string,
- *   role?: "call_center_agent" | "call_center_admin",
+ *   role?: "agent" | "call_center_agent" | "call_center_admin",
  *   assignedWorkshops: string[],  // array of ownerUids
  * }
  */
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
  *   agentUid: string,
  *   assignedWorkshops?: string[],
  *   suspended?: boolean,
- *   role?: "call_center_agent" | "call_center_admin",
+ *   role?: "agent" | "call_center_agent" | "call_center_admin",
  *   name?: string,
  * }
  */

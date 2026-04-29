@@ -1,3 +1,6 @@
+import { isChecklistSection, type ChecklistSection } from "./services";
+import type { TaskCondition } from "./taskCondition";
+
 export type BookingStatus = 
   | "Pending" 
   | "AwaitingStaffApproval" 
@@ -45,6 +48,8 @@ export interface BookingService {
   completedAt?: any; // Firestore timestamp or ISO string
   completedByStaffUid?: string;
   completedByStaffName?: string;
+  /** Owner-chosen vehicle-area ordering at booking time (e.g. interior → engine_bay → …). Snapshotted so old bookings keep their display order even if the service is edited later. Falls back to DEFAULT_AREA_ORDER when absent. */
+  areaOrder?: ChecklistSection[];
 }
 
 export function normalizeBookingStatus(value: string | null | undefined): BookingStatus {
@@ -296,9 +301,13 @@ export interface BookingTask {
   serviceName?: string;          // Service name for display
   name: string;                  // Task name (from checklist)
   description: string;           // Task description (from checklist)
+  /** Which part of the vehicle this task applies to (interior/engine_bay/underbody/exterior). Snapshotted from the service checklist at booking creation so existing bookings keep their grouping even if the service is edited later. */
+  section?: ChecklistSection;
   done: boolean;                 // Completion status
   imageUrl: string;              // Photo uploaded by staff after task completion
   staffNote: string;             // Description of work done by staff
+  /** Post-completion condition flag the staff member attached to this task. */
+  condition?: TaskCondition;
   completedAt?: string | null;   // ISO timestamp when completed
   completedByStaffUid?: string | null;
   completedByStaffName?: string | null;
@@ -374,6 +383,7 @@ export function normalizeTasks(raw: any[]): BookingTask[] {
     serviceName: t.serviceName || "",
     name: t.name || "",
     description: t.description || "",
+    section: isChecklistSection(t.section) ? t.section : undefined,
     done: !!t.done,
     imageUrl: t.imageUrl || "",
     staffNote: t.staffNote || "",

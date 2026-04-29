@@ -3,9 +3,21 @@ import puppeteer from "puppeteer-core";
 import { adminDb } from "./firebaseAdmin";
 import { fetchImageBuffer } from "./fetchImageForPdf";
 import type { BookingTask, BookingFinalSubmission } from "./bookingTypes";
+import { bookingJobReportPdfFilename } from "./bookingPdfFilename";
 import { formatInTimezone } from "./timezone";
 import { PDFDocument as PDFLibDocument } from "pdf-lib";
 import sharp from "sharp";
+import {
+  type ChecklistSection,
+  CHECKLIST_SECTION_LABELS,
+  DEFAULT_AREA_ORDER,
+  isChecklistSection,
+  normalizeAreaOrder,
+  VEHICLE_TYPE_LABELS,
+  isVehicleType,
+  type VehicleType,
+} from "./services";
+import { taskConditionOption } from "./taskCondition";
 
 /** Remove trailing pages that only contain footer/minimal content */
 async function removeBlankTrailingPages(pdfBuffer: Buffer): Promise<Buffer> {
@@ -43,6 +55,8 @@ interface BookingPDFData {
   clientPhone?: string;
   vehicleNumber?: string | null;
   vehicleBodyType?: string | null;
+  /** Canonical vehicle size class used for per-type pricing. */
+  vehicleType?: VehicleType | null;
   vehicleColour?: string | null;
   vehicleMake: string | null;
   vehicleModel: string | null;
@@ -77,9 +91,13 @@ interface BookingPDFData {
     time?: string;
     duration?: number;
     price?: number;
+    /** Canonical vehicle size class this line item was priced against. */
+    vehicleType?: VehicleType | null;
     completionStatus?: string;
     completedAt?: any;
     completedByStaffName?: string;
+    /** Owner-defined vehicle-area ordering. Snapshotted at booking creation, with a live-lookup fallback for legacy bookings. */
+    areaOrder?: ChecklistSection[];
   }>;
   tasks?: BookingTask[];
   taskProgress?: number;
@@ -225,6 +243,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     vehicleYear: data.vehicleYear,
     vehicleNumber: data.vehicleNumber || null,
     vehicleBodyType: data.vehicleBodyType || null,
+    vehicleType: isVehicleType(data.vehicleType) ? (data.vehicleType as VehicleType) : null,
     vehicleColour: data.vehicleColour || null,
     vehicleVinChassis: data.vehicleVinChassis || null,
     vehicleEngineNumber: data.vehicleEngineNumber || null,
@@ -249,7 +268,15 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     notes: data.notes,
     completedAt: data.completedAt,
     completedByStaffName: data.completedByStaffName,
-    services: data.services || [],
+    services: Array.isArray(data.services)
+      ? data.services.map((s: any) => {
+          const raw = s?.areaOrder;
+          const normalized =
+            Array.isArray(raw) && raw.length > 0 ? normalizeAreaOrder(raw) : undefined;
+          const normalizedType = isVehicleType(s?.vehicleType) ? (s.vehicleType as VehicleType) : null;
+          return { ...s, areaOrder: normalized, vehicleType: normalizedType };
+        })
+      : [],
     tasks: data.tasks || [],
     taskProgress: data.taskProgress,
     finalSubmission: data.finalSubmission || null,
@@ -260,6 +287,44 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
     additionalIssues: Array.isArray(data.additionalIssues) ? data.additionalIssues : null,
     salonName,
   };
+
+  // Legacy-fallback: for services whose snapshot lacks `areaOrder` (created
+  // before we snapshotted it onto the booking), look it up live from
+  // `services/{id}` so the PDF still groups tasks in the owner's preferred
+  // area order instead of the fixed default.
+  {
+    const missingIds = new Set<string>();
+    for (const s of booking.services || []) {
+      if (!Array.isArray(s.areaOrder) || s.areaOrder.length === 0) {
+        const id = s.id != null ? String(s.id).trim() : "";
+        if (id) missingIds.add(id);
+      }
+    }
+    if (missingIds.size > 0) {
+      const liveOrders = new Map<string, ChecklistSection[]>();
+      await Promise.all(
+        Array.from(missingIds).map(async (id) => {
+          try {
+            const snap = await db.collection("services").doc(id).get();
+            if (!snap.exists) return;
+            const raw = (snap.data() || {}).areaOrder;
+            if (!Array.isArray(raw) || raw.length === 0) return;
+            liveOrders.set(id, normalizeAreaOrder(raw));
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+      if (liveOrders.size > 0 && Array.isArray(booking.services)) {
+        booking.services = booking.services.map((s) => {
+          if (Array.isArray(s.areaOrder) && s.areaOrder.length > 0) return s;
+          const id = s.id != null ? String(s.id).trim() : "";
+          const live = id ? liveOrders.get(id) : undefined;
+          return live ? { ...s, areaOrder: live } : s;
+        });
+      }
+    }
+  }
 
   const hasVehicleCheckInData =
     Boolean(booking.mileage) ||
@@ -386,8 +451,7 @@ export async function generateBookingPDF(bookingId: string): Promise<{ buffer: B
   };
 
   const pdfBuffer = await buildPDF(booking, getImageBuffer);
-  const code = booking.bookingCode || bookingId.substring(0, 8);
-  const filename = `Job-Report-${code}.pdf`;
+  const filename = bookingJobReportPdfFilename(data.bookingCode, bookingId);
   return { buffer: pdfBuffer, filename };
 }
 
@@ -976,6 +1040,79 @@ async function buildHTML(
     padding: 14px;
   }
 
+  /* Area-grouped tasks: one card body with multiple area sections stacked. */
+  .tasks-body {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding: 10px 14px 14px;
+  }
+  .area-group { margin-top: 12px; page-break-inside: avoid; break-inside: avoid; }
+  .area-group:first-child { margin-top: 2px; }
+  .area-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0 8px;
+    border-bottom: 1px dashed var(--border-soft);
+    margin-bottom: 10px;
+  }
+  .area-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.04);
+  }
+  .area-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .area-count {
+    margin-left: auto;
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .area-group .tasks-grid {
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  /* Task condition pill (Urgent / Advisory / Good Condition) */
+  .cond-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 6px 10px 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+  }
+  .cond-pill .cond-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+  }
+  .cond-urgent   { background: #FEF2F2; color: #B91C1C; border-color: #FECACA; }
+  .cond-urgent   .cond-dot { background: #EF4444; }
+  .cond-advisory { background: #FFFBEB; color: #B45309; border-color: #FDE68A; }
+  .cond-advisory .cond-dot { background: #F59E0B; }
+  .cond-good     { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+  .cond-good     .cond-dot { background: #10B981; }
+
   .task-card {
     background: var(--surface2);
     border: 1px solid var(--border-soft);
@@ -1365,9 +1502,13 @@ async function buildHTML(
                 <div class="detail-label">Registration</div>
                 <div class="detail-value code">${safeStr(booking.vehicleNumber)}</div>
               </div>` : ""}
-              ${booking.vehicleBodyType ? `
+              ${booking.vehicleType && isVehicleType(booking.vehicleType) ? `
               <div class="detail-cell">
-                <div class="detail-label">Body Type</div>
+                <div class="detail-label">Vehicle Type</div>
+                <div class="detail-value">${safeStr(VEHICLE_TYPE_LABELS[booking.vehicleType])}</div>
+              </div>` : booking.vehicleBodyType ? `
+              <div class="detail-cell">
+                <div class="detail-label">Vehicle Type</div>
                 <div class="detail-value">${safeStr(booking.vehicleBodyType)}</div>
               </div>` : ""}
               ${booking.vehicleColour ? `
@@ -1559,19 +1700,26 @@ async function buildHTML(
           </div>
           <div class="card">
             <div class="services-list">
-              ${pdfServicesList.map((svc, index) => `
+              ${pdfServicesList.map((svc, index) => {
+                // Prefer per-line vehicle-type tier; fall back to booking-level type.
+                const svcTypeRaw = (svc as any).vehicleType;
+                const svcType = isVehicleType(svcTypeRaw) ? svcTypeRaw : (isVehicleType(booking.vehicleType) ? booking.vehicleType : null);
+                const typeChip = svcType ? `<span class="chip">${safeStr(VEHICLE_TYPE_LABELS[svcType as VehicleType])} pricing</span>` : "";
+                return `
                 <div class="service-row">
                   <div class="svc-index">${index + 1}</div>
                   <div class="svc-name">${safeStr(svc.name || "Service")}</div>
                   <div class="svc-meta">
                     <span class="chip staff">${safeStr(svc.staffName || "N/A")}</span>
+                    ${typeChip}
                     ${svc.completedAt ? `<span class="chip">${safeStr(formatTimestampInTimezone(svc.completedAt, booking.branchTimezone))}</span>` : ""}
                     ${svc.duration ? `<span class="chip">${safeStr(formatDuration(svc.duration))}</span>` : ""}
                     ${(svc.completionStatus || "").toLowerCase() === "completed" ? `<span class="done-badge">✓ Completed</span>` : ""}
                   </div>
                   <div class="svc-price">$${(Number(svc.price) || 0).toFixed(2)}</div>
                 </div>
-              `).join("")}
+              `;
+              }).join("")}
               ${pdfBillableIssues.map(issue => `
                 <div class="service-row additional">
                   <div class="svc-index extra">+</div>
@@ -1629,6 +1777,45 @@ async function buildHTML(
               tasksByService.set(firstKey, [...tasksByService.get(firstKey)!, ...unassigned]);
             }
 
+            const renderTaskCard = (task: any) => {
+              // FIX 3: Use the pre-resolved taskImageMap instead of calling
+              // getBase64Image(...) inline (which would return a Promise string).
+              const imageUrl = task.imageUrl || task.image;
+              const taskImg = typeof imageUrl === "string" ? imageUrl : imageUrl?.imageUrl;
+              const taskImgSrc = taskImg ? (taskImageMap.get(taskImg) || "") : "";
+
+              // Condition flag (urgent/advisory/good) set by the staff member
+              // when completing the task. Mirrors the pill used in the admin
+              // panel, owner app and customer booking engine.
+              const condOpt = taskConditionOption(task?.condition);
+              const condHtml = condOpt
+                ? `<span class="cond-pill cond-${condOpt.value}"><span class="cond-dot"></span>${safeStr(condOpt.label)}</span>`
+                : "";
+
+              return `
+<div class="task-card ${!taskImgSrc ? 'task-card-noimage' : ''}">
+  <div class="task-card-top">
+    <div class="task-name">${safeStr(task.name || "Task")}</div>
+    <div class="task-done ${task.done ? 'status-done' : 'status-pending'}">${task.done ? "Done" : "Pending"}</div>
+  </div>
+  ${task.description ? `<div class="task-desc">${safeStr(task.description)}</div>` : ""}
+  ${condHtml}
+  ${task.staffNote ? `
+    <div class="staff-note">
+      <div class="note-label">Staff Note</div>
+      <div class="note-text">${safeStr(task.staffNote)}</div>
+      <div class="note-meta">
+        — ${safeStr(task.completedByStaffName || "Staff")}
+        ${task.completedAt ? `, ${safeStr(formatTimestampInTimezone(task.completedAt, booking.branchTimezone))}` : ""}
+      </div>
+    </div>` : ""}
+  ${task.done && taskImgSrc ? `
+    <div class="task-photo-wrap">
+      <img class="task-photo" src="${taskImgSrc}" alt="Task photo">
+    </div>` : ""}
+</div>`;
+            };
+
             return [...tasksByService.entries()].map(([sid, serviceTasks]) => {
               if (!serviceTasks.length) return "";
 
@@ -1638,6 +1825,60 @@ async function buildHTML(
               const done = serviceTasks.filter((t: any) => t.done).length;
               const total = serviceTasks.length;
               const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+              // Resolve the owner-defined area order for this service, falling
+              // back to the default Interior → Engine Bay → Underbody → Exterior
+              // sequence when no order has been customised.
+              const resolvedOrder: ChecklistSection[] =
+                Array.isArray(svc.areaOrder) && svc.areaOrder.length > 0
+                  ? normalizeAreaOrder(svc.areaOrder)
+                  : [...DEFAULT_AREA_ORDER];
+
+              // Bucket tasks by section, preserving insertion order within each.
+              const buckets = new Map<ChecklistSection, any[]>();
+              for (const s of resolvedOrder) buckets.set(s, []);
+              const unsectioned: any[] = [];
+              for (const t of serviceTasks) {
+                if (isChecklistSection(t?.section) && buckets.has(t.section)) {
+                  buckets.get(t.section)!.push(t);
+                } else {
+                  unsectioned.push(t);
+                }
+              }
+
+              // Only render an area block if it has at least one task. Legacy
+              // tasks without a section fall through to a tail "Other" group.
+              const areaBlocks: string[] = [];
+              for (const s of resolvedOrder) {
+                const items = buckets.get(s) || [];
+                if (items.length === 0) continue;
+                const segDone = items.filter((t: any) => t.done).length;
+                areaBlocks.push(`
+                <div class="area-group">
+                  <div class="area-group-header">
+                    <span class="area-dot"></span>
+                    <span class="area-title">${safeStr(CHECKLIST_SECTION_LABELS[s])}</span>
+                    <span class="area-count">${segDone}/${items.length}</span>
+                  </div>
+                  <div class="tasks-grid">
+                    ${items.map(renderTaskCard).join("")}
+                  </div>
+                </div>`);
+              }
+              if (unsectioned.length > 0) {
+                const segDone = unsectioned.filter((t: any) => t.done).length;
+                areaBlocks.push(`
+                <div class="area-group">
+                  <div class="area-group-header">
+                    <span class="area-dot"></span>
+                    <span class="area-title">Other</span>
+                    <span class="area-count">${segDone}/${unsectioned.length}</span>
+                  </div>
+                  <div class="tasks-grid">
+                    ${unsectioned.map(renderTaskCard).join("")}
+                  </div>
+                </div>`);
+              }
 
               return `
               <div class="service-block">
@@ -1653,36 +1894,8 @@ async function buildHTML(
                     <span class="progress-text">${done}/${total} · ${pct}%</span>
                   </div>
                 </div>
-                <div class="tasks-grid">
-                  ${serviceTasks.map((task: any) => {
-                    // FIX 3: Use the pre-resolved taskImageMap instead of calling
-                    // getBase64Image(...) inline (which would return a Promise string).
-                    const imageUrl = task.imageUrl || task.image;
-                    const taskImg = typeof imageUrl === "string" ? imageUrl : imageUrl?.imageUrl;
-                    const taskImgSrc = taskImg ? (taskImageMap.get(taskImg) || "") : "";
-
-                  return `
-<div class="task-card ${!taskImgSrc ? 'task-card-noimage' : ''}">
-  <div class="task-card-top">
-    <div class="task-name">${safeStr(task.name || "Task")}</div>
-    <div class="task-done ${task.done ? 'status-done' : 'status-pending'}">${task.done ? "Done" : "Pending"}</div>
-  </div>
-  ${task.description ? `<div class="task-desc">${safeStr(task.description)}</div>` : ""}
-  ${task.staffNote ? `
-    <div class="staff-note">
-      <div class="note-label">Staff Note</div>
-      <div class="note-text">${safeStr(task.staffNote)}</div>
-      <div class="note-meta">
-        — ${safeStr(task.completedByStaffName || "Staff")}
-        ${task.completedAt ? `, ${safeStr(formatTimestampInTimezone(task.completedAt, booking.branchTimezone))}` : ""}
-      </div>
-    </div>` : ""}
-  ${task.done && taskImgSrc ? `
-    <div class="task-photo-wrap">
-      <img class="task-photo" src="${taskImgSrc}" alt="Task photo">
-    </div>` : ""}
-</div>`;
-                  }).join("")}
+                <div class="tasks-body">
+                  ${areaBlocks.join("")}
                 </div>
               </div>`;
             }).join("");

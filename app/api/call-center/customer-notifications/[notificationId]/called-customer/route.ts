@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveNotificationActorSnapshot } from "@/lib/callCenterActorFromAuth";
 import {
   verifyCallCenterOrTenantAdminAuth,
-  canAccessWorkshopForAuth,
+  canActOnCustomerNotificationTracking,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
+import { mergeAndReadNotificationTracking } from "@/lib/callCenterNotificationTrackingWrite";
 import { parseOptionalBooleanFlag } from "@/lib/parseCallCenterNotificationFlagBody";
 import { resolveCustomerNotificationForCallCenter } from "@/lib/resolveCustomerNotificationForCallCenter";
 
@@ -61,7 +62,7 @@ export async function POST(
     return NextResponse.json({ error: "Notification not found" }, { status: 404, headers: CORS_HEADERS });
   }
 
-  if (!canAccessWorkshopForAuth(gate.auth, resolved.doc.ownerUid)) {
+  if (!canActOnCustomerNotificationTracking(gate.auth, resolved.doc.ownerUid)) {
     return NextResponse.json(
       { error: "Access denied to this workshop" },
       { status: 403, headers: CORS_HEADERS }
@@ -96,17 +97,42 @@ export async function POST(
         };
 
   try {
-    await resolved.doc.ref.update(update);
+    const { projectId, data } = await mergeAndReadNotificationTracking(
+      resolved.doc.ref,
+      update as Record<string, unknown>
+    );
+    const stored = data?.calledCustomer === true;
+    if (stored !== calledCustomer) {
+      return NextResponse.json(
+        {
+          error: "Firestore did not persist calledCustomer as expected",
+          firebaseProjectId: projectId ?? null,
+          documentPath: `${resolved.doc.collectionId}/${notificationId.trim()}`,
+          expected: calledCustomer,
+          actual: data?.calledCustomer ?? null,
+        },
+        { status: 500, headers: CORS_HEADERS }
+      );
+    }
     return NextResponse.json(
       {
         success: true,
         notificationId: notificationId.trim(),
         collection: resolved.doc.collectionId,
+        firebaseProjectId: projectId ?? null,
+        documentPath: `${resolved.doc.collectionId}/${notificationId.trim()}`,
         calledCustomer,
         calledCustomerByUid: update.calledCustomerByUid,
         calledCustomerByName: update.calledCustomerByName,
         calledCustomerByDisplayName: update.calledCustomerByDisplayName,
         calledCustomerByEmail: update.calledCustomerByEmail,
+        persistedFromFirestore: {
+          calledCustomer: data?.calledCustomer === true,
+          calledCustomerByUid: data?.calledCustomerByUid ?? null,
+          calledCustomerByName: data?.calledCustomerByName ?? null,
+          calledCustomerByDisplayName: data?.calledCustomerByDisplayName ?? null,
+          calledCustomerByEmail: data?.calledCustomerByEmail ?? null,
+        },
       },
       { headers: CORS_HEADERS }
     );

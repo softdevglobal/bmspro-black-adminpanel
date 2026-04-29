@@ -6,9 +6,27 @@ import { auth, db } from "@/lib/firebase";
 import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
 import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bookingTypes";
+import {
+  type ChecklistSection,
+  CHECKLIST_SECTION_LABELS,
+  DEFAULT_AREA_ORDER,
+  isChecklistSection,
+  normalizeAreaOrder,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isVehicleType,
+  type VehicleType,
+} from "@/lib/services";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
 import BookingsExportModal from "./BookingsExportModal";
+import BookingJobReportPdfViewer from "./BookingJobReportPdfViewer";
+import { bookingJobReportPdfFilename } from "@/lib/bookingPdfFilename";
+import {
+  type TaskCondition,
+  isTaskCondition,
+  taskConditionOption,
+} from "@/lib/taskCondition";
 
 /** Firestore may store mileageRecordedAt as an ISO string or a Timestamp. */
 function parseMileageRecordedAt(value: unknown): Date | null {
@@ -24,6 +42,45 @@ function parseMileageRecordedAt(value: unknown): Date | null {
   return null;
 }
 
+/**
+ * Reschedule / reassign: only staff who work at this branch on the given date
+ * (weekly per-day `branchId` when present, else home `branchId`).
+ */
+function filterStaffToBookingBranchForDate(
+  staffRows: any[],
+  branchId: string | null | undefined,
+  dateYmd: string
+): any[] {
+  const bid = (branchId || "").toString().trim();
+  if (!bid) return staffRows;
+  if (!dateYmd || !/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) {
+    return staffRows.filter((s: any) => (s.branchId || "").toString() === bid);
+  }
+  const bookingDate = new Date(`${dateYmd}T12:00:00`);
+  const daysOfWeek = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const dayName = daysOfWeek[bookingDate.getDay()];
+  return staffRows.filter((s: any) => {
+    if (s.weeklySchedule && typeof s.weeklySchedule === "object") {
+      const daySchedule = s.weeklySchedule[dayName];
+      if (daySchedule && daySchedule.branchId) {
+        return (daySchedule.branchId || "").toString() === bid;
+      }
+      if (daySchedule === null || daySchedule === undefined) {
+        return false;
+      }
+    }
+    return (s.branchId || "").toString() === bid;
+  });
+}
+
 type ServiceApprovalStatus = "pending" | "accepted" | "rejected" | "needs_assignment";
 type ServiceCompletionStatus = "pending" | "completed";
 
@@ -34,6 +91,8 @@ type ServiceRow = {
   price?: number;
   duration?: number;
   time?: string;
+  /** Canonical size class the price/duration were resolved against (when booking used type-wise pricing). */
+  vehicleType?: VehicleType | null;
   staffId?: string | null;
   staffName?: string | null;
   staffAuthUid?: string | null; // Firebase Auth UID for the assigned staff
@@ -49,6 +108,8 @@ type ServiceRow = {
   completedAt?: any;
   completedByStaffUid?: string;
   completedByStaffName?: string;
+  // Owner's customised area ordering snapshotted at booking creation.
+  areaOrder?: ChecklistSection[];
 };
 
 type Row = {
@@ -71,6 +132,8 @@ type Row = {
   vehicleMake?: string | null;
   vehicleModel?: string | null;
   vehicleBodyType?: string | null;
+  /** Canonical vehicle size class used for per-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: VehicleType | null;
   vehicleColour?: string | null;
   vehicleVinChassis?: string | null;
   vehicleEngineNumber?: string | null;
@@ -134,9 +197,13 @@ type TaskRow = {
   serviceName?: string;
   name: string;
   description: string;
+  /** Vehicle area this task belongs to. Snapshotted from service checklist at booking creation. */
+  section?: ChecklistSection;
   done: boolean;
   imageUrl: string;
   staffNote: string;
+  /** Post-completion condition flag chosen by the staff member. */
+  condition?: TaskCondition;
   completedAt?: string | null;
   completedByStaffUid?: string | null;
   completedByStaffName?: string | null;
@@ -227,6 +294,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
               vehicleMake: d.vehicleMake || null,
               vehicleModel: d.vehicleModel || null,
               vehicleBodyType: d.vehicleBodyType || null,
+              vehicleType: isVehicleType(d.vehicleType) ? (d.vehicleType as VehicleType) : null,
               vehicleColour: d.vehicleColour || null,
               vehicleVinChassis: d.vehicleVinChassis || null,
               vehicleEngineNumber: d.vehicleEngineNumber || null,
@@ -257,6 +325,7 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 price: s.price,
                 duration: s.duration,
                 time: s.time,
+                vehicleType: isVehicleType(s.vehicleType) ? (s.vehicleType as VehicleType) : null,
                 staffId: s.staffId,
                 staffName: s.staffName,
                 approvalStatus: s.approvalStatus || "pending",
@@ -270,6 +339,10 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 completedAt: s.completedAt,
                 completedByStaffUid: s.completedByStaffUid,
                 completedByStaffName: s.completedByStaffName,
+                // Owner's vehicle-area ordering snapshotted at booking creation.
+                areaOrder: Array.isArray(s.areaOrder)
+                  ? (s.areaOrder.filter(isChecklistSection) as ChecklistSection[])
+                  : undefined,
               })) || null,
               // Task management
               tasks: Array.isArray(d.tasks) ? d.tasks.map((t: any) => ({
@@ -278,9 +351,11 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 serviceName: t.serviceName || "",
                 name: t.name || "",
                 description: t.description || "",
+                section: isChecklistSection(t.section) ? t.section : undefined,
                 done: !!t.done,
                 imageUrl: t.imageUrl || "",
                 staffNote: t.staffNote || "",
+                condition: isTaskCondition(t.condition) ? t.condition : undefined,
                 completedAt: t.completedAt || null,
                 completedByStaffUid: t.completedByStaffUid || null,
                 completedByStaffName: t.completedByStaffName || null,
@@ -366,6 +441,23 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const { rows, loading, error } = useBookingsByStatus(status);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [updatingState, setUpdatingState] = useState<Record<string, string | null>>({});
+  /** Only workshop owners may use the admin "Complete" action; branch admins use the staff app. */
+  const [actorRole, setActorRole] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const u = auth.currentUser;
+      if (!u) return;
+      const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+      const snap = await getDoc(firestoreDoc(db, "users", u.uid));
+      const d = snap.data() as { role?: string; systemRole?: string } | undefined;
+      if (!cancelled) setActorRole((d?.role || d?.systemRole || "").toString() || null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const canOwnerManualComplete = actorRole === "workshop_owner";
   
   // Check if a booking has services that need staff assignment
   const hasServicesNeedingAssignment = (row: Row): boolean => {
@@ -376,39 +468,62 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     );
   };
 
-  // Get allowed actions per row based on the row's actual status
-  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined, row?: Row): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff"> => {
+  // Once staff tap "Start" on the appointment they record `mileage` on the
+  // booking doc — at that point the job is physically in progress and we
+  // don't allow the slot to be moved.
+  const isJobInProgress = (row?: Row): boolean => {
+    if (!row) return false;
+    return ((row.mileage ?? "") as string).toString().trim() !== "";
+  };
+
+  // Get allowed actions per row based on the row's actual status.
+  // `Reschedule` is allowed for any non-terminal status on bookings that have
+  // not been started by staff yet (i.e. no mileage recorded). Once the job is
+  // in progress the admin must cancel the booking to change its time.
+  const getAllowedActions = (rowStatus: BookingStatus | string | null | undefined, row?: Row): ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff" | "Reschedule"> => {
     const normalizedStatus = normalizeBookingStatus(rowStatus ?? null);
-    if (normalizedStatus === "Pending") return ["Confirm", "Cancel"];
-    if (normalizedStatus === "AwaitingStaffApproval") {
-      // If some services need staff assignment, show AssignStaff action
-      if (row && hasServicesNeedingAssignment(row)) {
-        return ["AssignStaff", "Cancel"];
-      }
-      return ["Cancel"]; // Admin can only cancel, waiting for staff action
+    const jobInProgress = isJobInProgress(row);
+    let actions: Array<"Confirm" | "Cancel" | "Complete" | "Reassign" | "AssignStaff" | "Reschedule"> = [];
+    if (normalizedStatus === "Pending") {
+      actions = ["Confirm", "Reschedule", "Cancel"];
+    } else if (normalizedStatus === "AwaitingStaffApproval") {
+      actions = row && hasServicesNeedingAssignment(row)
+        ? ["AssignStaff", "Reschedule", "Cancel"]
+        : ["Reschedule", "Cancel"];
+    } else if (normalizedStatus === "PartiallyApproved") {
+      actions = row && hasServicesNeedingAssignment(row)
+        ? ["AssignStaff", "Reschedule", "Cancel"]
+        : ["Reschedule", "Cancel"];
+    } else if (normalizedStatus === "StaffRejected") {
+      actions = ["Reassign", "Reschedule", "Cancel"];
+    } else if (normalizedStatus === "Confirmed") {
+      actions = ["Complete", "Reschedule", "Cancel"];
+    } else {
+      return [];
     }
-    if (normalizedStatus === "PartiallyApproved") {
-      // If some services need staff assignment, show AssignStaff action
-      if (row && hasServicesNeedingAssignment(row)) {
-        return ["AssignStaff", "Cancel"];
-      }
-      return ["Cancel"]; // Waiting for remaining staff to respond
+    if (jobInProgress) {
+      actions = actions.filter((a) => a !== "Reschedule");
     }
-    if (normalizedStatus === "StaffRejected") return ["Reassign", "Cancel"]; // Admin must reassign rejected service(s) or cancel
-    if (normalizedStatus === "Confirmed") return ["Complete", "Cancel"];
-    return [];
+    if (!canOwnerManualComplete) {
+      actions = actions.filter((a) => a !== "Complete");
+    }
+    return actions;
   };
   
   // For preview panel - use the first status or check if any status allows actions
-  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign">>(() => {
+  const allowedActions = useMemo<ReadonlyArray<"Confirm" | "Cancel" | "Complete" | "Reassign" | "Reschedule">>(() => {
     const statusArray = Array.isArray(status) ? status : [status];
-    if (statusArray.includes("Pending")) return ["Confirm", "Cancel"];
-    if (statusArray.includes("AwaitingStaffApproval")) return ["Cancel"];
-    if (statusArray.includes("PartiallyApproved")) return ["Cancel"];
-    if (statusArray.includes("StaffRejected")) return ["Reassign", "Cancel"];
-    if (statusArray.includes("Confirmed")) return ["Complete", "Cancel"];
+    if (statusArray.includes("Pending")) return ["Confirm", "Reschedule", "Cancel"];
+    if (statusArray.includes("AwaitingStaffApproval")) return ["Reschedule", "Cancel"];
+    if (statusArray.includes("PartiallyApproved")) return ["Reschedule", "Cancel"];
+    if (statusArray.includes("StaffRejected")) return ["Reassign", "Reschedule", "Cancel"];
+    if (statusArray.includes("Confirmed")) {
+      return canOwnerManualComplete
+        ? ["Complete", "Reschedule", "Cancel"]
+        : ["Reschedule", "Cancel"];
+    }
     return [];
-  }, [status]);
+  }, [status, canOwnerManualComplete]);
   const [previewRow, setPreviewRow] = useState<Row | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null);
@@ -419,6 +534,15 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const [issuePriceModal, setIssuePriceModal] = useState<{ bookingId: string; issue: AdditionalIssueRow } | null>(null);
   const [issuePriceValue, setIssuePriceValue] = useState("");
   const [issuePriceSaving, setIssuePriceSaving] = useState(false);
+
+  // Customer-response modal (owner/branch admin records the customer's
+  // decision on an additional-work quote after calling the customer).
+  const [customerResponseModal, setCustomerResponseModal] = useState<{
+    bookingId: string;
+    issue: AdditionalIssueRow;
+    action: "accept" | "reject";
+  } | null>(null);
+  const [customerResponseSaving, setCustomerResponseSaving] = useState(false);
 
   // Staff assignment modal state
   const [staffAssignModalOpen, setStaffAssignModalOpen] = useState(false);
@@ -435,8 +559,91 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const [reassignModalOpen, setReassignModalOpen] = useState(false);
   const [bookingToReassign, setBookingToReassign] = useState<Row | null>(null);
 
+  // ─── Reschedule (date/time amendment) modal state ──────────────────────
+  // Owner / branch admin can change the date & time of any booking that is
+  // not yet Completed or Canceled. The server enforces the real role gate
+  // and writes a `rescheduleHistory` audit trail on the booking doc.
+  const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
+  const [bookingToReschedule, setBookingToReschedule] = useState<Row | null>(null);
+  const [rescheduleNewDate, setRescheduleNewDate] = useState<string>("");
+  const [rescheduleNewTime, setRescheduleNewTime] = useState<string>("");
+  const [rescheduleNewPickupTime, setRescheduleNewPickupTime] = useState<string>("");
+  const [rescheduleCalendarMonth, setRescheduleCalendarMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  type BranchDayHours = { open?: string; close?: string; closed?: boolean };
+  type BranchLite = {
+    id: string;
+    name?: string;
+    timezone?: string;
+    hours?:
+      | string
+      | Record<string, BranchDayHours | undefined>;
+  };
+  const [rescheduleBranch, setRescheduleBranch] = useState<BranchLite | null>(null);
+  const [rescheduleBranchLoading, setRescheduleBranchLoading] = useState(false);
+  // Ticks every minute so the "branch current time" chip stays fresh.
+  const [rescheduleNowTick, setRescheduleNowTick] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!rescheduleModalOpen) return;
+    const id = window.setInterval(() => setRescheduleNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [rescheduleModalOpen]);
+  const [rescheduleReason, setRescheduleReason] = useState<string>("");
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  // Staff reassignment inside the reschedule modal. Either `rescheduleStaffId`
+  // (single-service booking) or `rescheduleStaffByService` (keyed by service
+  // id) is used depending on the booking shape. Values are compared against
+  // the booking's original assignments to decide whether to send staff
+  // overrides to the API on save.
+  type ReschedStaffOption = { id: string; name: string; branchId?: string; avatar?: string };
+  /** Full user rows (for branch + weeklySchedule filter when date changes). */
+  const [rescheduleStaffRaw, setRescheduleStaffRaw] = useState<any[]>([]);
+  const [rescheduleStaffOptions, setRescheduleStaffOptions] = useState<ReschedStaffOption[]>([]);
+  const [rescheduleStaffLoading, setRescheduleStaffLoading] = useState(false);
+  const [rescheduleStaffId, setRescheduleStaffId] = useState<string>("");
+  const [rescheduleStaffByService, setRescheduleStaffByService] = useState<Record<string, string>>({});
+
   // Export modal
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // Fallback area-order cache for older bookings whose service snapshots were
+  // written before we started snapshotting `areaOrder`. When we open a booking
+  // preview, any task whose matching service entry lacks `areaOrder` triggers
+  // a lookup on the live `services/{id}` document so the checklist still shows
+  // in the owner's customised order rather than the default.
+  const [serviceAreaOrderFallback, setServiceAreaOrderFallback] = useState<Record<string, ChecklistSection[]>>({});
+
+  useEffect(() => {
+    if (!rescheduleModalOpen) return;
+    if (!rescheduleStaffRaw.length) {
+      setRescheduleStaffOptions([]);
+      return;
+    }
+    const row = bookingToReschedule;
+    if (!row) return;
+    const dateEff = (rescheduleNewDate || row.date || "").trim();
+    const pool = filterStaffToBookingBranchForDate(
+      rescheduleStaffRaw,
+      row.branchId,
+      dateEff
+    );
+    setRescheduleStaffOptions(
+      pool.map((s: any) => ({
+        id: String(s._rescheduleId || s.id),
+        name: String(s.name || s.displayName || "Unknown"),
+        branchId: s.branchId,
+        avatar: s.avatar,
+      }))
+    );
+  }, [
+    rescheduleModalOpen,
+    bookingToReschedule,
+    rescheduleNewDate,
+    rescheduleStaffRaw,
+  ]);
 
   // Sync mileage edit value when preview row changes
   useEffect(() => {
@@ -447,6 +654,52 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       setMileageEditValue("");
     }
   }, [previewRow?.id, previewRow?.mileage]);
+
+  // Lazily fetch the live `areaOrder` for any service referenced by the open
+  // preview whose service snapshot lacks it. Runs once per preview open and
+  // only for services not already in the fallback cache — cheap and bounded.
+  useEffect(() => {
+    if (!previewRow || !previewRow.tasks || previewRow.tasks.length === 0) return;
+    const services = previewRow.services || [];
+    const idsNeeded = new Set<string>();
+    for (const task of previewRow.tasks) {
+      const svcId = task.serviceId ? String(task.serviceId) : "";
+      if (!svcId) continue;
+      const snapshot = services.find(
+        (s) => String(s.id || s.serviceId || "") === svcId,
+      );
+      if (snapshot?.areaOrder && snapshot.areaOrder.length > 0) continue;
+      if (serviceAreaOrderFallback[svcId]) continue;
+      idsNeeded.add(svcId);
+    }
+    if (idsNeeded.size === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const results: Record<string, ChecklistSection[]> = {};
+        await Promise.all(
+          Array.from(idsNeeded).map(async (id) => {
+            try {
+              const snap = await getDoc(firestoreDoc(db, "services", id));
+              if (snap.exists()) {
+                const raw = (snap.data() as any)?.areaOrder;
+                if (Array.isArray(raw)) {
+                  results[id] = normalizeAreaOrder(raw);
+                }
+              }
+            } catch {}
+          }),
+        );
+        if (!cancelled && Object.keys(results).length > 0) {
+          setServiceAreaOrderFallback((prev) => ({ ...prev, ...results }));
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [previewRow, serviceAreaOrderFallback]);
 
   // Open preview for a specific booking when openBookingId is in the URL (e.g. from notification click)
   useEffect(() => {
@@ -1204,6 +1457,253 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     }
   };
 
+  // ─── Reschedule handlers ───────────────────────────────────────────────
+  const handleRescheduleClick = (row: Row) => {
+    setBookingToReschedule(row);
+    setRescheduleNewDate(row.date || "");
+    setRescheduleNewTime(row.time || "");
+    setRescheduleNewPickupTime(row.pickupTime || "");
+    setRescheduleReason("");
+    setRescheduleError(null);
+    setRescheduleBranch(null);
+    // Seed the staff pickers from the row's existing assignments. These stay
+    // in sync with the API expectations: single-service bookings use the
+    // top-level `staffId`; multi-service bookings use per-service entries.
+    setRescheduleStaffId((row.staffId || "").toString());
+    const byService: Record<string, string> = {};
+    if (Array.isArray(row.services)) {
+      for (const svc of row.services) {
+        if (svc && svc.id !== undefined && svc.id !== null) {
+          byService[String(svc.id)] = (svc.staffId || "").toString();
+        }
+      }
+    }
+    setRescheduleStaffByService(byService);
+    setRescheduleStaffRaw([]);
+    setRescheduleStaffOptions([]);
+    // Point the calendar at the booking's current month (or today if unknown).
+    const [yStr, mStr] = (row.date || "").split("-");
+    const y = Number(yStr);
+    const m = Number(mStr);
+    if (y && m >= 1 && m <= 12) {
+      setRescheduleCalendarMonth({ year: y, month: m - 1 });
+    } else {
+      const now = new Date();
+      setRescheduleCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
+    }
+    setRescheduleModalOpen(true);
+
+    // Fire-and-forget: fetch the booking's branch so slot constraints can
+    // reflect that branch's hours + timezone. Non-blocking — the modal still
+    // works without it (just without time-window filtering).
+    if (row.branchId) {
+      (async () => {
+        setRescheduleBranchLoading(true);
+        try {
+          const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+          const snap = await getDoc(firestoreDoc(db, "branches", row.branchId as string));
+          if (snap.exists()) {
+            const d = snap.data() as any;
+            setRescheduleBranch({
+              id: snap.id,
+              name: d.name,
+              timezone: d.timezone,
+              hours: d.hours,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to load branch for reschedule modal:", err);
+        } finally {
+          setRescheduleBranchLoading(false);
+        }
+      })();
+    }
+
+    // Load staff for the owner (filtered to the booking's branch when possible)
+    // so the admin can reassign staff alongside the reschedule.
+    (async () => {
+      setRescheduleStaffLoading(true);
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        const { getDoc, doc: firestoreDoc } = await import("firebase/firestore");
+        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+        const userData = userSnap.data() as any;
+        const userRole = (userData?.role || "").toString();
+        const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
+
+        const { collection, getDocs, query, where } = await import("firebase/firestore");
+        const snap = await getDocs(
+          query(collection(db, "users"), where("ownerUid", "==", ownerUid)),
+        );
+        const raw: any[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as any;
+          const systemRole = (data?.role || "").toString();
+          if (!["staff", "branch_admin"].includes(systemRole)) return;
+          const st = (data?.status || "Active").toString();
+          if (st === "Suspended" || st === "suspended") return;
+          // Prefer Firebase Auth UID if the user doc tracks it separately;
+          // this must match what the booking's `staffId` uses.
+          const staffId = (data?.authUid || data?.uid || d.id).toString();
+          raw.push({
+            _rescheduleId: staffId,
+            id: staffId,
+            name: (data?.displayName || data?.name || "Unknown").toString(),
+            displayName: data?.displayName,
+            branchId: data?.branchId,
+            avatar: data?.avatar,
+            weeklySchedule: data?.weeklySchedule,
+            status: data?.status,
+          });
+        });
+        raw.sort((a, b) => a.name.localeCompare(b.name));
+        setRescheduleStaffRaw(raw);
+      } catch (err) {
+        console.error("Failed to load staff for reschedule modal:", err);
+      } finally {
+        setRescheduleStaffLoading(false);
+      }
+    })();
+  };
+
+  const closeRescheduleModal = () => {
+    if (rescheduleSaving) return;
+    setRescheduleModalOpen(false);
+    setBookingToReschedule(null);
+    setRescheduleNewDate("");
+    setRescheduleNewTime("");
+    setRescheduleNewPickupTime("");
+    setRescheduleReason("");
+    setRescheduleError(null);
+    setRescheduleBranch(null);
+    setRescheduleStaffId("");
+    setRescheduleStaffByService({});
+    setRescheduleStaffRaw([]);
+    setRescheduleStaffOptions([]);
+  };
+
+  const confirmReschedule = async () => {
+    if (!bookingToReschedule) return;
+
+    const newDate = rescheduleNewDate.trim();
+    const newTime = rescheduleNewTime.trim();
+    const newPickupTime = rescheduleNewPickupTime.trim();
+    if (!newDate || !newTime) {
+      setRescheduleError("Please pick both a date and a drop-off time.");
+      return;
+    }
+    if (newPickupTime && newPickupTime <= newTime) {
+      setRescheduleError("Pick-up time must be after the drop-off time.");
+      return;
+    }
+
+    // Compute staff changes vs. the booking's current state.
+    const hasServices = Array.isArray(bookingToReschedule.services) && bookingToReschedule.services.length > 0;
+    const origStaffId = (bookingToReschedule.staffId || "").toString();
+    let newStaffId = "";
+    let newStaffName = "";
+    const staffAssignments: Record<string, { staffId: string; staffName?: string }> = {};
+    if (hasServices) {
+      for (const svc of bookingToReschedule.services!) {
+        const sid = String(svc.id);
+        const prev = (svc.staffId || "").toString();
+        const next = (rescheduleStaffByService[sid] || "").toString();
+        if (next && next !== prev) {
+          const picked = rescheduleStaffOptions.find((s) => s.id === next);
+          staffAssignments[sid] = {
+            staffId: next,
+            staffName: picked?.name || svc.staffName || "Staff",
+          };
+        }
+      }
+    } else if (rescheduleStaffId && rescheduleStaffId !== origStaffId) {
+      newStaffId = rescheduleStaffId;
+      const picked = rescheduleStaffOptions.find((s) => s.id === newStaffId);
+      newStaffName = picked?.name || bookingToReschedule.staffName || "Staff";
+    }
+    const staffChanged = !!newStaffId || Object.keys(staffAssignments).length > 0;
+
+    if (
+      bookingToReschedule.date === newDate &&
+      bookingToReschedule.time === newTime &&
+      (bookingToReschedule.pickupTime || "") === newPickupTime &&
+      !staffChanged
+    ) {
+      setRescheduleError("Nothing has changed — update the date, time, or staff.");
+      return;
+    }
+
+    try {
+      setRescheduleSaving(true);
+      setRescheduleError(null);
+      setUpdatingState((prev) => ({
+        ...prev,
+        [bookingToReschedule.id]: "Reschedule",
+      }));
+
+      // Obtain a fresh ID token (mirrors the reassign flow above)
+      let token: string | null = null;
+      try {
+        if (auth.currentUser) {
+          token = await auth.currentUser.getIdToken(true);
+        } else {
+          const user = await new Promise<any>((resolve) => {
+            const unsubscribe = auth.onAuthStateChanged((u) => {
+              unsubscribe();
+              resolve(u);
+            });
+          });
+          if (user) token = await user.getIdToken(true);
+        }
+      } catch (tokenErr) {
+        console.error("Failed to obtain auth token for reschedule:", tokenErr);
+      }
+
+      const res = await fetch(
+        `/api/bookings/${encodeURIComponent(bookingToReschedule.id)}/reschedule`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            newDate,
+            newTime,
+            newPickupTime: newPickupTime || undefined,
+            reason: rescheduleReason.trim() || undefined,
+            newStaffId: newStaffId || undefined,
+            newStaffName: newStaffName || undefined,
+            staffAssignments: Object.keys(staffAssignments).length > 0 ? staffAssignments : undefined,
+          }),
+        },
+      );
+
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to reschedule booking");
+      }
+
+      setRescheduleModalOpen(false);
+      setBookingToReschedule(null);
+      setRescheduleNewDate("");
+      setRescheduleNewTime("");
+      setRescheduleNewPickupTime("");
+      setRescheduleReason("");
+    } catch (e: any) {
+      console.error("Error rescheduling booking:", e);
+      setRescheduleError(e?.message || "Failed to reschedule booking");
+    } finally {
+      setRescheduleSaving(false);
+      setUpdatingState((prev) => {
+        const next = { ...prev };
+        if (bookingToReschedule) delete next[bookingToReschedule.id];
+        return next;
+      });
+    }
+  };
+
   const onAction = async (rowId: string, action: "Confirm" | "Cancel" | "Complete") => {
     try {
       // Prevent actions on cancelled bookings
@@ -1260,8 +1760,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   };
   const closePreview = () => setPreviewOpen(false);
 
-  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
-  const [pdfConfirmBookingId, setPdfConfirmBookingId] = useState<string | null>(null);
+  /** Same-origin iframe preview (see BookingJobReportPdfViewer). */
+  const [pdfPreview, setPdfPreview] = useState<{
+    bookingId: string;
+    filename: string;
+  } | null>(null);
 
   const [forceCompleteConfirm, setForceCompleteConfirm] = useState<{
     rowId: string;
@@ -1292,49 +1795,63 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     }
   };
 
-  const handleDownloadPDF = (bookingId: string) => {
-    setPdfConfirmBookingId(bookingId);
+  const closePdfPreview = () => setPdfPreview(null);
+
+  const openJobReportPdfPreview = (bookingId: string, bookingCode?: string | null) => {
+    setPdfPreview({
+      bookingId,
+      filename: bookingJobReportPdfFilename(bookingCode, bookingId),
+    });
   };
 
-  const confirmDownloadPDF = async () => {
-    const bookingId = pdfConfirmBookingId;
-    setPdfConfirmBookingId(null);
-    if (!bookingId) return;
+  const downloadPdfFromPreview = async () => {
+    if (!pdfPreview) return;
+    const user = auth.currentUser;
+    if (!user) return;
     try {
-      setDownloadingPdf(bookingId);
-      const user = auth.currentUser;
-      if (!user) return;
       const token = await user.getIdToken();
-      const res = await fetch(`/api/bookings/${bookingId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
-        let message = `Failed to download PDF (${res.status})`;
-        try {
-          const errorJson = await res.json();
-          if (errorJson?.error) message = `${message}: ${errorJson.error}`;
-        } catch {
-          /* ignore */
-        }
-        throw new Error(message);
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const u = new URL(`/api/bookings/${encodeURIComponent(pdfPreview.bookingId)}/pdf`, window.location.origin);
+      u.searchParams.set("download", "1");
+      u.searchParams.set("token", token);
       const a = document.createElement("a");
-      a.href = url;
-      const disposition = res.headers.get("Content-Disposition");
-      const match = disposition?.match(/filename="?([^"]+)"?/);
-      a.download = match?.[1] || `Job-Report-${bookingId}.pdf`;
+      a.href = u.toString();
+      a.download = pdfPreview.filename;
+      a.rel = "noopener";
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("PDF download error:", err);
+    } catch (e) {
+      console.error(e);
       // eslint-disable-next-line no-alert
-      alert(err instanceof Error ? err.message : "Failed to download PDF");
-    } finally {
-      setDownloadingPdf(null);
+      alert("Could not start download.");
+    }
+  };
+
+  const printPdfFromPreview = async () => {
+    if (!pdfPreview) return;
+    const user = auth.currentUser;
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const u = new URL(`/api/bookings/${encodeURIComponent(pdfPreview.bookingId)}/pdf`, window.location.origin);
+      u.searchParams.set("inline", "1");
+      u.searchParams.set("token", token);
+      const w = window.open(u.toString(), "_blank", "noopener,noreferrer");
+      if (w) {
+        w.addEventListener("load", () => {
+          window.setTimeout(() => {
+            try {
+              w.print();
+            } catch {
+              /* user can print from the tab */
+            }
+          }, 300);
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      // eslint-disable-next-line no-alert
+      alert("Could not open print view.");
     }
   };
 
@@ -1413,6 +1930,53 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       alert(e?.message || "Failed");
     } finally {
       setIssuePriceSaving(false);
+    }
+  };
+
+  const handleRecordCustomerResponse = async () => {
+    if (!customerResponseModal) return;
+    const { bookingId, issue, action } = customerResponseModal;
+    try {
+      setCustomerResponseSaving(true);
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const res = await fetch(
+        `/api/bookings/${bookingId}/additional-issues/${issue.id}/customer-response`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action }),
+        }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed to record customer response");
+      }
+      const data = await res.json().catch(() => ({}));
+      const updatedIssue = data?.issue;
+      setPreviewRow((prev) => {
+        if (!prev?.additionalIssues) return prev;
+        const updated = prev.additionalIssues.map((i) =>
+          i.id === issue.id
+            ? {
+                ...i,
+                customerResponse:
+                  (updatedIssue?.customerResponse as "accept" | "reject") ||
+                  action,
+              }
+            : i
+        );
+        return { ...prev, additionalIssues: updated };
+      });
+      setCustomerResponseModal(null);
+    } catch (e: any) {
+      alert(e?.message || "Failed to record customer response");
+    } finally {
+      setCustomerResponseSaving(false);
     }
   };
 
@@ -1538,7 +2102,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   ? [previewRow.vehicleMake, previewRow.vehicleModel].filter(Boolean).join(" ")
                                   : "Vehicle Details"}
                               </p>
-                              {(previewRow.vehicleNumber || previewRow.vehicleBodyType) && (
+                              {(previewRow.vehicleNumber || previewRow.vehicleType || previewRow.vehicleBodyType) && (
                                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                                   {previewRow.vehicleNumber && (
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-neutral-800 text-white text-xs font-mono font-semibold">
@@ -1546,7 +2110,16 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       {previewRow.vehicleNumber}
                                     </span>
                                   )}
-                                  {previewRow.vehicleBodyType && (
+                                  {previewRow.vehicleType && isVehicleType(previewRow.vehicleType) && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold"
+                                      title="Vehicle size class used for pricing"
+                                    >
+                                      <i className={`${VEHICLE_TYPE_ICONS[previewRow.vehicleType]} text-[9px]`} />
+                                      {VEHICLE_TYPE_LABELS[previewRow.vehicleType]}
+                                    </span>
+                                  )}
+                                  {!previewRow.vehicleType && previewRow.vehicleBodyType && (
                                     <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 text-xs font-semibold">
                                       {previewRow.vehicleBodyType}
                                     </span>
@@ -1562,7 +2135,15 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               {[
                                 { label: "Make", value: previewRow.vehicleMake, icon: "fa-industry" },
                                 { label: "Model", value: previewRow.vehicleModel, icon: "fa-tag" },
-                                { label: "Body Type", value: previewRow.vehicleBodyType, icon: "fa-shapes" },
+                                {
+                                  label: "Vehicle Type",
+                                  value: previewRow.vehicleType && isVehicleType(previewRow.vehicleType)
+                                    ? VEHICLE_TYPE_LABELS[previewRow.vehicleType]
+                                    : previewRow.vehicleBodyType,
+                                  icon: previewRow.vehicleType && isVehicleType(previewRow.vehicleType)
+                                    ? VEHICLE_TYPE_ICONS[previewRow.vehicleType].replace(/^fas /, "")
+                                    : "fa-shapes",
+                                },
                                 { label: "Colour", value: previewRow.vehicleColour, icon: "fa-palette" },
                                 { label: "Registration", value: previewRow.vehicleNumber, icon: "fa-id-card" },
                                 { label: "VIN / Chassis", value: previewRow.vehicleVinChassis, icon: "fa-barcode" },
@@ -1811,9 +2392,48 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                               );
                                             }
                                             return (
-                                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                                <i className="fas fa-clock" /> Awaiting Customer
-                                              </span>
+                                              <>
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                                  <i className="fas fa-clock" /> Awaiting Customer
+                                                </span>
+                                                {!isCompleted && !bookingCompleted && (
+                                                  <div className="flex flex-col gap-1 mt-1">
+                                                    <p className="text-[9px] text-neutral-500 italic">
+                                                      Called the customer? Record their response:
+                                                    </p>
+                                                    <div className="flex gap-1">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setCustomerResponseModal({
+                                                            bookingId: previewRow.id,
+                                                            issue,
+                                                            action: "accept",
+                                                          })
+                                                        }
+                                                        className="px-2 py-1 text-[10px] font-semibold rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors inline-flex items-center gap-1"
+                                                        title="Customer accepted the quote on the phone"
+                                                      >
+                                                        <i className="fas fa-check text-[9px]" /> Accepted
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setCustomerResponseModal({
+                                                            bookingId: previewRow.id,
+                                                            issue,
+                                                            action: "reject",
+                                                          })
+                                                        }
+                                                        className="px-2 py-1 text-[10px] font-semibold rounded-md bg-rose-600 text-white hover:bg-rose-700 transition-colors inline-flex items-center gap-1"
+                                                        title="Customer declined the quote on the phone"
+                                                      >
+                                                        <i className="fas fa-times text-[9px]" /> Declined
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </>
                                             );
                                           })()}
                                         </div>
@@ -2003,6 +2623,20 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                     <i className="far fa-user text-purple-400" />
                                     <span className="font-medium text-neutral-700">{svc.staffName || previewRow.staffName || "Not Assigned Yet"}</span>
                                  </div>
+                                 {(() => {
+                                    // Show which vehicle-type tier this service was priced against (per-service → booking-level fallback).
+                                    const svcVehicleType = ((svc as any).vehicleType as VehicleType | null | undefined) || previewRow.vehicleType || null;
+                                    if (!svcVehicleType || !isVehicleType(svcVehicleType)) return null;
+                                    return (
+                                      <div
+                                        className="flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-2 py-1 rounded-md"
+                                        title="Priced for this vehicle type"
+                                      >
+                                        <i className={`${VEHICLE_TYPE_ICONS[svcVehicleType]} text-[10px] text-amber-600`} />
+                                        <span className="font-semibold text-amber-800">{VEHICLE_TYPE_LABELS[svcVehicleType]}</span>
+                                      </div>
+                                    );
+                                 })()}
                               </div>
                               {/* Show rejection reason if service was rejected */}
                               {approvalStatus === "rejected" && (svc as any).rejectionReason && (
@@ -2042,12 +2676,27 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             ? Math.round((doneCount / totalCount) * 100)
                             : previewRow.taskProgress || 0;
                         const isComplete = totalCount > 0 && doneCount === totalCount;
-                        const serviceTaskGroups = (() => {
-                          const groups = new Map<string, { label: string; tasks: typeof previewRow.tasks }>();
+                        // Group tasks by service, and within each service by vehicle area
+                        // using the owner's snapshotted areaOrder (falling back to the
+                        // default order for older bookings without that snapshot).
+                        type ServiceGroup = {
+                          label: string;
+                          tasks: NonNullable<typeof previewRow.tasks>;
+                          areaOrder: ChecklistSection[];
+                          areaGroups: Array<{
+                            key: ChecklistSection | "unset";
+                            label: string;
+                            tasks: NonNullable<typeof previewRow.tasks>;
+                          }>;
+                        };
+                        const serviceTaskGroups: ServiceGroup[] = (() => {
+                          const groups = new Map<string, ServiceGroup>();
                           for (const task of previewRow.tasks) {
                             const taskServiceId = task.serviceId ? String(task.serviceId) : "";
                             const taskServiceName = task.serviceName ? String(task.serviceName) : "";
                             let matchedServiceName = taskServiceName || "General";
+                            let matchedAreaOrder: ChecklistSection[] = [...DEFAULT_AREA_ORDER];
+                            let haveAreaOrder = false;
 
                             if (previewRow.services && previewRow.services.length > 0) {
                               const matchedService = previewRow.services.find((svc) => {
@@ -2057,13 +2706,55 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   (taskServiceName && svcName && taskServiceName === svcName);
                               });
                               if (matchedService?.name) matchedServiceName = String(matchedService.name);
+                              if (matchedService?.areaOrder && matchedService.areaOrder.length > 0) {
+                                matchedAreaOrder = normalizeAreaOrder(matchedService.areaOrder);
+                                haveAreaOrder = true;
+                              }
+                            }
+                            // Fallback: use the live service's areaOrder when the booking
+                            // snapshot was written before we started persisting it.
+                            if (!haveAreaOrder && taskServiceId) {
+                              const fallback = serviceAreaOrderFallback[taskServiceId];
+                              if (fallback && fallback.length > 0) {
+                                matchedAreaOrder = fallback;
+                              }
                             }
 
                             const key = taskServiceId || matchedServiceName;
                             if (!groups.has(key)) {
-                              groups.set(key, { label: matchedServiceName, tasks: [] as typeof previewRow.tasks });
+                              groups.set(key, {
+                                label: matchedServiceName,
+                                tasks: [] as NonNullable<typeof previewRow.tasks>,
+                                areaOrder: matchedAreaOrder,
+                                areaGroups: [],
+                              });
                             }
                             groups.get(key)!.tasks.push(task);
+                          }
+                          // Build area-wise sub-groups for each service group.
+                          for (const group of groups.values()) {
+                            const buckets = new Map<
+                              ChecklistSection | "unset",
+                              NonNullable<typeof previewRow.tasks>
+                            >();
+                            for (const t of group.tasks) {
+                              const bucketKey: ChecklistSection | "unset" =
+                                isChecklistSection(t.section) ? t.section : "unset";
+                              if (!buckets.has(bucketKey)) buckets.set(bucketKey, [] as NonNullable<typeof previewRow.tasks>);
+                              buckets.get(bucketKey)!.push(t);
+                            }
+                            const areaGroups: ServiceGroup["areaGroups"] = [];
+                            for (const area of group.areaOrder) {
+                              const tasks = buckets.get(area);
+                              if (tasks && tasks.length > 0) {
+                                areaGroups.push({ key: area, label: CHECKLIST_SECTION_LABELS[area], tasks });
+                              }
+                            }
+                            const unset = buckets.get("unset");
+                            if (unset && unset.length > 0) {
+                              areaGroups.push({ key: "unset", label: "Other", tasks: unset });
+                            }
+                            group.areaGroups = areaGroups;
                           }
                           return Array.from(groups.values());
                         })();
@@ -2119,22 +2810,106 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               </div>
                             </div>
 
-                            {/* Segmented progress steps */}
-                            <div className="flex items-center gap-1 relative z-10">
-                              {previewRow.tasks.map((task, i) => (
-                                <div key={task.id || i} className="flex-1">
-                                  <div
-                                    className={`h-2.5 rounded-full transition-all duration-500 ${
-                                      task.done
-                                        ? isComplete
-                                          ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
-                                          : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
-                                        : "bg-neutral-200/80"
-                                    }`}
-                                  />
+                            {/* Segmented progress — one strip per vehicle area (owner order),
+                                each area sub-divided into one pip per task. Falls back to a flat
+                                per-task bar when no task carries a `section`. */}
+                            {(() => {
+                              const hasAnySection = previewRow.tasks.some((t) => isChecklistSection(t.section));
+                              if (!hasAnySection) {
+                                return (
+                                  <div className="flex items-center gap-1 relative z-10">
+                                    {previewRow.tasks.map((task, i) => (
+                                      <div key={task.id || i} className="flex-1">
+                                        <div
+                                          className={`h-2.5 rounded-full transition-all duration-500 ${
+                                            task.done
+                                              ? isComplete
+                                                ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                              : "bg-neutral-200/80"
+                                          }`}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              // Derive area order from the booking's first service snapshot,
+                              // then fall back to the live-service cache (for legacy bookings
+                              // whose snapshots predate areaOrder), finally default order.
+                              let resolvedOrder: ChecklistSection[] = [...DEFAULT_AREA_ORDER];
+                              const firstSvc = previewRow.services?.[0];
+                              if (firstSvc?.areaOrder && firstSvc.areaOrder.length > 0) {
+                                resolvedOrder = normalizeAreaOrder(firstSvc.areaOrder);
+                              } else {
+                                const firstSvcId = firstSvc?.id
+                                  ? String(firstSvc.id)
+                                  : previewRow.tasks.find((t) => t.serviceId)?.serviceId;
+                                if (firstSvcId) {
+                                  const fb = serviceAreaOrderFallback[String(firstSvcId)];
+                                  if (fb && fb.length > 0) resolvedOrder = fb;
+                                }
+                              }
+                              const buckets = new Map<ChecklistSection, boolean[]>();
+                              for (const a of resolvedOrder) buckets.set(a, []);
+                              const otherDones: boolean[] = [];
+                              for (const t of previewRow.tasks) {
+                                if (isChecklistSection(t.section)) {
+                                  buckets.get(t.section)!.push(!!t.done);
+                                } else {
+                                  otherDones.push(!!t.done);
+                                }
+                              }
+                              type AreaSeg = { key: string; label: string; dones: boolean[] };
+                              const segments: AreaSeg[] = [];
+                              for (const a of resolvedOrder) {
+                                segments.push({
+                                  key: a,
+                                  label: CHECKLIST_SECTION_LABELS[a],
+                                  dones: buckets.get(a)!,
+                                });
+                              }
+                              if (otherDones.length > 0) {
+                                segments.push({ key: "other", label: "Other", dones: otherDones });
+                              }
+                              return (
+                                <div className="flex items-stretch gap-1 sm:gap-1.5 relative z-10">
+                                  {segments.map((seg) => {
+                                    const segTotal = seg.dones.length;
+                                    const segDone = seg.dones.filter(Boolean).length;
+                                    const areaComplete = segTotal > 0 && segDone === segTotal;
+                                    const pips = segTotal > 0 ? seg.dones : [false];
+                                    return (
+                                      <div
+                                        key={seg.key}
+                                        className="flex-1 flex flex-col gap-1 min-w-0"
+                                        title={`${seg.label}: ${segDone}/${segTotal} tasks`}
+                                      >
+                                        <div className="h-2.5 flex items-stretch gap-[2px]">
+                                          {pips.map((done, pi) => (
+                                            <div
+                                              key={pi}
+                                              className={`flex-1 h-full rounded-full transition-all duration-500 ${
+                                                segTotal === 0
+                                                  ? "bg-neutral-200/80"
+                                                  : done
+                                                    ? areaComplete
+                                                      ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                      : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                    : "bg-neutral-200/80"
+                                              }`}
+                                            />
+                                          ))}
+                                        </div>
+                                        <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400 truncate text-center leading-none px-0.5">
+                                          {seg.label}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-                              ))}
-                            </div>
+                              );
+                            })()}
 
                             {/* Bottom label */}
                             <div className="flex items-center justify-between mt-2.5 relative z-10">
@@ -2174,67 +2949,111 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       {groupDone}/{groupTotal}
                                     </span>
                                   </div>
-                                  <div className="p-3 space-y-3">
-                                    {group.tasks.map((task, idx) => (
-                                      <div key={task.id || `${groupIdx}-${idx}`} className={`rounded-xl border p-3 transition-all ${
-                                        task.done
-                                          ? "bg-emerald-50/50 border-emerald-200"
-                                          : "bg-white border-neutral-200"
-                                      }`}>
-                                        <div className="flex items-start gap-3">
-                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                            task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
-                                          }`}>
-                                            {task.done ? (
-                                              <i className="fas fa-check text-[10px]" />
-                                            ) : (
-                                              <span className="text-[10px] font-bold">{idx + 1}</span>
-                                            )}
-                                          </div>
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center justify-between">
-                                              <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
-                                                {task.name}
-                                              </p>
-                                              {task.done && (
-                                                <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
-                                              )}
+                                  <div className="p-3 space-y-4">
+                                    {(() => {
+                                      let taskNum = 0;
+                                      return group.areaGroups.map((area, areaIdx) => {
+                                        const areaDone = area.tasks.filter((t) => t.done).length;
+                                        const areaTotal = area.tasks.length;
+                                        return (
+                                          <div key={`${area.key}-${areaIdx}`} className="space-y-2">
+                                            {/* Area header */}
+                                            <div className="flex items-center gap-2 px-1">
+                                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                              <h6 className="text-[11px] font-bold uppercase tracking-wide text-neutral-600">
+                                                {area.label}
+                                              </h6>
+                                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
+                                                areaTotal > 0 && areaDone === areaTotal
+                                                  ? "bg-emerald-100 text-emerald-700"
+                                                  : "bg-amber-100 text-amber-700"
+                                              }`}>
+                                                {areaDone}/{areaTotal}
+                                              </span>
+                                              <div className="flex-1 h-px bg-neutral-200" />
                                             </div>
-                                            {task.description && (
-                                              <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
-                                            )}
-                                            {/* Staff note */}
-                                            {task.staffNote && (
-                                              <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
-                                                <p className="text-xs text-blue-700">
-                                                  <i className="fas fa-comment-alt mr-1" />
-                                                  {task.staffNote}
-                                                </p>
-                                                {task.completedByStaffName && (
-                                                  <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
-                                                )}
-                                              </div>
-                                            )}
-                                            {/* Task image */}
-                                            {task.imageUrl && (
-                                              <div className="mt-2">
-                                                <img
-                                                  src={task.imageUrl}
-                                                  alt={task.name}
-                                                  className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
-                                                  onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
-                                                />
-                                                <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
-                                                  onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
-                                                >
-                                                  <i className="fas fa-expand text-[9px]" /> Click to view full size
-                                                </p>
-                                              </div>
-                                            )}
+                                            <div className="space-y-2">
+                                              {area.tasks.map((task, idx) => {
+                                                taskNum += 1;
+                                                return (
+                                                  <div key={task.id || `${groupIdx}-${areaIdx}-${idx}`} className={`rounded-xl border p-3 transition-all ${
+                                                    task.done
+                                                      ? "bg-emerald-50/50 border-emerald-200"
+                                                      : "bg-white border-neutral-200"
+                                                  }`}>
+                                                    <div className="flex items-start gap-3">
+                                                      <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                                        task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                                      }`}>
+                                                        {task.done ? (
+                                                          <i className="fas fa-check text-[10px]" />
+                                                        ) : (
+                                                          <span className="text-[10px] font-bold">{taskNum}</span>
+                                                        )}
+                                                      </div>
+                                                      <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center justify-between">
+                                                          <p className={`text-sm font-semibold ${task.done ? "text-emerald-700 line-through" : "text-neutral-800"}`}>
+                                                            {task.name}
+                                                          </p>
+                                                          {task.done && (
+                                                            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Done</span>
+                                                          )}
+                                                        </div>
+                                                        {task.description && (
+                                                          <p className="text-xs text-neutral-500 mt-1">{task.description}</p>
+                                                        )}
+                                                        {/* Condition pill */}
+                                                        {(() => {
+                                                          const opt = taskConditionOption(task.condition);
+                                                          if (!opt) return null;
+                                                          return (
+                                                            <div className="mt-2">
+                                                              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold ${opt.badgeClass}`}>
+                                                                <span className={`w-1.5 h-1.5 rounded-full ${opt.dotClass}`} />
+                                                                {opt.label}
+                                                              </span>
+                                                            </div>
+                                                          );
+                                                        })()}
+                                                        {/* Staff note */}
+                                                        {task.staffNote && (
+                                                          <div className="mt-2 p-2.5 bg-blue-50 rounded-lg border border-blue-100">
+                                                            <p className="text-xs text-blue-700">
+                                                              <i className="fas fa-comment-alt mr-1" />
+                                                              {task.staffNote}
+                                                            </p>
+                                                            {task.completedByStaffName && (
+                                                              <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                                            )}
+                                                          </div>
+                                                        )}
+                                                        {/* Task image */}
+                                                        {task.imageUrl && (
+                                                          <div className="mt-2">
+                                                            <img
+                                                              src={task.imageUrl}
+                                                              alt={task.name}
+                                                              className="w-full h-auto max-h-[280px] rounded-xl border border-neutral-200 object-cover cursor-pointer hover:opacity-80 hover:shadow-lg transition-all"
+                                                              onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                                            />
+                                                            <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1 cursor-pointer hover:text-blue-500 transition"
+                                                              onClick={() => setLightboxImage({ url: task.imageUrl, title: task.name })}
+                                                            >
+                                                              <i className="fas fa-expand text-[9px]" /> Click to view full size
+                                                            </p>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
                                           </div>
-                                        </div>
-                                      </div>
-                                    ))}
+                                        );
+                                      });
+                                    })()}
                                   </div>
                                 </div>
                               );
@@ -2351,12 +3170,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   <div className="shrink-0 border-t border-neutral-200 p-4 flex items-center justify-end gap-2 bg-white/90 backdrop-blur">
                     {previewRow && previewRow.status === "Completed" && (
                       <button
-                        onClick={() => previewRow && handleDownloadPDF(previewRow.id)}
-                        disabled={downloadingPdf === previewRow?.id}
-                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 bg-gradient-to-r from-neutral-800 to-neutral-900 hover:from-neutral-900 hover:to-black text-white shadow-sm disabled:opacity-60 mr-auto"
+                        onClick={() => previewRow && openJobReportPdfPreview(previewRow.id, previewRow.bookingCode)}
+                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 bg-gradient-to-r from-neutral-800 to-neutral-900 hover:from-neutral-900 hover:to-black text-white shadow-sm mr-auto"
                       >
-                        {downloadingPdf === previewRow?.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-file-pdf" />}
-                        {downloadingPdf === previewRow?.id ? "Generating..." : "Download Job Report"}
+                        <i className="fas fa-file-pdf" />
+                        View job report PDF
                       </button>
                     )}
                     <button
@@ -2416,6 +3234,28 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                       >
                         {updatingState[previewRow.id] === "Complete" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-flag-checkered" />}
                         {updatingState[previewRow.id] === "Complete" ? "Completing..." : "Complete"}
+                      </button>
+                    )}
+                    {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Reschedule") && (
+                      <button
+                        disabled={!!updatingState[previewRow.id]}
+                        onClick={() => {
+                          closePreview();
+                          handleRescheduleClick(previewRow);
+                        }}
+                        className="px-4 py-2 rounded-full text-sm font-semibold inline-flex items-center gap-2 text-white shadow-sm transition"
+                        style={{ backgroundColor: updatingState[previewRow.id] === "Reschedule" ? "#3b82f6" : "#1d4ed8" }}
+                        onMouseEnter={(e) => {
+                          if (updatingState[previewRow.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1e40af";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (updatingState[previewRow.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1d4ed8";
+                        }}
+                        aria-busy={!!updatingState[previewRow.id]}
+                        title="Change booking date & time"
+                      >
+                        {updatingState[previewRow.id] === "Reschedule" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-calendar-days" />}
+                        {updatingState[previewRow.id] === "Reschedule" ? "Rescheduling..." : "Reschedule"}
                       </button>
                     )}
                     {previewRow && getAllowedActions(previewRow.status, previewRow).includes("Cancel") && (
@@ -2495,9 +3335,9 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </div>
                       )}
 
-                      {/* Vehicle (make, model, body type) - 3 lines with labels */}
+                      {/* Vehicle (make, model, type) - 3 lines with labels */}
                       <div className="mt-2 rounded-lg bg-neutral-50 border border-neutral-100 px-3 py-2">
-                        {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
+                        {[r.vehicleMake, r.vehicleModel, r.vehicleType, r.vehicleBodyType].filter(Boolean).length > 0 ? (
                           <div className="space-y-1.5">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 min-w-0 flex items-baseline gap-2">
@@ -2510,8 +3350,15 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                               <span className="text-[11px] text-neutral-700 truncate">{r.vehicleModel || "N/A"}</span>
                             </div>
                             <div className="flex items-baseline gap-2 pl-4">
-                              <span className="text-[9px] font-semibold text-neutral-400 uppercase w-10 shrink-0">Body</span>
-                              <span className="text-[11px] text-neutral-600 truncate">{r.vehicleBodyType || "N/A"}</span>
+                              <span className="text-[9px] font-semibold text-neutral-400 uppercase w-10 shrink-0">Type</span>
+                              {r.vehicleType && isVehicleType(r.vehicleType) ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800">
+                                  <i className={`${VEHICLE_TYPE_ICONS[r.vehicleType]} text-[9px]`} />
+                                  {VEHICLE_TYPE_LABELS[r.vehicleType]}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-neutral-600 truncate">{r.vehicleBodyType || "N/A"}</span>
+                              )}
                             </div>
                           </div>
                         ) : (
@@ -2559,12 +3406,11 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </button>
                         {r.status === "Completed" && (
                           <button
-                            onClick={() => handleDownloadPDF(r.id)}
-                            disabled={downloadingPdf === r.id}
-                            className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center disabled:opacity-50"
-                            title="Download Job Report PDF"
+                            onClick={() => openJobReportPdfPreview(r.id, r.bookingCode)}
+                            className="text-neutral-400 hover:text-neutral-700 transition h-8 w-8 rounded-full flex items-center justify-center"
+                            title="View job report PDF"
                           >
-                            <i className={`fas ${downloadingPdf === r.id ? "fa-spinner fa-spin" : "fa-file-pdf"} text-sm`} />
+                            <i className="fas fa-file-pdf text-sm" />
                           </button>
                         )}
                         <div className="flex-1" />
@@ -2594,6 +3440,20 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 ${updatingState[r.id] === "AssignStaff" ? "bg-purple-300 text-white" : "bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-sm"}`}>
                             <i className={`fas ${updatingState[r.id] === "AssignStaff" ? "fa-spinner fa-spin" : "fa-user-plus"}`} />
                             {updatingState[r.id] === "AssignStaff" ? "..." : "Assign"}
+                          </button>
+                        )}
+                        {rowActions.includes("Reschedule" as any) && (
+                          <button disabled={!!updatingState[r.id]} onClick={() => handleRescheduleClick(r)}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1.5 text-white shadow-sm"
+                            style={{ backgroundColor: updatingState[r.id] === "Reschedule" ? "#3b82f6" : "#1d4ed8" }}
+                            onMouseEnter={(e) => {
+                              if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1e40af";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1d4ed8";
+                            }}>
+                            <i className={`fas ${updatingState[r.id] === "Reschedule" ? "fa-spinner fa-spin" : "fa-calendar-days"}`} />
+                            {updatingState[r.id] === "Reschedule" ? "..." : "Reschedule"}
                           </button>
                         )}
                         {rowActions.includes("Cancel" as any) && (
@@ -2752,8 +3612,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           </div>
                         </td>
                         <td className="p-3 align-middle">
-                          <div className="flex flex-col gap-1 font-medium text-neutral-700 text-sm whitespace-nowrap">
-                            <i className="far fa-calendar text-neutral-400 text-[11px]" />
+                          <div className="font-medium text-neutral-700 text-sm whitespace-nowrap">
                             {(() => { try { return new Date(r.date + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" }); } catch { return r.date; } })()}
                           </div>
                           <div className="flex items-center gap-3 mt-1">
@@ -2771,7 +3630,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </td>
                         <td className="p-3 align-middle">
                           <div className="min-w-[110px] max-w-[140px] rounded-lg bg-neutral-50 border border-neutral-100 px-2 py-1.5">
-                            {[r.vehicleMake, r.vehicleModel, r.vehicleBodyType].filter(Boolean).length > 0 ? (
+                            {[r.vehicleMake, r.vehicleModel, r.vehicleType, r.vehicleBodyType].filter(Boolean).length > 0 ? (
                               <div className="space-y-1.5 text-[11px]">
                                 <div className="flex items-baseline gap-1.5">
                                   <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Make</span>
@@ -2782,8 +3641,18 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   <span className="text-neutral-700 truncate" title={r.vehicleModel || "N/A"}>{r.vehicleModel || "N/A"}</span>
                                 </div>
                                 <div className="flex items-baseline gap-1.5">
-                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Body</span>
-                                  <span className="text-neutral-600 truncate" title={r.vehicleBodyType || "N/A"}>{r.vehicleBodyType || "N/A"}</span>
+                                  <span className="text-[9px] font-semibold text-neutral-400 uppercase w-12 shrink-0">Type</span>
+                                  {r.vehicleType && isVehicleType(r.vehicleType) ? (
+                                    <span
+                                      className="inline-flex items-center gap-1 font-semibold text-amber-800 truncate"
+                                      title={VEHICLE_TYPE_LABELS[r.vehicleType]}
+                                    >
+                                      <i className={`${VEHICLE_TYPE_ICONS[r.vehicleType]} text-[9px]`} />
+                                      <span className="truncate">{VEHICLE_TYPE_LABELS[r.vehicleType]}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-neutral-600 truncate" title={r.vehicleBodyType || "N/A"}>{r.vehicleBodyType || "N/A"}</span>
+                                  )}
                                 </div>
                               </div>
                             ) : (
@@ -2835,13 +3704,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                             </button>
                             {r.status === "Completed" && (
                               <button
-                                aria-label="Download Job Report"
-                                title="Download Job Report PDF"
-                                onClick={() => handleDownloadPDF(r.id)}
-                                disabled={downloadingPdf === r.id}
-                                className="hidden sm:inline-flex text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center disabled:opacity-50"
+                                aria-label="View job report PDF"
+                                title="View job report PDF"
+                                onClick={() => openJobReportPdfPreview(r.id, r.bookingCode)}
+                                className="hidden sm:inline-flex text-neutral-400 hover:text-neutral-900 transition transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 rounded-full h-8 w-8 items-center justify-center"
                               >
-                                <i className={`fas ${downloadingPdf === r.id ? "fa-spinner fa-spin" : "fa-file-pdf"}`} />
+                                <i className="fas fa-file-pdf" />
                               </button>
                             )}
                             {rowActions.length > 0 && (
@@ -2890,15 +3758,42 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   {updatingState[r.id] === "AssignStaff" ? "Assigning..." : "Assign Staff"}
                                 </button>
                               )}
+                              {rowActions.includes("Reschedule" as any) && (
+                                // Icon-only on desktop (solid, dark blue so
+                                // the button reads clearly on white rows).
+                                // Mobile card and the preview side-panel keep
+                                // the full "Reschedule" label.
+                                <button
+                                  disabled={!!updatingState[r.id]}
+                                  onClick={() => handleRescheduleClick(r)}
+                                  aria-label="Reschedule booking"
+                                  title="Reschedule — change date & time"
+                                  className="h-8 w-8 rounded-full inline-flex items-center justify-center transition shadow-sm text-white"
+                                  style={{ backgroundColor: updatingState[r.id] === "Reschedule" ? "#3b82f6" : "#1d4ed8" }}
+                                  onMouseEnter={(e) => {
+                                    if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1e40af";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (updatingState[r.id] !== "Reschedule") e.currentTarget.style.backgroundColor = "#1d4ed8";
+                                  }}
+                                  aria-busy={!!updatingState[r.id]}
+                                >
+                                  <i className={`fas ${updatingState[r.id] === "Reschedule" ? "fa-spinner fa-spin" : "fa-calendar-days"} text-[13px]`} />
+                                </button>
+                              )}
                               {rowActions.includes("Cancel" as any) && (
+                                // Icon-only on desktop to match Reschedule and
+                                // keep the actions column compact. Mobile and
+                                // preview side-panel keep the full label.
                                 <button
                                   disabled={!!updatingState[r.id]}
                                   onClick={() => onAction(r.id, "Cancel")}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition inline-flex items-center gap-1 ${updatingState[r.id] === "Cancel" ? "bg-rose-300 text-white" : "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white shadow-sm"}`}
+                                  aria-label="Cancel booking"
+                                  title="Cancel booking"
+                                  className={`h-8 w-8 rounded-full inline-flex items-center justify-center transition shadow-sm ${updatingState[r.id] === "Cancel" ? "bg-rose-400 text-white" : "bg-rose-600 hover:bg-rose-700 text-white"}`}
                                   aria-busy={!!updatingState[r.id]}
                                 >
-                                  {updatingState[r.id] === "Cancel" ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-ban" />}
-                                  {updatingState[r.id] === "Cancel" ? "Cancelling..." : "Cancel"}
+                                  <i className={`fas ${updatingState[r.id] === "Cancel" ? "fa-spinner fa-spin" : "fa-ban"} text-[13px]`} />
                                 </button>
                               )}
                               </>
@@ -3522,6 +4417,689 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         </div>
       )}
 
+      {/* ─── Reschedule Modal — owner / branch admin amend date & time ─── */}
+      {rescheduleModalOpen && bookingToReschedule && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+            onClick={closeRescheduleModal}
+          />
+
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full animate-scale-in overflow-hidden max-h-[90vh] flex flex-col z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-5 shrink-0" style={{ backgroundColor: "#1d4ed8" }}>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center">
+                  <i className="fas fa-calendar-days text-white text-xl" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-white">Reschedule booking</h3>
+                  <p className="text-white/80 text-sm truncate">
+                    {bookingToReschedule.bookingCode || bookingToReschedule.client}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              {/* Current slot */}
+              <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-4">
+                <div className="text-[11px] uppercase tracking-wide font-bold text-neutral-500 mb-1.5">
+                  Current date &amp; time
+                </div>
+                <div className="flex items-center gap-3 text-sm text-neutral-800 flex-wrap">
+                  <i className="fas fa-clock text-neutral-400" />
+                  <span className="font-semibold">
+                    {bookingToReschedule.date || "—"}
+                  </span>
+                  <span className="text-neutral-400">·</span>
+                  <span className="font-semibold inline-flex items-center gap-1">
+                    <i className="fas fa-arrow-right-to-bracket text-[9px] text-amber-500" />
+                    {bookingToReschedule.time || "—"}
+                  </span>
+                  {bookingToReschedule.pickupTime && (
+                    <>
+                      <span className="text-neutral-400">·</span>
+                      <span className="font-semibold inline-flex items-center gap-1">
+                        <i className="fas fa-arrow-right-from-bracket text-[9px] text-emerald-500" />
+                        {bookingToReschedule.pickupTime}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Branch timezone card — mirrors the Book an Appointment modal. */}
+              {rescheduleBranch && (() => {
+                const tz = rescheduleBranch.timezone || "";
+                const tzLabel = tz ? (tz.split("/").pop()?.replace(/_/g, " ") || tz) : "Local time";
+                const now = new Date(rescheduleNowTick);
+                const branchTimeStr = tz
+                  ? new Intl.DateTimeFormat("en-GB", {
+                      timeZone: tz,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: false,
+                    }).format(now)
+                  : `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+                return (
+                  <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-sm">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                          <i className="fas fa-globe text-blue-600 text-xs" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-neutral-800 block">
+                            {rescheduleBranch.name || tzLabel}
+                          </span>
+                          <span className="text-[10px] text-neutral-400">
+                            {tz ? `Branch timezone · ${tzLabel}` : "Branch timezone"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 bg-neutral-900 px-3 py-1.5 rounded-full">
+                        <i className="fas fa-clock text-amber-400 text-[10px]" />
+                        <span className="text-xs font-bold text-white">{branchTimeStr}</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-neutral-400 mt-2 ml-[42px]">
+                      Past time slots are automatically hidden based on branch local time.
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* New slot — calendar + time-slot grid styled like the booking engine */}
+              <div className="space-y-3">
+                <div className="text-[11px] uppercase tracking-wide font-bold text-neutral-500">
+                  New date &amp; time
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                  {/* Calendar */}
+                  <div className="flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                      Date <span className="text-red-400">*</span>
+                    </label>
+                    {(() => {
+                      const { year, month } = rescheduleCalendarMonth;
+                      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                      const dayNames = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+                      const firstDay = new Date(year, month, 1);
+                      const lastDay = new Date(year, month + 1, 0);
+                      const startDow = (firstDay.getDay() + 6) % 7;
+                      const daysInMonth = lastDay.getDate();
+                      const today = new Date();
+                      const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                      const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+
+                      const prevMonth = () => setRescheduleCalendarMonth((p) => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 });
+                      const nextMonth = () => setRescheduleCalendarMonth((p) => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 });
+                      const canGoPrev = new Date(year, month, 1) > new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+
+                      const cells: (number | null)[] = [];
+                      for (let i = 0; i < startDow; i++) cells.push(null);
+                      for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                      while (cells.length % 7 !== 0) cells.push(null);
+
+                      return (
+                        <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white flex-1 flex flex-col">
+                          <div className="flex items-center justify-between px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
+                            <button
+                              type="button"
+                              onClick={prevMonth}
+                              disabled={!canGoPrev || rescheduleSaving}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                              <i className="fas fa-chevron-left text-[10px]" />
+                            </button>
+                            <span className="text-xs font-bold text-neutral-800">
+                              {monthNames[month]} {year}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={nextMonth}
+                              disabled={rescheduleSaving}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-all disabled:opacity-30"
+                            >
+                              <i className="fas fa-chevron-right text-[10px]" />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-7 px-2 pt-2">
+                            {dayNames.map((d) => (
+                              <div key={d} className="text-center text-[10px] font-bold text-neutral-400 py-1">{d}</div>
+                            ))}
+                          </div>
+                          <div className="grid grid-cols-7 px-2 pb-2 gap-y-0.5 flex-1">
+                            {cells.map((day, i) => {
+                              if (day === null) return <div key={`e-${i}`} />;
+                              const cellDate = new Date(year, month, day);
+                              cellDate.setHours(0, 0, 0, 0);
+                              const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                              const isPast = cellDate < todayDate;
+                              // Mark days the branch is closed (strike-through, non-selectable)
+                              let isClosed = false;
+                              if (rescheduleBranch?.hours && typeof rescheduleBranch.hours !== "string") {
+                                let dayName: string;
+                                try {
+                                  dayName = new Intl.DateTimeFormat("en-US", {
+                                    weekday: "long",
+                                    timeZone: rescheduleBranch.timezone || undefined,
+                                  }).format(new Date(`${dateStr}T12:00:00`));
+                                } catch {
+                                  dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${dateStr}T12:00:00`));
+                                }
+                                const dh = rescheduleBranch.hours[dayName];
+                                if (dh?.closed) isClosed = true;
+                              }
+                              const isDisabled = isPast || isClosed;
+                              const isSelected = rescheduleNewDate === dateStr;
+                              const isToday = dateStr === todayStr;
+                              return (
+                                <button
+                                  key={dateStr}
+                                  type="button"
+                                  disabled={isDisabled || rescheduleSaving}
+                                  onClick={() => setRescheduleNewDate(dateStr)}
+                                  title={isClosed ? "Branch closed" : undefined}
+                                  className={`w-full aspect-square rounded-lg flex items-center justify-center text-xs font-semibold transition-all
+                                    ${isDisabled ? "text-neutral-300 cursor-not-allowed" : ""}
+                                    ${isClosed && !isPast ? "line-through decoration-red-300" : ""}
+                                    ${isSelected ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20" : ""}
+                                    ${isToday && !isSelected && !isDisabled ? "bg-amber-100 text-amber-700 font-bold" : ""}
+                                    ${!isDisabled && !isSelected && !isToday ? "text-neutral-700 hover:bg-neutral-100" : ""}
+                                  `}
+                                >
+                                  {day}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div className="flex items-center justify-between px-3 py-2 border-t border-neutral-100 bg-neutral-50/50">
+                            <button
+                              type="button"
+                              onClick={() => setRescheduleNewDate("")}
+                              disabled={rescheduleSaving}
+                              className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-600 transition-colors disabled:opacity-50"
+                            >
+                              Clear
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRescheduleCalendarMonth({ year: todayDate.getFullYear(), month: todayDate.getMonth() });
+                                setRescheduleNewDate(todayStr);
+                              }}
+                              disabled={rescheduleSaving}
+                              className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 transition-colors disabled:opacity-50"
+                            >
+                              Today
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {rescheduleNewDate && (
+                      <div className="mt-2 flex items-center gap-2 px-1">
+                        <i className="fas fa-calendar-check text-[10px] text-emerald-500" />
+                        <span className="text-xs font-semibold text-neutral-700">{rescheduleNewDate}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Drop-off time grid (branch-hours-aware) */}
+                  <div className="flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                      <i className="fas fa-arrow-right-to-bracket text-[9px] text-amber-500 mr-1" />
+                      Drop-off Time <span className="text-red-400">*</span>
+                    </label>
+                    {(() => {
+                      // Resolve the booking's total service duration.
+                      const row = bookingToReschedule!;
+                      const totalDuration = (() => {
+                        if (Array.isArray(row.services) && row.services.length > 0) {
+                          return row.services.reduce((sum, s) => sum + (Number(s.duration) || 0), 0) || Number(row.duration || 0) || 60;
+                        }
+                        return Number(row.duration || 0) || 60;
+                      })();
+
+                      // Resolve branch hours for the selected date (if we have a branch loaded).
+                      let branchDayHours: BranchDayHours | null = null;
+                      let branchClosed = false;
+                      if (rescheduleNewDate && rescheduleBranch?.hours && typeof rescheduleBranch.hours !== "string") {
+                        let dayName: string;
+                        try {
+                          dayName = new Intl.DateTimeFormat("en-US", {
+                            weekday: "long",
+                            timeZone: rescheduleBranch.timezone || undefined,
+                          }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                        } catch {
+                          dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                        }
+                        const dh = rescheduleBranch.hours[dayName];
+                        if (dh?.closed) {
+                          branchClosed = true;
+                        } else if (dh?.open && dh?.close) {
+                          branchDayHours = dh;
+                        }
+                      }
+
+                      // Fallback range if branch hours aren't available.
+                      const fallbackOpen = "07:00";
+                      const fallbackClose = "19:30";
+                      const openStr = branchDayHours?.open || fallbackOpen;
+                      const closeStr = branchDayHours?.close || fallbackClose;
+
+                      const toMinutes = (hhmm: string): number => {
+                        const [h, m] = hhmm.split(":").map(Number);
+                        return h * 60 + m;
+                      };
+                      const fmt = (mins: number): string => {
+                        const h = Math.floor(mins / 60);
+                        const m = mins % 60;
+                        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                      };
+
+                      // Current branch-local time (for filtering past slots if date == today).
+                      const now = new Date(rescheduleNowTick);
+                      const branchNowStr = rescheduleBranch?.timezone
+                        ? new Intl.DateTimeFormat("en-CA", {
+                            timeZone: rescheduleBranch.timezone,
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                          }).format(now)
+                        : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+                      const branchNowHHmm = rescheduleBranch?.timezone
+                        ? new Intl.DateTimeFormat("en-GB", {
+                            timeZone: rescheduleBranch.timezone,
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                          }).format(now)
+                        : `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+                      const isToday = rescheduleNewDate === branchNowStr;
+
+                      // Drop-off window: branch open → min(11:00, close − totalDuration).
+                      // Mirrors the booking engine's morning-drop-off / afternoon-pick-up model.
+                      const DROPOFF_CUTOFF_MIN = toMinutes("11:00");
+                      const openMin = toMinutes(openStr);
+                      const closeMin = toMinutes(closeStr);
+                      const lastDropoff = Math.min(DROPOFF_CUTOFF_MIN, closeMin - totalDuration);
+
+                      const slots: string[] = [];
+                      if (!branchClosed && lastDropoff >= openMin) {
+                        for (let m = openMin; m <= lastDropoff; m += 30) {
+                          slots.push(fmt(m));
+                        }
+                      }
+
+                      return (
+                        <div className="border-2 border-neutral-200 rounded-xl overflow-hidden bg-white flex-1 flex flex-col">
+                          <div className="px-3 py-2.5 bg-neutral-50 border-b border-neutral-100">
+                            <div className="flex items-center gap-2">
+                              <i className="fas fa-clock text-[10px] text-amber-500" />
+                              <span className="text-xs font-bold text-neutral-800">When does the customer drop off?</span>
+                            </div>
+                            {branchDayHours && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <i className="fas fa-store text-[9px] text-neutral-300" />
+                                <span className="text-[10px] font-medium text-neutral-400">
+                                  Drop-off {branchDayHours.open} – 11:00 · service is {totalDuration} min
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-4 gap-1.5 p-2.5 flex-1 overflow-y-auto max-h-[260px]" style={{ alignContent: "start" }}>
+                            {!rescheduleNewDate ? (
+                              <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
+                                Select a date first to see drop-off times.
+                              </p>
+                            ) : rescheduleBranchLoading && !rescheduleBranch ? (
+                              <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
+                                Loading branch hours…
+                              </p>
+                            ) : branchClosed ? (
+                              <p className="col-span-4 text-center text-[11px] text-rose-500 py-6">
+                                Branch is closed on this day. Please pick another date.
+                              </p>
+                            ) : slots.length === 0 ? (
+                              <p className="col-span-4 text-center text-[11px] text-neutral-400 py-6">
+                                No drop-off slots fit within opening hours for this service duration.
+                              </p>
+                            ) : (
+                              slots.map((t) => {
+                                const isPast = isToday && t <= branchNowHHmm;
+                                const isSelected = rescheduleNewTime === t;
+                                return (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    disabled={isPast || rescheduleSaving}
+                                    onClick={() => {
+                                      setRescheduleNewTime(t);
+                                      // If the current pick-up is now invalid (<= new drop-off), clear it.
+                                      if (rescheduleNewPickupTime && rescheduleNewPickupTime <= t) {
+                                        setRescheduleNewPickupTime("");
+                                      }
+                                    }}
+                                    className={`relative rounded-lg text-[13px] font-semibold transition-all text-center flex items-center justify-center py-2 min-h-[40px]
+                                      ${isPast
+                                        ? "bg-neutral-100 text-neutral-300 cursor-not-allowed"
+                                        : isSelected
+                                          ? "bg-neutral-900 text-white shadow-md shadow-neutral-900/20"
+                                          : "bg-amber-50 text-neutral-700 hover:bg-amber-100 hover:text-neutral-900 border border-amber-200/60"}
+                                    `}
+                                  >
+                                    {t}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {rescheduleNewTime && (
+                      <div className="mt-2 flex items-center gap-2 px-1">
+                        <i className="fas fa-arrow-right-to-bracket text-[10px] text-emerald-500" />
+                        <span className="text-xs font-semibold text-neutral-700">Drop-off: {rescheduleNewTime}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pick-up time grid (shown once a drop-off time is selected) */}
+                {rescheduleNewTime && (() => {
+                  const row = bookingToReschedule!;
+                  const totalDuration = (() => {
+                    if (Array.isArray(row.services) && row.services.length > 0) {
+                      return row.services.reduce((sum, s) => sum + (Number(s.duration) || 0), 0) || Number(row.duration || 0) || 60;
+                    }
+                    return Number(row.duration || 0) || 60;
+                  })();
+
+                  let branchDayHours: BranchDayHours | null = null;
+                  if (rescheduleNewDate && rescheduleBranch?.hours && typeof rescheduleBranch.hours !== "string") {
+                    let dayName: string;
+                    try {
+                      dayName = new Intl.DateTimeFormat("en-US", {
+                        weekday: "long",
+                        timeZone: rescheduleBranch.timezone || undefined,
+                      }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                    } catch {
+                      dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${rescheduleNewDate}T12:00:00`));
+                    }
+                    const dh = rescheduleBranch.hours[dayName];
+                    if (dh?.open && dh?.close && !dh?.closed) branchDayHours = dh;
+                  }
+
+                  const closeStr = branchDayHours?.close || "19:30";
+                  const toMinutes = (hhmm: string): number => {
+                    const [h, m] = hhmm.split(":").map(Number);
+                    return h * 60 + m;
+                  };
+                  const fmt = (mins: number): string => {
+                    const h = Math.floor(mins / 60);
+                    const m = mins % 60;
+                    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+                  };
+
+                  const dropoffMin = toMinutes(rescheduleNewTime);
+                  // Pick-up window: max(drop-off + duration, 14:00) → branch close.
+                  const PICKUP_EARLIEST_MIN = toMinutes("14:00");
+                  const earliestPickupMin = Math.max(dropoffMin + totalDuration, PICKUP_EARLIEST_MIN);
+                  const earliestPickup = fmt(earliestPickupMin);
+                  const closeMin = toMinutes(closeStr);
+
+                  const pickupSlots: string[] = [];
+                  for (let m = earliestPickupMin; m <= closeMin; m += 30) {
+                    pickupSlots.push(fmt(m));
+                  }
+
+                  return (
+                    <div className="mt-4 animate-[fadeSlideUp_0.3s_ease-out]">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">
+                        <i className="fas fa-arrow-right-from-bracket text-[9px] text-emerald-500 mr-1" />
+                        Pick-up Time{" "}
+                        <span className="ml-2 text-[10px] font-medium text-neutral-400 normal-case tracking-normal">
+                          earliest: {earliestPickup} — from 14:00 · {totalDuration} min service
+                        </span>
+                      </label>
+                      <div className="border-2 border-emerald-200 rounded-xl overflow-hidden bg-white">
+                        <div className="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100">
+                          <div className="flex items-center gap-2">
+                            <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-600" />
+                            <span className="text-xs font-bold text-emerald-800">When does the customer pick up?</span>
+                          </div>
+                          {branchDayHours && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <i className="fas fa-store text-[9px] text-emerald-300" />
+                              <span className="text-[10px] font-medium text-emerald-400">
+                                Branch closes at {branchDayHours.close}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        {pickupSlots.length === 0 ? (
+                          <div className="p-4 text-center">
+                            <p className="text-[11px] text-neutral-400">
+                              No pick-up times available for this drop-off time and service duration.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 p-2.5 max-h-[200px] overflow-y-auto" style={{ alignContent: "start" }}>
+                            {pickupSlots.map((t) => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => setRescheduleNewPickupTime(t)}
+                                disabled={rescheduleSaving}
+                                className={`h-9 rounded-lg text-xs font-semibold transition-all text-center
+                                  ${rescheduleNewPickupTime === t
+                                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"}
+                                `}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {rescheduleNewPickupTime && (
+                        <div className="mt-2 flex items-center gap-2 px-1">
+                          <i className="fas fa-arrow-right-from-bracket text-[10px] text-emerald-500" />
+                          <span className="text-xs font-semibold text-neutral-700">Pick-up: {rescheduleNewPickupTime}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Staff reassignment (optional) */}
+              {(() => {
+                if (!bookingToReschedule) return null;
+                const hasServices = Array.isArray(bookingToReschedule.services) && bookingToReschedule.services.length > 0;
+                const options = rescheduleStaffOptions;
+                const renderSelect = (
+                  currentId: string,
+                  value: string,
+                  onChange: (next: string) => void,
+                  currentName?: string | null,
+                ) => {
+                  const currentInOptions = !!currentId && options.some((s) => s.id === currentId);
+                  return (
+                    <select
+                      value={value}
+                      onChange={(e) => onChange(e.target.value)}
+                      disabled={rescheduleSaving || rescheduleStaffLoading}
+                      className="w-full px-3 py-2 rounded-lg border border-neutral-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 outline-none text-sm bg-white disabled:opacity-60"
+                    >
+                      <option value="">
+                        {rescheduleStaffLoading ? "Loading staff…" : "— Unassigned —"}
+                      </option>
+                      {currentId && !currentInOptions && (
+                        <option value={currentId}>
+                          {currentName || "Current staff"} (current)
+                        </option>
+                      )}
+                      {options.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                          {s.id === currentId ? " (current)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                };
+
+                return (
+                  <div className="rounded-xl border border-neutral-200 bg-white p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-neutral-700 inline-flex items-center gap-1.5">
+                        <i className="fas fa-user-gear text-[11px] text-indigo-500" />
+                        Assigned staff
+                      </span>
+                      <span className="text-[10px] text-neutral-400">
+                        Reassigning will notify the new staff.
+                      </span>
+                    </div>
+
+                    {hasServices ? (
+                      <div className="flex flex-col gap-2">
+                        {bookingToReschedule.services!.map((svc) => {
+                          const sid = String(svc.id);
+                          const currentId = (svc.staffId || "").toString();
+                          const value = rescheduleStaffByService[sid] ?? currentId;
+                          return (
+                            <div key={sid} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <div className="sm:w-40 shrink-0">
+                                <div className="text-xs font-semibold text-neutral-800 truncate">
+                                  {svc.name || "Service"}
+                                </div>
+                                <div className="text-[10px] text-neutral-500 truncate">
+                                  Currently: {svc.staffName || "Unassigned"}
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                {renderSelect(
+                                  currentId,
+                                  value,
+                                  (next) =>
+                                    setRescheduleStaffByService((prev) => ({
+                                      ...prev,
+                                      [sid]: next,
+                                    })),
+                                  svc.staffName,
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        <div className="sm:w-40 shrink-0">
+                          <div className="text-xs font-semibold text-neutral-800 truncate">
+                            {bookingToReschedule.serviceName || "Service"}
+                          </div>
+                          <div className="text-[10px] text-neutral-500 truncate">
+                            Currently: {bookingToReschedule.staffName || "Unassigned"}
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          {renderSelect(
+                            (bookingToReschedule.staffId || "").toString(),
+                            rescheduleStaffId,
+                            setRescheduleStaffId,
+                            bookingToReschedule.staffName,
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Reason (optional) */}
+              <label className="block">
+                <span className="text-xs font-semibold text-neutral-700 mb-1.5 block">
+                  Reason{" "}
+                  <span className="font-normal text-neutral-400">(optional)</span>
+                </span>
+                <textarea
+                  rows={3}
+                  value={rescheduleReason}
+                  onChange={(e) => setRescheduleReason(e.target.value)}
+                  placeholder="e.g. Customer requested a later slot, staff unavailable, etc."
+                  disabled={rescheduleSaving}
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 outline-none text-sm resize-none disabled:opacity-60"
+                />
+              </label>
+
+              {/* Info banner */}
+              <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-800 flex gap-2">
+                <i className="fas fa-info-circle mt-0.5" />
+                <div>
+                  The customer will be emailed the new date &amp; time
+                  (and any staff change), the rescheduling will appear in
+                  their app, and the amendment is recorded in the audit log.
+                </div>
+              </div>
+
+              {rescheduleError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 flex gap-2">
+                  <i className="fas fa-triangle-exclamation mt-0.5" />
+                  <div>{rescheduleError}</div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-neutral-100 p-4 flex items-center gap-3 bg-neutral-50/60 shrink-0">
+              <button
+                onClick={closeRescheduleModal}
+                disabled={rescheduleSaving}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-neutral-700 bg-white border border-neutral-200 hover:bg-neutral-50 transition disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReschedule}
+                disabled={rescheduleSaving}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-sm transition disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                style={{ backgroundColor: "#1d4ed8" }}
+                onMouseEnter={(e) => {
+                  if (!rescheduleSaving) e.currentTarget.style.backgroundColor = "#1e40af";
+                }}
+                onMouseLeave={(e) => {
+                  if (!rescheduleSaving) e.currentTarget.style.backgroundColor = "#1d4ed8";
+                }}
+              >
+                {rescheduleSaving ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-calendar-check" />
+                    Save new date &amp; time
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ─── Pending Additional Issues Alert Modal ────────────────── */}
       {pendingIssuesAlert && (
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
@@ -3616,35 +5194,55 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         </div>
       )}
 
-      {/* ─── PDF Download Confirmation Modal ────────────────────────── */}
-      {pdfConfirmBookingId && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden animate-scale-in">
-            <div className="bg-neutral-900 px-6 py-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                <i className="fas fa-file-pdf text-white" />
+      {/* ─── Job report PDF preview (download / print) ─────────────── */}
+      {pdfPreview && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in p-3 sm:p-4">
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[min(92vh,880px)] flex flex-col overflow-hidden animate-scale-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pdf-preview-title"
+          >
+            <div className="shrink-0 bg-neutral-900 px-4 py-3 sm:px-5 sm:py-3.5 flex flex-wrap items-center gap-2 sm:gap-3 border-b border-neutral-800">
+              <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                <i className="fas fa-file-pdf text-white text-sm" />
               </div>
-              <h3 className="text-white font-semibold">Download Job Report</h3>
+              <h3 id="pdf-preview-title" className="text-white font-semibold text-sm sm:text-base flex-1 min-w-0 truncate pr-2">
+                Job report — {pdfPreview.filename}
+              </h3>
+              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
+                <button
+                  type="button"
+                  onClick={downloadPdfFromPreview}
+                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-semibold bg-white/15 hover:bg-white/25 text-white transition inline-flex items-center gap-2"
+                >
+                  <i className="fas fa-download text-[10px]" />
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={printPdfFromPreview}
+                  className="px-3 py-2 rounded-full text-xs sm:text-sm font-semibold bg-white/15 hover:bg-white/25 text-white transition inline-flex items-center gap-2"
+                >
+                  <i className="fas fa-print text-[10px]" />
+                  Print
+                </button>
+                <button
+                  type="button"
+                  onClick={closePdfPreview}
+                  aria-label="Close"
+                  className="h-9 w-9 shrink-0 rounded-full bg-white text-neutral-900 hover:bg-neutral-100 transition inline-flex items-center justify-center"
+                >
+                  <i className="fas fa-times text-sm" />
+                </button>
+              </div>
             </div>
-            <div className="px-6 py-5">
-              <p className="text-neutral-600 text-sm leading-relaxed">
-                Do you want to download the complete job task report as a PDF? This includes all booking details, services, and task information.
-              </p>
-            </div>
-            <div className="px-6 pb-5 flex items-center justify-end gap-3">
-              <button
-                onClick={() => setPdfConfirmBookingId(null)}
-                className="px-4 py-2 rounded-full text-sm font-semibold bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDownloadPDF}
-                className="px-5 py-2 rounded-full text-sm font-semibold bg-neutral-900 hover:bg-black text-white shadow-sm transition inline-flex items-center gap-2"
-              >
-                <i className="fas fa-download text-xs" />
-                Download PDF
-              </button>
+            <div className="flex min-h-0 flex-1 flex-col bg-neutral-100">
+              <BookingJobReportPdfViewer
+                bookingId={pdfPreview.bookingId}
+                filename={pdfPreview.filename}
+                className="min-h-0 flex-1"
+              />
             </div>
           </div>
         </div>
@@ -3802,6 +5400,124 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               )}
             </div>
           </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Record Customer Response Modal (owner / branch admin called customer) ─── */}
+      {customerResponseModal && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => !customerResponseSaving && setCustomerResponseModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(() => {
+              const isAccept = customerResponseModal.action === "accept";
+              const issue = customerResponseModal.issue;
+              const priceStr =
+                issue.price != null ? `$${Number(issue.price).toFixed(2)}` : "";
+              return (
+                <>
+                  <div
+                    className={`px-6 py-5 ${
+                      isAccept
+                        ? "bg-gradient-to-r from-emerald-500 to-green-600"
+                        : "bg-gradient-to-r from-rose-500 to-red-600"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                        <i
+                          className={`fas ${
+                            isAccept ? "fa-check-circle" : "fa-times-circle"
+                          } text-white text-xl`}
+                        />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white">
+                          {isAccept
+                            ? "Mark as Customer Accepted"
+                            : "Mark as Customer Declined"}
+                        </h3>
+                        <p className="text-white/90 text-sm">
+                          Record the response you took over the phone
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6 space-y-4">
+                    <div
+                      className={`rounded-xl border p-4 ${
+                        isAccept
+                          ? "bg-emerald-50 border-emerald-200"
+                          : "bg-rose-50 border-rose-200"
+                      }`}
+                    >
+                      <p className="font-semibold text-neutral-800 text-base">
+                        {issue.issueTitle}
+                      </p>
+                      {priceStr && (
+                        <p
+                          className={`text-sm font-bold mt-1 ${
+                            isAccept ? "text-emerald-700" : "text-rose-700"
+                          }`}
+                        >
+                          Quoted price: {priceStr}
+                        </p>
+                      )}
+                      {issue.description && (
+                        <p className="text-xs text-neutral-600 mt-2">
+                          {issue.description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg bg-neutral-50 border border-neutral-200 p-3">
+                      <p className="text-xs text-neutral-700 leading-relaxed">
+                        <i className="fas fa-info-circle text-neutral-500 mr-1.5" />
+                        By confirming, you are recording that the customer
+                        <strong>
+                          {isAccept ? " accepted " : " declined "}
+                        </strong>
+                        the additional-work quote during a phone conversation.
+                        The reporting technician and team will be notified.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="px-6 pb-6 flex flex-col sm:flex-row gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCustomerResponseModal(null)}
+                      disabled={customerResponseSaving}
+                      className="flex-1 py-2 rounded-lg border border-neutral-200 text-neutral-700 text-sm font-medium hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRecordCustomerResponse}
+                      disabled={customerResponseSaving}
+                      className={`flex-1 py-2 rounded-lg text-white text-sm font-semibold transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isAccept
+                          ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20"
+                          : "bg-rose-600 hover:bg-rose-700 shadow-rose-500/20"
+                      }`}
+                    >
+                      {customerResponseSaving
+                        ? "Saving..."
+                        : isAccept
+                          ? "Confirm – Customer Accepted"
+                          : "Confirm – Customer Declined"}
+                    </button>
+                  </div>
+                </>
               );
             })()}
           </div>

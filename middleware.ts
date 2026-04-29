@@ -34,11 +34,11 @@ function generateCSP(isDev: boolean): string {
     // Added *.firebaseapp.com for Firebase Auth popup/redirect
     "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com",
     
-    // Frames: Block all except Google reCAPTCHA and Firebase Auth
-    "frame-src 'self' https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",
+    // Frames: blob: for PDF iframe fallbacks; Firebase Auth / reCAPTCHA
+    "frame-src 'self' blob: https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",
     
-    // Objects: Block Flash and other plugins (obsolete attack vector)
-    "object-src 'none'",
+    // `<embed type="application/pdf">` job-report preview (blob URLs only, not arbitrary plugins)
+    "object-src 'self' blob:",
     
     // Base URI: Prevent base tag hijacking
     "base-uri 'self'",
@@ -63,23 +63,26 @@ function generateCSP(isDev: boolean): string {
  */
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
-  
+  const pathname = request.nextUrl.pathname;
+  /** Skip full CSP on PDF route so `frame-ancestors 'none'` does not block same-origin preview iframe. */
+  const isBookingPdf = /^\/api\/bookings\/[^/]+\/pdf$/.test(pathname);
+
   // Check if running in development (localhost)
   const host = request.headers.get("host") || "";
   const isDev = host.includes("localhost") || host.includes("127.0.0.1");
-  
+
   // === MODERN SECURITY HEADERS (2025 Production Standard) ===
-  
-  // 1. Content Security Policy (CSP) - Replaces deprecated X-XSS-Protection
-  // This is the primary defense against XSS attacks
-  response.headers.set("Content-Security-Policy", generateCSP(isDev));
-  
+
+  // 1. CSP — skip for booking PDF so the handler can be framed (handler sets frame-ancestors 'self')
+  if (!isBookingPdf) {
+    response.headers.set("Content-Security-Policy", generateCSP(isDev));
+  }
+
   // 2. Prevent MIME type sniffing attacks
   response.headers.set("X-Content-Type-Options", "nosniff");
-  
-  // 3. Prevent clickjacking (keep for older browsers, CSP frame-ancestors is primary)
-  response.headers.set("X-Frame-Options", "DENY");
-  
+
+  // 3. X-Frame-Options: set in next.config.ts (SAMEORIGIN) so same-origin PDF iframe works
+
   // 4. Control referrer information leakage
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   
@@ -102,7 +105,6 @@ export function middleware(request: NextRequest) {
   
   // === CVE-2025-55184 PROTECTION ===
   // Comprehensive payload size validation for all vulnerable endpoints
-  const pathname = request.nextUrl.pathname;
   const contentLength = request.headers.get("content-length");
   const MAX_PAYLOAD_1MB = 1024 * 1024; // 1MB
   const MAX_PAYLOAD_100KB = 100 * 1024; // 100KB for simple API calls

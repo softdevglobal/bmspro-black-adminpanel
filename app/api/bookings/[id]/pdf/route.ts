@@ -29,9 +29,11 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       return NextResponse.json({ error: "Booking ID is required" }, { status: 400, headers: corsHeaders });
     }
 
-    // Authenticate
+    // Authenticate: Bearer (fetch) or `token` query (same-origin <iframe> cannot send headers)
     const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+    const queryToken = req.nextUrl.searchParams.get("token")?.trim() || null;
+    const token = bearer || queryToken;
 
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
@@ -82,13 +84,21 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
 
     const { buffer, filename } = await generateBookingPDF(id);
 
+    const download = req.nextUrl.searchParams.get("download") === "1";
+    const safeName = String(filename || `Job-Report-${id}.pdf`).replace(/"/g, "");
+    const disposition = download
+      ? `attachment; filename="${safeName}"`
+      : `inline; filename="${safeName}"`;
+
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         ...corsHeaders,
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": disposition,
         "Content-Length": String(buffer.length),
+        // Allow embedding only from our own origin (preview modal)
+        "Content-Security-Policy": "frame-ancestors 'self'",
       },
     });
   } catch (error: any) {

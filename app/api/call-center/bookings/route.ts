@@ -6,8 +6,34 @@ import {
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
-import { normalizeBookingStatus, getServiceCompletionProgress } from "@/lib/bookingTypes";
-import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
+import {
+  normalizeBookingStatus,
+  getServiceCompletionProgress,
+  countsTowardDailyLimit,
+} from "@/lib/bookingTypes";
+import {
+  mergeBookingContactIntoAdditionalIssues,
+  serializeAdditionalIssuesForCallCenterApi,
+} from "@/lib/callCenterAdditionalIssues";
+import {
+  createOwnerNotification,
+  createBranchAdminNotification,
+  createStaffAssignmentNotification,
+  getBranchAdminUids,
+} from "@/lib/notifications";
+import { sendCustomerWelcomeEmail } from "@/lib/emailService";
+import {
+  resolveCustomerForStaffBooking,
+  resolveBookingEngineUrl,
+  getCanonicalCustomerContact,
+} from "@/lib/customerAccount";
+import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
+import {
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  type VehicleType,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -124,7 +150,10 @@ export async function GET(req: NextRequest) {
       const additionalIssuesRaw = Array.isArray(d.additionalIssues)
         ? d.additionalIssues
         : [];
-      const additionalIssues = serializeAdditionalIssuesForCallCenterApi(additionalIssuesRaw);
+      const additionalIssues = mergeBookingContactIntoAdditionalIssues(
+        serializeAdditionalIssuesForCallCenterApi(additionalIssuesRaw),
+        d as Record<string, unknown>
+      );
 
       bookings.push({
         id: doc.id,
@@ -137,13 +166,21 @@ export async function GET(req: NextRequest) {
         clientEmail: d.clientEmail || "",
         clientPhone: d.clientPhone || "",
         vehicleNumber: d.vehicleNumber || "",
+        vehicleType: isVehicleType(d.vehicleType) ? d.vehicleType : null,
+        vehicleBodyType: d.vehicleBodyType || "",
         branchId: d.branchId || "",
         branchName: d.branchName || "",
         services: services.map((s: any) => ({
+          // `id` is the service id the agent needs when assigning staff via
+          // POST /bookings/{id}/confirm → body.staffAssignments[<id>].
+          id: s.id || s.serviceId || null,
           name: s.name || "",
           price: s.price || 0,
+          duration: typeof s.duration === "number" ? s.duration : 0,
+          staffId: s.staffId || null,
           staffName: s.staffName || null,
           completionStatus: s.completionStatus || "pending",
+          vehicleType: isVehicleType(s.vehicleType) ? s.vehicleType : null,
         })),
         totalPrice: d.price || d.totalPrice || 0,
         progress,
@@ -210,6 +247,8 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
   vehicleYear: string;
   vehicleMileage: string;
   vehicleBodyType: string;
+  /** Canonical size class used for per-type pricing — validated against VEHICLE_TYPES. */
+  vehicleType: VehicleType | null;
   vehicleColour: string;
   vehicleVinChassis: string;
   vehicleEngineNumber: string;
@@ -228,6 +267,9 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
     pick("rego") ||
     str(body.vehicleNumber);
 
+  const rawType = pick("vehicleType");
+  const vehicleType: VehicleType | null = rawType && isVehicleType(rawType) ? (rawType as VehicleType) : null;
+
   return {
     vehicleNumber: rego,
     vehicleMake: pick("make"),
@@ -235,6 +277,7 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
     vehicleYear: pick("year"),
     vehicleMileage: pick("mileage"),
     vehicleBodyType: pick("bodyType"),
+    vehicleType,
     vehicleColour: pick("colour", "color"),
     vehicleVinChassis: pick("vinChassis") || pick("vin"),
     vehicleEngineNumber: pick("engineNumber"),
@@ -282,7 +325,7 @@ export async function POST(req: NextRequest) {
         ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
         : { uid: gate.auth.uid, name: gate.auth.name };
     const createdByRole =
-      gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
+      gate.auth.kind === "agent" ? gate.auth.user.role : gate.auth.role;
 
     const body = (await req.json()) as Record<string, unknown>;
     const {
@@ -326,6 +369,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Customer email + phone are mandatory when creating bookings on behalf
+    // of a customer — the email is used to auto-create their Booking Engine
+    // account (see `ensureCustomerAccount` below) and the phone is required
+    // for workshop contact.
+    const trimmedClientEmail =
+      typeof clientEmail === "string" ? clientEmail.trim() : "";
+    const trimmedClientPhone =
+      typeof clientPhone === "string" ? clientPhone.trim() : "";
+
+    if (!trimmedClientEmail) {
+      return NextResponse.json(
+        { error: "Customer email is required", field: "clientEmail" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedClientEmail)) {
+      return NextResponse.json(
+        { error: "Customer email must be a valid email address", field: "clientEmail" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
+    if (!trimmedClientPhone) {
+      return NextResponse.json(
+        { error: "Customer phone is required", field: "clientPhone" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+    const phoneDigits = trimmedClientPhone.replace(/\D/g, "");
+    if (phoneDigits.length < 6 || !/^[+\d][\d\s\-()]+$/.test(trimmedClientPhone)) {
+      return NextResponse.json(
+        { error: "Customer phone must be a valid phone number", field: "clientPhone" },
+        { status: 400, headers: CORS_HEADERS }
+      );
+    }
+
     if (
       !requestedServices ||
       !Array.isArray(requestedServices) ||
@@ -358,6 +438,41 @@ export async function POST(req: NextRequest) {
     }
     const branchData = branchDoc.data()!;
 
+    // ─── Daily booking limit enforcement ──────────────────────────────────
+    // The ONLY restriction on agent-side booking creation is the branch's
+    // `bookingLimitPerDay`. As long as the count of bookings counting toward
+    // the daily cap (see `countsTowardDailyLimit`) is below that number, the
+    // agent can book any in-hours time slot. Unset / non-positive limits are
+    // treated as "unlimited".
+    const bookingLimitPerDay =
+      typeof branchData.bookingLimitPerDay === "number" &&
+      branchData.bookingLimitPerDay > 0
+        ? branchData.bookingLimitPerDay
+        : null;
+    if (bookingLimitPerDay !== null) {
+      const existingForDay = await db
+        .collection("bookings")
+        .where("ownerUid", "==", ownerUid)
+        .where("branchId", "==", branchId)
+        .where("date", "==", date)
+        .get();
+      const countingBookings = existingForDay.docs.filter((d) =>
+        countsTowardDailyLimit((d.data() as any)?.status),
+      );
+      if (countingBookings.length >= bookingLimitPerDay) {
+        return NextResponse.json(
+          {
+            error: "Daily booking limit reached for this branch on this date.",
+            field: "date",
+            dailyLimit: bookingLimitPerDay,
+            currentBookings: countingBookings.length,
+            remainingBookings: 0,
+          },
+          { status: 409, headers: CORS_HEADERS },
+        );
+      }
+    }
+
     // Resolve service details from catalog
     const resolvedServices: any[] = [];
     let totalPrice = 0;
@@ -368,8 +483,40 @@ export async function POST(req: NextRequest) {
         const svcDoc = await db.doc(`services/${rs.serviceId}`).get();
         if (svcDoc.exists && svcDoc.data()?.ownerUid === ownerUid) {
           const svcData = svcDoc.data()!;
-          const price = rs.price ?? svcData.price ?? 0;
-          const duration = rs.duration ?? svcData.duration ?? 0;
+          // If the agent supplied a canonical vehicleType, resolve the
+          // price/duration from the service's vehicleTypePricing map so the
+          // call-center flow stays consistent with the customer booking
+          // engine. Explicit overrides on the request still win.
+          let resolvedPrice: number | null = null;
+          let resolvedDuration: number | null = null;
+          if (vf.vehicleType) {
+            const pricing = resolveServicePricingForVehicleType(
+              {
+                price: typeof svcData.price === "number" ? svcData.price : undefined,
+                duration: typeof svcData.duration === "number" ? svcData.duration : undefined,
+                vehicleTypePricing: normalizeVehicleTypePricing(svcData.vehicleTypePricing)
+                  .vehicleTypePricing,
+              },
+              vf.vehicleType,
+            );
+            if (pricing) {
+              resolvedPrice = pricing.price;
+              resolvedDuration = pricing.duration;
+            }
+          }
+          const price = rs.price ?? resolvedPrice ?? svcData.price ?? 0;
+          const duration = rs.duration ?? resolvedDuration ?? svcData.duration ?? 0;
+          // Snapshot owner's current area ordering for this service so the
+          // booking preview can group tasks in the owner's chosen order.
+          const areaOrder = Array.isArray(svcData.areaOrder)
+            ? (svcData.areaOrder as unknown[]).filter(
+                (v) =>
+                  v === "interior" ||
+                  v === "engine_bay" ||
+                  v === "underbody" ||
+                  v === "exterior"
+              )
+            : [];
           resolvedServices.push({
             id: rs.serviceId,
             name: rs.serviceName || svcData.name || "",
@@ -379,6 +526,8 @@ export async function POST(req: NextRequest) {
             staffName: rs.staffName || null,
             approvalStatus: rs.staffId ? "pending" : "needs_assignment",
             completionStatus: "pending",
+            ...(vf.vehicleType ? { vehicleType: vf.vehicleType } : {}),
+            ...(areaOrder.length > 0 ? { areaOrder } : {}),
           });
           totalPrice += price;
           totalDuration += duration;
@@ -395,6 +544,7 @@ export async function POST(req: NextRequest) {
           staffName: rs.staffName || null,
           approvalStatus: "needs_assignment",
           completionStatus: "pending",
+          ...(vf.vehicleType ? { vehicleType: vf.vehicleType } : {}),
         });
         totalPrice += price;
         totalDuration += duration;
@@ -410,12 +560,22 @@ export async function POST(req: NextRequest) {
         const checklist = svcDoc.data()?.checklist;
         if (Array.isArray(checklist)) {
           for (const item of checklist) {
+            const rawSection =
+              typeof item === "string" ? undefined : (item as any)?.section;
+            const section =
+              rawSection === "interior" ||
+              rawSection === "engine_bay" ||
+              rawSection === "underbody" ||
+              rawSection === "exterior"
+                ? rawSection
+                : "interior";
             tasks.push({
               id: `task_${taskIndex++}`,
               serviceId: svc.id,
               serviceName: svc.name,
               name: item.name || item.title || "",
               description: item.description || "",
+              section,
               done: false,
               imageUrl: "",
               staffNote: "",
@@ -434,6 +594,78 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
 
+    // ─── Resolve / provision customer account BEFORE saving the booking ────
+    // Prefer the caller-supplied `customerId` (already-known customer).
+    // Otherwise, look up by (ownerUid, email). If a customer exists → link
+    // the booking to that existing account and send NO welcome email.
+    // If not → create a new one with the default password "000000" and queue
+    // a welcome email to be sent after the booking is successfully saved.
+    let resolvedCustomerId: string | null = customerId || null;
+    let newCustomerWelcome: {
+      email: string;
+      password: string;
+      name: string;
+    } | null = null;
+    let ensureResult: Awaited<ReturnType<typeof resolveCustomerForStaffBooking>> = null;
+    try {
+      if (!resolvedCustomerId) {
+        ensureResult = await resolveCustomerForStaffBooking(db, {
+          ownerUid,
+          email: typeof clientEmail === "string" ? clientEmail : null,
+          phone: typeof clientPhone === "string" ? clientPhone : null,
+          name: typeof client === "string" ? client : null,
+        });
+        if (ensureResult) {
+          resolvedCustomerId = ensureResult.customerId;
+          if (ensureResult.created && ensureResult.defaultPassword) {
+            newCustomerWelcome = {
+              email: ensureResult.email,
+              password: ensureResult.defaultPassword,
+              name: String(client || "").trim(),
+            };
+            console.log(
+              `[call-center/bookings] Auto-created customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid})`
+            );
+          } else {
+            console.log(
+              `[call-center/bookings] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email || "(phone match)"} (workshop ${ownerUid}) — skipping welcome email`
+            );
+          }
+        }
+      }
+    } catch (customerAccountErr: any) {
+      console.error(
+        `[call-center/bookings] ❌ Exception during customer account resolution — proceeding without linked customerId:`,
+        customerAccountErr?.message || customerAccountErr
+      );
+    }
+
+    const accountCreatedThisBooking = ensureResult?.created === true;
+    let clientForBooking = (client as string).trim();
+    let emailForBooking = (typeof clientEmail === "string" ? clientEmail : "").trim();
+    let phoneForBooking = (typeof clientPhone === "string" ? clientPhone : "").trim();
+
+    let canonicalCustomerForResponse:
+      | { name: string; email: string; phone: string }
+      | undefined;
+    if (resolvedCustomerId && !accountCreatedThisBooking) {
+      try {
+        const canon = await getCanonicalCustomerContact(db, resolvedCustomerId, ownerUid);
+        if (canon) {
+          if (canon.name) clientForBooking = canon.name;
+          if (canon.email) emailForBooking = canon.email;
+          if (canon.phone) phoneForBooking = canon.phone;
+          canonicalCustomerForResponse = {
+            name: clientForBooking,
+            email: emailForBooking,
+            phone: phoneForBooking,
+          };
+        }
+      } catch (canonErr) {
+        console.warn("[call-center/bookings] Could not load canonical customer contact:", canonErr);
+      }
+    }
+
     const bookingData: Record<string, any> = {
       ownerUid,
       branchId,
@@ -444,15 +676,16 @@ export async function POST(req: NextRequest) {
       pickupTime: pickupTime || null,
       duration: totalDuration,
       price: totalPrice,
-      client: (client as string).trim(),
-      clientEmail: clientEmail?.trim() || "",
-      clientPhone: clientPhone?.trim() || "",
-      customerId: customerId || null,
+      client: clientForBooking,
+      clientEmail: emailForBooking || "",
+      clientPhone: phoneForBooking || "",
+      customerId: resolvedCustomerId,
       vehicleNumber: vf.vehicleNumber,
       vehicleMake: vf.vehicleMake || null,
       vehicleModel: vf.vehicleModel || null,
       vehicleYear: vf.vehicleYear || null,
       vehicleBodyType: vf.vehicleBodyType || "",
+      vehicleType: vf.vehicleType, // canonical size class used for per-type pricing; null for legacy
       vehicleColour: vf.vehicleColour || "",
       vehicleVinChassis: vf.vehicleVinChassis || "",
       vehicleEngineNumber: vf.vehicleEngineNumber || "",
@@ -471,6 +704,171 @@ export async function POST(req: NextRequest) {
     };
 
     const bookingRef = await db.collection("bookings").add(bookingData);
+    const bookingId = bookingRef.id;
+
+    // ─── Persist the vehicle into the customer's "My Vehicles" list ──────
+    // Mirrors /api/bookings so agents who capture a rego / VIN while taking
+    // the call populate the customer profile for the next booking. Dedupes
+    // against existing vehicles; best-effort — never breaks booking creation.
+    if (resolvedCustomerId) {
+      try {
+        const vehicleResult = await upsertCustomerVehicleFromBooking(db, {
+          customerId: resolvedCustomerId,
+          ownerUid,
+          createdByUid: actor.uid || null,
+          vehicle: {
+            vehicleNumber: vf.vehicleNumber,
+            vehicleMake: vf.vehicleMake,
+            vehicleModel: vf.vehicleModel,
+            vehicleYear: vf.vehicleYear,
+            vehicleMileage: vf.vehicleMileage,
+            vehicleBodyType: vf.vehicleBodyType,
+            vehicleType: vf.vehicleType,
+            vehicleColour: vf.vehicleColour,
+            vehicleVinChassis: vf.vehicleVinChassis,
+            vehicleEngineNumber: vf.vehicleEngineNumber,
+          },
+        });
+        if (vehicleResult.saved) {
+          console.log(
+            `[call-center/bookings] ✅ Vehicle ${vehicleResult.vehicleId} ${
+              vehicleResult.updatedExisting ? "merged into existing" : "added to"
+            } customer ${resolvedCustomerId} from booking ${bookingId}`,
+          );
+        } else {
+          console.log(
+            `[call-center/bookings] ℹ️ Skipped vehicle upsert for booking ${bookingId} — reason: ${vehicleResult.reason}`,
+          );
+        }
+      } catch (vehicleErr: any) {
+        console.error(
+          `[call-center/bookings] ❌ Exception persisting vehicle for booking ${bookingId}:`,
+          vehicleErr?.message || vehicleErr,
+        );
+      }
+    }
+
+    const bookingTimeDisplay = pickupTime
+      ? `Drop-off: ${String(time)}, Pick-up: ${pickupTime}`
+      : String(time);
+    const primaryServiceName =
+      resolvedServices.length > 0
+        ? resolvedServices.map((s: { name?: string }) => s.name || "Service").join(", ")
+        : "Service";
+    const servicesForNotif = resolvedServices.map((s: any) => ({
+      name: s.name || "Service",
+      staffName: s.staffName || undefined,
+      staffId: s.staffId || undefined,
+    }));
+
+    // Workshop owner + branch admins + staff: same Firestore/FCM paths as /api/bookings (mobile app listens here)
+    try {
+      if (allNeedAssignment) {
+        await createOwnerNotification({
+          bookingId,
+          bookingCode,
+          ownerUid,
+          clientName: clientForBooking,
+          serviceName: primaryServiceName,
+          services: servicesForNotif,
+          branchName: bookingData.branchName,
+          branchId: String(branchId),
+          bookingDate: String(date),
+          bookingTime: bookingTimeDisplay,
+          type: "booking_needs_assignment",
+          status: "Pending",
+        });
+        const branchAdminUids = await getBranchAdminUids(db, String(branchId), ownerUid);
+        for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
+          await createBranchAdminNotification({
+            bookingId,
+            bookingCode,
+            branchAdminUid,
+            ownerUid,
+            clientName: clientForBooking,
+            serviceName: primaryServiceName,
+            services: servicesForNotif,
+            branchName: bookingData.branchName,
+            branchId: String(branchId),
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            status: "Pending",
+            type: "booking_needs_assignment",
+            clientPhone: phoneForBooking || undefined,
+            customerPhone: phoneForBooking || undefined,
+            clientEmail: emailForBooking || undefined,
+          });
+        }
+      } else {
+        await createOwnerNotification({
+          bookingId,
+          bookingCode,
+          ownerUid,
+          clientName: clientForBooking,
+          serviceName: primaryServiceName,
+          services: servicesForNotif,
+          branchName: bookingData.branchName,
+          branchId: String(branchId),
+          bookingDate: String(date),
+          bookingTime: bookingTimeDisplay,
+          type: "staff_booking_created",
+          status: "AwaitingStaffApproval",
+          creatorUid: actor.uid,
+          creatorName: actor.name,
+          creatorRole: createdByRole,
+        });
+        const branchAdminUids = await getBranchAdminUids(db, String(branchId), ownerUid);
+        for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
+          await createBranchAdminNotification({
+            bookingId,
+            bookingCode,
+            branchAdminUid,
+            ownerUid,
+            clientName: clientForBooking,
+            serviceName: primaryServiceName,
+            services: servicesForNotif,
+            branchName: bookingData.branchName,
+            branchId: String(branchId),
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            status: "AwaitingStaffApproval",
+            type: "branch_booking_created",
+            clientPhone: phoneForBooking || undefined,
+            clientEmail: emailForBooking || undefined,
+          });
+        }
+        const staffSeen = new Set<string>();
+        for (const svc of resolvedServices) {
+          const sid = svc.staffId as string | null | undefined;
+          if (!sid || String(sid).toLowerCase().includes("any")) continue;
+          if (staffSeen.has(sid)) continue;
+          staffSeen.add(sid);
+          await createStaffAssignmentNotification({
+            bookingId,
+            bookingCode,
+            staffUid: sid,
+            staffName: (svc.staffName as string) || "Staff",
+            clientName: clientForBooking,
+            clientPhone: phoneForBooking || undefined,
+            serviceName: primaryServiceName,
+            services: servicesForNotif,
+            branchName: bookingData.branchName,
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            duration: totalDuration,
+            price: totalPrice,
+            ownerUid,
+          });
+        }
+      }
+      console.log(
+        `[call-center/bookings] Notifications sent for booking ${bookingCode} (${allNeedAssignment ? "Pending" : "AwaitingStaffApproval"})`
+      );
+    } catch (notifErr) {
+      console.error("[call-center/bookings POST] Failed to send notifications:", notifErr);
+    }
 
     // Log activity
     await db.collection("bookingActivities").add({
@@ -483,6 +881,57 @@ export async function POST(req: NextRequest) {
       timestamp: now,
     });
 
+    // ─── Welcome email for NEWLY-created customer accounts ─────────────────
+    // Existing accounts were already linked via `customerId` on the booking
+    // payload above, so no email is needed for them. Only fire this when a
+    // brand-new customer was provisioned during account resolution.
+    if (newCustomerWelcome) {
+      try {
+        let workshopName = "Workshop";
+        let bookingEngineUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+        try {
+          const ownerData = workshopDoc.exists ? workshopDoc.data() || {} : {};
+          workshopName =
+            (ownerData.workshopName as string) ||
+            (ownerData.salonName as string) ||
+            (ownerData.businessName as string) ||
+            (ownerData.name as string) ||
+            (ownerData.displayName as string) ||
+            "Workshop";
+          bookingEngineUrl = resolveBookingEngineUrl(ownerData);
+        } catch (ownerLookupErr) {
+          console.warn(
+            `[call-center/bookings] Could not resolve workshop metadata for welcome email (owner ${ownerUid}):`,
+            ownerLookupErr
+          );
+        }
+
+        const welcomeResult = await sendCustomerWelcomeEmail({
+          customerEmail: newCustomerWelcome.email,
+          password: newCustomerWelcome.password,
+          customerName: newCustomerWelcome.name,
+          workshopName,
+          bookingEngineUrl,
+        });
+
+        if (welcomeResult.success) {
+          console.log(
+            `[call-center/bookings] ✅ Welcome email sent to new customer ${newCustomerWelcome.email} for booking ${bookingRef.id}`
+          );
+        } else {
+          console.error(
+            `[call-center/bookings] ❌ Welcome email failed for new customer ${newCustomerWelcome.email} on booking ${bookingRef.id}:`,
+            welcomeResult.error
+          );
+        }
+      } catch (welcomeErr: any) {
+        console.error(
+          `[call-center/bookings] ❌ Exception sending welcome email for booking ${bookingRef.id}:`,
+          welcomeErr?.message || welcomeErr
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -491,6 +940,11 @@ export async function POST(req: NextRequest) {
         status: bookingData.status,
         totalPrice,
         totalDuration,
+        vehicleType: vf.vehicleType,
+        services: resolvedServices,
+        ...(canonicalCustomerForResponse
+          ? { canonicalCustomer: canonicalCustomerForResponse }
+          : {}),
       },
       { status: 201, headers: CORS_HEADERS }
     );

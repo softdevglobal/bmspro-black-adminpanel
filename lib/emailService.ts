@@ -2,6 +2,7 @@ import sgMail from "@sendgrid/mail";
 import { adminDb } from "./firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
+import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
 
 // Initialize SendGrid
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -41,12 +42,19 @@ interface BookingEmailData {
   duration?: number | null;
   price?: number | null;
   serviceName?: string | null;
+  /** Canonical size class the booking was priced against (so the email can call out the tier). */
+  vehicleType?: VehicleType | null;
+  vehicleNumber?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
   services?: Array<{
     name?: string;
     staffName?: string | null;
     time?: string;
     duration?: number;
     price?: number;
+    /** Per-line tier; falls back to booking-level `vehicleType` when rendering. */
+    vehicleType?: VehicleType | null;
   }>;
   staffName?: string | null;
   ownerUid: string;
@@ -169,10 +177,17 @@ function generateEmailHTML(
     hasUnassignedStaff = isAnyStaff(data.staffName);
   }
 
-  // Build services list
+  // Resolve the vehicle-type tier once — used both to label each service line
+  // and to surface a "priced for …" chip in the vehicle block.
+  const bookingVehicleType: VehicleType | null = isVehicleType(data.vehicleType)
+    ? (data.vehicleType as VehicleType)
+    : null;
+  const vehicleTypeLabel = bookingVehicleType ? VEHICLE_TYPE_LABELS[bookingVehicleType] : null;
+
+  // Build services list (includes per-line price + vehicle-type tier when available)
   let servicesList = "";
   if (data.services && data.services.length > 0) {
-    const services = data.services; // Store reference to avoid repeated checks
+    const services = data.services;
     servicesList = "<table style='width: 100%; border-collapse: collapse; margin: 15px 0;'>";
     services.forEach((service, index) => {
       const serviceTime = service.time ? ` at ${service.time}` : "";
@@ -180,18 +195,53 @@ function generateEmailHTML(
       const serviceHasStaff = service.staffName && !isAnyStaff(service.staffName);
       const staffInfo = serviceHasStaff ? ` with ${service.staffName}` : "";
       const borderBottom = index < services.length - 1 ? "border-bottom: 1px solid #e5e7eb;" : "";
+      const hasPrice = typeof service.price === "number" && !Number.isNaN(service.price);
+      const priceHtml = hasPrice
+        ? `<td style='padding: 12px 0; color: #111827; font-size: 15px; font-weight: 600; text-align: right; white-space: nowrap;'>${formatPrice(service.price as number)}</td>`
+        : "";
+      const lineType: VehicleType | null = isVehicleType(service.vehicleType)
+        ? (service.vehicleType as VehicleType)
+        : bookingVehicleType;
+      const tierNote = lineType
+        ? `<div style='margin-top:4px;color:#b45309;font-size:12px;font-weight:500;'>Priced for ${VEHICLE_TYPE_LABELS[lineType]}</div>`
+        : "";
       servicesList += `
         <tr style='${borderBottom}'>
           <td style='padding: 12px 0; color: #374151; font-size: 15px;'>
             <strong style='color: #111827;'>${service.name || "Service"}</strong>${serviceTime}${serviceDuration}${staffInfo}
+            ${tierNote}
           </td>
+          ${priceHtml}
         </tr>
       `;
     });
     servicesList += "</table>";
   } else if (data.serviceName) {
-    servicesList = `<p style='margin: 12px 0; color: #374151; font-size: 15px;'><strong style='color: #111827;'>${data.serviceName}</strong></p>`;
+    const tierNote = vehicleTypeLabel
+      ? `<div style='margin-top:4px;color:#b45309;font-size:12px;font-weight:500;'>Priced for ${vehicleTypeLabel}</div>`
+      : "";
+    servicesList = `<p style='margin: 12px 0; color: #374151; font-size: 15px;'><strong style='color: #111827;'>${data.serviceName}</strong>${tierNote}</p>`;
   }
+
+  // Build vehicle summary block when we know anything about the vehicle.
+  const vehicleTitle = [data.vehicleMake, data.vehicleModel].filter(Boolean).join(" ").trim();
+  const hasVehicleInfo = !!(vehicleTitle || data.vehicleNumber || vehicleTypeLabel);
+  const vehicleInfoHtml = hasVehicleInfo
+    ? `
+      <tr>
+        <td colspan="2" style='padding: 0 0 8px 0;'>
+          <div style='background-color:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;'>
+            <div style='color:#92400e;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;'>Vehicle</div>
+            <div style='margin-top:4px;color:#111827;font-size:15px;font-weight:600;'>${vehicleTitle || "Vehicle"}</div>
+            <div style='margin-top:6px;display:block;color:#78350f;font-size:13px;'>
+              ${data.vehicleNumber ? `<span style='display:inline-block;margin-right:10px;'><strong>Rego:</strong> ${data.vehicleNumber}</span>` : ""}
+              ${vehicleTypeLabel ? `<span style='display:inline-block;'><strong>Type:</strong> ${vehicleTypeLabel} <em style='color:#b45309;font-style:normal;'>(pricing class)</em></span>` : ""}
+            </div>
+          </div>
+        </td>
+      </tr>
+    `
+    : "";
   
   // Staff info - only show if staff is assigned, otherwise show appropriate message
   const staffInfo = data.staffName && !isAnyStaff(data.staffName) ? `
@@ -382,6 +432,7 @@ function generateEmailHTML(
                   ${staffInfo}
                   ${priceInfo}
                 </table>
+                ${vehicleInfoHtml ? `<table style="width: 100%; border-collapse: collapse; margin-top: 16px;"><tbody>${vehicleInfoHtml}</tbody></table>` : ""}
                 ${staffAssignmentMessage}
                 
                 ${servicesList ? `
@@ -635,12 +686,17 @@ export async function sendBookingStatusChangeEmail(
     duration?: number | null;
     price?: number | null;
     serviceName?: string | null;
+    vehicleType?: VehicleType | null;
+    vehicleNumber?: string | null;
+    vehicleMake?: string | null;
+    vehicleModel?: string | null;
     services?: Array<{
       name?: string;
       staffName?: string | null;
       time?: string;
       duration?: number;
       price?: number;
+      vehicleType?: VehicleType | null;
     }>;
     staffName?: string | null;
     additionalIssues?: Array<{
@@ -672,7 +728,77 @@ export async function sendBookingStatusChangeEmail(
   
   // Get workshop name
   const workshopName = await getWorkshopName(ownerUid);
-  
+
+  // Hydrate vehicle info from Firestore when the caller didn't pass it, so
+  // every status-change email (Confirmed / Completed / Canceled) consistently
+  // shows the vehicle and its pricing class without every call site having to
+  // thread those fields through.
+  let hydratedVehicleType: VehicleType | null = bookingData.vehicleType ?? null;
+  let hydratedVehicleNumber: string | null = bookingData.vehicleNumber ?? null;
+  let hydratedVehicleMake: string | null = bookingData.vehicleMake ?? null;
+  let hydratedVehicleModel: string | null = bookingData.vehicleModel ?? null;
+  let hydratedServices = bookingData.services;
+  try {
+    if (
+      !hydratedVehicleType ||
+      !hydratedVehicleNumber ||
+      !hydratedVehicleMake ||
+      !hydratedVehicleModel ||
+      !Array.isArray(hydratedServices)
+    ) {
+      const snap = await adminDb().doc(`bookings/${bookingId}`).get();
+      if (snap.exists) {
+        const d = snap.data() as Record<string, unknown>;
+        if (!hydratedVehicleType && isVehicleType(d.vehicleType)) {
+          hydratedVehicleType = d.vehicleType as VehicleType;
+        }
+        if (!hydratedVehicleNumber && typeof d.vehicleNumber === "string") {
+          hydratedVehicleNumber = d.vehicleNumber;
+        }
+        if (!hydratedVehicleMake && typeof d.vehicleMake === "string") {
+          hydratedVehicleMake = d.vehicleMake;
+        }
+        if (!hydratedVehicleModel && typeof d.vehicleModel === "string") {
+          hydratedVehicleModel = d.vehicleModel;
+        }
+        if (!Array.isArray(hydratedServices) && Array.isArray(d.services)) {
+          hydratedServices = (d.services as Array<Record<string, unknown>>).map((s) => ({
+            name: typeof s.name === "string" ? s.name : "Service",
+            staffName: typeof s.staffName === "string" ? s.staffName : null,
+            time: typeof s.time === "string" ? s.time : undefined,
+            duration: typeof s.duration === "number" ? s.duration : undefined,
+            price: typeof s.price === "number" ? s.price : undefined,
+            vehicleType: isVehicleType(s.vehicleType) ? (s.vehicleType as VehicleType) : null,
+          }));
+        } else if (Array.isArray(hydratedServices) && Array.isArray(d.services)) {
+          // Carry forward vehicleType / price from Firestore onto each line when
+          // the caller supplied a stripped-down services array.
+          const byName = new Map<string, Record<string, unknown>>();
+          for (const s of d.services as Array<Record<string, unknown>>) {
+            if (typeof s.name === "string") byName.set(s.name, s);
+          }
+          hydratedServices = hydratedServices.map((s) => {
+            const match = byName.get(s.name || "");
+            return {
+              ...s,
+              price:
+                typeof s.price === "number"
+                  ? s.price
+                  : match && typeof match.price === "number"
+                  ? (match.price as number)
+                  : undefined,
+              vehicleType:
+                s.vehicleType ??
+                (match && isVehicleType(match.vehicleType) ? (match.vehicleType as VehicleType) : null),
+            };
+          });
+        }
+      }
+    }
+  } catch (hydrateErr) {
+    console.warn(`[EMAIL] Failed to hydrate vehicle/service info for booking ${bookingId}:`, hydrateErr);
+  }
+
   const result = await sendBookingEmail({
     bookingId,
     bookingCode: bookingData.bookingCode || undefined,
@@ -682,6 +808,11 @@ export async function sendBookingStatusChangeEmail(
     ownerUid,
     salonName: workshopName,
     ...bookingData,
+    vehicleType: hydratedVehicleType,
+    vehicleNumber: hydratedVehicleNumber,
+    vehicleMake: hydratedVehicleMake,
+    vehicleModel: hydratedVehicleModel,
+    services: hydratedServices,
   });
   
   if (!result.success) {
@@ -1251,6 +1382,233 @@ export async function sendStaffWelcomeEmail(
     return { success: true };
   } catch (error: any) {
     console.error(`[EMAIL] ❌ Error sending staff welcome email to ${email}:`, error);
+    console.error(`[EMAIL] Error details:`, {
+      message: error?.message,
+      code: error?.code,
+      response: error?.response?.body,
+      statusCode: error?.response?.statusCode,
+    });
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Generate HTML for the customer welcome email sent when a customer account is
+ * auto-created as part of a booking (by an Admin, Owner, or Staff member).
+ * Contains login link to the Booking Engine, username (email) and the default
+ * password along with a prompt to change it after the first login.
+ */
+function generateCustomerWelcomeEmailHTML(params: {
+  customerEmail: string;
+  password: string;
+  customerName: string;
+  workshopName: string;
+  bookingEngineUrl: string;
+}): string {
+  const { customerEmail, password, customerName, workshopName, bookingEngineUrl } = params;
+  const greetingName = customerName?.trim() || "there";
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your ${workshopName} Booking Account</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
+  <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding: 0; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);">
+              <div style="padding: 40px; text-align: center;">
+                <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
+                <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: -0.3px;">Welcome to ${workshopName}</h1>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your booking account has been created</p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="padding: 30px 40px 20px;">
+              <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${greetingName},</p>
+              <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
+                A booking has just been created for you at <strong>${workshopName}</strong>. To make it easy for you to view your bookings and book future services yourself, we've also set up an account on our online Booking Engine — no sign-up required.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Login Credentials Card -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #fef3c7; border: 2px solid #f59e0b; border-radius: 10px; padding: 25px; margin-bottom: 20px;">
+                <h3 style="margin: 0 0 20px; color: #78350f; font-size: 18px; font-weight: 600;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #f59e0b; border-radius: 2px; margin-right: 10px; vertical-align: middle;"></span>
+                  Your Login Details
+                </h3>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Username (Email):</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 14px; font-weight: 500; text-align: right; word-break: break-all;'>${customerEmail}</td>
+                  </tr>
+                  <tr>
+                    <td style='padding: 12px 0; color: #78350f; font-size: 14px; font-weight: 600;'>Default Password:</td>
+                    <td style='padding: 12px 0; color: #111827; font-size: 16px; font-weight: 700; text-align: right; font-family: monospace; letter-spacing: 2px;'>${password}</td>
+                  </tr>
+                </table>
+
+                <div style="background-color: #fff7ed; border-left: 3px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 20px;">
+                  <p style='margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;'>
+                    <strong style='color: #78350f;'>⚠️ Important:</strong> This is a default password. For your security, please change it immediately after your first login.
+                  </p>
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Login Button -->
+          <tr>
+            <td style="padding: 0 40px 30px; text-align: center;">
+              <a href="${bookingEngineUrl}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+                Log in to Booking Engine
+              </a>
+              <p style="margin: 15px 0 0; color: #6b7280; font-size: 12px; word-break: break-all;">
+                <a href="${bookingEngineUrl}" style="color: #7c3aed; text-decoration: underline;">${bookingEngineUrl}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- What You Can Do -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #eef2ff; border: 2px solid #6366f1; border-radius: 10px; padding: 25px;">
+                <h3 style="margin: 0 0 15px; color: #312e81; font-size: 18px; font-weight: 600;">
+                  <span style="display: inline-block; width: 4px; height: 20px; background-color: #6366f1; border-radius: 2px; margin-right: 10px; vertical-align: middle;"></span>
+                  What you can do next
+                </h3>
+                <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 15px; line-height: 1.8;">
+                  <li style="margin-bottom: 8px;">Log in with the credentials above</li>
+                  <li style="margin-bottom: 8px;"><strong>Change your default password</strong> from your account settings</li>
+                  <li style="margin-bottom: 8px;">View your current and past bookings</li>
+                  <li>Book future services online 24/7</li>
+                </ol>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Additional Info -->
+          <tr>
+            <td style="padding: 0 40px 30px;">
+              <div style="background-color: #f9fafb; border-radius: 8px; padding: 20px; text-align: center;">
+                <p style="margin: 0; color: #6b7280; font-size: 14px; line-height: 1.6;">
+                  You'll receive a separate email shortly confirming your upcoming booking details. If you did not request this, please contact ${workshopName} directly.
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">${workshopName}</p>
+              <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
+                Powered by BMS PRO BLACK.<br>
+                This is an automated email — please do not reply.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
+
+/**
+ * Send welcome email to a customer whose account was auto-created while a
+ * booking was being made on their behalf. Provides the Booking Engine login
+ * URL, the customer's email (username) and the default password.
+ */
+export async function sendCustomerWelcomeEmail(params: {
+  customerEmail: string;
+  password: string;
+  customerName: string;
+  workshopName?: string;
+  bookingEngineUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const { customerEmail, password, customerName } = params;
+  const workshopName = params.workshopName?.trim() || "Workshop";
+  const bookingEngineUrl = params.bookingEngineUrl?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "https://black.bmspros.com.au";
+
+  console.log(`[EMAIL] Attempting to send customer welcome email to: ${customerEmail}`);
+
+  if (!customerEmail || !customerEmail.trim()) {
+    console.error(`[EMAIL] No customer email provided for welcome email`);
+    return { success: false, error: "No customer email provided" };
+  }
+
+  const email = customerEmail.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.error(`[EMAIL] Invalid customer email address: ${email}`);
+    return { success: false, error: "Invalid email address" };
+  }
+
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured — cannot send customer welcome email`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+
+  try {
+    const html = generateCustomerWelcomeEmailHTML({
+      customerEmail: email,
+      password,
+      customerName,
+      workshopName,
+      bookingEngineUrl,
+    });
+
+    const subject = `Welcome to ${workshopName} - Your Booking Account Details`;
+
+    const msg = {
+      to: email,
+      from: FROM_EMAIL,
+      subject,
+      html,
+      trackingSettings: {
+        clickTracking: {
+          enable: false,
+        },
+      },
+    };
+
+    console.log(`[EMAIL] Sending customer welcome email via SendGrid:`, {
+      to: email,
+      from: FROM_EMAIL,
+      subject,
+      workshopName,
+      bookingEngineUrl,
+      clickTracking: false,
+    });
+
+    await sgMail.send(msg);
+
+    console.log(`[EMAIL] ✅ Customer welcome email sent successfully to ${email}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending customer welcome email to ${email}:`, error);
     console.error(`[EMAIL] Error details:`, {
       message: error?.message,
       code: error?.code,
@@ -2311,5 +2669,162 @@ export async function sendEstimateReplyEmail(data: {
   } catch (error: any) {
     console.error(`[EMAIL] ❌ Error sending estimate reply email:`, error);
     return { success: false, error: error?.message || "Unknown error" };
+  }
+}
+
+/**
+ * Send email to the customer when an admin/owner reschedules the booking.
+ * Unlike status-change emails, this does NOT check/write the hasEmailBeenSent
+ * dedupe record because a booking can be rescheduled multiple times and every
+ * reschedule should trigger a fresh notification.
+ */
+export async function sendBookingRescheduledEmail(data: {
+  bookingId: string;
+  bookingCode?: string | null;
+  customerEmail: string | null | undefined;
+  customerName?: string | null;
+  ownerUid: string;
+  branchName?: string | null;
+  previousDate?: string | null;
+  previousTime?: string | null;
+  previousPickupTime?: string | null;
+  newDate: string;
+  newTime: string;
+  newPickupTime?: string | null;
+  reason?: string | null;
+  serviceName?: string | null;
+  services?: Array<{
+    name?: string;
+    staffName?: string | null;
+    time?: string;
+    duration?: number;
+    price?: number;
+  }>;
+  staffName?: string | null;
+  duration?: number | null;
+  price?: number | null;
+}): Promise<{ success: boolean; error?: string }> {
+  const email = data.customerEmail?.trim()?.toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    console.log(`[EMAIL] sendBookingRescheduledEmail: invalid/missing email for booking ${data.bookingId}`);
+    return { success: false, error: "Invalid or missing customer email" };
+  }
+  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
+    console.error(`[EMAIL] SendGrid API key not configured!`);
+    return { success: false, error: "SendGrid API key not configured" };
+  }
+
+  try {
+    const workshopName = (await getWorkshopName(data.ownerUid)) || "Workshop";
+    const customerName = (data.customerName || "there").trim();
+
+    const fmtDate = (s?: string | null) => {
+      if (!s) return "";
+      try {
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return s;
+        return d.toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+      } catch {
+        return s;
+      }
+    };
+
+    const prevLine =
+      data.previousDate || data.previousTime
+        ? `${fmtDate(data.previousDate)}${data.previousTime ? ` · Drop-off ${data.previousTime}` : ""}${data.previousPickupTime ? ` · Pick-up ${data.previousPickupTime}` : ""}`
+        : "";
+    const newLine = `${fmtDate(data.newDate)} · Drop-off ${data.newTime}${data.newPickupTime ? ` · Pick-up ${data.newPickupTime}` : ""}`;
+
+    const servicesHtml = Array.isArray(data.services) && data.services.length > 0
+      ? `
+        <div style="margin-top:18px;padding:14px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
+          <p style="margin:0 0 8px;color:#111827;font-size:13px;font-weight:600;">Services</p>
+          ${data.services
+            .map(
+              (s) =>
+                `<p style="margin:2px 0;color:#374151;font-size:13px;">• ${s?.name || "Service"}${s?.staffName ? ` <span style=\"color:#6b7280;\">— ${s.staffName}</span>` : ""}</p>`
+            )
+            .join("")}
+        </div>`
+      : data.serviceName
+        ? `<p style="margin:16px 0 0;color:#374151;font-size:14px;"><strong>Service:</strong> ${data.serviceName}${data.staffName ? ` <span style=\"color:#6b7280;\">— ${data.staffName}</span>` : ""}</p>`
+        : "";
+
+    const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#f3f4f6;">
+  <table role="presentation" style="width:100%;border-collapse:collapse;background:#f3f4f6;">
+    <tr><td style="padding:40px 20px;">
+      <table role="presentation" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:12px;box-shadow:0 4px 6px rgba(0,0,0,0.08);overflow:hidden;">
+        <tr>
+          <td style="padding:0;background:linear-gradient(135deg,#1d4ed8 0%,#2563eb 100%);">
+            <div style="padding:28px 32px;text-align:center;">
+              <div style="font-size:40px;margin-bottom:6px;">📅</div>
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">Your booking has been rescheduled</h1>
+              ${data.bookingCode ? `<p style="margin:8px 0 0;color:rgba(255,255,255,0.9);font-size:13px;">Booking ${data.bookingCode}</p>` : ""}
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:26px 32px;">
+            <p style="margin:0 0 14px;color:#111827;font-size:15px;">Hi ${customerName},</p>
+            <p style="margin:0 0 18px;color:#374151;font-size:14px;line-height:1.55;">
+              We've updated the schedule for your booking at <strong>${data.branchName || workshopName}</strong>.
+              Here are the new details:
+            </p>
+
+            <div style="background:#eff6ff;border:2px solid #93c5fd;border-radius:10px;padding:16px 18px;margin-bottom:14px;">
+              <p style="margin:0 0 6px;color:#1e3a8a;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;">New schedule</p>
+              <p style="margin:0;color:#1e3a8a;font-size:16px;font-weight:700;">${newLine}</p>
+            </div>
+
+            ${
+              prevLine
+                ? `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 16px;margin-bottom:14px;">
+                     <p style="margin:0 0 4px;color:#6b7280;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;">Previously</p>
+                     <p style="margin:0;color:#6b7280;font-size:13px;text-decoration:line-through;">${prevLine}</p>
+                   </div>`
+                : ""
+            }
+
+            ${
+              data.reason
+                ? `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:14px;">
+                     <p style="margin:0 0 4px;color:#92400e;font-size:12px;font-weight:700;">Reason</p>
+                     <p style="margin:0;color:#78350f;font-size:13px;">${data.reason}</p>
+                   </div>`
+                : ""
+            }
+
+            ${servicesHtml}
+
+            <p style="margin:22px 0 0;color:#6b7280;font-size:13px;line-height:1.55;">
+              If this new time doesn't work for you, please reply to this email or contact ${data.branchName || workshopName} and we'll be happy to find another slot.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 32px;background:#fafafa;border-top:1px solid #f4f4f5;text-align:center;">
+            <p style="margin:0;font-size:11px;color:#9ca3af;">This message was sent by ${workshopName}.<br/>Powered by <strong>BMS PRO</strong></p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+    const subject = data.bookingCode
+      ? `Booking rescheduled - ${workshopName} (${data.bookingCode})`
+      : `Booking rescheduled - ${workshopName}`;
+
+    await sgMail.send({ to: email, from: FROM_EMAIL, subject, html });
+    console.log(`[EMAIL] ✅ Reschedule email sent to ${email} for booking ${data.bookingId}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[EMAIL] ❌ Error sending reschedule email for ${data.bookingId}:`, error);
+    const errorMessage = error?.response?.body?.errors?.[0]?.message || error?.message || "Unknown error";
+    return { success: false, error: errorMessage };
   }
 }

@@ -9,6 +9,7 @@ import {
 import {
   mapCustomerVehicleDoc,
   vehicleDetailsFromCustomerDoc,
+  dedupeVehiclesByIdentity,
 } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
@@ -171,8 +172,10 @@ export async function GET(req: NextRequest) {
           return { ...row, vehicles: [] as unknown[] };
         }
         const vs = await db.collection(`customers/${id}/vehicles`).get();
-        const vehicles = vs.docs.map((v) =>
-          mapCustomerVehicleDoc(v.id, v.data() as Record<string, unknown>)
+        const vehicles = dedupeVehiclesByIdentity(
+          vs.docs.map((v) =>
+            mapCustomerVehicleDoc(v.id, v.data() as Record<string, unknown>)
+          ) as (Record<string, unknown> & { id: string })[]
         );
         return { ...row, vehicles };
       })
@@ -221,7 +224,7 @@ export async function POST(req: NextRequest) {
         ? { uid: gate.auth.user.uid, name: gate.auth.user.name }
         : { uid: gate.auth.uid, name: gate.auth.name };
     const createdByRole =
-      gate.auth.kind === "agent" ? "call_center_agent" : gate.auth.role;
+      gate.auth.kind === "agent" ? gate.auth.user.role : gate.auth.role;
 
     const body = await req.json();
     const {

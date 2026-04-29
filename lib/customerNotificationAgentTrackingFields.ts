@@ -9,11 +9,16 @@ export function agentTrackingFieldsFromFirestore(d: Record<string, unknown>): {
   calledCustomerByDisplayName: string | null;
   calledCustomerByEmail: string | null;
 } {
+  /** Firestore usually stores strings; coerce primitives so GET never drops valid values. */
   const s = (v: unknown): string | null => {
     if (v == null) return null;
-    if (typeof v !== "string") return null;
-    const t = v.trim();
-    return t || null;
+    if (typeof v === "string") {
+      const t = v.trim();
+      return t || null;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) return String(v);
+    if (typeof v === "boolean") return v ? "true" : null;
+    return null;
   };
   const revName = s(d.notificationReviewedByName);
   const revDisp = s(d.notificationReviewedByDisplayName);

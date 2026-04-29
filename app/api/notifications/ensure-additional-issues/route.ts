@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { createNotification } from "@/lib/notifications";
+import {
+  createNotification,
+  additionalIssueFoundNotificationExists,
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -46,19 +51,8 @@ export async function POST(req: NextRequest) {
         const key = `${bookingId}:${issueId}`;
         if (seen.has(key)) continue;
 
-        // Check if notification already exists for this issue
-        const notifSnap = await db
-          .collection("notifications")
-          .where("bookingId", "==", bookingId)
-          .where("type", "==", "additional_issue_found")
-          .limit(50)
-          .get();
-
-        const hasExisting = notifSnap.docs.some((d) => {
-          const data = d.data();
-          return data.additionalIssueId === issueId || data.message?.includes(issue.issueTitle || "");
-        });
-        if (hasExisting) {
+        // Must match `issueId` on notification docs (POST /additional-issues sets `issueId`, not `additionalIssueId`).
+        if (issueId && (await additionalIssueFoundNotificationExists(db, bookingId, issueId))) {
           seen.add(key);
           continue;
         }
@@ -74,6 +68,10 @@ export async function POST(req: NextRequest) {
         const bookingDate = bookingData.date || "";
         const bookingTime = bookingData.time || "";
         const serviceName = bookingData.serviceName || null;
+        const notifyPhone =
+          resolveCustomerPhoneForStorage(bookingData as Record<string, any>) || undefined;
+        const notifyEmail =
+          resolveCustomerEmailForStorage(bookingData as Record<string, any>) || undefined;
 
         try {
           await createNotification({
@@ -91,7 +89,12 @@ export async function POST(req: NextRequest) {
             branchId: branchId || undefined,
             bookingDate: bookingDate || undefined,
             bookingTime: bookingTime || undefined,
+            issueId,
             additionalIssueId: issueId,
+            clientPhone: notifyPhone,
+            customerPhone: notifyPhone,
+            clientEmail: notifyEmail,
+            customerEmail: notifyEmail,
           } as any);
           created++;
         } catch (e) {

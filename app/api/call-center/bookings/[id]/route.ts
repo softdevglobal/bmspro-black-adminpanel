@@ -10,7 +10,11 @@ import {
   getServiceCompletionProgress,
   getTaskProgress,
 } from "@/lib/bookingTypes";
-import { serializeAdditionalIssuesForCallCenterApi } from "@/lib/callCenterAdditionalIssues";
+import {
+  mergeBookingContactIntoAdditionalIssues,
+  serializeAdditionalIssuesForCallCenterApi,
+} from "@/lib/callCenterAdditionalIssues";
+import { isVehicleType } from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -118,7 +122,10 @@ export async function GET(
     const status = normalizeBookingStatus(d.status);
     const services = Array.isArray(d.services) ? d.services : [];
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
-    const additionalIssues = serializeAdditionalIssuesForCallCenterApi(d.additionalIssues);
+    const additionalIssues = mergeBookingContactIntoAdditionalIssues(
+      serializeAdditionalIssuesForCallCenterApi(d.additionalIssues),
+      d as Record<string, unknown>
+    );
 
     const serviceProgress = getServiceCompletionProgress(services);
     const taskProgress = getTaskProgress(tasks);
@@ -164,6 +171,7 @@ export async function GET(
           clientPhone: d.clientPhone || "",
           customerId: d.customerId || null,
           vehicleNumber: d.vehicleNumber || "",
+          vehicleType: isVehicleType(d.vehicleType) ? d.vehicleType : null,
           vehicleBodyType: d.vehicleBodyType || "",
           vehicleColour: d.vehicleColour || "",
           vehicleMileage: d.vehicleMileage || d.mileage || "",
@@ -179,6 +187,7 @@ export async function GET(
           duration: s.duration || 0,
           staffId: s.staffId || null,
           staffName: s.staffName || null,
+          vehicleType: isVehicleType(s.vehicleType) ? s.vehicleType : null,
           approvalStatus: s.approvalStatus || "pending",
           completionStatus: s.completionStatus || "pending",
           completedAt: s.completedAt || null,

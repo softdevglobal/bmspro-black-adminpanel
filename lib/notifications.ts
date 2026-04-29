@@ -15,6 +15,8 @@ export type CustomerNotificationType =
 export type StaffNotificationType = 
   | "staff_assignment"      // Staff receives new booking to review
   | "staff_reassignment"    // Staff receives reassigned booking
+  | "staff_booking_rescheduled" // Staff's existing booking was rescheduled (date/time/pickup changed)
+  | "staff_unassigned"      // Staff was removed from a booking (reassigned to someone else)
   | "additional_issue_accepted"   // Customer accepted additional work - staff can proceed
   | "additional_issue_rejected"   // Admin rejected additional work - staff sees it in app
   | "additional_issue_customer_rejected";  // Customer declined additional work - staff sees it in app
@@ -27,6 +29,7 @@ export type StaffNotificationType =
 // 3. Additional issues (additional_issue_found) - technician found extra work needed
 export type AdminNotificationType = 
   | "staff_rejected"        // Staff rejected a booking - admin needs to reassign
+  | "booking_rescheduled"   // Booking was rescheduled by owner / branch admin — audit copy for the other role
   | "additional_issue_found"; // Technician reported additional vehicle issue - needs pricing
 
 // Owner-facing notification types (for staff-created bookings, etc.)
@@ -34,7 +37,13 @@ export type OwnerNotificationType =
   | "staff_booking_created"       // Staff created a booking
   | "booking_needs_assignment"    // Booking needs staff assignment
   | "booking_engine_new_booking"  // New booking from booking engine
-  | "additional_issue_found";     // Technician reported additional vehicle issue - needs pricing
+  | "booking_rescheduled"        // Owner audit copy when a branch admin reschedules
+  | "additional_issue_found"     // Technician reported additional vehicle issue - needs pricing
+  | "owner_booking_completed"    // Staff/admin marked booking completed (workshop owner alert)
+  | "staff_clocked_in"           // Staff clocked on
+  | "staff_clocked_out"          // Staff clocked off (manual, suspicious, or auto)
+  | "staff_break_started"        // Staff started a break
+  | "staff_break_ended";         // Staff ended a break
 
 export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType | OwnerNotificationType;
 
@@ -183,8 +192,18 @@ async function getUserFcmToken(userUid: string): Promise<string | null> {
         return fcmToken;
       }
     }
+
+    const agentDoc = await db.collection("call_center_agents").doc(userUid).get();
+    if (agentDoc.exists) {
+      const agentData = agentDoc.data();
+      const fcmToken = agentData?.fcmToken;
+      if (fcmToken) {
+        console.log(`📱 Found FCM token in call_center_agents for user: ${userUid}`);
+        return fcmToken;
+      }
+    }
     
-    console.log(`⚠️ No FCM token found for user: ${userUid} (checked both users and salon_staff collections)`);
+    console.log(`⚠️ No FCM token found for user: ${userUid} (checked users, salon_staff, call_center_agents)`);
     return null;
   } catch (error) {
     console.error(`❌ Error getting FCM token for user ${userUid}:`, error);
@@ -223,8 +242,22 @@ export function resolveCustomerPhoneForStorage(source: Record<string, any>): str
   const s =
     String(source?.customerPhone ?? "").trim() ||
     String(source?.clientPhone ?? "").trim() ||
-    String(source?.phone ?? "").trim();
+    String(source?.phone ?? "").trim() ||
+    String(source?.mobile ?? "").trim() ||
+    String(source?.phoneNumber ?? "").trim() ||
+    String(source?.contactNumber ?? "").trim();
   return s || null;
+}
+
+/** Best email for customer-facing rows (booking / issue snapshot). */
+export function resolveCustomerEmailForStorage(source: Record<string, any>): string | null {
+  const em =
+    String(source?.clientEmail ?? "").trim() ||
+    String(source?.customerEmail ?? "").trim();
+  if (em && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return em;
+  const cid = String(source?.customerId ?? "").trim();
+  if (cid && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cid)) return cid;
+  return em || null;
 }
 
 /** Display name on customer-facing notification rows (`clientName` on `notifications`, `customerName` on inbox). */
@@ -295,14 +328,22 @@ function shouldAttachCallCenterAgentTracking(cleanData: Record<string, any>): bo
 const NOT_MIRROR_TO_CUSTOMER_INBOX = new Set<string>([
   "staff_assignment",
   "staff_reassignment",
+  "staff_booking_rescheduled",
+  "staff_unassigned",
   "additional_issue_accepted",
   "additional_issue_rejected",
   "additional_issue_customer_rejected",
   "staff_rejected",
+  "booking_rescheduled",
   "additional_issue_found",
   "staff_booking_created",
   "booking_needs_assignment",
   "booking_engine_new_booking",
+  "owner_booking_completed",
+  "staff_clocked_in",
+  "staff_clocked_out",
+  "staff_break_started",
+  "staff_break_ended",
 ]);
 
 /**
@@ -351,6 +392,9 @@ async function mirrorBookingEngineCustomerInbox(
     issueId: cleanData.issueId ?? null,
     issueTitle: cleanData.issueTitle ?? null,
     price: typeof cleanData.price === "number" ? cleanData.price : null,
+    issueStatus: cleanData.issueStatus ?? null,
+    issueDescription:
+      typeof cleanData.issueDescription === "string" ? cleanData.issueDescription : null,
     customerPhone: resolveCustomerPhoneForStorage(cleanData),
     customerName: resolveCustomerNameForStorage(cleanData),
     ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
@@ -359,6 +403,32 @@ async function mirrorBookingEngineCustomerInbox(
   };
 
   await db.collection("customer_notifications").add(stripUndefined(payload));
+}
+
+/**
+ * Whether a `notifications` row already exists for this booking + additional issue id.
+ * Matches `issueId` (current) and legacy `additionalIssueId`.
+ */
+export async function additionalIssueFoundNotificationExists(
+  db: Firestore,
+  bookingId: string,
+  issueId: string
+): Promise<boolean> {
+  const id = String(issueId || "").trim();
+  const bid = String(bookingId || "").trim();
+  if (!id || !bid) return false;
+  const snap = await db
+    .collection("notifications")
+    .where("bookingId", "==", bid)
+    .where("type", "==", "additional_issue_found")
+    .limit(50)
+    .get();
+  return snap.docs.some((doc) => {
+    const d = doc.data();
+    const a = typeof d.issueId === "string" ? d.issueId.trim() : "";
+    const b = typeof d.additionalIssueId === "string" ? d.additionalIssueId.trim() : "";
+    return a === id || b === id;
+  });
 }
 
 /**
@@ -423,9 +493,22 @@ export async function createNotification(data: Omit<Notification, "id" | "create
     const branchAdminUid = (data as any).branchAdminUid;
     const customerUid = (data as any).customerUid;
     
-    // Determine who to send push notification to
-    // Priority: branchAdminUid > targetAdminUid > staffUid > targetOwnerUid > customerUid
-    const userId = branchAdminUid || targetAdminUid || staffUid || targetOwnerUid || customerUid;
+    // Determine who to send push notification to.
+    // Staff assignment / reassignment must always target the technician, not branch admin
+    // (some payloads may include multiple UIDs).
+    const notificationTypeForPush = String(cleanData.type || "");
+    const staffFirstTypes = new Set([
+      "staff_assignment",
+      "staff_reassignment",
+      "staff_booking_rescheduled",
+      "staff_unassigned",
+      "booking_assigned",
+      "booking_approval_request",
+    ]);
+    const userId =
+      staffFirstTypes.has(notificationTypeForPush) && staffUid
+        ? staffUid
+        : branchAdminUid || targetAdminUid || staffUid || targetOwnerUid || customerUid;
     
     if (userId) {
       const notificationType = cleanData.type || "unknown";
@@ -448,7 +531,8 @@ export async function createNotification(data: Omit<Notification, "id" | "create
             {
               notificationId: ref.id,
               type: cleanData.type,
-              bookingId: cleanData.bookingId,
+              bookingId: cleanData.bookingId ?? "",
+              bookingCode: cleanData.bookingCode ?? "",
             }
           );
           console.log(`✅ Push notification sent successfully to user: ${userId} for notification type: ${notificationType}`);
@@ -470,6 +554,58 @@ export async function createNotification(data: Omit<Notification, "id" | "create
   } catch (error) {
     console.error("Error creating notification:", error);
     throw error;
+  }
+}
+
+/**
+ * Notify the workshop owner once per booking when it is marked completed.
+ * Skips if an owner_booking_completed row already exists for this bookingId.
+ */
+export async function notifyOwnerBookingCompletedOnce(data: {
+  bookingId: string;
+  bookingCode?: string;
+  ownerUid: string;
+  staffName?: string;
+  clientName?: string;
+  serviceName?: string;
+  branchName?: string;
+  bookingDate?: string;
+  bookingTime?: string;
+}): Promise<void> {
+  try {
+    const db = adminDb();
+    const snap = await db
+      .collection("notifications")
+      .where("bookingId", "==", data.bookingId)
+      .limit(40)
+      .get();
+    if (snap.docs.some((d) => d.data().type === "owner_booking_completed")) {
+      return;
+    }
+
+    const code = data.bookingCode ? ` ${data.bookingCode}` : "";
+    const who = data.staffName?.trim()
+      ? `${data.staffName.trim()} marked`
+      : "A team member marked";
+
+    await createNotification({
+      bookingId: data.bookingId,
+      bookingCode: data.bookingCode,
+      type: "owner_booking_completed",
+      title: "Booking completed",
+      message: `${who} booking${code} as completed${data.branchName ? ` · ${data.branchName}` : ""}.`,
+      status: "Completed",
+      ownerUid: data.ownerUid,
+      targetOwnerUid: data.ownerUid,
+      staffName: data.staffName,
+      clientName: data.clientName,
+      serviceName: data.serviceName,
+      branchName: data.branchName,
+      bookingDate: data.bookingDate,
+      bookingTime: data.bookingTime,
+    } as Omit<Notification, "id" | "createdAt" | "read">);
+  } catch (e) {
+    console.error("notifyOwnerBookingCompletedOnce:", e);
   }
 }
 
@@ -527,6 +663,133 @@ export async function createStaffAssignmentNotification(data: {
 }
 
 /**
+ * Notify a staff member whose booking has just been rescheduled (date/time/
+ * pick-up changed) while they remain assigned. The message includes both the
+ * new and previous slot so the technician can see exactly what shifted.
+ */
+export async function createStaffBookingRescheduledNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  staffUid: string;
+  staffName?: string;
+  clientName: string;
+  clientPhone?: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string; staffId?: string }>;
+  branchName?: string;
+  previousDate?: string | null;
+  previousTime?: string | null;
+  previousPickupTime?: string | null;
+  bookingDate: string;
+  bookingTime: string;
+  pickupTime?: string | null;
+  reason?: string | null;
+  duration?: number;
+  price?: number;
+  ownerUid: string;
+}): Promise<string> {
+  const serviceList = data.services && data.services.length > 0
+    ? data.services.map((s) => s.name).join(", ")
+    : data.serviceName || "Service";
+  const newSlot = `${data.bookingDate} at ${data.bookingTime}`;
+  const pickup = data.pickupTime ? ` (pick-up at ${data.pickupTime})` : "";
+  const prev = data.previousDate && data.previousTime
+    ? ` Previously on ${data.previousDate} at ${data.previousTime}${data.previousPickupTime ? ` (pick-up at ${data.previousPickupTime})` : ""}.`
+    : "";
+  const reasonPart = data.reason ? ` Reason: ${data.reason}.` : "";
+
+  const notificationData: Omit<StaffNotification, "id" | "createdAt" | "read"> & {
+    pickupTime?: string | null;
+    previousDate?: string | null;
+    previousTime?: string | null;
+    previousPickupTime?: string | null;
+    reason?: string | null;
+  } = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "staff_booking_rescheduled",
+    title: "Booking Rescheduled",
+    message: `Your booking for ${serviceList} with ${data.clientName} has been rescheduled to ${newSlot}${pickup}.${prev}${reasonPart}`,
+    status: "Confirmed",
+    ownerUid: data.ownerUid,
+    staffUid: data.staffUid,
+    staffName: data.staffName,
+    clientName: data.clientName,
+    clientPhone: data.clientPhone,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+    duration: data.duration,
+    price: data.price,
+    pickupTime: data.pickupTime ?? null,
+    previousDate: data.previousDate ?? null,
+    previousTime: data.previousTime ?? null,
+    previousPickupTime: data.previousPickupTime ?? null,
+    reason: data.reason ?? null,
+  };
+
+  return createNotification(notificationData as any);
+}
+
+/**
+ * Notify a staff member whose booking assignment has been removed (i.e. an
+ * admin reassigned the booking to a different technician). Counterpart to
+ * `createStaffAssignmentNotification` — when a reassignment happens the new
+ * staff receives "Booking Reassigned to You" and the old staff receives this
+ * "Booking removed from your schedule" message.
+ */
+export async function createStaffUnassignedNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  staffUid: string;
+  staffName?: string;
+  clientName: string;
+  clientPhone?: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string; staffId?: string }>;
+  branchName?: string;
+  bookingDate: string;
+  bookingTime: string;
+  reason?: string | null;
+  replacedByStaffName?: string | null;
+  ownerUid: string;
+}): Promise<string> {
+  const serviceList = data.services && data.services.length > 0
+    ? data.services.map((s) => s.name).join(", ")
+    : data.serviceName || "Service";
+  const replacedBy = data.replacedByStaffName ? ` It has been reassigned to ${data.replacedByStaffName}.` : "";
+  const reasonPart = data.reason ? ` Reason: ${data.reason}.` : "";
+
+  const notificationData: Omit<StaffNotification, "id" | "createdAt" | "read"> & {
+    replacedByStaffName?: string | null;
+    reason?: string | null;
+  } = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "staff_unassigned",
+    title: "Booking Removed from Your Schedule",
+    message: `The booking for ${serviceList} with ${data.clientName} on ${data.bookingDate} at ${data.bookingTime} is no longer assigned to you.${replacedBy}${reasonPart}`,
+    status: "Canceled",
+    ownerUid: data.ownerUid,
+    staffUid: data.staffUid,
+    staffName: data.staffName,
+    clientName: data.clientName,
+    clientPhone: data.clientPhone,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+    replacedByStaffName: data.replacedByStaffName ?? null,
+    reason: data.reason ?? null,
+  };
+
+  return createNotification(notificationData as any);
+}
+
+/**
  * Create a notification for admin when staff rejects a booking
  */
 export async function createAdminRejectionNotification(data: {
@@ -567,6 +830,108 @@ export async function createAdminRejectionNotification(data: {
     bookingDate: data.bookingDate,
     bookingTime: data.bookingTime,
   };
+
+  return createNotification(notificationData);
+}
+
+/**
+ * Cross-role audit notification sent when a booking is rescheduled by an
+ * owner or branch admin. A single call writes one notification targeting a
+ * specific recipient (branch admin or owner). The reschedule route fans
+ * this out to the "other role" so both panels/mobile inboxes stay in sync.
+ */
+export async function createBookingRescheduledAuditNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  ownerUid: string;
+  /** Target audience for this notification */
+  audience: "owner" | "branch_admin";
+  /** Required when audience === "branch_admin" */
+  branchAdminUid?: string;
+  branchId?: string;
+  /** Set when audience === "owner" (mirrors ownerUid but kept for clarity) */
+  targetOwnerUid?: string;
+  clientName: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string; staffId?: string }>;
+  branchName?: string;
+  previousDate?: string | null;
+  previousTime?: string | null;
+  previousPickupTime?: string | null;
+  bookingDate: string;
+  bookingTime: string;
+  pickupTime?: string | null;
+  reason?: string | null;
+  /** Who performed the reschedule (for "rescheduled by …" copy) */
+  performerUid?: string;
+  performerName?: string;
+  performerRole?: string;
+}): Promise<string> {
+  const serviceList = data.services && data.services.length > 0
+    ? data.services.map((s) => s.name).join(", ")
+    : data.serviceName || "Service";
+
+  const performerLabel =
+    data.performerRole === "workshop_owner"
+      ? "Owner"
+      : data.performerRole === "branch_admin"
+        ? "Branch Admin"
+        : data.performerRole === "agent" ||
+            data.performerRole === "call_center_agent" ||
+            data.performerRole === "call_center_admin"
+          ? "Call Center"
+          : data.performerRole === "super_admin"
+            ? "Super Admin"
+            : "Admin";
+  const performerName = data.performerName?.trim() || performerLabel;
+  const newSlot = `${data.bookingDate} at ${data.bookingTime}`;
+  const pickup = data.pickupTime ? ` (pick-up at ${data.pickupTime})` : "";
+  const prev = data.previousDate && data.previousTime
+    ? ` Previously on ${data.previousDate} at ${data.previousTime}${data.previousPickupTime ? ` (pick-up at ${data.previousPickupTime})` : ""}.`
+    : "";
+  const reasonPart = data.reason ? ` Reason: ${data.reason}.` : "";
+  const branchPart = data.branchName ? ` at ${data.branchName}` : "";
+
+  const title = "Booking Rescheduled";
+  const message = `${performerName} (${performerLabel}) rescheduled the booking for ${data.clientName} — ${serviceList}${branchPart} — to ${newSlot}${pickup}.${prev}${reasonPart}`;
+
+  const notificationData: any = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "booking_rescheduled",
+    title,
+    message,
+    status: "Confirmed",
+    ownerUid: data.ownerUid,
+    clientName: data.clientName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    branchId: data.branchId || null,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+    pickupTime: data.pickupTime ?? null,
+    previousDate: data.previousDate ?? null,
+    previousTime: data.previousTime ?? null,
+    previousPickupTime: data.previousPickupTime ?? null,
+    reason: data.reason ?? null,
+    performerUid: data.performerUid || null,
+    performerName: data.performerName || null,
+    performerRole: data.performerRole || null,
+    rescheduledByUid: data.performerUid || null,
+    rescheduledByName: data.performerName || null,
+    rescheduledByRole: data.performerRole || null,
+  };
+
+  if (data.audience === "branch_admin") {
+    if (!data.branchAdminUid) {
+      throw new Error("branchAdminUid is required when audience='branch_admin'");
+    }
+    notificationData.branchAdminUid = data.branchAdminUid;
+    notificationData.targetAdminUid = data.branchAdminUid;
+  } else {
+    notificationData.targetOwnerUid = data.targetOwnerUid || data.ownerUid;
+  }
 
   return createNotification(notificationData);
 }
@@ -811,6 +1176,95 @@ export async function createCustomerReschedulingNotification(data: {
 }
 
 /**
+ * Create a customer notification for when an owner/branch admin has just
+ * *rescheduled* the booking (new date/time/pick-up time/staff). This is
+ * distinct from `createCustomerReschedulingNotification` which is used for
+ * the "being rescheduled" placeholder after a staff rejection — here the
+ * new slot is already known, so the message includes the concrete details.
+ */
+export async function createCustomerBookingRescheduledNotification(data: {
+  bookingId: string;
+  bookingCode?: string;
+  customerUid?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  clientName?: string;
+  staffName?: string;
+  serviceName?: string;
+  services?: Array<{ name: string; staffName?: string }>;
+  branchName?: string;
+  previousDate?: string | null;
+  previousTime?: string | null;
+  previousPickupTime?: string | null;
+  bookingDate: string;
+  bookingTime: string;
+  pickupTime?: string | null;
+  reason?: string | null;
+  ownerUid: string;
+}): Promise<string> {
+  const code = data.bookingCode ? ` (${data.bookingCode})` : "";
+
+  // Service / staff summary – mirrors the formatting used by getNotificationContent
+  let serviceAndStaff = "";
+  if (data.services && data.services.length > 0) {
+    const parts = data.services.map((s) => {
+      const sName = s.name || "Service";
+      const skip = new Set(["Any Available", "Any Staff", "Not Assigned Yet", "Multiple Staff"]);
+      const stName = s.staffName && !skip.has(s.staffName) ? ` with ${s.staffName}` : "";
+      return `${sName}${stName}`;
+    });
+    serviceAndStaff = ` for ${parts.join(", ")}`;
+  } else if (data.serviceName) {
+    const skip = new Set(["Any Available", "Any Staff", "Not Assigned Yet", "Multiple Staff"]);
+    const stName = data.staffName && !skip.has(data.staffName) ? ` with ${data.staffName}` : "";
+    serviceAndStaff = ` for ${data.serviceName}${stName}`;
+  }
+
+  const newSlot = `${data.bookingDate} at ${data.bookingTime}`;
+  const pickup = data.pickupTime ? ` (pick-up at ${data.pickupTime})` : "";
+  const prev = data.previousDate && data.previousTime
+    ? ` Previously on ${data.previousDate} at ${data.previousTime}${data.previousPickupTime ? ` (pick-up at ${data.previousPickupTime})` : ""}.`
+    : "";
+  const reasonPart = data.reason ? ` Reason: ${data.reason}.` : "";
+
+  const title = "Booking Rescheduled";
+  const message = `Your booking${code}${serviceAndStaff} has been rescheduled to ${newSlot}${pickup}.${prev}${reasonPart}`;
+
+  const notificationData: Omit<CustomerNotification, "id" | "createdAt" | "read"> & {
+    pickupTime?: string | null;
+    previousDate?: string | null;
+    previousTime?: string | null;
+    previousPickupTime?: string | null;
+    reason?: string | null;
+  } = {
+    bookingId: data.bookingId,
+    bookingCode: data.bookingCode,
+    type: "booking_status_changed",
+    title,
+    message,
+    status: "Confirmed",
+    ownerUid: data.ownerUid,
+    customerUid: data.customerUid,
+    customerEmail: data.customerEmail,
+    customerPhone: data.customerPhone,
+    clientName: data.clientName,
+    staffName: data.staffName,
+    serviceName: data.serviceName,
+    services: data.services,
+    branchName: data.branchName,
+    bookingDate: data.bookingDate,
+    bookingTime: data.bookingTime,
+    pickupTime: data.pickupTime ?? null,
+    previousDate: data.previousDate ?? null,
+    previousTime: data.previousTime ?? null,
+    previousPickupTime: data.previousPickupTime ?? null,
+    reason: data.reason ?? null,
+  };
+
+  return createNotification(notificationData as any);
+}
+
+/**
  * Create a customer notification for when the booking is canceled
  */
 export async function createCustomerCancellationNotification(data: {
@@ -1004,6 +1458,16 @@ export function getStaffNotificationContent(
         title: "Booking Reassigned to You",
         message: `A booking${code} for ${serviceList} with ${clientName || "a customer"}${datetime} has been reassigned to you. Please accept or reject.`
       };
+    case "staff_booking_rescheduled":
+      return {
+        title: "Booking Rescheduled",
+        message: `Your booking${code} for ${serviceList} with ${clientName || "a customer"} has been rescheduled${datetime}.`
+      };
+    case "staff_unassigned":
+      return {
+        title: "Booking Removed from Your Schedule",
+        message: `The booking${code} for ${serviceList} with ${clientName || "a customer"}${datetime} is no longer assigned to you.`
+      };
     default:
       return {
         title: "Booking Update",
@@ -1072,11 +1536,19 @@ export async function createOwnerNotification(data: {
   let message: string;
 
   switch (data.type) {
-    case "staff_booking_created":
-      const roleLabel = data.creatorRole === "branch_admin" ? "Branch Admin" : "Staff";
+    case "staff_booking_created": {
+      const roleLabel =
+        data.creatorRole === "branch_admin"
+          ? "Branch Admin"
+          : data.creatorRole === "call_center_agent" ||
+              data.creatorRole === "agent" ||
+              data.creatorRole === "call_center_admin"
+            ? "Call Center"
+            : "Staff";
       title = `New Booking Created by ${roleLabel}`;
-      message = `${data.creatorName || "Staff"} created a booking for ${data.clientName} - ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
+      message = `${data.creatorName || roleLabel} created a booking for ${data.clientName} - ${serviceList} at ${data.branchName || "Branch"} on ${data.bookingDate} at ${data.bookingTime}`;
       break;
+    }
     case "booking_needs_assignment":
       title = "New Booking - Staff Assignment Required";
       message = data.branchName
@@ -1167,6 +1639,17 @@ export async function createBranchAdminNotification(data: {
   type?: "booking_engine_new_booking" | "booking_needs_assignment" | "branch_booking_created" | "additional_issue_found" | "additional_issue_customer_accepted" | "additional_issue_customer_rejected";
   title?: string;
   message?: string;
+  /** Call center / dashboards — stored on `notifications` for additional work alerts */
+  clientPhone?: string;
+  customerPhone?: string;
+  clientEmail?: string;
+  customerEmail?: string;
+  /** `additional_issue_found` — links notification to `bookings/{id}.additionalIssues[]` */
+  issueId?: string;
+  issueTitle?: string;
+  price?: number | null;
+  issueStatus?: string;
+  issueDescription?: string;
 }): Promise<string> {
   const serviceList = data.services && data.services.length > 0
     ? data.services.map(s => s.name).join(", ")
@@ -1198,7 +1681,38 @@ export async function createBranchAdminNotification(data: {
     bookingDate: data.bookingDate,
     bookingTime: data.bookingTime,
   };
-  
+
+  const ph = String(data.customerPhone || data.clientPhone || "").trim();
+  if (ph) {
+    notificationData.customerPhone = ph;
+    notificationData.clientPhone = ph;
+  }
+  const em = String(data.customerEmail || data.clientEmail || "").trim();
+  if (em) {
+    notificationData.customerEmail = em;
+    notificationData.clientEmail = em;
+  }
+
+  if (data.issueId !== undefined && data.issueId !== null && String(data.issueId).trim()) {
+    notificationData.issueId = String(data.issueId).trim();
+  }
+  if (data.issueTitle !== undefined && data.issueTitle != null && String(data.issueTitle).trim()) {
+    notificationData.issueTitle = String(data.issueTitle).trim();
+  }
+  if (typeof data.price === "number" && Number.isFinite(data.price)) {
+    notificationData.price = data.price;
+  }
+  if (data.issueStatus !== undefined && data.issueStatus != null && String(data.issueStatus).trim()) {
+    notificationData.issueStatus = String(data.issueStatus).trim();
+  }
+  if (
+    data.issueDescription !== undefined &&
+    data.issueDescription != null &&
+    String(data.issueDescription).trim()
+  ) {
+    notificationData.issueDescription = String(data.issueDescription).trim().slice(0, 2000);
+  }
+
   // Ensure branchAdminUid is set (required for mobile app to receive notification)
   if (!notificationData.branchAdminUid) {
     console.error(`❌ createBranchAdminNotification: branchAdminUid is missing! This notification will not be received by the mobile app.`);
@@ -1235,5 +1749,20 @@ export async function createBranchAdminNotification(data: {
   }
   
   return notificationId;
+}
+
+/** Send FCM to a user's device using `users` / `salon_staff` token lookup. */
+export async function sendPushToUserByUid(
+  userUid: string,
+  title: string,
+  body: string,
+  data?: Record<string, string>
+): Promise<void> {
+  const token = await getUserFcmToken(userUid);
+  if (!token) {
+    console.log(`⚠️ sendPushToUserByUid: no FCM token for ${userUid}`);
+    return;
+  }
+  await sendPushNotification(token, title, body, data);
 }
 

@@ -21,7 +21,19 @@ export const LEGACY_BOOKING_TYPES_FOR_FULL_SCAN = [
   "booking_status_changed",
 ] as const;
 
+/** Customer inbox types in `notifications` (not only booking lifecycle). */
+export const LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN = [
+  "estimate_reply",
+  "additional_issue_quote",
+] as const;
+
 export const BOOKING_CUSTOMER_NOTIFICATION_TYPES = new Set<string>(LEGACY_BOOKING_TYPES_FOR_FULL_SCAN);
+
+/** Types that target customers and may use email (no Firebase `customerUid`) on `notifications` rows. */
+export const CUSTOMER_INBOX_TYPES_EMAIL_OK = new Set([
+  "estimate_reply",
+  "additional_issue_quote",
+]);
 
 export function isCustomerFacingNotificationsDoc(d: DocumentData): boolean {
   const t = String(d.type || "");
@@ -31,6 +43,17 @@ export function isCustomerFacingNotificationsDoc(d: DocumentData): boolean {
   if (typeof uid === "string" && uid.trim()) return true;
 
   if (BOOKING_CUSTOMER_NOTIFICATION_TYPES.has(t)) {
+    const em =
+      (typeof d.customerEmail === "string" && d.customerEmail.trim()) ||
+      (typeof d.clientEmail === "string" && d.clientEmail.trim());
+    const phone =
+      (typeof d.clientPhone === "string" && d.clientPhone.trim()) ||
+      (typeof d.customerPhone === "string" && d.customerPhone.trim());
+    /** Phone-only / walk-in bookings still get lifecycle rows in `notifications`. */
+    if (em || phone) return true;
+  }
+
+  if (t && CUSTOMER_INBOX_TYPES_EMAIL_OK.has(t)) {
     const em =
       (typeof d.customerEmail === "string" && d.customerEmail.trim()) ||
       (typeof d.clientEmail === "string" && d.clientEmail.trim());

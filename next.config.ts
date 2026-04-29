@@ -63,10 +63,10 @@ const nextConfig: NextConfig = {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
-          // Prevent clickjacking
+          // SAMEORIGIN: blocks third-party iframes; allows same-origin (e.g. PDF preview iframe)
           {
             key: 'X-Frame-Options',
-            value: 'DENY',
+            value: 'SAMEORIGIN',
           },
           // Control referrer information
           {

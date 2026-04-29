@@ -192,6 +192,60 @@
               }
             }
           ]
+        },
+        {
+          "name": "GET All branches by owner",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/branches?ownerUid={{ownerUid}}",
+            "description": "Full branch objects (hours, daySchedules, bookingLimitPerDay) for every branch with ownerUid. Set ownerUid from GET /auth or workshop detail. Optional &date=YYYY-MM-DD."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has branches array', function () {",
+                  "  pm.expect(j).to.have.property('branches');",
+                  "  pm.expect(j).to.have.property('ownerUid');",
+                  "  pm.expect(j).to.have.property('total');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Branch detail (hours + daily limit)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/branches/{{branchId}}",
+            "description": "Any call center agent may read any branch (Bearer). X-Tenant-Id ignored for agents. ?date=YYYY-MM-DD sets daySchedule."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.test('Has branch with hours + daySchedules + bookingLimitPerDay', function () {",
+                  "  pm.expect(j).to.have.property('branch');",
+                  "  pm.expect(j.branch).to.have.property('hours');",
+                  "  pm.expect(j.branch).to.have.property('daySchedules');",
+                  "  pm.expect(j.branch.daySchedules).to.have.property('Monday');",
+                  "  pm.expect(j.branch).to.have.property('bookingLimitPerDay');",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -425,6 +479,14 @@
                   "pm.test('Has slot fields', function () {",
                   "  pm.expect(j).to.have.property('available');",
                   "  pm.expect(j).to.have.property('availableSlots');",
+                  "});",
+                  "pm.test('Has branch booking context', function () {",
+                  "  pm.expect(j).to.have.property('branch');",
+                  "  if (j.branch) {",
+                  "    pm.expect(j.branch).to.have.property('bookingLimitPerDay');",
+                  "    pm.expect(j.branch).to.have.property('daySchedules');",
+                  "    pm.expect(j.branch).to.have.property('hours');",
+                  "  }",
                   "});"
                 ]
               }

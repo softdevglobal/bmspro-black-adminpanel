@@ -5,11 +5,13 @@ import {
   createNotification,
   createAdditionalIssueRejectedNotification,
   CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
+  resolveCustomerEmailForStorage,
   resolveCustomerNameForStorage,
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
 import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
 import { sendAdditionalIssuePriceSetEmail } from "@/lib/emailService";
+import { createAuditLogServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
 
@@ -29,7 +31,13 @@ export async function PATCH(
     const userData = authResult.userData;
 
     const { id, issueId } = await context.params;
-    const body = (await req.json().catch(() => ({}))) as { price?: number; status?: "approved" | "rejected" };
+    const body = (await req.json().catch(() => ({}))) as {
+      price?: number;
+      status?: "approved" | "rejected";
+      /** Optional: persist when booking record has no phone yet */
+      customerPhone?: string;
+      customerEmail?: string;
+    };
 
     const status = body.status === "approved" || body.status === "rejected" ? body.status : "approved";
     const price = status === "rejected" ? null : (typeof body.price === "number" ? body.price : parseFloat(String(body.price ?? "")));
@@ -72,6 +80,21 @@ export async function PATCH(
 
     const now = new Date().toISOString();
     const updatedIssues = [...issues];
+    const issueSnap = updatedIssues[issueIndex] as Record<string, unknown>;
+    const bodyPhone = typeof body.customerPhone === "string" ? body.customerPhone.trim() : "";
+    const bodyEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
+    const phoneForQuote =
+      bodyPhone ||
+      resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ||
+      resolveCustomerPhoneForStorage(issueSnap as Record<string, any>) ||
+      null;
+    const emailFromBody =
+      bodyEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bodyEmail) ? bodyEmail : "";
+    const emailForQuote =
+      emailFromBody ||
+      resolveCustomerEmailForStorage(bookingData as Record<string, any>) ||
+      resolveCustomerEmailForStorage(issueSnap as Record<string, any>) ||
+      null;
     updatedIssues[issueIndex] = {
       ...updatedIssues[issueIndex],
       price: status === "approved" ? price : null,
@@ -79,6 +102,8 @@ export async function PATCH(
       priceSetByUid: userData.uid,
       priceSetByName: userData.name || "Admin",
       status,
+      customerPhone: phoneForQuote,
+      customerEmail: emailForQuote,
     };
 
     await bookingRef.update({
@@ -89,6 +114,72 @@ export async function PATCH(
     const clientName = bookingData.client || bookingData.clientName || "Customer";
     const bookingCode = bookingData.bookingCode || null;
     const issueTitle = updatedIssues[issueIndex].issueTitle || "Additional work";
+
+    // Audit log — record that an owner/branch admin set/declined a price for
+    // an additional-work quote so it appears in the tenant audit trail.
+    try {
+      const actorRoleLower = (userData.role || "").toLowerCase();
+      const actorRoleLabel =
+        actorRoleLower === "workshop_owner"
+          ? "owner"
+          : actorRoleLower === "branch_admin"
+            ? "branch admin"
+            : actorRoleLower === "super_admin"
+              ? "super admin"
+              : "admin";
+      const actorName = (userData.name || "").trim() || "Admin";
+      const actorAttribution = `${actorName} (${actorRoleLabel})`;
+      const previousPrice = (existingIssue as any)?.price;
+      const hadPreviousPrice =
+        typeof previousPrice === "number" && !isNaN(previousPrice);
+      const isPriceUpdate =
+        status === "approved" && hadPreviousPrice && previousPrice !== price;
+      // Keep the headline short — the actor is surfaced in the
+      // side-panel's "Performed By" section, and the `details` line
+      // below preserves the narrative form for anyone who wants it.
+      const auditAction =
+        status === "rejected"
+          ? `Additional work quote declined: ${issueTitle}`
+          : isPriceUpdate
+            ? `Additional work price updated: ${issueTitle} ($${Number(previousPrice).toFixed(2)} → $${Number(price).toFixed(2)})`
+            : `Additional work priced: ${issueTitle} ($${Number(price).toFixed(2)})`;
+      await createAuditLogServer({
+        ownerUid,
+        action: auditAction,
+        actionType: status === "rejected" ? "status_change" : "update",
+        entityType: "booking",
+        entityId: id,
+        entityName: bookingCode || `Booking for ${clientName}`,
+        performedBy: userData.uid,
+        performedByName: userData.name || "Admin",
+        performedByRole: userData.role,
+        previousValue:
+          status === "rejected"
+            ? "Pending"
+            : hadPreviousPrice
+              ? `$${Number(previousPrice).toFixed(2)}`
+              : "No price",
+        newValue:
+          status === "rejected"
+            ? "Rejected"
+            : `$${Number(price).toFixed(2)}`,
+        details: `Issue: ${issueTitle} · Customer: ${clientName} · Set by: ${actorName} (${userData.role})`,
+        branchId: bookingData.branchId || undefined,
+        branchName: bookingData.branchName || undefined,
+        metadata: {
+          issueId,
+          status,
+          price: status === "approved" ? price : null,
+          previousPrice: hadPreviousPrice ? previousPrice : null,
+          bookingCode: bookingCode || null,
+          priceSetByUid: userData.uid,
+          priceSetByName: actorName,
+          priceSetByRole: userData.role,
+        },
+      });
+    } catch (e) {
+      console.error("Failed to write audit log for additional-issue price:", e);
+    }
 
     // Notify customer only when approved with price (not when rejected)
     if (status === "approved" && price != null) {
@@ -159,7 +250,8 @@ export async function PATCH(
             title: "Additional Work Quote Ready",
             message: `${issueTitle}: $${price.toFixed(2)} - Please review and approve or decline.`,
             read: false,
-            customerPhone: resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ?? null,
+            customerPhone: phoneForQuote,
+            clientPhone: phoneForQuote,
             customerName: resolveCustomerNameForStorage(bookingData as Record<string, any>) ?? null,
             ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
             workshopName,

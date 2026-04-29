@@ -3,9 +3,27 @@ import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore"
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
   LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
+  LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
   isCustomerFacingNotificationsDoc,
 } from "@/lib/callCenterCustomerInboxFilters";
+import {
+  enrichNotificationAgentTrackingFromProfiles,
+  loadActorProfilesByUid,
+} from "@/lib/callCenterNotificationActorProfiles";
 import { agentTrackingFieldsFromFirestore } from "@/lib/customerNotificationAgentTrackingFields";
+import { firestoreDocBestIso } from "@/lib/firestoreDocTimestamps";
+import {
+  dedupeNewEstimateNotifications,
+  fetchCallCenterOpsNotifications,
+  fetchEstimatesForCallCenter,
+  mapEstimateDocForCallCenterFeed,
+  type MappedEstimateFeedItem,
+} from "@/lib/callCenterNotificationFeedExtras";
+import {
+  resolveCustomerEmailForStorage,
+  resolveCustomerNameForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -118,6 +136,9 @@ type MappedNotification = {
   issueId: string | null;
   issueTitle: string | null;
   price: number | null;
+  /** Filled from `bookings` when enriching additional-issue rows */
+  issueStatus: string | null;
+  issueDescription: string | null;
   title: string;
   message: string;
   read: boolean;
@@ -154,11 +175,40 @@ type MappedAdminNotification = {
   staffName: string | null;
   serviceName: string | null;
   clientName: string | null;
+  /** Same customer as `clientName`; use for call-center UI parity with `customer_panel`. */
+  customerName: string | null;
   createdAt: string | null;
   workshopName: string | null;
+  estimateId: string | null;
+  issueId: string | null;
+  issueTitle: string | null;
+  price: number | null;
+  /** Sub-document status on `bookings./additionalIssues[]` (pending, priced, …) */
+  issueStatus: string | null;
+  /** Short text from the issue; truncated when read from Firestore for list payloads */
+  issueDescription: string | null;
+  /** Booking / workflow status when present on the notification doc. */
+  status: string | null;
+  /** Customer contact on staff/ops notifications (e.g. additional_issue_found). */
+  customerPhone: string | null;
+  clientPhone: string | null;
+  customerEmail: string | null;
+  notificationReviewed: boolean;
+  calledCustomer: boolean;
+  notificationReviewedByUid: string | null;
+  notificationReviewedByName: string | null;
+  notificationReviewedByDisplayName: string | null;
+  notificationReviewedByEmail: string | null;
+  calledCustomerByUid: string | null;
+  calledCustomerByName: string | null;
+  calledCustomerByDisplayName: string | null;
+  calledCustomerByEmail: string | null;
 };
 
-type UnifiedNotification = MappedNotification | MappedAdminNotification;
+type UnifiedNotification =
+  | MappedNotification
+  | MappedAdminNotification
+  | MappedEstimateFeedItem;
 
 function mapCustomerDoc(
   doc: QueryDocumentSnapshot,
@@ -188,11 +238,13 @@ function mapCustomerDoc(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
+    issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     title: (d.title as string) || "Notification",
     message: (d.message as string) || "",
     read: d.read === true,
     workshopName: (d.workshopName as string) || null,
-    createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
+    createdAt: firestoreDocBestIso(d as Record<string, unknown>, ["createdAt", "updatedAt"]),
     customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || null,
     customerPhone: docPhone || metaPhone || null,
@@ -210,6 +262,32 @@ function dedupeKeyCustomerInbox(m: MappedNotification): string {
     m.estimateId ?? "",
     m.issueId ?? "",
   ].join("|");
+}
+
+/**
+ * All rows from `customer_notifications` are kept (estimates, additional quotes, booking lifecycle, etc.).
+ * Legacy `notifications` rows are only added when no `customer_notifications` doc already represents the
+ * same business key (avoids duplicate mirror + legacy). Coarse dedupe keys must not collapse two real CN docs.
+ */
+function mergeCustomerPanelInbox(
+  fromCustomerNotifications: MappedNotification[],
+  legacyDocs: QueryDocumentSnapshot[],
+  customerMeta: Map<string, { name: string; email: string; phone?: string }>,
+  ownerNames: Map<string, string>
+): MappedNotification[] {
+  const cnBusinessKeys = new Set(
+    fromCustomerNotifications.map((m) => dedupeKeyCustomerInbox(m))
+  );
+  const fromLegacy: MappedNotification[] = [];
+  for (const doc of legacyDocs) {
+    const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
+    if (!cnBusinessKeys.has(dedupeKeyCustomerInbox(m))) {
+      fromLegacy.push(m);
+    }
+  }
+  return [...fromCustomerNotifications, ...fromLegacy].sort(
+    (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+  );
 }
 
 function mapNotificationsDocToCustomerPanel(
@@ -247,11 +325,13 @@ function mapNotificationsDocToCustomerPanel(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
+    issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     title: (d.title as string) || "Notification",
     message: (d.message as string) || "",
     read: d.read === true,
     workshopName: (ownerUid ? ownerNames.get(ownerUid) : null) || (d.branchName as string) || null,
-    createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
+    createdAt: firestoreDocBestIso(d as Record<string, unknown>, ["createdAt", "updatedAt"]),
     customerName: meta?.name || docCustomerName || null,
     customerEmail: meta?.email || em || null,
     customerPhone: docPhone || metaPhone || null,
@@ -295,7 +375,12 @@ async function fetchLegacyCustomerBookingNotifications(
     return out;
   }
 
-  for (const t of LEGACY_BOOKING_TYPES_FOR_FULL_SCAN) {
+  const legacyTypesToScan = [
+    ...LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
+    ...LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
+  ] as const;
+
+  for (const t of legacyTypesToScan) {
     try {
       let last: QueryDocumentSnapshot | undefined;
       while (true) {
@@ -360,6 +445,31 @@ async function fetchLegacyCustomerBookingNotifications(
   return out;
 }
 
+function strOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
+/**
+ * Same booking+issue from ensure + POST produced duplicate Firestore docs; keep newest-first row only.
+ */
+function dedupeAdminPanelAdditionalIssueFound(rows: UnifiedNotification[]): UnifiedNotification[] {
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    if (r.source !== "admin_panel") return true;
+    const m = r as MappedAdminNotification;
+    if (m.type !== "additional_issue_found") return true;
+    const bid = m.bookingId?.trim();
+    const iid = (m.issueId || "").trim();
+    if (!bid || !iid) return true;
+    const key = `${bid}::${iid}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function mapAdminPanelDoc(
   doc: QueryDocumentSnapshot,
   ownerNames: Map<string, string>
@@ -370,6 +480,9 @@ function mapAdminPanelDoc(
     (d.targetOwnerUid as string) ||
     (d.targetAdminUid as string) ||
     null;
+  const phone = strOrNull(d.customerPhone) || strOrNull(d.clientPhone);
+  const email = strOrNull(d.customerEmail) || strOrNull(d.clientEmail);
+  const displayName = resolveCustomerNameForStorage(d as Record<string, any>);
   return {
     source: "admin_panel",
     id: doc.id,
@@ -383,10 +496,220 @@ function mapAdminPanelDoc(
     branchName: (d.branchName as string) || null,
     staffName: (d.staffName as string) || null,
     serviceName: (d.serviceName as string) || null,
-    clientName: (d.clientName as string) || null,
+    clientName: displayName,
+    customerName: displayName,
     createdAt: d.createdAt?.toDate?.()?.toISOString() || null,
     workshopName: ownerUid ? ownerNames.get(ownerUid) || null : null,
+    estimateId: (d.estimateId as string) || null,
+    issueId:
+      strOrNull(d.issueId) ||
+      strOrNull((d as Record<string, unknown>).additionalIssueId),
+    issueTitle: (d.issueTitle as string) || null,
+    price: typeof d.price === "number" ? d.price : null,
+    issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
+    issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
+    status: typeof d.status === "string" ? d.status : null,
+    customerPhone: phone,
+    clientPhone: phone,
+    customerEmail: email,
+    notificationReviewed: d.notificationReviewed === true,
+    calledCustomer: d.calledCustomer === true,
+    ...agentTrackingFieldsFromFirestore(d as Record<string, unknown>),
   };
+}
+
+/** Older `additional_issue_found` rows may lack contact or customer name on the notification — fill from `bookings/{id}`. */
+async function enrichAdminPanelAdditionalIssueBookingContact(
+  db: Firestore,
+  items: UnifiedNotification[]
+): Promise<UnifiedNotification[]> {
+  const bookingIds = new Set<string>();
+  for (const r of items) {
+    if (r.source !== "admin_panel") continue;
+    const m = r as MappedAdminNotification;
+    if (m.type !== "additional_issue_found") continue;
+    const bid = m.bookingId?.trim();
+    if (!bid) continue;
+    const ph = (m.customerPhone || m.clientPhone || "").toString().trim();
+    const nm = (m.clientName || m.customerName || "").toString().trim();
+    if (ph && nm) continue;
+    bookingIds.add(bid);
+  }
+  if (bookingIds.size === 0) return items;
+
+  const byId = new Map<
+    string,
+    { phone: string | null; email: string | null; customerName: string | null }
+  >();
+  const ids = [...bookingIds];
+  for (let i = 0; i < ids.length; i += 10) {
+    const chunk = ids.slice(i, i + 10);
+    const snaps = await db.getAll(...chunk.map((id) => db.doc(`bookings/${id}`)));
+    for (let j = 0; j < chunk.length; j++) {
+      const doc = snaps[j];
+      if (!doc.exists) continue;
+      const raw = doc.data()!;
+      byId.set(chunk[j], {
+        phone: resolveCustomerPhoneForStorage(raw as Record<string, any>),
+        email: resolveCustomerEmailForStorage(raw as Record<string, any>),
+        customerName: resolveCustomerNameForStorage(raw as Record<string, any>),
+      });
+    }
+  }
+
+  return items.map((r) => {
+    if (r.source !== "admin_panel") return r;
+    const m = r as MappedAdminNotification;
+    if (m.type !== "additional_issue_found" || !m.bookingId?.trim()) return r;
+    const ph = (m.customerPhone || m.clientPhone || "").toString().trim();
+    const nm = (m.clientName || m.customerName || "").toString().trim();
+    if (ph && nm) return r;
+    const got = byId.get(m.bookingId.trim());
+    if (!got || (!got.phone && !got.email && !got.customerName)) return r;
+    return {
+      ...m,
+      customerPhone: ph || got.phone,
+      clientPhone: ph || got.phone,
+      customerEmail: (m.customerEmail || "").trim() || got.email,
+      clientName: nm || got.customerName || m.clientName,
+      customerName: nm || got.customerName || m.customerName,
+    } as UnifiedNotification;
+  });
+}
+
+/** Best-effort match an `additionalIssues[]` entry to a notification (id hint, message title, or most recent). */
+function pickAdditionalIssueForNotification(
+  message: string,
+  issueIdOnDoc: string | null,
+  issues: Array<Record<string, unknown>>
+): Record<string, unknown> | null {
+  if (!Array.isArray(issues) || issues.length === 0) return null;
+  const idHint = (issueIdOnDoc || "").trim();
+  if (idHint) {
+    const byId = issues.find((x) => x && String(x.id || "") === idHint);
+    if (byId) return byId;
+  }
+  for (const iss of issues) {
+    const t = String(iss?.issueTitle || "").trim();
+    if (t && message.includes(t)) return iss;
+  }
+  return issues.slice().sort((a, b) => {
+    const ta = new Date(String(a?.reportedAt || 0)).getTime();
+    const tb = new Date(String(b?.reportedAt || 0)).getTime();
+    return tb - ta;
+  })[0];
+}
+
+/**
+ * Fills `issueId` / `issueTitle` / `price` / status / description from `bookings/{id}.additionalIssues`
+ * when those fields were missing on older `additional_issue_found` notification docs.
+ */
+async function enrichAdditionalIssueMetadataFromBookings(
+  db: Firestore,
+  items: UnifiedNotification[]
+): Promise<UnifiedNotification[]> {
+  const hitIdx: { idx: number; bookingId: string }[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const r = items[i];
+    if (r.source !== "admin_panel" && r.source !== "customer_panel") continue;
+    const t = r as MappedAdminNotification | MappedNotification;
+    if (t.type !== "additional_issue_found") continue;
+    const bid = t.bookingId?.trim();
+    if (!bid) continue;
+    hitIdx.push({ idx: i, bookingId: bid });
+  }
+  if (hitIdx.length === 0) return items;
+
+  const uniqueIds = [...new Set(hitIdx.map((h) => h.bookingId))];
+  const bookingData = new Map<string, Record<string, unknown> | null>();
+  for (let i = 0; i < uniqueIds.length; i += 10) {
+    const chunk = uniqueIds.slice(i, i + 10);
+    const snaps = await db.getAll(...chunk.map((id) => db.doc(`bookings/${id}`)));
+    for (let j = 0; j < chunk.length; j++) {
+      const doc = snaps[j];
+      bookingData.set(chunk[j], doc.exists ? (doc.data() as Record<string, unknown>) : null);
+    }
+  }
+
+  const out = [...items];
+  for (const { idx, bookingId } of hitIdx) {
+    const raw = bookingData.get(bookingId);
+    if (!raw) continue;
+    const issues = Array.isArray(raw.additionalIssues)
+      ? (raw.additionalIssues as Array<Record<string, unknown>>)
+      : [];
+    const row = out[idx] as MappedAdminNotification | MappedNotification;
+    const issue = pickAdditionalIssueForNotification(
+      row.message,
+      row.issueId,
+      issues
+    );
+    if (!issue) continue;
+
+    const id = String(issue.id || "").trim() || row.issueId;
+    const issueTitle = String(issue.issueTitle || "").trim() || row.issueTitle;
+    const priceFromIssue =
+      typeof issue.price === "number" && Number.isFinite(issue.price)
+        ? issue.price
+        : null;
+    const price =
+      priceFromIssue != null ? priceFromIssue : row.price != null ? row.price : null;
+    const issueStatus = issue.status != null ? String(issue.status) : null;
+    const descRaw = String(issue.description || "").trim();
+    const issueDescription = descRaw ? descRaw.slice(0, 500) : null;
+    const reportedBy = String(issue.reportedByStaffName || "").trim() || null;
+
+    if (row.source === "admin_panel") {
+      const a = row as MappedAdminNotification;
+      out[idx] = {
+        ...a,
+        issueId: id || a.issueId,
+        issueTitle: issueTitle || a.issueTitle,
+        price,
+        issueStatus: issueStatus ?? a.issueStatus,
+        issueDescription: issueDescription ?? a.issueDescription,
+        staffName: a.staffName || reportedBy,
+        serviceName: a.serviceName || (raw.serviceName != null ? String(raw.serviceName) : null),
+      } as UnifiedNotification;
+    } else {
+      const c = row as MappedNotification;
+      out[idx] = {
+        ...c,
+        issueId: id || c.issueId,
+        issueTitle: issueTitle || c.issueTitle,
+        price,
+        issueStatus: issueStatus ?? c.issueStatus,
+        issueDescription: issueDescription ?? c.issueDescription,
+      } as UnifiedNotification;
+    }
+  }
+  return out;
+}
+
+async function enrichUnifiedNotificationsList(
+  db: Firestore,
+  items: UnifiedNotification[]
+): Promise<UnifiedNotification[]> {
+  const uids = new Set<string>();
+  for (const r of items) {
+    if (r.source !== "customer_panel" && r.source !== "admin_panel") continue;
+    const t = r as MappedNotification | MappedAdminNotification;
+    if (t.notificationReviewedByUid?.trim()) uids.add(t.notificationReviewedByUid.trim());
+    if (t.calledCustomerByUid?.trim()) uids.add(t.calledCustomerByUid.trim());
+  }
+  if (uids.size === 0) return items;
+  const profiles = await loadActorProfilesByUid(db, [...uids]);
+  return items.map((r) => {
+    if (r.source !== "customer_panel" && r.source !== "admin_panel") return r;
+    return enrichNotificationAgentTrackingFromProfiles(
+      r as MappedNotification | MappedAdminNotification,
+      profiles
+    ) as UnifiedNotification;
+  });
+}
+
+function unifiedItemCreatedAt(r: UnifiedNotification): string | null {
+  return r.createdAt ?? null;
 }
 
 function parseTime(iso: string | null): number {
@@ -445,11 +768,12 @@ async function fetchEntireCustomerNotificationsCollection(
  * **Workshop scope** — `ownerUid` (or X-Tenant-Id): all **booking-engine customer** notifications
  * for that tenant (`customer_notifications` only — what customers see in the public booking app).
  *
- * **System scope** — `all=1` or `scope=all`: booking-engine customer notifications for **all owners / all customers**.
- * Any **call center agent** or **super admin** with `all=1` loads the full `customer_notifications` collection (plus legacy `notifications` with customerUid).
- * **Customer-only feed (default):** `notifications` entries have `source: "customer_panel"` — same Firestore data customers see
- * (`customer_notifications` plus legacy `notifications` with `customerUid`). Use **`customerOnly=1`** to force that even if a client sends `includeAdmin=1`.
- * Optional **`includeAdmin=1`**: also append internal staff/admin rows (`source: "admin_panel"`); full internal collection for **super admin** or **call center admin**, scoped for agents.
+ * **System scope** — `all=1` or `scope=all`: customer inbox plus **call-center extras** (unless `customerOnly=1`):
+ * - `additional_issue_found` and `new_estimate` from `notifications` (when not already covered by `includeAdmin=1`).
+ * - All **`estimates`** documents (`source: "estimate"`) with vehicle / description / status.
+ * Super admin / CC-admin agents: all workshops; other agents: `assignedWorkshops` via `ownerUid`.
+ * **Customer-only feed:** `customerOnly=1` — hide ops notifications and estimate records (book-now inbox only).
+ * Optional **`includeAdmin=1`**: full `notifications` as `admin_panel` (includes ops types; dedicated ops fetch is skipped to avoid duplicates).
  *
  * Headers: Authorization: Bearer <Firebase ID token>
  */
@@ -502,13 +826,27 @@ export async function GET(req: NextRequest) {
       const db = adminDb();
       const fullAccess = hasFullSystemWideAccess(gate.auth);
       /**
-       * `canUseAllQueryParam` only allows super admin or call center agents — both get every owner's
-       * customer_notifications + system-wide legacy customer rows (not filtered by assigned workshops).
+       * Call center agents without CC-admin: data is limited to `assignedWorkshops` (owner UIDs).
+       * Super admins and call_center_admin agents see all tenants.
        */
       let scopedToWorkshops: string[] | null = null;
       if (!fullAccess && gate.auth.kind === "agent") {
         scopedToWorkshops = [...gate.auth.user.assignedWorkshops];
       }
+
+      const workshopScopeForFetch: string[] | null = fullAccess
+        ? null
+        : gate.auth.kind === "agent"
+          ? scopedToWorkshops ?? []
+          : null;
+
+      const estimateDocs = !customerOnly
+        ? await fetchEstimatesForCallCenter(db, workshopScopeForFetch)
+        : [];
+      const opsDocsDedicated =
+        !customerOnly && !includeAdminPanel
+          ? await fetchCallCenterOpsNotifications(db, workshopScopeForFetch)
+          : [];
 
       const custDocs = await fetchEntireCustomerNotificationsCollection(db);
 
@@ -548,6 +886,14 @@ export async function GET(req: NextRequest) {
         const ou = d.ownerUid || d.targetOwnerUid || d.targetAdminUid;
         if (ou) ownerUids.add(String(ou));
       }
+      for (const doc of estimateDocs) {
+        const ou = doc.data().ownerUid;
+        if (ou) ownerUids.add(String(ou));
+      }
+      for (const doc of opsDocsDedicated) {
+        const ou = doc.data().ownerUid;
+        if (ou) ownerUids.add(String(ou));
+      }
 
       const customerMeta = new Map<string, { name: string; email: string; phone?: string }>();
       const customerIdList = [...customerIds];
@@ -584,29 +930,58 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const inboxByKey = new Map<string, MappedNotification>();
-      for (const doc of custDocs) {
-        const m = mapCustomerDoc(doc, customerMeta);
-        inboxByKey.set(dedupeKeyCustomerInbox(m), m);
-      }
-      for (const doc of legacyDocs) {
-        const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
-        const k = dedupeKeyCustomerInbox(m);
-        if (!inboxByKey.has(k)) inboxByKey.set(k, m);
-      }
-      const customerInboxRows = Array.from(inboxByKey.values()).sort(
-        (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+      const fromCn = custDocs.map((doc) => mapCustomerDoc(doc, customerMeta));
+      const customerInboxRows = mergeCustomerPanelInbox(
+        fromCn,
+        legacyDocs,
+        customerMeta,
+        ownerNames
       );
 
-      const merged: UnifiedNotification[] = [
+      const estimateRows = estimateDocs.map((doc) =>
+        mapEstimateDocForCallCenterFeed(doc, ownerNames)
+      );
+      const estimateFirestoreIds = new Set(estimateRows.map((e) => e.id));
+
+      const opsMappedDedicated = dedupeNewEstimateNotifications(
+        opsDocsDedicated.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
+        estimateFirestoreIds
+      );
+
+      const adminMapped = dedupeNewEstimateNotifications(
+        includeAdminPanel
+          ? adminDocs.map((doc) => mapAdminPanelDoc(doc, ownerNames))
+          : [],
+        estimateFirestoreIds
+      );
+
+      let merged: UnifiedNotification[] = [
         ...customerInboxRows,
-        ...adminDocs.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
+        ...opsMappedDedicated,
+        ...adminMapped,
+        ...estimateRows,
       ];
+      merged.sort(
+        (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
+      );
+      merged = dedupeAdminPanelAdditionalIssueFound(merged);
+
+      merged = await enrichUnifiedNotificationsList(db, merged);
+      merged = await enrichAdminPanelAdditionalIssueBookingContact(db, merged);
+      merged = await enrichAdditionalIssueMetadataFromBookings(db, merged);
+
+      if (scopedToWorkshops && scopedToWorkshops.length > 0) {
+        const allow = new Set(scopedToWorkshops);
+        merged = merged.filter(
+          (r) => r.ownerUid != null && allow.has(String(r.ownerUid).trim())
+        );
+      }
 
       let out = merged;
       if (unreadOnly) out = out.filter((r) => !r.read);
 
       const unreadCount = merged.filter((r) => !r.read).length;
+      const customerFacingNotificationCount = merged.filter((r) => r.source === "customer_panel").length;
 
       return NextResponse.json(
         {
@@ -615,16 +990,18 @@ export async function GET(req: NextRequest) {
           scopedToWorkshops,
           customerOnly,
           includeAdminPanel,
-          /** Same inbox as book-now per customer: `customer_notifications` + legacy `notifications` (customerUid). */
-          customerFacingNotificationCount: customerInboxRows.length,
+          /** Rows from book-now customer inbox after workshop scope (if any). */
+          customerFacingNotificationCount,
           notifications: out,
           totalMerged: merged.length,
           unreadCount,
           counts: {
-            bookingEngineCustomerInbox: customerInboxRows.length,
+            bookingEngineCustomerInbox: customerFacingNotificationCount,
             customerNotificationsDocs: custDocs.length,
             legacyNotificationsMerged: legacyDocs.length,
             adminStaffApp: adminDocs.length,
+            callCenterOpsNotifications: opsDocsDedicated.length,
+            estimates: estimateRows.length,
           },
         },
         { headers: CORS_HEADERS }
@@ -710,32 +1087,49 @@ export async function GET(req: NextRequest) {
 
     const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, [tenant]);
 
-    const inboxByKey = new Map<string, MappedNotification>();
-    for (const row of rows) {
-      inboxByKey.set(dedupeKeyCustomerInbox(row), row);
-    }
-    for (const doc of legacyDocs) {
-      const m = mapNotificationsDocToCustomerPanel(doc, customerMeta, ownerNames);
-      const k = dedupeKeyCustomerInbox(m);
-      if (!inboxByKey.has(k)) inboxByKey.set(k, m);
-    }
-    const mergedRows = Array.from(inboxByKey.values()).sort(
-      (a, b) => parseTime(b.createdAt) - parseTime(a.createdAt)
+    const mergedRows = mergeCustomerPanelInbox(rows, legacyDocs, customerMeta, ownerNames);
+
+    const opsDocsW = !customerOnly
+      ? await fetchCallCenterOpsNotifications(db, [tenant])
+      : [];
+    const estimateDocsW = !customerOnly ? await fetchEstimatesForCallCenter(db, [tenant]) : [];
+    const estimateRowsW = estimateDocsW.map((doc) =>
+      mapEstimateDocForCallCenterFeed(doc, ownerNames)
+    );
+    const estimateIdSetW = new Set(estimateRowsW.map((e) => e.id));
+    const opsMappedW = dedupeNewEstimateNotifications(
+      opsDocsW.map((doc) => mapAdminPanelDoc(doc, ownerNames)),
+      estimateIdSetW
     );
 
-    let filtered = unreadOnly ? mergedRows.filter((r) => !r.read) : mergedRows;
+    let workshopMerged: UnifiedNotification[] = [...mergedRows, ...opsMappedW, ...estimateRowsW];
+    workshopMerged.sort(
+      (a, b) => parseTime(unifiedItemCreatedAt(b)) - parseTime(unifiedItemCreatedAt(a))
+    );
+    workshopMerged = dedupeAdminPanelAdditionalIssueFound(workshopMerged);
 
-    const unreadCount = mergedRows.filter((r) => !r.read).length;
+    workshopMerged = await enrichUnifiedNotificationsList(db, workshopMerged);
+    workshopMerged = await enrichAdminPanelAdditionalIssueBookingContact(
+      db,
+      workshopMerged
+    );
+    workshopMerged = await enrichAdditionalIssueMetadataFromBookings(db, workshopMerged);
+
+    let filtered = unreadOnly ? workshopMerged.filter((r) => !r.read) : workshopMerged;
+
+    const unreadCount = workshopMerged.filter((r) => !r.read).length;
 
     return NextResponse.json(
       {
         scope: "workshop",
         notifications: filtered,
-        totalFetched: mergedRows.length,
+        totalFetched: workshopMerged.length,
         unreadCount,
         counts: {
           customerNotificationsDocs: rows.length,
           legacyNotificationsMerged: legacyDocs.length,
+          callCenterOpsNotifications: opsDocsW.length,
+          estimates: estimateRowsW.length,
         },
       },
       { headers: CORS_HEADERS }

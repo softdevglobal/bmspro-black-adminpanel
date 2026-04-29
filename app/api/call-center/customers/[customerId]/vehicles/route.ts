@@ -9,6 +9,9 @@ import {
 import {
   mapCustomerVehicleDoc,
   parseVehicleDetailsBody,
+  isSameCustomerVehicle,
+  mergeVehicleFirestoreFields,
+  dedupeVehiclesByIdentity,
 } from "@/lib/callCenterCustomerVehicles";
 
 export const runtime = "nodejs";
@@ -68,8 +71,10 @@ export async function GET(
       .collection(`customers/${customerId}/vehicles`)
       .get();
 
-    const vehicles = vehiclesSnap.docs.map((doc) =>
-      mapCustomerVehicleDoc(doc.id, doc.data() as Record<string, unknown>)
+    const vehicles = dedupeVehiclesByIdentity(
+      vehiclesSnap.docs.map((doc) =>
+        mapCustomerVehicleDoc(doc.id, doc.data() as Record<string, unknown>)
+      ) as (Record<string, unknown> & { id: string })[]
     );
 
     return NextResponse.json({ vehicles }, { headers: CORS_HEADERS });
@@ -150,6 +155,44 @@ export async function POST(
     }
 
     const now = new Date();
+    const col = db.collection(`customers/${customerId}/vehicles`);
+    const existingSnap = await col.get();
+
+    let matchId: string | null = null;
+    let matchData: Record<string, unknown> | null = null;
+    for (const doc of existingSnap.docs) {
+      const data = doc.data() as Record<string, unknown>;
+      if (isSameCustomerVehicle(data, parsed.payload as Record<string, unknown>)) {
+        matchId = doc.id;
+        matchData = data;
+        break;
+      }
+    }
+
+    if (matchId && matchData) {
+      const merged = mergeVehicleFirestoreFields(matchData, {
+        ...parsed.payload,
+        updatedAt: now,
+      });
+      if (!merged.createdAt) merged.createdAt = matchData.createdAt ?? now;
+      if (!merged.createdBy) merged.createdBy = matchData.createdBy ?? actor.uid;
+      await col.doc(matchId).set(merged, { merge: true });
+      const saved = await col.doc(matchId).get();
+      const vehicle = mapCustomerVehicleDoc(
+        matchId,
+        saved.data() as Record<string, unknown>
+      );
+      return NextResponse.json(
+        {
+          success: true,
+          vehicleId: matchId,
+          vehicle,
+          updatedExisting: true,
+        },
+        { status: 200, headers: CORS_HEADERS }
+      );
+    }
+
     const vehicleData = {
       ...parsed.payload,
       createdAt: now,
@@ -157,9 +200,7 @@ export async function POST(
       createdBy: actor.uid,
     };
 
-    const ref = await db
-      .collection(`customers/${customerId}/vehicles`)
-      .add(vehicleData);
+    const ref = await col.add(vehicleData);
 
     const saved = await ref.get();
     const vehicle = mapCustomerVehicleDoc(
@@ -168,7 +209,7 @@ export async function POST(
     );
 
     return NextResponse.json(
-      { success: true, vehicleId: ref.id, vehicle },
+      { success: true, vehicleId: ref.id, vehicle, updatedExisting: false },
       { status: 201, headers: CORS_HEADERS }
     );
   } catch (error: any) {

@@ -8,7 +8,8 @@ import {
   createStaffAssignmentNotification,
   createCustomerConfirmationNotification,
   createCustomerCancellationNotification,
-  createCustomerReschedulingNotification
+  createCustomerReschedulingNotification,
+  notifyOwnerBookingCompletedOnce,
 } from "@/lib/notifications";
 import { 
   logBookingStatusChangedServer, 
@@ -131,8 +132,10 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // Get user role to determine permissions
     const userDoc = await db.doc(`users/${callerUid}`).get();
     const userData = userDoc.data();
+    const effectiveRole = (userData?.role || userData?.systemRole || "").toString();
+    const isWorkshopOwner = effectiveRole === "workshop_owner";
     const userRole = (userData?.role || "").toString();
-    const ownerUid = userRole === "workshop_owner" ? callerUid : (userData?.ownerUid || callerUid);
+    const ownerUid = isWorkshopOwner ? callerUid : (userData?.ownerUid || callerUid);
     
     // Try to find booking in "bookings" collection first
     let ref = db.doc(`bookings/${id}`);
@@ -182,6 +185,25 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     
     // For admin reassigning after rejection: StaffRejected -> AwaitingStaffApproval
     const isAdminReassigning = currentStatus === "StaffRejected" && requestedStatus === "AwaitingStaffApproval";
+
+    // Only the business owner may set Completed through this admin API. Branch admins and
+    // staff (including branch admins working jobs) use the staff app / service-complete flow.
+    if (actualNextStatus === "Completed" && currentStatus !== "Completed" && !isWorkshopOwner) {
+      return NextResponse.json(
+        {
+          error:
+            "Only the business owner can mark a booking complete from the admin panel. Complete assigned work in the staff app.",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (body.forceComplete && !isWorkshopOwner) {
+      return NextResponse.json(
+        { error: "Only the business owner can force-complete a booking with incomplete tasks." },
+        { status: 403 }
+      );
+    }
 
     // Guard: booking cannot be completed until all tasks are done,
     // unless the owner explicitly confirmed that staff failed (forceComplete=true).
@@ -370,7 +392,17 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     }
 
     // Create audit log entry
+    // Skip when status didn't actually change (e.g. mobile app email trigger after
+    // Firestore was already updated client-side, or services-only updates). The
+    // client/mobile path already writes the real status-change log; logging again
+    // here produces a duplicate "Confirmed → Confirmed" entry.
+    const shouldSkipStatusAuditLog =
+      statusIsSame && (isMobileAppEmailTrigger || isOnlyUpdatingServices);
+
     try {
+      if (shouldSkipStatusAuditLog) {
+        // Intentionally no-op: avoid duplicate audit log.
+      } else {
       const clientName = data.client || data.clientName || "Customer";
       const performer = {
         uid: callerUid,
@@ -416,6 +448,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           isStaffRejecting && body.rejectionReason ? `Rejection reason: ${body.rejectionReason}` : undefined,
           data.branchName
         );
+      }
       }
     } catch (auditError) {
       console.error("Failed to create audit log:", auditError);
@@ -719,6 +752,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         await createNotification(notificationData);
         
         console.log("Sent customer completion notification");
+      }
+
+      if (actualNextStatus === "Completed" && effectivePreviousStatus !== "Completed") {
+        await notifyOwnerBookingCompletedOnce({
+          bookingId: id,
+          bookingCode: data.bookingCode,
+          ownerUid,
+          staffName: finalStaffName,
+          clientName,
+          serviceName: finalServiceName,
+          branchName: data.branchName,
+          bookingDate: finalBookingDate,
+          bookingTime: finalBookingTime,
+        });
       }
       
       // Send email when status changes to Completed (regardless of transition path)

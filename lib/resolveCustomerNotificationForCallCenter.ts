@@ -1,6 +1,16 @@
-import type { DocumentReference } from "firebase-admin/firestore";
+import type { DocumentData, DocumentReference } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { isCustomerFacingNotificationsDoc } from "@/lib/callCenterCustomerInboxFilters";
+import { CALL_CENTER_OPS_NOTIFICATION_TYPES } from "@/lib/callCenterNotificationFeedExtras";
+
+const OPS_TRACKABLE = new Set<string>(CALL_CENTER_OPS_NOTIFICATION_TYPES);
+
+/** Docs the call-center GET feed can show from `notifications`; POST reviewed/called must accept the same ids. */
+function isCallCenterTrackableNotificationsDoc(d: DocumentData): boolean {
+  if (isCustomerFacingNotificationsDoc(d)) return true;
+  const t = String(d.type || "");
+  return OPS_TRACKABLE.has(t);
+}
 
 export type ResolvedCallCenterNotification = {
   ref: DocumentReference;
@@ -40,7 +50,7 @@ export async function resolveCustomerNotificationForCallCenter(
   if (!n.exists) return { ok: false, reason: "not_found" };
 
   const d = n.data()!;
-  if (!isCustomerFacingNotificationsDoc(d)) {
+  if (!isCallCenterTrackableNotificationsDoc(d)) {
     return { ok: false, reason: "not_customer_facing" };
   }
   const ownerUid = String(d.ownerUid || "").trim();

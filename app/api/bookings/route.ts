@@ -2,13 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { FieldValue, Firestore, FieldPath } from "firebase-admin/firestore";
 import { Message } from "firebase-admin/messaging";
-import { normalizeBookingStatus, shouldBlockSlots } from "@/lib/bookingTypes";
+import { normalizeBookingStatus } from "@/lib/bookingTypes";
 import { generateBookingCode } from "@/lib/bookings";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingCreatedServer } from "@/lib/auditLogServer";
 import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
 import { createStaffAssignmentNotification, createOwnerNotification, getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
-import { sendBookingRequestReceivedEmail, sendBookingEmail } from "@/lib/emailService";
+import { sendBookingRequestReceivedEmail, sendBookingEmail, sendCustomerWelcomeEmail } from "@/lib/emailService";
+import {
+  resolveCustomerForStaffBooking,
+  resolveBookingEngineUrl,
+  getCanonicalCustomerContact,
+} from "@/lib/customerAccount";
+import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
+import {
+  isVehicleType,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  type VehicleType,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
@@ -19,33 +31,6 @@ function isAnyStaff(staffId?: string | null): boolean {
   if (!staffId) return true; // null, undefined, or empty
   const str = String(staffId).trim().toLowerCase();
   return str === "" || str === "null" || str.includes("any");
-}
-
-/**
- * Get the day-of-week name for a date string (YYYY-MM-DD).
- * Uses noon to avoid timezone boundary issues.
- */
-function getDayOfWeek(dateStr: string): string {
-  const dateObj = new Date(dateStr + "T12:00:00");
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return days[dateObj.getDay()];
-}
-
-/**
- * Check if a staff member is assigned to a branch on a given day,
- * considering weeklySchedule first, then falling back to primary branchId.
- */
-function isStaffAssignedToBranch(staff: any, branchId: string, dayOfWeek: string): boolean {
-  if (dayOfWeek && staff.weeklySchedule && typeof staff.weeklySchedule === "object") {
-    const daySchedule = staff.weeklySchedule[dayOfWeek];
-    if (daySchedule && daySchedule.branchId) {
-      return daySchedule.branchId === branchId;
-    }
-    if (daySchedule === null || daySchedule === undefined) {
-      return false;
-    }
-  }
-  return staff.branchId === branchId;
 }
 
 /**
@@ -164,6 +149,8 @@ type CreateBookingInput = {
   vehicleMake?: string;
   vehicleModel?: string;
   vehicleBodyType?: string;
+  /** Canonical vehicle size class used for per-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: string;
   vehicleColour?: string;
   vehicleVinChassis?: string;
   vehicleEngineNumber?: string;
@@ -251,6 +238,8 @@ export async function POST(req: NextRequest) {
     // Basic validation
     const required: Array<keyof CreateBookingInput> = [
       "client",
+      "clientEmail",
+      "clientPhone",
       "serviceId",
       // "staffId", // Optional for multi-service bookings
       "branchId",
@@ -261,8 +250,36 @@ export async function POST(req: NextRequest) {
     ];
     for (const key of required) {
       if ((body as any)?.[key] === undefined || (body as any)?.[key] === null || (String((body as any)[key]).trim() === "" && typeof (body as any)[key] !== "number")) {
-        return NextResponse.json({ error: `Missing field: ${key}` }, { status: 400 });
+        const label =
+          key === "clientEmail" ? "Customer email"
+          : key === "clientPhone" ? "Customer phone"
+          : key === "client" ? "Customer name"
+          : String(key);
+        return NextResponse.json(
+          { error: `${label} is required`, field: key },
+          { status: 400 }
+        );
       }
+    }
+
+    // Validate email format (email is now required for customer account creation)
+    const emailValue = String(body.clientEmail).trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailValue)) {
+      return NextResponse.json(
+        { error: "Customer email must be a valid email address", field: "clientEmail" },
+        { status: 400 }
+      );
+    }
+
+    // Validate phone looks like a phone number (digits, spaces, +, -, parens only; at least 6 digits)
+    const phoneValue = String(body.clientPhone).trim();
+    const phoneDigits = phoneValue.replace(/\D/g, "");
+    if (phoneDigits.length < 6 || !/^[+\d][\d\s\-()]+$/.test(phoneValue)) {
+      return NextResponse.json(
+        { error: "Customer phone must be a valid phone number", field: "clientPhone" },
+        { status: 400 }
+      );
     }
 
     // Australian booking rule: drop-off by 11 AM, pick-up 2 PM – 5 PM
@@ -338,259 +355,21 @@ export async function POST(req: NextRequest) {
       console.error("Failed to get user role for booking source:", roleError);
     }
 
-    // Validate that the requested time slots are not already booked
     const db = adminDb();
-    const dateStr = String(body.date);
-    
-    // Helper function to check if two time ranges overlap
-    const timeRangesOverlap = (
-      start1: number, end1: number,
-      start2: number, end2: number
-    ): boolean => {
-      // Overlap occurs if: start1 < end2 && start2 < end1
-      return start1 < end2 && start2 < end1;
-    };
 
-    // Helper function to parse time string to minutes
-    const timeToMinutes = (timeStr: string): number => {
-      const parts = timeStr.split(':').map(Number);
-      if (parts.length < 2) return 0;
-      return parts[0] * 60 + parts[1];
-    };
-
-    // Use centralized helper to check if booking status should block slots
-    const isActiveStatus = (status: string | undefined): boolean => {
-      return shouldBlockSlots(status);
-    };
-
-    // Check for existing bookings that would conflict
-    try {
-      // Query bookings for the same date
-      const bookingsQuery = db.collection("bookings")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", "==", dateStr);
-      
-      const bookingRequestsQuery = db.collection("bookingRequests")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", "==", dateStr);
-
-      const [bookingsSnapshot, bookingRequestsSnapshot] = await Promise.all([
-        bookingsQuery.get().catch(() => ({ docs: [] })),
-        bookingRequestsQuery.get().catch(() => ({ docs: [] }))
-      ]);
-
-      // Combine results from both collections
-      const allExistingBookings: Array<any> = [
-        ...bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-        ...bookingRequestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-      ];
-
-      // Check each service in the new booking request
-      const servicesToCheck = body.services && Array.isArray(body.services) && body.services.length > 0
-        ? body.services
-        : [{
-            id: body.serviceId,
-            time: body.time,
-            duration: body.duration,
-            staffId: body.staffId || null
-          }];
-
-      // ----- Pre-fetch eligible staff for "Any Staff" services -----
-      const hasAnyStaffService = servicesToCheck.some((s: any) => isAnyStaff(s.staffId || body.staffId));
-      let eligibleStaffByService: Record<string, string[]> = {};
-
-      if (hasAnyStaffService) {
-        const dayOfWeek = getDayOfWeek(dateStr);
-
-        const [staffSnapshot, servicesSnapshot] = await Promise.all([
-          db.collection("users")
-            .where("ownerUid", "==", ownerUid)
-            .get()
-            .catch(() => ({ docs: [] as any[] })),
-          db.collection("services")
-            .where("ownerUid", "==", ownerUid)
-            .get()
-            .catch(() => ({ docs: [] as any[] })),
-        ]);
-
-        const allStaff = (staffSnapshot.docs || []).map((d: any) => ({ id: d.id, ...d.data() }));
-        const allServicesData = (servicesSnapshot.docs || []).map((d: any) => ({ id: d.id, ...d.data() }));
-
-        for (const svc of servicesToCheck) {
-          const svcStaffId = svc.staffId || body.staffId;
-          if (!isAnyStaff(svcStaffId)) continue; // Skip specific staff services
-
-          const serviceId = svc.id || svc.serviceId || body.serviceId;
-          const serviceData = allServicesData.find((s: any) => String(s.id) === String(serviceId));
-
-          const eligible = allStaff.filter((st: any) => {
-            const role = (st.role || "").toString().toLowerCase();
-            if (role !== "staff" && role !== "branch_admin") return false;
-            if (st.status && st.status !== "Active") return false;
-
-            // Check service capability
-            if (serviceData?.staffIds && serviceData.staffIds.length > 0) {
-              const canPerform = serviceData.staffIds.some((id: string) =>
-                String(id) === st.id || String(id) === (st.uid || st.id)
-              );
-              if (!canPerform) return false;
-            }
-
-            // Check branch assignment (weeklySchedule + primary branchId)
-            return isStaffAssignedToBranch(st, String(body.branchId), dayOfWeek);
-          });
-
-          eligibleStaffByService[String(serviceId)] = eligible.map((s: any) => s.id);
-          console.log(`[ADMIN BOOKING] Service ${serviceId}: ${eligible.length} eligible staff [${eligible.map((s: any) => s.id).join(', ')}] (day=${dayOfWeek})`);
-        }
-      }
-
-      for (const newService of servicesToCheck) {
-        const newServiceTime = newService.time || body.time;
-        const newServiceDuration = newService.duration || body.duration;
-        const newServiceStaffId = newService.staffId || body.staffId || null;
-
-        if (!newServiceTime) continue;
-
-        const newStartMinutes = timeToMinutes(newServiceTime);
-        const newEndMinutes = newStartMinutes + newServiceDuration;
-        const newIsAnyStaff = isAnyStaff(newServiceStaffId);
-
-        if (newIsAnyStaff) {
-          // ── "Any Staff" mode ──
-          // Only block if ALL eligible staff are occupied at this time.
-          const serviceId = newService.id || newService.serviceId || body.serviceId;
-          const eligibleIds = eligibleStaffByService[String(serviceId)] || [];
-
-          if (eligibleIds.length === 0) {
-            // No eligible staff data available – skip validation
-            continue;
-          }
-
-          const bookedStaffIds = new Set<string>();
-          let anyStaffBookingsOverlapping = 0;
-
-          for (const existingBooking of allExistingBookings) {
-            if (!isActiveStatus(existingBooking.status)) continue;
-
-            if (existingBooking.services && Array.isArray(existingBooking.services) && existingBooking.services.length > 0) {
-              for (const existingService of existingBooking.services) {
-                if (!existingService.time) continue;
-                const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
-                const existingStartMinutes = timeToMinutes(existingService.time);
-                const existingDuration = existingService.duration || existingBooking.duration || 60;
-                const existingEndMinutes = existingStartMinutes + existingDuration;
-
-                if (!timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) continue;
-
-                if (!isAnyStaff(existingServiceStaffId)) {
-                  if (eligibleIds.includes(existingServiceStaffId!)) {
-                    bookedStaffIds.add(existingServiceStaffId!);
-                  }
-                } else {
-                  anyStaffBookingsOverlapping++;
-                }
-              }
-            } else {
-              if (!existingBooking.time) continue;
-              const existingStaffId = existingBooking.staffId || null;
-              const existingStartMinutes = timeToMinutes(existingBooking.time);
-              const existingDuration = existingBooking.duration || 60;
-              const existingEndMinutes = existingStartMinutes + existingDuration;
-
-              if (!timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) continue;
-
-              if (!isAnyStaff(existingStaffId)) {
-                if (eligibleIds.includes(existingStaffId!)) {
-                  bookedStaffIds.add(existingStaffId!);
-                }
-              } else {
-                anyStaffBookingsOverlapping++;
-              }
-            }
-          }
-
-          const freeStaff = eligibleIds.length - bookedStaffIds.size - anyStaffBookingsOverlapping;
-          if (freeStaff <= 0) {
-            console.log(`[BOOKING CONFLICT] All ${eligibleIds.length} eligible staff are booked at ${newServiceTime} (${bookedStaffIds.size} specific + ${anyStaffBookingsOverlapping} any-staff)`);
-            return NextResponse.json(
-              {
-                error: "Time slot fully booked",
-                details: `All available staff members are booked at ${newServiceTime}. Please choose a different time.`,
-              },
-              { status: 409 }
-            );
-          }
-
-          // This "Any Staff" service passed — at least one staff member is free
-          continue;
-        }
-
-        // ── Specific staff mode ──
-        // Check against all existing bookings for the same specific staff
-        for (const existingBooking of allExistingBookings) {
-          // Skip if booking is not active
-          if (!isActiveStatus(existingBooking.status)) continue;
-
-          // Check if this is a multi-service booking
-          if (existingBooking.services && Array.isArray(existingBooking.services) && existingBooking.services.length > 0) {
-            // Check each service in the existing booking
-            for (const existingService of existingBooking.services) {
-              if (!existingService.time) continue;
-              
-              const existingServiceStaffId = existingService.staffId || existingBooking.staffId || null;
-              
-              // Only conflict if same specific staff, or existing is "any staff" (could be assigned to our staff)
-              if (!isAnyStaff(existingServiceStaffId) && newServiceStaffId !== existingServiceStaffId) continue;
-
-              const existingStartMinutes = timeToMinutes(existingService.time);
-              const existingDuration = existingService.duration || existingBooking.duration || 60;
-              const existingEndMinutes = existingStartMinutes + existingDuration;
-
-              // Check for overlap
-              if (timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) {
-                return NextResponse.json(
-                  { 
-                    error: "Time slot already booked",
-                    details: `The selected time ${newServiceTime} conflicts with an existing booking. Please choose a different time.`
-                  },
-                  { status: 409 } // 409 Conflict
-                );
-              }
-            }
-          } else {
-            // Single-service booking
-            if (!existingBooking.time) continue;
-
-            const existingStaffId = existingBooking.staffId || null;
-            
-            // Only conflict if same specific staff, or existing is "any staff"
-            if (!isAnyStaff(existingStaffId) && newServiceStaffId !== existingStaffId) continue;
-
-            const existingStartMinutes = timeToMinutes(existingBooking.time);
-            const existingDuration = existingBooking.duration || 60;
-            const existingEndMinutes = existingStartMinutes + existingDuration;
-
-            // Check for overlap
-            if (timeRangesOverlap(newStartMinutes, newEndMinutes, existingStartMinutes, existingEndMinutes)) {
-              return NextResponse.json(
-                { 
-                  error: "Time slot already booked",
-                  details: `The selected time ${newServiceTime} conflicts with an existing booking. Please choose a different time.`
-                },
-                { status: 409 } // 409 Conflict
-              );
-            }
-          }
-        }
-      }
-    } catch (validationError: any) {
-      // Log the error but don't fail the booking if validation query fails
-      // This is a safety check, so we'll proceed if we can't verify
-      console.error("Error validating booking availability:", validationError);
-      // In production, you might want to be more strict and reject the booking
-      // For now, we'll proceed but log the error
-    }
+    // Staff-wise slot validation has been intentionally removed.
+    //
+    // Previously this route enforced two caps:
+    //   1. "Any Staff" services: rejected with 409 "Time slot fully booked"
+    //      once all eligible staff for the service/branch were occupied
+    //      (i.e. the "2 staff = max 2 bookings" behaviour).
+    //   2. Specific-staff services: rejected with 409 "Time slot already
+    //      booked" when that same staff member had an overlapping booking.
+    //
+    // Per product decision, staff assignment is now handled manually by the
+    // workshop and double-booking the same staff is allowed at this layer —
+    // only the branch's `bookingLimitPerDay` and opening-hours restrict
+    // bookings. The validation block below has been removed accordingly.
 
     const bookingCode = generateBookingCode();
     
@@ -659,6 +438,9 @@ export async function POST(req: NextRequest) {
     
     // ─── Build tasks array from service checklists ───────────────────────────
     let bookingTasks: any[] = [];
+    // Owner-customised area order per service (snapshotted so bookings keep
+    // their area grouping even if the service is later edited).
+    const areaOrderByServiceId: Record<string, string[]> = {};
     try {
       // Collect unique service IDs from the booking
       const serviceIds: string[] = [];
@@ -679,16 +461,35 @@ export async function POST(req: NextRequest) {
         if (!svcDoc.exists) continue;
         const svcData = svcDoc.data();
         const checklist = svcData?.checklist;
+        if (Array.isArray(svcData?.areaOrder)) {
+          areaOrderByServiceId[svcId] = (svcData!.areaOrder as unknown[]).filter(
+            (v) =>
+              v === "interior" ||
+              v === "engine_bay" ||
+              v === "underbody" ||
+              v === "exterior"
+          ) as string[];
+        }
         if (!Array.isArray(checklist) || checklist.length === 0) continue;
 
         const svcName = svcData?.name || "";
         for (const item of checklist) {
+          const rawSection =
+            typeof item === "string" ? undefined : (item as any)?.section;
+          const section =
+            rawSection === "interior" ||
+            rawSection === "engine_bay" ||
+            rawSection === "underbody" ||
+            rawSection === "exterior"
+              ? rawSection
+              : "interior";
           bookingTasks.push({
             id: `task_${taskIndex++}`,
             serviceId: svcId,
             serviceName: svcName,
             name: typeof item === "string" ? item : (item.name || ""),
             description: typeof item === "string" ? "" : (item.description || ""),
+            section,
             done: false,
             imageUrl: "",
             staffNote: "",
@@ -698,20 +499,160 @@ export async function POST(req: NextRequest) {
           });
         }
       }
+      // Attach the per-service areaOrder snapshot to each service entry so the
+      // booking preview and staff-assignment UIs can render tasks area-wise.
+      if (processedServices && Array.isArray(processedServices)) {
+        processedServices = processedServices.map((svc: any) => {
+          const order = svc?.id ? areaOrderByServiceId[String(svc.id)] : undefined;
+          return order && order.length > 0 ? { ...svc, areaOrder: order } : svc;
+        });
+      }
     } catch (taskError) {
       console.error("Failed to build tasks from service checklists:", taskError);
       // Non-blocking: proceed without tasks
     }
 
+    // ─── Apply per-vehicle-type pricing resolution ─────────────────────────
+    // When the caller supplies a canonical `vehicleType` (size class), re-
+    // resolve each service's price/duration from its `vehicleTypePricing`
+    // map so admin-panel / mobile-app bookings use the same tiered pricing
+    // that the customer booking engine uses. Legacy services without a
+    // per-type map fall through to the client-supplied flat price.
+    const resolvedVehicleType: VehicleType | null =
+      body.vehicleType && isVehicleType(body.vehicleType)
+        ? (body.vehicleType as VehicleType)
+        : null;
+    let totalPriceOverride: number | null = null;
+    let totalDurationOverride: number | null = null;
+    if (
+      resolvedVehicleType &&
+      processedServices &&
+      Array.isArray(processedServices) &&
+      processedServices.length > 0
+    ) {
+      const rePriced: any[] = [];
+      for (const svc of processedServices) {
+        const idStr = svc?.id != null ? String(svc.id).trim() : "";
+        let resolvedPrice: number | null = null;
+        let resolvedDuration: number | null = null;
+        if (idStr) {
+          try {
+            const svcDoc = await adminDb().collection("services").doc(idStr).get();
+            if (svcDoc.exists) {
+              const svcData = svcDoc.data();
+              const typePricing = normalizeVehicleTypePricing(svcData?.vehicleTypePricing);
+              const pricing = resolveServicePricingForVehicleType(
+                {
+                  price: typeof svcData?.price === "number" ? svcData.price : undefined,
+                  duration: typeof svcData?.duration === "number" ? svcData.duration : undefined,
+                  vehicleTypePricing: typePricing.vehicleTypePricing,
+                },
+                resolvedVehicleType,
+              );
+              if (pricing) {
+                resolvedPrice = pricing.price;
+                resolvedDuration = pricing.duration;
+              }
+            }
+          } catch (err) {
+            console.warn(`[BOOKING] Failed to resolve per-type pricing for service ${idStr}:`, err);
+          }
+        }
+        rePriced.push({
+          ...svc,
+          ...(resolvedPrice != null ? { price: resolvedPrice } : {}),
+          ...(resolvedDuration != null ? { duration: resolvedDuration } : {}),
+          vehicleType: resolvedVehicleType,
+        });
+      }
+      processedServices = rePriced;
+      totalPriceOverride = rePriced.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+      totalDurationOverride = rePriced.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
+    }
+
+    // ─── Resolve / provision customer account BEFORE saving the booking ────
+    // When an admin, owner, or staff member creates a booking, look up the
+    // customer in the `customers` collection (scoped to this workshop). If a
+    // customer already exists for that email, the booking is linked to that
+    // existing account — NO new account is created and NO welcome email is
+    // sent. If no customer exists yet, a new one is provisioned with the
+    // default password ("000000") and a welcome email is queued to be sent
+    // after the booking is successfully saved.
+    let resolvedCustomerId: string | null = null;
+    let newCustomerWelcome: {
+      email: string;
+      password: string;
+      name: string;
+    } | null = null;
+    let ensureResult: Awaited<ReturnType<typeof resolveCustomerForStaffBooking>> = null;
+    try {
+      ensureResult = await resolveCustomerForStaffBooking(db, {
+        ownerUid,
+        email: body.clientEmail,
+        phone: body.clientPhone,
+        name: body.client ? String(body.client) : null,
+      });
+      if (ensureResult) {
+        resolvedCustomerId = ensureResult.customerId;
+        if (ensureResult.created && ensureResult.defaultPassword) {
+          newCustomerWelcome = {
+            email: ensureResult.email,
+            password: ensureResult.defaultPassword,
+            name: String(body.client || "").trim(),
+          };
+          console.log(
+            `[BOOKING] Auto-created customer account ${ensureResult.customerId} for ${ensureResult.email} (workshop ${ownerUid})`
+          );
+        } else {
+          console.log(
+            `[BOOKING] Linking booking to existing customer account ${ensureResult.customerId} for ${ensureResult.email || "(phone match)"} (workshop ${ownerUid}) — skipping welcome email`
+          );
+        }
+      }
+    } catch (customerAccountErr: any) {
+      console.error(
+        `[BOOKING] ❌ Exception during customer account resolution — proceeding without linked customerId:`,
+        customerAccountErr?.message || customerAccountErr
+      );
+    }
+
+    const accountCreatedThisBooking = ensureResult?.created === true;
+    let clientForBooking = String(body.client ?? "").trim() || "Walk-in";
+    let emailForBooking = emailValue;
+    let phoneForBooking = phoneValue;
+    let canonicalCustomerForResponse:
+      | { name: string; email: string; phone: string }
+      | undefined;
+
+    if (resolvedCustomerId && !accountCreatedThisBooking) {
+      try {
+        const canon = await getCanonicalCustomerContact(db, resolvedCustomerId, ownerUid);
+        if (canon) {
+          if (canon.name) clientForBooking = canon.name;
+          if (canon.email) emailForBooking = canon.email;
+          if (canon.phone) phoneForBooking = canon.phone;
+          canonicalCustomerForResponse = {
+            name: clientForBooking,
+            email: emailForBooking,
+            phone: phoneForBooking,
+          };
+        }
+      } catch (canonErr) {
+        console.warn("[BOOKING] Could not load canonical customer contact:", canonErr);
+      }
+    }
+
     const payload: any = {
       ownerUid,
-      client: String(body.client),
-      clientEmail: body.clientEmail || null,
-      clientPhone: body.clientPhone || null,
+      client: clientForBooking,
+      clientEmail: emailForBooking || null,
+      clientPhone: phoneForBooking || null,
+      customerId: resolvedCustomerId,
       vehicleNumber: body.vehicleNumber || null,
       vehicleMake: body.vehicleMake || null,
       vehicleModel: body.vehicleModel || null,
       vehicleBodyType: body.vehicleBodyType || null,
+      vehicleType: resolvedVehicleType, // canonical size class; null for legacy-priced bookings
       vehicleColour: body.vehicleColour || null,
       vehicleVinChassis: body.vehicleVinChassis || null,
       vehicleEngineNumber: body.vehicleEngineNumber || null,
@@ -728,9 +669,9 @@ export async function POST(req: NextRequest) {
       time: String(body.time), // HH:mm in branch's local timezone - drop-off time
       pickupTime: body.pickupTime || null, // HH:mm in branch's local timezone - pick-up time
       dateTimeUtc: body.dateTimeUtc || null, // UTC ISO string for consistent storage
-      duration: Number(body.duration) || 0,
+      duration: totalDurationOverride != null ? totalDurationOverride : Number(body.duration) || 0,
       status: finalStatus,
-      price: Number(body.price) || 0,
+      price: totalPriceOverride != null ? totalPriceOverride : Number(body.price) || 0,
       services: processedServices,
       bookingSource: bookingSource,
       bookingCode: bookingCode,
@@ -744,7 +685,53 @@ export async function POST(req: NextRequest) {
 
     try {
       const ref = await adminDb().collection("bookings").add(payload);
-      
+
+      // ─── Persist the vehicle into the customer's "My Vehicles" list ────
+      // When we resolved/created a customer account above, also save the
+      // vehicle captured on this booking to `customers/{id}/vehicles` so it
+      // shows up on the Booking Engine's "My Vehicles" tab and in future
+      // bookings. Dedupes by rego / VIN — existing vehicles are merged, not
+      // duplicated. Best-effort: failures must never break booking creation.
+      if (resolvedCustomerId) {
+        try {
+          const vehicleResult = await upsertCustomerVehicleFromBooking(
+            adminDb(),
+            {
+              customerId: resolvedCustomerId,
+              ownerUid,
+              createdByUid: currentUserId || null,
+              vehicle: {
+                vehicleNumber: body.vehicleNumber,
+                vehicleMake: body.vehicleMake,
+                vehicleModel: body.vehicleModel,
+                vehicleBodyType: body.vehicleBodyType,
+                vehicleType: resolvedVehicleType || null,
+                vehicleColour: body.vehicleColour,
+                vehicleVinChassis: body.vehicleVinChassis,
+                vehicleEngineNumber: body.vehicleEngineNumber,
+                vehicleMileage: body.vehicleMileage,
+              },
+            },
+          );
+          if (vehicleResult.saved) {
+            console.log(
+              `[BOOKING] ✅ Vehicle ${vehicleResult.vehicleId} ${
+                vehicleResult.updatedExisting ? "merged into existing" : "added to"
+              } customer ${resolvedCustomerId} from booking ${ref.id}`,
+            );
+          } else {
+            console.log(
+              `[BOOKING] ℹ️ Skipped vehicle upsert for booking ${ref.id} — reason: ${vehicleResult.reason}`,
+            );
+          }
+        } catch (vehicleErr: any) {
+          console.error(
+            `[BOOKING] ❌ Exception persisting vehicle for booking ${ref.id}:`,
+            vehicleErr?.message || vehicleErr,
+          );
+        }
+      }
+
       // Create booking activity log for new booking
       try {
         await adminDb().collection("bookingActivities").add({
@@ -752,7 +739,7 @@ export async function POST(req: NextRequest) {
           bookingId: ref.id,
           bookingCode: bookingCode,
           activityType: "booking_created",
-          clientName: String(body.client),
+          clientName: clientForBooking,
           serviceName: serviceName,
           branchName: branchName,
           staffName: staffName,
@@ -789,7 +776,7 @@ export async function POST(req: NextRequest) {
           ownerUid,
           ref.id,
           bookingCode,
-          String(body.client),
+          clientForBooking,
           serviceName || "Service",
           branchName || undefined,
           staffName || undefined,
@@ -805,8 +792,8 @@ export async function POST(req: NextRequest) {
             time: String(body.time),
             notes: body.notes || undefined,
             bookingSource: bookingSource,
-            clientEmail: body.clientEmail || undefined,
-            clientPhone: body.clientPhone || undefined,
+            clientEmail: emailForBooking || undefined,
+            clientPhone: phoneForBooking || undefined,
           }
         );
       } catch (auditError) {
@@ -820,12 +807,8 @@ export async function POST(req: NextRequest) {
       // For "Confirmed" status (staff bookings), send "Confirmed" email
       // For "Pending" status, send "Pending" email
       try {
-        // Handle email field from various sources (mobile app might send it differently)
-        let customerEmail: string | null = null;
-        if (body.clientEmail) {
-          const trimmed = String(body.clientEmail).trim();
-          customerEmail = trimmed.length > 0 ? trimmed : null;
-        }
+        const customerEmail: string | null =
+          emailForBooking && emailForBooking.length > 0 ? emailForBooking : null;
         
         // Get user role for logging
         let userRole = 'unknown';
@@ -841,9 +824,7 @@ export async function POST(req: NextRequest) {
         
         console.log(`[BOOKING] Attempting to send email for booking ${ref.id}`, {
           clientEmail: customerEmail,
-          clientEmailRaw: body.clientEmail,
-          clientEmailType: typeof body.clientEmail,
-          client: body.client,
+          clientForBooking,
           bookingCode,
           finalStatus,
           hasEmail: !!customerEmail,
@@ -871,20 +852,26 @@ export async function POST(req: NextRequest) {
             bookingId: ref.id,
             bookingCode: bookingCode || undefined,
             customerEmail: customerEmail,
-            customerName: String(body.client),
+            customerName: clientForBooking,
             status: emailStatus,
             ownerUid,
             branchName: branchName || null,
             bookingDate: String(body.date),
             bookingTime: body.pickupTime ? `Drop-off: ${String(body.time)}, Pick-up: ${body.pickupTime}` : String(body.time),
-            duration: Number(body.duration) || null,
-            price: Number(body.price) || null,
+            duration: totalDurationOverride != null ? totalDurationOverride : Number(body.duration) || null,
+            price: totalPriceOverride != null ? totalPriceOverride : Number(body.price) || null,
+            vehicleType: resolvedVehicleType,
+            vehicleNumber: body.vehicleNumber || null,
+            vehicleMake: body.vehicleMake || null,
+            vehicleModel: body.vehicleModel || null,
             serviceName: serviceName || null,
             services: processedServices?.map((s: any) => ({
               name: s.name || "Service",
               staffName: s.staffName || null,
               time: s.time || String(body.time),
               duration: s.duration || Number(body.duration) || null,
+              price: typeof s.price === "number" ? s.price : undefined,
+              vehicleType: s.vehicleType || resolvedVehicleType || undefined,
             })),
             staffName: staffName || null,
           });
@@ -905,8 +892,8 @@ export async function POST(req: NextRequest) {
           console.warn(`[BOOKING] ⚠️ No customer email provided for booking ${ref.id}, skipping email`, {
             bookingId: ref.id,
             bookingCode,
-            client: body.client,
-            clientEmail: body.clientEmail,
+            client: clientForBooking,
+            clientEmail: emailForBooking,
           });
         }
       } catch (emailError: any) {
@@ -920,7 +907,62 @@ export async function POST(req: NextRequest) {
         });
         // Don't fail the request if email sending fails
       }
-      
+
+      // ─── Welcome email for NEWLY-created customer accounts ───────────────
+      // The customer account lookup happened before the booking was saved, so
+      // `resolvedCustomerId` is already on the booking doc. Here we only need
+      // to send the welcome email when a brand-new account was provisioned.
+      // Existing accounts get no email — they were already linked via
+      // `customerId` on the booking payload above.
+      if (newCustomerWelcome) {
+        try {
+          let workshopName = "Workshop";
+          let bookingEngineUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+          try {
+            const ownerDoc = await db.doc(`users/${ownerUid}`).get();
+            const ownerData = ownerDoc.exists ? ownerDoc.data() || {} : {};
+            workshopName =
+              (ownerData.workshopName as string) ||
+              (ownerData.salonName as string) ||
+              (ownerData.businessName as string) ||
+              (ownerData.name as string) ||
+              (ownerData.displayName as string) ||
+              "Workshop";
+            bookingEngineUrl = resolveBookingEngineUrl(ownerData);
+          } catch (ownerLookupErr) {
+            console.warn(
+              `[BOOKING] Could not resolve workshop metadata for welcome email (owner ${ownerUid}):`,
+              ownerLookupErr
+            );
+          }
+
+          const welcomeResult = await sendCustomerWelcomeEmail({
+            customerEmail: newCustomerWelcome.email,
+            password: newCustomerWelcome.password,
+            customerName: newCustomerWelcome.name,
+            workshopName,
+            bookingEngineUrl,
+          });
+
+          if (welcomeResult.success) {
+            console.log(
+              `[BOOKING] ✅ Welcome email sent to new customer ${newCustomerWelcome.email} for booking ${ref.id}`
+            );
+          } else {
+            console.error(
+              `[BOOKING] ❌ Welcome email failed for new customer ${newCustomerWelcome.email} on booking ${ref.id}:`,
+              welcomeResult.error
+            );
+          }
+        } catch (welcomeErr: any) {
+          console.error(
+            `[BOOKING] ❌ Exception sending welcome email for booking ${ref.id}:`,
+            welcomeErr?.message || welcomeErr
+          );
+          // Non-blocking — the booking is already saved.
+        }
+      }
+
       // Send notifications to assigned staff members (informational - booking confirmed, no approval needed)
       if (finalStatus === "Confirmed") {
         try {
@@ -957,8 +999,8 @@ export async function POST(req: NextRequest) {
               bookingCode: bookingCode,
               staffUid: staff.uid,
               staffName: staff.name,
-              clientName: String(body.client),
-              clientPhone: body.clientPhone || undefined,
+              clientName: clientForBooking,
+              clientPhone: phoneForBooking || undefined,
               serviceName: serviceName || undefined,
               services: processedServices?.map((s: any) => ({
                 name: s.name || "Service",
@@ -1000,7 +1042,7 @@ export async function POST(req: NextRequest) {
             bookingId: ref.id,
             bookingCode: bookingCode,
             ownerUid: ownerUid,
-            clientName: String(body.client),
+            clientName: clientForBooking,
             serviceName: serviceName || undefined,
             services: processedServices?.map((s: any) => ({
               name: s.name || "Service",
@@ -1039,7 +1081,7 @@ export async function POST(req: NextRequest) {
                 bookingCode: bookingCode,
                 branchAdminUid: branchAdminUid,
                 ownerUid: ownerUid,
-                clientName: String(body.client),
+                clientName: clientForBooking,
                 serviceName: serviceName || undefined,
                 services: processedServices?.map((s: any) => ({
                   name: s.name || "Service",
@@ -1108,7 +1150,7 @@ export async function POST(req: NextRequest) {
                 
                 if (branchAdminFcmToken) {
                   const pushTitle = notificationData?.title || "New Booking - Staff Assignment Required";
-                  const pushMessage = notificationData?.message || `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`;
+                  const pushMessage = notificationData?.message || `New booking from ${clientForBooking} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`;
                   
                   console.log(`📱 Booking ${bookingCode}: FCM token found (${branchAdminFcmToken.substring(0, 20)}...), sending push...`);
                   console.log(`📱 Booking ${bookingCode}: Push title: "${pushTitle}"`);
@@ -1149,14 +1191,14 @@ export async function POST(req: NextRequest) {
                   bookingCode: bookingCode,
                   type: "booking_needs_assignment",
                   title: "New Booking - Staff Assignment Required",
-                  message: `New booking from ${body.client} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
+                  message: `New booking from ${clientForBooking} for ${serviceList} on ${body.date} at ${body.time}. Please assign staff.`,
                   status: finalStatus,
                   ownerUid: ownerUid,
                   branchAdminUid: branchAdminUid, // CRITICAL: Must match user.uid for mobile app query
                   targetAdminUid: branchAdminUid, // Also set for mobile app queries
                   branchId: String(body.branchId), // CRITICAL: Must be set for branch filtering
-                  clientName: String(body.client),
-                  clientPhone: body.clientPhone || null,
+                  clientName: clientForBooking,
+                  clientPhone: phoneForBooking || null,
                   serviceName: serviceName || null,
                   services: processedServices?.map((s: any) => ({
                     name: s.name || "Service",
@@ -1218,7 +1260,7 @@ export async function POST(req: NextRequest) {
               bookingCode: bookingCode,
               branchAdminUid,
               ownerUid,
-              clientName: String(body.client),
+              clientName: clientForBooking,
               serviceName: serviceName || undefined,
               services: processedServices?.map((s: any) => ({
                 name: s.name || "Service",
@@ -1241,7 +1283,12 @@ export async function POST(req: NextRequest) {
         }
       }
       
-      return NextResponse.json({ id: ref.id });
+      return NextResponse.json({
+        id: ref.id,
+        ...(canonicalCustomerForResponse
+          ? { canonicalCustomer: canonicalCustomerForResponse }
+          : {}),
+      });
     } catch (e) {
       if (process.env.NODE_ENV !== "production") {
         // Fall back silently in dev to let client persist

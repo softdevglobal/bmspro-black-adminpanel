@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { createNotification, createBranchAdminNotification, getBranchAdminUids } from "@/lib/notifications";
+import {
+  createNotification,
+  createBranchAdminNotification,
+  getBranchAdminUids,
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -57,6 +63,12 @@ export async function POST(
 
     const staffName = lastIssue.reportedByStaffName || staffData?.name || staffData?.displayName || "Staff";
     const issueTitle = lastIssue.issueTitle || "Additional work";
+    const lastIssueId =
+      (typeof lastIssue.id === "string" && lastIssue.id.trim()) || null;
+    const lastIssuePrice =
+      typeof lastIssue.price === "number" && Number.isFinite(lastIssue.price)
+        ? lastIssue.price
+        : null;
     const clientName = bookingData.client || bookingData.clientName || "Customer";
     const bookingCode = bookingData.bookingCode || null;
     const branchId = bookingData.branchId || null;
@@ -64,12 +76,17 @@ export async function POST(
     const bookingDate = bookingData.date || "";
     const bookingTime = bookingData.time || "";
     const serviceName = bookingData.serviceName || null;
+    const notifyPhone =
+      resolveCustomerPhoneForStorage(bookingData as Record<string, any>) || undefined;
+    const notifyEmail =
+      resolveCustomerEmailForStorage(bookingData as Record<string, any>) || undefined;
 
     // Notify branch admin(s)
     if (branchId) {
       try {
         const branchAdminUids = await getBranchAdminUids(db, branchId, ownerUid);
         for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
           await createBranchAdminNotification({
             bookingId: id,
             bookingCode: bookingCode || undefined,
@@ -85,6 +102,19 @@ export async function POST(
             type: "additional_issue_found" as any,
             title: "Additional Issue Reported",
             message: `${staffName} found: ${issueTitle} (${clientName}) - ${bookingCode || id}`,
+            clientPhone: notifyPhone,
+            customerPhone: notifyPhone,
+            clientEmail: notifyEmail,
+            customerEmail: notifyEmail,
+            ...(lastIssueId ? { issueId: lastIssueId } : {}),
+            issueTitle,
+            ...(lastIssuePrice != null ? { price: lastIssuePrice } : {}),
+            ...(lastIssue.status != null
+              ? { issueStatus: String(lastIssue.status) }
+              : {}),
+            ...(typeof lastIssue.description === "string" && lastIssue.description.trim()
+              ? { issueDescription: String(lastIssue.description).trim().slice(0, 2000) }
+              : {}),
           });
         }
       } catch (e) {
@@ -109,6 +139,17 @@ export async function POST(
         branchId: branchId || undefined,
         bookingDate: bookingDate || undefined,
         bookingTime: bookingTime || undefined,
+        clientPhone: notifyPhone,
+        customerPhone: notifyPhone,
+        clientEmail: notifyEmail,
+        customerEmail: notifyEmail,
+        ...(lastIssueId ? { issueId: lastIssueId } : {}),
+        issueTitle,
+        ...(lastIssuePrice != null ? { price: lastIssuePrice } : {}),
+        ...(lastIssue.status != null ? { issueStatus: String(lastIssue.status) } : {}),
+        ...(typeof lastIssue.description === "string" && lastIssue.description.trim()
+          ? { issueDescription: String(lastIssue.description).trim().slice(0, 2000) }
+          : {}),
       } as any);
     } catch (e) {
       console.error("Failed to notify owner:", e);

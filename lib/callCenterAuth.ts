@@ -6,7 +6,8 @@ import {
   missingFirebaseTokenMessage,
 } from "@/lib/authHelpers";
 
-export const CALL_CENTER_ROLES = ["call_center_agent", "call_center_admin"];
+/** `agent` is the canonical non-admin role; `call_center_agent` kept for legacy Firestore docs. */
+export const CALL_CENTER_ROLES = ["agent", "call_center_agent", "call_center_admin"];
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,10 @@ export type CallCenterRequestAuth =
       ownerUid: string;
       isSuperAdmin: boolean;
     };
+
+export function callCenterRequesterUid(auth: CallCenterRequestAuth): string {
+  return auth.kind === "agent" ? auth.user.uid : auth.uid;
+}
 
 /** Normalize Firestore assigned workshop ids (trim, legacy snake_case, `{ ownerUid }` items). */
 function normalizeAssignedWorkshopIds(raw: unknown): string[] {
@@ -101,7 +106,7 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
       return { success: false, error: "Agent account suspended", status: 403 };
     }
 
-    const role = (data.role || "call_center_agent").toString();
+    const role = (data.role || "agent").toString();
     if (!CALL_CENTER_ROLES.includes(role)) {
       return { success: false, error: "Invalid call center role", status: 403 };
     }
@@ -174,7 +179,7 @@ export async function verifyCallCenterOrTenantAdminAuth(
     cc.status === 401 || admin.status === 401 ? 401 : cc.status || admin.status || 401;
   const error =
     cc.error === "Not a registered call center agent"
-      ? "Not authorized: use a call center agent account, or sign in as BMS staff (workshop owner, branch admin, or super admin)"
+      ? "Not a call center agent: add Firestore doc call_center_agents/{uid} for this Firebase user, or sign in as BMS staff (workshop_owner, branch_admin, super_admin) with a users/ doc"
       : cc.status === 401
         ? cc.error || "Unauthorized"
         : admin.error || cc.error || "Unauthorized";
@@ -191,6 +196,57 @@ export function canAccessWorkshopForAuth(auth: CallCenterRequestAuth, workshopOw
   if (auth.role === "workshop_owner" && auth.uid === id) return true;
   if (auth.role === "branch_admin" && auth.ownerUid === id) return true;
   return false;
+}
+
+const participantIdList = (room: { participantIds?: unknown }): string[] =>
+  Array.isArray(room.participantIds) ? room.participantIds.map((x) => String(x)) : [];
+
+/**
+ * List/read CC direct chats: the agent or tenant in the thread, or BMS staff for that workshop.
+ * Unclaimed queue requests (`queueStatus === "pending"`) are visible to agents who can access that workshop.
+ */
+export function canAccessCcDirectChatRoom(
+  auth: CallCenterRequestAuth,
+  room: { workshopOwnerUid?: unknown; participantIds?: unknown; queueStatus?: unknown },
+  requesterUid: string
+): boolean {
+  if (participantIdList(room).includes(requesterUid)) return true;
+  if (auth.kind === "agent") {
+    if (String(room.queueStatus ?? "") !== "pending") return false;
+    const w = String(room.workshopOwnerUid ?? "").trim();
+    if (!w) return false;
+    if (auth.user.isCCAdmin) return true;
+    // Match listCcChatsForAgent: no workshop rows ⇒ full queue.
+    if (auth.user.assignedWorkshops.length === 0) return true;
+    return canAccessWorkshop(auth.user, w);
+  }
+  const w = String(room.workshopOwnerUid ?? "").trim();
+  if (!w) return false;
+  return canAccessWorkshopForAuth(auth, w);
+}
+
+/**
+ * Post messages / mark read: only the two thread participants.
+ */
+export function isParticipantInCcDirectChatRoom(
+  room: { participantIds?: unknown },
+  requesterUid: string
+): boolean {
+  return participantIdList(room).includes(requesterUid);
+}
+
+/**
+ * Who may POST reviewed/called tracking on customer notifications.
+ * Call center agents (verified via `call_center_agents`) may update any such row — same operational
+ * model as handling customer comms across assigned tenants; workshop list still scopes GET feeds.
+ * BMS staff (workshop owner / branch admin / super admin) stays limited to their workshop / super.
+ */
+export function canActOnCustomerNotificationTracking(
+  auth: CallCenterRequestAuth,
+  workshopOwnerUid: string
+): boolean {
+  if (auth.kind === "agent") return true;
+  return canAccessWorkshopForAuth(auth, workshopOwnerUid);
 }
 
 /** Scope for GET /api/call-center/workshops list. */

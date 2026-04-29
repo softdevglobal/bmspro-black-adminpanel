@@ -24,6 +24,7 @@ export const CALL_CENTER_PUBLIC_META = {
   notes: [
     "This JSON describes request/response shapes only. It does not grant access to data.",
     "Webhook registration exists at POST /webhooks (CC admin); dispatch to external URLs must be wired separately if not yet in codebase.",
+    "Service pricing: workshop services expose per-vehicle-type maps `vehicleTypePricing` and `pricingByVehicleType` (same object). Top-level `price`/`duration` are headline 'starting from' values when type pricing exists. Resolve a quote with `vehicleType` on POST /bookings + the service catalog, or use the stored line `price`/`duration`/`vehicleType` on booking responses.",
   ],
 } as const;
 
@@ -77,7 +78,7 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
       email: "agent@example.com",
       password: "min6chars",
       name: "Agent Name",
-      role: "call_center_agent",
+      role: "agent",
       assignedWorkshops: ["<ownerUid>"],
     },
     responseSuccess: { status: 201 },
@@ -129,7 +130,73 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     method: "GET",
     path: "/workshops/{ownerUid}",
     authRequired: true,
-    description: "Branches, services, staff for one workshop.",
+    description:
+      "Branches (each with weekly hours + bookingLimitPerDay), services, staff for one workshop.",
+  },
+  {
+    id: "branches.list",
+    method: "GET",
+    path: "/branches",
+    authRequired: true,
+    description:
+      "All branches for a workshop owner (same payload shape as GET /branches/{branchId} per row). Agents: any ownerUid. BMS staff: must have access to that workshop.",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string", description: "Workshop owner Firebase UID; or use X-Tenant-Id" },
+      {
+        name: "date",
+        required: false,
+        type: "YYYY-MM-DD",
+        description: "Optional; sets daySchedule on each branch for that weekday",
+      },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+    responseSuccess: {
+      status: 200,
+      bodyExample: {
+        ownerUid: "<ownerUid>",
+        total: 2,
+        branches: [],
+      },
+    },
+  },
+  {
+    id: "branches.detail",
+    method: "GET",
+    path: "/branches/{branchId}",
+    authRequired: true,
+    description:
+      "Branch details: weekly hours, bookingLimitPerDay, daySchedules. Call center agents may read any branch. BMS staff scoped by workshop; ownerUid / X-Tenant-Id must match branch if sent.",
+    queryParams: [
+      { name: "ownerUid", required: false, type: "string", description: "BMS staff: must match branch if provided; ignored for call center agents" },
+      {
+        name: "date",
+        required: false,
+        type: "YYYY-MM-DD",
+        description: "Optional; if set, daySchedule copies that weekday from daySchedules",
+      },
+    ],
+    headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+    responseSuccess: {
+      status: 200,
+      bodyExample: {
+        branch: {
+          id: "<branchId>",
+          name: "",
+          address: "",
+          phone: "",
+          email: "",
+          timezone: "Australia/Sydney",
+          status: "Active",
+          hours: { Monday: { open: "09:00", close: "17:00" } },
+          daySchedules: {
+            Sunday: { dayOfWeek: "Sunday", closed: true, open: null, close: null },
+            Monday: { dayOfWeek: "Monday", closed: false, open: "09:00", close: "17:00" },
+          },
+          daySchedule: null,
+          bookingLimitPerDay: 20,
+        },
+      },
+    },
   },
   {
     id: "customers.search",
@@ -248,15 +315,30 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             id: "<serviceId>",
             name: "Full Service",
             description: "Complete vehicle service",
-            price: 299,
-            duration: 120,
+            price: 199,
+            duration: 90,
+            vehicleTypes: ["small_car", "suv"],
+            vehicleTypePricing: {
+              small_car: { price: 199, duration: 90 },
+              suv: { price: 249, duration: 120 },
+            },
+            pricingByVehicleType: {
+              small_car: { price: 199, duration: 90 },
+              suv: { price: 249, duration: 120 },
+            },
             icon: "",
             imageUrl: "",
             branches: ["<branchId>"],
             staff: [{ id: "<staffUid>", name: "John", role: "staff", branchId: "<branchId>" }],
             checklistCount: 5,
             checklist: [
-              { index: 0, name: "Oil change", description: "", done: false, imageUrl: "" },
+              {
+                index: 0,
+                name: "Oil change",
+                description: "",
+                done: false,
+                section: "engine_bay",
+              },
             ],
           },
         ],
@@ -277,13 +359,28 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
           id: "<serviceId>",
           name: "Full Service",
           description: "Complete vehicle service",
-          price: 299,
-          duration: 120,
+          price: 199,
+          duration: 90,
+          vehicleTypes: ["small_car", "suv"],
+          vehicleTypePricing: {
+            small_car: { price: 199, duration: 90 },
+            suv: { price: 249, duration: 120 },
+          },
+          pricingByVehicleType: {
+            small_car: { price: 199, duration: 90 },
+            suv: { price: 249, duration: 120 },
+          },
           icon: "",
           imageUrl: "",
           branches: [{ id: "<branchId>", name: "Main Branch" }],
           staff: [{ id: "<staffUid>", name: "John", role: "staff", branchId: "<branchId>" }],
-          checklist: [{ name: "Oil change", description: "Replace engine oil" }],
+          checklist: [
+            {
+              name: "Oil change",
+              description: "Replace engine oil",
+              section: "engine_bay",
+            },
+          ],
         },
       },
     },
@@ -312,7 +409,13 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             serviceId: "<id>",
             serviceName: "Full Service",
             checklist: [
-              { index: 0, name: "Oil change", description: "", done: false, imageUrl: "" },
+              {
+                index: 0,
+                name: "Oil change",
+                description: "",
+                done: false,
+                section: "engine_bay",
+              },
             ],
           },
         ],
@@ -324,7 +427,7 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
             name: "Oil change",
             description: "",
             done: false,
-            imageUrl: "",
+            section: "engine_bay",
           },
         ],
       },
@@ -361,7 +464,16 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
       date: "YYYY-MM-DD",
       time: "HH:mm",
       pickupTime: "HH:mm|null",
-      services: [{ serviceId: "<id>", serviceName: "", price: 0, duration: 0, staffId: "optional" }],
+      services: [
+        {
+          serviceId: "<id>",
+          serviceName: "",
+          price: 0,
+          duration: 0,
+          staffId: "optional",
+        },
+      ],
+      vehicleType: "small_car|sedan_wagon|suv|ute_van_4wd|performance_large|null",
       client: "Name",
       clientEmail: "",
       clientPhone: "",
@@ -384,7 +496,26 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     },
     responseSuccess: {
       status: 201,
-      bodyExample: { success: true, bookingId: "", bookingCode: "", status: "", totalPrice: 0, totalDuration: 0 },
+      bodyExample: {
+        success: true,
+        bookingId: "",
+        bookingCode: "",
+        status: "",
+        totalPrice: 0,
+        totalDuration: 0,
+        vehicleType: "suv",
+        services: [
+          {
+            id: "",
+            name: "",
+            price: 0,
+            duration: 0,
+            staffId: null,
+            staffName: null,
+            vehicleType: "suv",
+          },
+        ],
+      },
     },
   },
   {
@@ -392,7 +523,8 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
     method: "GET",
     path: "/bookings/availability",
     authRequired: true,
-    description: "Return available and blocked time slots for a branch/date and selected services.",
+    description:
+      "Available/blocked slots for a branch/date/services. Includes merged branch booking context: weekly hours, bookingLimitPerDay, daySchedule (open/close), plus dailyLimit/currentBookings.",
     queryParams: [
       { name: "ownerUid", required: false, type: "string" },
       { name: "branchId", required: true, type: "string" },
@@ -400,6 +532,28 @@ export const CALL_CENTER_ENDPOINT_SPECS: PublicEndpointSpec[] = [
       { name: "serviceIds", required: true, type: "string", description: "Comma-separated service ids" },
     ],
     headers: [{ name: "X-Tenant-Id", required: false, example: "<ownerUid>" }],
+    responseSuccess: {
+      status: 200,
+      bodyExample: {
+        available: true,
+        dayOfWeek: "Monday",
+        branch: {
+          id: "<branchId>",
+          name: "",
+          hours: {},
+          daySchedules: {},
+          daySchedule: { dayOfWeek: "Monday", closed: false, open: "09:00", close: "17:00" },
+          bookingLimitPerDay: 20,
+        },
+        branchHours: { open: "09:00", close: "17:00" },
+        allSlots: ["09:00", "09:30"],
+        blockedSlots: [],
+        availableSlots: ["09:00", "09:30"],
+        dailyLimitReached: false,
+        dailyLimit: 20,
+        currentBookings: 3,
+      },
+    },
   },
   {
     id: "bookings.detail",

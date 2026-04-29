@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { normalizeBookingStatus } from "@/lib/bookingTypes";
-import { createNotification, createBranchAdminNotification, getBranchAdminUids } from "@/lib/notifications";
+import {
+  createNotification,
+  createBranchAdminNotification,
+  getBranchAdminUids,
+  resolveCustomerEmailForStorage,
+  resolveCustomerPhoneForStorage,
+} from "@/lib/notifications";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { sendAdditionalIssueNotificationEmail } from "@/lib/emailService";
 
@@ -56,6 +62,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       labourTimeHours: number;
       serviceId?: string | null;
       imageUrl?: string | null;
+      /** Optional snapshot when booking has no phone/email yet */
+      customerPhone?: string;
+      customerEmail?: string;
     };
 
     const issueTitle = (body.issueTitle || "").toString().trim();
@@ -109,6 +118,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const now = new Date().toISOString();
 
     const imageUrl = (body.imageUrl || "").toString().trim() || null;
+    const postPhone = typeof body.customerPhone === "string" ? body.customerPhone.trim() : "";
+    const postEmailRaw = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
+    const postEmail =
+      postEmailRaw && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(postEmailRaw) ? postEmailRaw : "";
     const newIssue = {
       id: issueId,
       issueTitle,
@@ -126,6 +139,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       reportedByStaffUid: staffUid,
       reportedByStaffName: staffName,
       serviceId: body.serviceId ?? null,
+      customerPhone:
+        postPhone ||
+        resolveCustomerPhoneForStorage(bookingData as Record<string, any>) ||
+        null,
+      customerEmail:
+        postEmail ||
+        resolveCustomerEmailForStorage(bookingData as Record<string, any>) ||
+        null,
     };
 
     const existingIssues = Array.isArray(bookingData.additionalIssues) ? bookingData.additionalIssues : [];
@@ -143,12 +164,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const bookingDate = bookingData.date || null;
     const bookingTime = bookingData.time || null;
     const serviceName = bookingData.serviceName || null;
+    const notifyPhone =
+      resolveCustomerPhoneForStorage(bookingData as Record<string, any>) || undefined;
+    const notifyEmail =
+      resolveCustomerEmailForStorage(bookingData as Record<string, any>) || undefined;
 
     // Notify branch admin(s)
     if (branchId && ownerUid) {
       try {
         const branchAdminUids = await getBranchAdminUids(db, branchId, ownerUid);
         for (const branchAdminUid of branchAdminUids) {
+          if (branchAdminUid === ownerUid) continue;
           await createBranchAdminNotification({
             bookingId: id,
             bookingCode: bookingCode || undefined,
@@ -164,6 +190,16 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             type: "additional_issue_found" as any,
             title: "Additional Issue Reported",
             message: `${staffName} found: ${issueTitle} (${clientName}) - ${bookingCode || id}`,
+            clientPhone: notifyPhone,
+            customerPhone: notifyPhone,
+            clientEmail: notifyEmail,
+            customerEmail: notifyEmail,
+            issueId: newIssue.id,
+            issueTitle,
+            price: typeof newIssue.price === "number" ? newIssue.price : null,
+            issueStatus: newIssue.status,
+            issueDescription:
+              (newIssue.description && String(newIssue.description).trim()) || undefined,
           });
         }
       } catch (e) {
@@ -190,6 +226,17 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           branchId: branchId || undefined,
           bookingDate: bookingDate || undefined,
           bookingTime: bookingTime || undefined,
+          clientPhone: notifyPhone,
+          customerPhone: notifyPhone,
+          clientEmail: notifyEmail,
+          customerEmail: notifyEmail,
+          issueId: newIssue.id,
+          issueTitle,
+          price: typeof newIssue.price === "number" ? newIssue.price : null,
+          issueStatus: newIssue.status,
+          issueDescription:
+            (newIssue.description && String(newIssue.description).trim()) ||
+            undefined,
         } as any);
       } catch (e) {
         console.error("Failed to notify owner:", e);

@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
+import {
+  normalizeVehicleTypePricing,
+  minPricingFromVehicleTypePricing,
+} from "@/lib/services";
 
 export const runtime = "nodejs";
 
 /**
  * Public API: Get workshop data by slug for booking engine.
- * Returns: workshop name, branches (id, name, address, bookingLimitPerDay), services (id, name, price, duration, checklist, branches).
- * No authentication required.
+ * Returns: workshop name, branches (id, name, address, bookingLimitPerDay),
+ * services (id, name, price, duration, checklist, branches, vehicleTypes,
+ * vehicleTypePricing). No authentication required.
+ *
+ * `price`/`duration` on each service are the headline ("starting from") values
+ * — computed from `vehicleTypePricing` when the service uses vehicle-type
+ * pricing, or falling back to the legacy flat fields. The booking engine
+ * picks the exact per-vehicle figures from `vehicleTypePricing` once the
+ * customer selects their vehicle type.
  */
 export async function GET(
   req: NextRequest,
@@ -69,14 +80,24 @@ export async function GET(
 
     const services = servicesSnapshot.docs.map((doc) => {
       const data = doc.data();
+      const vt = normalizeVehicleTypePricing(data.vehicleTypePricing);
+      const min = minPricingFromVehicleTypePricing(vt.vehicleTypePricing);
       return {
         id: doc.id,
         name: data.name || "",
-        price: data.price || 0,
-        duration: data.duration || 0,
+        description: data.description || "",
+        // Headline price/duration — cheapest vehicle-type tier when the
+        // service uses vehicle-type pricing, else the legacy flat fields.
+        // Used by the client only as a "starting from" preview; actual
+        // booking totals are resolved per vehicle type.
+        price: min ? min.price : data.price || 0,
+        duration: min ? min.duration : data.duration || 0,
         imageUrl: data.imageUrl || "",
         checklist: Array.isArray(data.checklist) ? data.checklist : [],
+        areaOrder: Array.isArray(data.areaOrder) ? data.areaOrder : [],
         branches: Array.isArray(data.branches) ? data.branches : [],
+        vehicleTypes: vt.vehicleTypes,
+        vehicleTypePricing: vt.vehicleTypePricing,
       };
     });
 

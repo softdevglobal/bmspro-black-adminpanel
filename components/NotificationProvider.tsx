@@ -18,6 +18,8 @@ interface Notification {
   createdAt: Date;
   read: boolean;
   status?: string;
+  /** Present on `additional_issue_found` — used to dedupe duplicate Firestore docs. */
+  issueId?: string;
 }
 
 interface NotificationContextType {
@@ -30,6 +32,16 @@ interface NotificationContextType {
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+/** Firestore notification types that should always surface in the admin bell + toasts (one row per doc). */
+const WORKSHOP_ALERT_TYPES = new Set([
+  "owner_booking_completed",
+  "booking_rescheduled",
+  "staff_clocked_in",
+  "staff_clocked_out",
+  "staff_break_started",
+  "staff_break_ended",
+]);
 
 export const useNotifications = () => {
   const context = useContext(NotificationContext);
@@ -348,8 +360,20 @@ export default function NotificationProvider({ children }: NotificationProviderP
           return;
         }
 
-        const allNotifs = Array.from(allNotificationsMap.values())
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        const sorted = Array.from(allNotificationsMap.values()).sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+        );
+        const seenAdditionalIssue = new Set<string>();
+        const allNotifs = sorted
+          .filter((n) => {
+            if (n.type !== "additional_issue_found") return true;
+            const iid = (n.issueId || "").trim();
+            if (!n.bookingId || !iid) return true;
+            const key = `${n.bookingId}::${iid}`;
+            if (seenAdditionalIssue.has(key)) return false;
+            seenAdditionalIssue.add(key);
+            return true;
+          })
           .slice(0, 50);
 
         // Find new notifications (IDs that weren't in previous snapshot)
@@ -383,6 +407,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             const isAdditionalIssue = notif.type === "additional_issue_found";
             const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
             const isCustomerRejectedAdditionalWork = notif.type === "additional_issue_customer_rejected";
+            const isWorkshopAlert = WORKSHOP_ALERT_TYPES.has(notif.type);
             
             if (isNewBooking) {
               const isPending = !notif.status || 
@@ -396,6 +421,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             if (isAdditionalIssue) return true;
             if (isCustomerAcceptedAdditionalWork) return true;
             if (isCustomerRejectedAdditionalWork) return true;
+            if (isWorkshopAlert) return true;
             
             return isStaffRejected;
           });
@@ -456,7 +482,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           // 
           // DO NOT show notifications for:
           // - Booking confirmation (booking_confirmed)
-          // - Booking completion (booking_completed)
+          // - Customer-facing completion (booking_completed)
           // - Status changes after confirmation
           // - Normal service acceptance by staff (staff_accepted)
           
@@ -470,6 +496,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           const isAdditionalIssueNotification = data.type === "additional_issue_found";
           const isCustomerAcceptedAdditionalWork = data.type === "additional_issue_customer_accepted";
           const isCustomerRejectedAdditionalWork = data.type === "additional_issue_customer_rejected";
+          const isWorkshopAlert = WORKSHOP_ALERT_TYPES.has(data.type);
           
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
@@ -482,12 +509,17 @@ export default function NotificationProvider({ children }: NotificationProviderP
             isStaffRejectedNotification ||
             isAdditionalIssueNotification ||
             isCustomerAcceptedAdditionalWork ||
-            isCustomerRejectedAdditionalWork;
+            isCustomerRejectedAdditionalWork ||
+            isWorkshopAlert;
 
           if (!shouldShow) {
             continue;
           }
 
+          const issueIdRaw =
+            (typeof data.issueId === "string" && data.issueId.trim()) ||
+            (typeof data.additionalIssueId === "string" && data.additionalIssueId.trim()) ||
+            undefined;
           const notification: Notification = {
             id: notifId,
             bookingId: data.bookingId || "",
@@ -502,6 +534,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt?.seconds * 1000 || Date.now()),
             read: data.read || false,
             status: bookingStatus || data.status,
+            ...(issueIdRaw ? { issueId: issueIdRaw } : {}),
           };
           
           allNotificationsMap.set(notifId, notification);
@@ -918,6 +951,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
     // 2. Staff Rejected a Service (staff_rejected)
     // 3. Additional Issue Reported (additional_issue_found) - owner/branch admin must set price
     // 4. Customer accepted/rejected additional work (additional_issue_customer_accepted, additional_issue_customer_rejected)
+    // 5. Workshop alerts (booking completed for owner, staff clock on/off, breaks)
     const validNotifications = notifications.filter((notif) => {
       // Skip dismissed/deleted notifications
       if (dismissedNotificationIds.has(notif.id)) {
@@ -934,6 +968,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
       const isAdditionalIssueNotification = notif.type === "additional_issue_found";
       const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
       const isCustomerRejectedAdditionalWork = notif.type === "additional_issue_customer_rejected";
+      const isWorkshopAlert = WORKSHOP_ALERT_TYPES.has(notif.type);
       
       // For new booking notifications, only show if booking is still pending
       if (isNewBookingNotification) {
@@ -958,15 +993,27 @@ export default function NotificationProvider({ children }: NotificationProviderP
       if (isCustomerAcceptedAdditionalWork || isCustomerRejectedAdditionalWork) {
         return true;
       }
+
+      if (isWorkshopAlert) {
+        return true;
+      }
       
       // Don't show any other notification types
       return false;
     });
 
-    // Combine and deduplicate by bookingId (prefer Firestore notifications over pending)
+    // Combine and deduplicate: one row per booking for booking alerts; one row per doc for attendance / owner completion
     const allNotifications = [...pendingNotifications, ...validNotifications];
+    const dedupeKey = (n: Notification) => {
+      if (n.id.startsWith("pending-")) return `pending:${n.bookingId}`;
+      if (WORKSHOP_ALERT_TYPES.has(n.type)) return n.id;
+      if (n.type === "additional_issue_found" && n.bookingId && n.issueId) {
+        return `additional_issue:${n.bookingId}:${n.issueId}`;
+      }
+      return n.bookingId || n.id;
+    };
     const unique = Array.from(
-      new Map(allNotifications.map((n) => [n.bookingId, n])).values()
+      new Map(allNotifications.map((n) => [dedupeKey(n), n])).values()
     ).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return unique.slice(0, 50);

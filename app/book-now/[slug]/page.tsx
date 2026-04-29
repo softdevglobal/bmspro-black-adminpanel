@@ -3,7 +3,48 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
-import { type ChecklistItem, normalizeChecklist } from "@/lib/services";
+import {
+  type ChecklistItem,
+  type ChecklistSection,
+  isChecklistSection,
+  normalizeAreaOrder,
+  normalizeChecklist,
+  groupChecklistItemsWithGlobalNumbers,
+  CHECKLIST_SECTION_LABELS,
+  VEHICLE_TYPES,
+  VEHICLE_TYPE_LABELS,
+  VEHICLE_TYPE_ICONS,
+  isVehicleType as isVehicleTypeStr,
+  normalizeVehicleTypePricing,
+  resolveServicePricingForVehicleType,
+  type VehicleType,
+  type VehicleTypePricingMap,
+} from "@/lib/services";
+import {
+  type TaskCondition,
+  taskConditionOption,
+} from "@/lib/taskCondition";
+import { getCurrentDateTimeInTimezone } from "@/lib/timezone";
+
+function hhmmToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+  return h * 60 + m;
+}
+
+/** Area strips: light tinted bars + colored border (readable dark text), matching the preferred Book Now look. */
+const BOOK_NOW_SECTION_HEADER: Record<ChecklistSection, string> = {
+  interior: "border-blue-300 bg-blue-50 text-blue-900",
+  engine_bay: "border-neutral-400 bg-white text-neutral-900",
+  underbody: "border-violet-300 bg-violet-50 text-violet-900",
+  exterior: "border-emerald-300 bg-emerald-50 text-emerald-900",
+};
+const BOOK_NOW_SECTION_ICON: Record<ChecklistSection, string> = {
+  interior: "fas fa-car-side",
+  engine_bay: "fas fa-gears",
+  underbody: "fas fa-wrench",
+  exterior: "fas fa-car",
+};
 
 type DayHours = { open?: string; close?: string; closed?: boolean };
 type BranchHoursMap = {
@@ -19,7 +60,23 @@ type Branch = {
   hours?: BranchHoursMap | string | null;
   bookingLimitPerDay?: number | null;
 };
-type Service = { id: string; name: string; price: number; duration: number; imageUrl: string; checklist: ChecklistItem[]; branches: string[] };
+type Service = {
+  id: string;
+  name: string;
+  /** Headline "starting from" price (cheapest vehicle-type tier, or the
+   *  legacy flat field on un-migrated services). The actual charged price
+   *  is resolved per vehicle type via `resolveServicePricingForVehicleType`. */
+  price: number;
+  /** Headline "starting from" duration. Same caveat as `price`. */
+  duration: number;
+  imageUrl: string;
+  checklist: ChecklistItem[];
+  branches: string[];
+  /** Vehicle types this service is offered for. Empty → legacy flat pricing,
+   *  meaning the service is available for every vehicle type. */
+  vehicleTypes: VehicleType[];
+  vehicleTypePricing: VehicleTypePricingMap;
+};
 type Workshop = { id: string; name: string; slug: string; logoUrl: string };
 type CustomerSession = { customerId: string; name: string; email: string; phone: string };
 type CustomerVehicle = {
@@ -30,6 +87,8 @@ type CustomerVehicle = {
   year?: string;
   mileage?: string;
   bodyType?: string;
+  /** Canonical size class used for vehicle-type pricing (small_car | sedan_wagon | suv | ute_van_4wd | performance_large). */
+  vehicleType?: VehicleType | "" | null;
   colour?: string;
   vinChassis?: string;
   engineNumber?: string;
@@ -45,7 +104,11 @@ type CustomerBookingTask = {
   staffNote: string;
   completedAt?: string | null;
   completedByStaffName?: string | null;
+  section?: ChecklistSection;
+  /** Post-completion condition flag chosen by the staff member. */
+  condition?: TaskCondition;
 };
+type CustomerBookingServiceSnap = { id: string; areaOrder: ChecklistSection[] };
 type CustomerAdditionalIssue = {
   id: string;
   issueTitle: string;
@@ -80,7 +143,145 @@ type CustomerBooking = {
     submittedByStaffName?: string | null;
   } | null;
   additionalIssues?: CustomerAdditionalIssue[] | null;
+  /** Per-service snapshot (incl. owner `areaOrder`) for area-wise progress */
+  services?: CustomerBookingServiceSnap[];
 };
+
+/** Area ordering for My Bookings: match the service snapshot (or live-enriched API) — dominant service when multiple. */
+function effectiveCustomerBookingAreaOrder(bk: Pick<CustomerBooking, "services" | "tasks">): ChecklistSection[] {
+  const services = bk.services ?? [];
+  const tasks = bk.tasks ?? [];
+  const serviceIds = [
+    ...new Set(tasks.map((t) => (t.serviceId || "").trim()).filter(Boolean)),
+  ] as string[];
+
+  const orderForServiceId = (sid: string): ChecklistSection[] | null => {
+    const snap = services.find((s) => s.id === sid);
+    if (snap?.areaOrder?.length) return normalizeAreaOrder(snap.areaOrder);
+    return null;
+  };
+
+  if (serviceIds.length === 1) {
+    const one = orderForServiceId(serviceIds[0]);
+    if (one) return one;
+  }
+
+  if (serviceIds.length > 1) {
+    const counts = new Map<string, number>();
+    for (const t of tasks) {
+      const id = (t.serviceId || "").trim();
+      if (!id) continue;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    let bestId = "";
+    let best = -1;
+    for (const [id, c] of counts) {
+      if (c > best) {
+        best = c;
+        bestId = id;
+      }
+    }
+    if (bestId) {
+      const ord = orderForServiceId(bestId);
+      if (ord) return ord;
+    }
+  }
+
+  for (const snap of services) {
+    if (snap.areaOrder?.length) return normalizeAreaOrder(snap.areaOrder);
+  }
+  return normalizeAreaOrder([]);
+}
+
+type CustomerBookingAreaSegment = {
+  key: ChecklistSection | "other";
+  label: string;
+  total: number;
+  done: number;
+  /** Done-flag per task in this area, in the order they appear in the booking. Used to sub-divide the area's segment into one pip per task. */
+  taskDones: boolean[];
+};
+
+/** One progress segment per vehicle area (owner order). Legacy tasks without `section` use per-task bar instead (returns null). */
+function buildCustomerBookingAreaSegments(bk: CustomerBooking): CustomerBookingAreaSegment[] | null {
+  const tasks = bk.tasks ?? [];
+  if (tasks.length === 0) return null;
+  const hasAnySection = tasks.some((t) => isChecklistSection(t.section));
+  if (!hasAnySection) return null;
+
+  const order = effectiveCustomerBookingAreaOrder(bk);
+  const buckets = new Map<ChecklistSection, boolean[]>();
+  for (const a of order) buckets.set(a, []);
+  const otherDones: boolean[] = [];
+
+  for (const t of tasks) {
+    if (isChecklistSection(t.section)) {
+      buckets.get(t.section)!.push(!!t.done);
+    } else {
+      otherDones.push(!!t.done);
+    }
+  }
+
+  const segments: CustomerBookingAreaSegment[] = [];
+  for (const area of order) {
+    const dones = buckets.get(area)!;
+    segments.push({
+      key: area,
+      label: CHECKLIST_SECTION_LABELS[area],
+      total: dones.length,
+      done: dones.filter(Boolean).length,
+      taskDones: dones,
+    });
+  }
+  if (otherDones.length > 0) {
+    segments.push({
+      key: "other",
+      label: "Other",
+      total: otherDones.length,
+      done: otherDones.filter(Boolean).length,
+      taskDones: otherDones,
+    });
+  }
+  return segments;
+}
+
+type CustomerTaskAreaGroup = {
+  key: ChecklistSection | "other";
+  label: string;
+  tasks: CustomerBookingTask[];
+};
+
+/** Tasks under each vehicle area, in the same order as the service `areaOrder` (plus Other if needed). */
+function buildCustomerBookingTaskAreaGroups(bk: CustomerBooking): CustomerTaskAreaGroup[] | null {
+  const tasks = bk.tasks ?? [];
+  if (tasks.length === 0) return null;
+  const hasAnySection = tasks.some((t) => isChecklistSection(t.section));
+  if (!hasAnySection) return null;
+
+  const order = effectiveCustomerBookingAreaOrder(bk);
+  const buckets = new Map<ChecklistSection, CustomerBookingTask[]>();
+  for (const a of order) buckets.set(a, []);
+  const other: CustomerBookingTask[] = [];
+
+  for (const t of tasks) {
+    if (isChecklistSection(t.section)) {
+      buckets.get(t.section)!.push(t);
+    } else {
+      other.push(t);
+    }
+  }
+
+  const groups: CustomerTaskAreaGroup[] = [];
+  for (const area of order) {
+    const arr = buckets.get(area)!;
+    if (arr.length === 0) continue;
+    groups.push({ key: area, label: CHECKLIST_SECTION_LABELS[area], tasks: arr });
+  }
+  if (other.length > 0) {
+    groups.push({ key: "other", label: "Other", tasks: other });
+  }
+  return groups;
+}
 
 export default function BookingEnginePage() {
   const params = useParams();
@@ -125,6 +326,13 @@ export default function BookingEnginePage() {
   const [prevStep, setPrevStep] = useState(1);
   const [animDir, setAnimDir] = useState<"forward" | "back">("forward");
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  // Vehicle size class: on step 2 (Services) the customer picks a tier to browse/filter services.
+  // On step 3 (Book / details), when a saved vehicle is selected, pricing follows that vehicle's
+  // stored size class; "Add new" restores the tier from step 2 until the vehicle has its own type.
+  const [selectedVehicleType, setSelectedVehicleType] =
+    useState<VehicleType | null>(null);
+  /** Tier from the Services step (step 2); restored when choosing "Add new" on step 3. */
+  const step1BrowseVehicleTypeRef = useRef<VehicleType | null>(null);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [date, setDate] = useState("");
   const [time, setTime] = useState(""); // drop-off time
@@ -154,6 +362,7 @@ export default function BookingEnginePage() {
   const [vehicleFormYear, setVehicleFormYear] = useState("");
   const [vehicleFormMileage, setVehicleFormMileage] = useState("");
   const [vehicleFormBodyType, setVehicleFormBodyType] = useState("");
+  const [vehicleFormVehicleType, setVehicleFormVehicleType] = useState<VehicleType | "">("");
   const [vehicleFormColour, setVehicleFormColour] = useState("");
   const [vehicleFormVin, setVehicleFormVin] = useState("");
   const [vehicleFormEngine, setVehicleFormEngine] = useState("");
@@ -218,6 +427,22 @@ export default function BookingEnginePage() {
     setStep(target);
   }, [step]);
 
+  // Step 3 (Book): pricing tier must match the saved vehicle, not the browse tier from step 2.
+  useEffect(() => {
+    if (step !== 3) return;
+    if (selectedVehicleId === "new") return;
+    const v = customerVehicles.find((x) => x.id === selectedVehicleId);
+    if (v?.vehicleType && isVehicleTypeStr(v.vehicleType)) {
+      setSelectedVehicleType(v.vehicleType);
+    }
+  }, [step, selectedVehicleId, customerVehicles]);
+
+  useEffect(() => {
+    if (step === 2 && selectedVehicleType) {
+      step1BrowseVehicleTypeRef.current = selectedVehicleType;
+    }
+  }, [step, selectedVehicleType]);
+
   useEffect(() => {
     if (!slug) return;
     (async () => {
@@ -227,7 +452,16 @@ export default function BookingEnginePage() {
         if (!res.ok) { const data = await res.json(); setError(data.error || "Workshop not found"); return; }
         const data = await res.json();
         setWorkshop(data.workshop); setBranches(data.branches);
-        setAllServices((data.services || []).map((s: any) => ({ ...s, checklist: normalizeChecklist(s.checklist) })));
+        setAllServices((data.services || []).map((s: any) => {
+          const vt = normalizeVehicleTypePricing(s.vehicleTypePricing);
+          return {
+            ...s,
+            checklist: normalizeChecklist(s.checklist),
+            areaOrder: normalizeAreaOrder(s.areaOrder),
+            vehicleTypes: vt.vehicleTypes,
+            vehicleTypePricing: vt.vehicleTypePricing,
+          };
+        }));
       } catch { setError("Failed to load workshop data"); }
       finally { setLoading(false); }
     })();
@@ -275,6 +509,11 @@ export default function BookingEnginePage() {
           setVehicleMake(selectedVehicle.make || ""); setVehicleModel(selectedVehicle.model || ""); setVehicleYear(selectedVehicle.year || ""); setVehicleMileage(selectedVehicle.mileage || "");
           setVehicleBodyType(selectedVehicle.bodyType || ""); setVehicleColour(selectedVehicle.colour || "");
           setVehicleVinChassis(selectedVehicle.vinChassis || ""); setVehicleEngineNumber(selectedVehicle.engineNumber || "");
+          // Seed browse tier from default saved vehicle when none chosen yet (services step).
+          const seedVehicleType = selectedVehicle.vehicleType;
+          if (seedVehicleType && isVehicleTypeStr(seedVehicleType)) {
+            setSelectedVehicleType((prev) => (prev != null ? prev : seedVehicleType));
+          }
         } else {
           setSelectedVehicleId("new");
           setVehicleNumber(""); setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
@@ -293,14 +532,16 @@ export default function BookingEnginePage() {
   const openAddVehicle = () => {
     setEditingVehicle(null);
     setVehicleFormRego(""); setVehicleFormMake(""); setVehicleFormModel(""); setVehicleFormYear(""); setVehicleFormMileage("");
-    setVehicleFormBodyType(""); setVehicleFormColour(""); setVehicleFormVin(""); setVehicleFormEngine("");
+    setVehicleFormBodyType(""); setVehicleFormVehicleType(""); setVehicleFormColour(""); setVehicleFormVin(""); setVehicleFormEngine("");
     setVehicleFormOpen(true);
   };
   const openEditVehicle = (v: CustomerVehicle) => {
     setEditingVehicle(v);
     setVehicleFormRego(v.registrationNumber || "");
     setVehicleFormMake(v.make || ""); setVehicleFormModel(v.model || ""); setVehicleFormYear(v.year || ""); setVehicleFormMileage(v.mileage || "");
-    setVehicleFormBodyType(v.bodyType || ""); setVehicleFormColour(v.colour || "");
+    setVehicleFormBodyType(v.bodyType || "");
+    setVehicleFormVehicleType(v.vehicleType && isVehicleTypeStr(v.vehicleType) ? v.vehicleType : "");
+    setVehicleFormColour(v.colour || "");
     setVehicleFormVin(v.vinChassis || ""); setVehicleFormEngine(v.engineNumber || "");
     setVehicleFormOpen(true);
   };
@@ -317,6 +558,7 @@ export default function BookingEnginePage() {
     }
     setVehicleSaving(true);
     try {
+      const vehicleTypePayload = vehicleFormVehicleType || undefined;
       if (editingVehicle) {
         const res = await fetch(`/api/book-now/customer-vehicles/${editingVehicle.id}`, {
           method: "PATCH",
@@ -330,6 +572,7 @@ export default function BookingEnginePage() {
             year: vehicleFormYear?.trim() || undefined,
             mileage: vehicleFormMileage?.trim() || undefined,
             bodyType: vehicleFormBodyType?.trim() || undefined,
+            vehicleType: vehicleTypePayload,
             colour: vehicleFormColour?.trim() || undefined,
             vinChassis: vehicleFormVin?.trim() || undefined,
             engineNumber: vehicleFormEngine?.trim() || undefined,
@@ -349,6 +592,7 @@ export default function BookingEnginePage() {
             year: vehicleFormYear?.trim() || undefined,
             mileage: vehicleFormMileage?.trim() || undefined,
             bodyType: vehicleFormBodyType?.trim() || undefined,
+            vehicleType: vehicleTypePayload,
             colour: vehicleFormColour?.trim() || undefined,
             vinChassis: vehicleFormVin?.trim() || undefined,
             engineNumber: vehicleFormEngine?.trim() || undefined,
@@ -367,6 +611,9 @@ export default function BookingEnginePage() {
         setVehicleColour(vehicleFormColour?.trim() || "");
         setVehicleVinChassis(vehicleFormVin?.trim() || "");
         setVehicleEngineNumber(vehicleFormEngine?.trim() || "");
+        if (vehicleFormVehicleType && isVehicleTypeStr(vehicleFormVehicleType)) {
+          setSelectedVehicleType(vehicleFormVehicleType);
+        }
       }
       closeVehicleForm();
       await fetchCustomerVehicles();
@@ -414,6 +661,29 @@ export default function BookingEnginePage() {
       }
       return next;
     });
+  };
+
+  // Permanently delete a customer_notifications row (used for additional-work
+  // quotes, estimate replies, reschedule notices, etc.). We optimistically
+  // remove it from local state first so the UI feels instant; if the API call
+  // fails we refetch to restore an accurate view.
+  const dismissCustomerNotification = async (notificationId: string) => {
+    if (!customer?.customerId || !notificationId) return;
+    setCustomerEstimateNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+    try {
+      const res = await fetch("/api/book-now/customer-notifications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: customer.customerId,
+          notificationIds: [notificationId],
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to delete notification");
+    } catch (err) {
+      console.error("Failed to delete customer notification:", err);
+      fetchCustomerNotifications();
+    }
   };
 
   const visibleBookings = customerBookings.filter((b) => !dismissedIds.has(b.id));
@@ -665,14 +935,81 @@ export default function BookingEnginePage() {
     }
   }, [expandedEstimateId, estimateReplies, markEstimateNotificationsAsRead]);
 
+  // Services that belong to the currently selected branch — the raw pool
+  // before vehicle-type filtering. We still expose this so we can compute
+  // "hidden for your vehicle" counts for the picker UI.
   const branchServices = useMemo(() => {
     if (!selectedBranch) return [];
     return allServices.filter((s) => s.branches.includes(selectedBranch.id));
   }, [selectedBranch, allServices]);
 
-  const selectedServiceDetails = useMemo(() => allServices.filter((s) => selectedServices.includes(s.id)), [selectedServices, allServices]);
-  const totalPrice = useMemo(() => selectedServiceDetails.reduce((sum, s) => sum + s.price, 0), [selectedServiceDetails]);
-  const totalDuration = useMemo(() => selectedServiceDetails.reduce((sum, s) => sum + s.duration, 0), [selectedServiceDetails]);
+  // If the customer changes vehicle type and one of the already-selected
+  // services doesn't offer that type, silently drop it from the selection.
+  // Prevents the "Continue" bar showing a stale service the user can't
+  // actually see anymore.
+  useEffect(() => {
+    if (!selectedVehicleType || selectedServices.length === 0) return;
+    const stillCompatible = new Set(
+      branchServices
+        .filter((s) => {
+          if (!s.vehicleTypes || s.vehicleTypes.length === 0) return true;
+          return s.vehicleTypes.includes(selectedVehicleType);
+        })
+        .map((s) => s.id),
+    );
+    setSelectedServices((prev) => prev.filter((id) => stillCompatible.has(id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVehicleType, branchServices]);
+
+  // Services the customer can actually pick. Hidden when the service is
+  // vehicle-type priced AND doesn't offer the customer's selected type.
+  // Services with no vehicle-type pricing (legacy flat-price) remain
+  // visible for every vehicle type.
+  const visibleServices = useMemo(() => {
+    if (!selectedVehicleType) return [];
+    return branchServices.filter((s) => {
+      if (!s.vehicleTypes || s.vehicleTypes.length === 0) return true;
+      return s.vehicleTypes.includes(selectedVehicleType);
+    });
+  }, [branchServices, selectedVehicleType]);
+
+  // Resolve the actual charged price + duration for a service given the
+  // currently selected vehicle type. Used everywhere on this page so a
+  // single change to `selectedVehicleType` repriceseverything in sync.
+  const priceForService = useCallback(
+    (service: Service) => {
+      return resolveServicePricingForVehicleType(
+        {
+          price: service.price,
+          duration: service.duration,
+          vehicleTypePricing: service.vehicleTypePricing,
+        },
+        selectedVehicleType,
+      );
+    },
+    [selectedVehicleType],
+  );
+
+  const selectedServiceDetails = useMemo(
+    () => allServices.filter((s) => selectedServices.includes(s.id)),
+    [selectedServices, allServices],
+  );
+  const totalPrice = useMemo(
+    () =>
+      selectedServiceDetails.reduce(
+        (sum, s) => sum + priceForService(s).price,
+        0,
+      ),
+    [selectedServiceDetails, priceForService],
+  );
+  const totalDuration = useMemo(
+    () =>
+      selectedServiceDetails.reduce(
+        (sum, s) => sum + priceForService(s).duration,
+        0,
+      ),
+    [selectedServiceDetails, priceForService],
+  );
 
   // ─── Real-time clock that ticks every 30s so time slots stay current ───
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -684,23 +1021,12 @@ export default function BookingEnginePage() {
   // ─── Branch-timezone-aware "today" date and current time ───
   const branchTimezone = selectedBranch?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  const branchToday = useMemo(() => {
-    try {
-      // en-CA locale gives YYYY-MM-DD format
-      return new Intl.DateTimeFormat("en-CA", { timeZone: branchTimezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(nowTick));
-    } catch {
-      return new Date().toISOString().split("T")[0];
-    }
+  const branchNow = useMemo(() => {
+    void nowTick; // tick every 30s so "today" / branch clock stay current
+    return getCurrentDateTimeInTimezone(branchTimezone);
   }, [branchTimezone, nowTick]);
-
-  const branchCurrentTime = useMemo(() => {
-    try {
-      return new Intl.DateTimeFormat("en-GB", { timeZone: branchTimezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(nowTick));
-    } catch {
-      const n = new Date();
-      return `${n.getHours().toString().padStart(2, "0")}:${n.getMinutes().toString().padStart(2, "0")}`;
-    }
-  }, [branchTimezone, nowTick]);
+  const branchToday = branchNow.date;
+  const branchCurrentTime = branchNow.time;
 
   // ─── Branch opening hours for the selected date ───
   const branchDayHours = useMemo<{ open: string; close: string } | null>(() => {
@@ -721,17 +1047,20 @@ export default function BookingEnginePage() {
     };
   }, [selectedBranch, date, branchTimezone]);
 
-  // Australian booking rule: drop-off till 11 AM, pick-up 2 PM – 5 PM
+  // Australian booking rule: drop-off till 11 AM, pick-up from 2 PM until branch closes
   const DROPOFF_CUTOFF = "11:00";
   const PICKUP_START = "14:00";
-  const PICKUP_END = "17:00";
+  const PICKUP_END_FALLBACK = "17:00";
 
-  // All possible drop-off time slots — branch hours capped at 11:00 AM
+  // All possible drop-off time slots — strictly within the branch's opening
+  // hours for the selected date, then capped at 11:00 AM (morning drop-off).
+  // If we don't know the day's hours (no date picked, or branch is closed that
+  // day), return no slots so the UI prompts the user instead of showing a
+  // misleading 07:00 default.
   const allTimeSlots = useMemo(() => {
-    const openTime = branchDayHours?.open || "07:00";
-    const closeTime = branchDayHours?.close || "19:30";
-    const [openH, openM] = openTime.split(":").map(Number);
-    const [closeH, closeM] = closeTime.split(":").map(Number);
+    if (!branchDayHours) return [];
+    const [openH, openM] = branchDayHours.open.split(":").map(Number);
+    const [closeH, closeM] = branchDayHours.close.split(":").map(Number);
     const openMins = openH * 60 + openM;
     const closeMins = closeH * 60 + closeM;
     const [cutH, cutM] = DROPOFF_CUTOFF.split(":").map(Number);
@@ -751,7 +1080,10 @@ export default function BookingEnginePage() {
     let slots = allTimeSlots;
     // Filter out past times if the selected date is today
     if (date && date === branchToday) {
-      slots = slots.filter(t => t > branchCurrentTime);
+      const nowM = hhmmToMinutes(branchCurrentTime);
+      if (Number.isFinite(nowM)) {
+        slots = slots.filter((t) => hhmmToMinutes(t) > nowM);
+      }
     }
     // Filter out times where service can't finish before branch closes
     if (totalDuration > 0 && branchDayHours) {
@@ -767,34 +1099,41 @@ export default function BookingEnginePage() {
 
   // Earliest allowed pick-up time = drop-off time + total service duration
   const earliestPickupTime = useMemo(() => {
-    if (!time || totalDuration === 0) return null;
+    if (!time) return null;
+    const dur = totalDuration || 0;
     const [h, m] = time.split(":").map(Number);
-    const totalMins = h * 60 + m + totalDuration;
+    const totalMins = h * 60 + m + dur;
     const pH = Math.floor(totalMins / 60);
     const pM = totalMins % 60;
     if (pH > 23) return null; // past end of day
     return `${pH.toString().padStart(2, "0")}:${pM.toString().padStart(2, "0")}`;
   }, [time, totalDuration]);
 
-  // Filtered pick-up time slots: 2 PM – 5 PM, >= earliest pick-up time, and not past for today
+  // Filtered pick-up time slots: 2 PM – branch close, >= earliest pick-up time, and not past for today
   const pickupTimeSlots = useMemo(() => {
     if (!earliestPickupTime) return [];
     const [psH, psM] = PICKUP_START.split(":").map(Number);
-    const [peH, peM] = PICKUP_END.split(":").map(Number);
     const startMins = psH * 60 + psM;
-    const endMins = peH * 60 + peM;
+    const closeStr = branchDayHours?.close ?? PICKUP_END_FALLBACK;
+    let endMins = hhmmToMinutes(closeStr);
+    const fallbackEnd = hhmmToMinutes(PICKUP_END_FALLBACK);
+    if (!Number.isFinite(endMins) || endMins < startMins) endMins = fallbackEnd;
     const slots: string[] = [];
     for (let mins = startMins; mins <= endMins; mins += 30) {
       const h = Math.floor(mins / 60);
       const m = mins % 60;
       slots.push(`${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`);
     }
-    let filtered = slots.filter(t => t >= earliestPickupTime);
+    const earliestMins = hhmmToMinutes(earliestPickupTime);
+    let filtered = slots.filter((t) => hhmmToMinutes(t) >= earliestMins);
     if (date === branchToday) {
-      filtered = filtered.filter(t => t > branchCurrentTime);
+      const nowM = hhmmToMinutes(branchCurrentTime);
+      if (Number.isFinite(nowM)) {
+        filtered = filtered.filter((t) => hhmmToMinutes(t) > nowM);
+      }
     }
     return filtered;
-  }, [earliestPickupTime, date, branchToday, branchCurrentTime]);
+  }, [earliestPickupTime, date, branchToday, branchCurrentTime, branchDayHours]);
 
   // Clear pick-up time if it becomes invalid after drop-off or duration changes
   useEffect(() => {
@@ -807,8 +1146,12 @@ export default function BookingEnginePage() {
   // Clear drop-off time if it becomes past (e.g. time ticked past selected slot for today)
   // Also clear if the selected time is outside branch hours
   useEffect(() => {
-    if (time && date === branchToday && time <= branchCurrentTime) {
-      setTime("");
+    if (time && date === branchToday) {
+      const nowM = hhmmToMinutes(branchCurrentTime);
+      const tM = hhmmToMinutes(time);
+      if (Number.isFinite(nowM) && Number.isFinite(tM) && tM <= nowM) {
+        setTime("");
+      }
     }
     // Clear time if branch is closed on the selected day
     if (time && branchDayHours === null && date && selectedBranch?.hours && typeof selectedBranch.hours !== "string") {
@@ -862,7 +1205,16 @@ export default function BookingEnginePage() {
     return () => { cancelled = true; };
   }, [slug, selectedBranch, selectedServices, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleBranchSelect = (branch: Branch) => { setSelectedBranch(branch); setSelectedServices([]); goToStep(2); };
+  const handleBranchSelect = (branch: Branch) => {
+    setSelectedBranch(branch);
+    setSelectedServices([]);
+    // Force the customer through the vehicle-type picker again when the
+    // branch changes, since service availability by vehicle type can differ
+    // per branch (two branches may have different per-vehicle pricing).
+    setSelectedVehicleType(null);
+    step1BrowseVehicleTypeRef.current = null;
+    goToStep(2);
+  };
   const toggleService = (serviceId: string) => {
     setSelectedServices((prev) => prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId]);
   };
@@ -968,6 +1320,8 @@ export default function BookingEnginePage() {
     if (id === "new") {
       setVehicleNumber(""); setVehicleMake(""); setVehicleModel(""); setVehicleYear(""); setVehicleMileage("");
       setVehicleBodyType(""); setVehicleColour(""); setVehicleVinChassis(""); setVehicleEngineNumber("");
+      const browse = step1BrowseVehicleTypeRef.current;
+      if (browse) setSelectedVehicleType(browse);
     } else {
       const v = customerVehicles.find((x) => x.id === id);
       if (v) {
@@ -975,6 +1329,9 @@ export default function BookingEnginePage() {
         setVehicleMake(v.make || ""); setVehicleModel(v.model || ""); setVehicleYear(v.year || ""); setVehicleMileage(v.mileage || "");
         setVehicleBodyType(v.bodyType || ""); setVehicleColour(v.colour || "");
         setVehicleVinChassis(v.vinChassis || ""); setVehicleEngineNumber(v.engineNumber || "");
+        if (v.vehicleType && isVehicleTypeStr(v.vehicleType)) {
+          setSelectedVehicleType(v.vehicleType);
+        }
       }
     }
   };
@@ -1018,6 +1375,10 @@ export default function BookingEnginePage() {
         body: JSON.stringify({
           slug, branchId: selectedBranch.id, branchName: selectedBranch.name,
           services: selectedServiceDetails.map((s) => ({ id: s.id, time })),
+          // Canonical size class → drives per-service price/duration resolution
+          // on the server. Sent as `null` when no vehicle-type-priced services
+          // were picked, so legacy flat-price services still work.
+          vehicleType: selectedVehicleType,
           customerName, customerEmail, customerPhone, vehicleNumber: effectiveVehicle, notes, date, time, pickupTime,
           customerId: customer?.customerId || null,
           vehicleDetails: {
@@ -1051,6 +1412,7 @@ export default function BookingEnginePage() {
               year: vehicleYear?.trim() || undefined,
               mileage: vehicleMileage?.trim() || undefined,
               bodyType: vehicleBodyType?.trim() || undefined,
+              vehicleType: selectedVehicleType || undefined,
               colour: vehicleColour?.trim() || undefined,
               vinChassis: vehicleVinChassis?.trim() || undefined,
               engineNumber: vehicleEngineNumber?.trim() || undefined,
@@ -1432,13 +1794,34 @@ export default function BookingEnginePage() {
                       const days = Math.floor(hrs / 24);
                       return `${days}d ago`;
                     })();
+                    // Title/icon/accent vary by type so reschedule/estimate/
+                    // additional-work notifications all feel at home in the
+                    // same inbox.
+                    const isReschedule = n.type === "booking_status_changed" && (n.title || "").toLowerCase().includes("reschedul");
+                    const accentColor = isReschedule ? "#3b82f6" : "#f59e0b";
+                    const iconBg = isReschedule ? "bg-blue-100" : "bg-amber-100";
+                    const iconFg = isReschedule ? "text-blue-600" : "text-amber-600";
+                    const iconName = isReschedule
+                      ? "fa-calendar-days"
+                      : isAdditionalQuote
+                        ? "fa-file-invoice-dollar"
+                        : "fa-file-invoice-dollar";
+                    const titleText = isReschedule
+                      ? n.title || "Booking Rescheduled"
+                      : isAdditionalQuote
+                        ? "Additional Work Quote Ready"
+                        : "Estimate Reply";
                     return (
                       <div
                         key={n.id}
-                        className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer"
+                        className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer group"
                         onClick={() => {
                           setShowNotifications(false);
-                          if (isAdditionalQuote) {
+                          if (isReschedule) {
+                            setActiveView("myBookings");
+                            fetchCustomerBookings();
+                            setExpandedBookingId(n.bookingId || null);
+                          } else if (isAdditionalQuote) {
                             setActiveView("myBookings");
                             fetchCustomerBookings();
                             setExpandedBookingId(n.bookingId || null);
@@ -1449,16 +1832,25 @@ export default function BookingEnginePage() {
                           }
                         }}
                       >
-                        <div className="h-[3px] bg-amber-400" />
+                        <div className="h-[3px]" style={{ background: accentColor }} />
                         <div className="px-3.5 pt-3 pb-3">
                           <div className="flex items-start gap-2.5">
-                            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                              <i className="fas fa-file-invoice-dollar text-xs text-amber-600" />
+                            <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+                              <i className={`fas ${iconName} text-xs ${iconFg}`} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="text-[11px] font-bold text-neutral-900 leading-snug">
-                                {isAdditionalQuote ? "Additional Work Quote Ready" : "Estimate Reply"}
-                              </h4>
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="text-[11px] font-bold text-neutral-900 leading-snug">
+                                  {titleText}
+                                </h4>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); dismissCustomerNotification(n.id); }}
+                                  title="Remove notification"
+                                  className="opacity-0 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 max-sm:opacity-60 w-5 h-5 flex items-center justify-center rounded-full text-neutral-300 hover:text-rose-500 hover:bg-rose-50 transition-all shrink-0"
+                                >
+                                  <i className="fas fa-trash-can text-[8px]" />
+                                </button>
+                              </div>
                               <p className="text-[10px] text-neutral-500 leading-relaxed mt-0.5">
                                 {n.message || (isAdditionalQuote ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.` : "You have a new reply to your estimate request.")}
                               </p>
@@ -1993,7 +2385,11 @@ export default function BookingEnginePage() {
                   </span>
                 </div>
                 <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">Pick your services</h3>
-                <p className="text-neutral-500 text-sm mt-1">Select one or more services for your visit</p>
+                <p className="text-neutral-500 text-sm mt-1">
+                  {selectedVehicleType
+                    ? "Select one or more services for your visit"
+                    : "First, tell us about your vehicle so we can show the right services and price."}
+                </p>
               </div>
               {selectedServices.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200/50 rounded-xl px-4 py-2 flex items-center gap-2">
@@ -2003,7 +2399,96 @@ export default function BookingEnginePage() {
               )}
             </div>
 
-            {branchServices.length === 0 ? (
+            {/* ─── Vehicle-type picker ───
+                Always visible above the service list so the customer can
+                re-pick a different size at any time and instantly see
+                services re-price. The currently chosen tile is highlighted;
+                the other four stay clickable for quick switching. */}
+            <div className="bg-white rounded-2xl border border-neutral-200/80 shadow-sm p-5 sm:p-6 mb-6">
+              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <i className="fas fa-car-side text-amber-600 text-base" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-sm sm:text-base font-bold text-neutral-900 tracking-tight">
+                      {selectedVehicleType ? "Your vehicle type" : "What's your vehicle type?"}
+                    </h4>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      {selectedVehicleType
+                        ? "Tap another size to re-price the services below."
+                        : "Pricing and service times depend on the size of your vehicle."}
+                    </p>
+                  </div>
+                </div>
+                {selectedVehicleType && (
+                  <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-full px-3 py-1 text-[11px] font-bold">
+                    <i className="fas fa-check-circle text-amber-500 text-[10px]" />
+                    {VEHICLE_TYPE_LABELS[selectedVehicleType]}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                {VEHICLE_TYPES.map((vt, i) => {
+                  // How many services at this branch are available for this
+                  // type — purely for a friendly hint under the label.
+                  const availableCount = branchServices.filter((s) => {
+                    if (!s.vehicleTypes || s.vehicleTypes.length === 0) return true;
+                    return s.vehicleTypes.includes(vt);
+                  }).length;
+                  const isActive = selectedVehicleType === vt;
+                  return (
+                    <button
+                      key={vt}
+                      onClick={() => setSelectedVehicleType(vt)}
+                      aria-pressed={isActive}
+                      className={`group relative rounded-xl p-3 sm:p-4 text-left transition-all active:scale-[0.97] border-2 ${
+                        isActive
+                          ? "bg-gradient-to-br from-amber-50 via-amber-50 to-orange-50 border-amber-400 shadow-md shadow-amber-500/10"
+                          : "bg-neutral-50 hover:bg-amber-50/60 border-neutral-200 hover:border-amber-300"
+                      }`}
+                      style={{ animation: `fadeSlideUp 0.35s ease-out ${i * 50}ms both` }}
+                    >
+                      {isActive && (
+                        <span className="absolute top-2 right-2 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shadow-sm">
+                          <i className="fas fa-check text-white text-[9px]" />
+                        </span>
+                      )}
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center mb-2 transition-colors border ${
+                          isActive
+                            ? "bg-amber-500 border-amber-500"
+                            : "bg-white border-neutral-200 group-hover:bg-amber-100 group-hover:border-amber-300"
+                        }`}
+                      >
+                        <i
+                          className={`${VEHICLE_TYPE_ICONS[vt]} text-sm transition-colors ${
+                            isActive ? "text-white" : "text-neutral-700 group-hover:text-amber-700"
+                          }`}
+                        />
+                      </div>
+                      <p
+                        className={`text-xs sm:text-sm font-bold leading-tight ${
+                          isActive ? "text-amber-900" : "text-neutral-900"
+                        }`}
+                      >
+                        {VEHICLE_TYPE_LABELS[vt]}
+                      </p>
+                      <p
+                        className={`text-[10px] mt-1 ${
+                          isActive ? "text-amber-700" : "text-neutral-500"
+                        }`}
+                      >
+                        {availableCount} service{availableCount !== 1 ? "s" : ""} available
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Service list — only rendered once a vehicle type is picked. */}
+            {selectedVehicleType && branchServices.length === 0 ? (
               <div className="text-center py-20 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
                 <div className="w-20 h-20 bg-neutral-100 rounded-3xl flex items-center justify-center mx-auto mb-5">
                   <i className="fas fa-wrench text-2xl text-neutral-300" />
@@ -2011,11 +2496,31 @@ export default function BookingEnginePage() {
                 <p className="text-neutral-600 font-semibold text-lg">No services available</p>
                 <p className="text-neutral-400 text-sm mt-1.5">This branch doesn&apos;t have services listed yet.</p>
               </div>
-            ) : (
+            ) : selectedVehicleType && visibleServices.length === 0 ? (
+              <div className="text-center py-16 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
+                <div className="w-16 h-16 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <i className="fas fa-circle-exclamation text-amber-500 text-xl" />
+                </div>
+                <p className="text-neutral-800 font-semibold text-base">
+                  No services offered for {VEHICLE_TYPE_LABELS[selectedVehicleType]}
+                </p>
+                <p className="text-neutral-500 text-sm mt-1.5 max-w-sm mx-auto">
+                  This workshop hasn't set pricing for your vehicle type yet. Try a different type, or contact the workshop for a quote.
+                </p>
+                <button
+                  onClick={() => setSelectedVehicleType(null)}
+                  className="mt-5 inline-flex items-center gap-2 text-xs font-bold bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl px-4 py-2.5 transition-colors"
+                >
+                  <i className="fas fa-arrow-left text-[10px]" />
+                  Pick a different vehicle type
+                </button>
+              </div>
+            ) : selectedVehicleType ? (
               <div className="space-y-3">
-                {branchServices.map((service, idx) => {
+                {visibleServices.map((service, idx) => {
                   const isSelected = selectedServices.includes(service.id);
                   const isExpanded = expandedService === service.id;
+                  const resolved = priceForService(service);
                   return (
                     <div
                       key={service.id}
@@ -2064,7 +2569,7 @@ export default function BookingEnginePage() {
                               <div className="flex items-center gap-3 mt-1">
                                 <span className="text-xs text-neutral-400 flex items-center gap-1">
                                   <i className="far fa-clock text-[9px]" />
-                                  {service.duration} min
+                                  {resolved.duration} min
                                 </span>
                                 {service.checklist.length > 0 && (
                                   <span className="text-xs text-amber-600 flex items-center gap-1">
@@ -2075,10 +2580,10 @@ export default function BookingEnginePage() {
                               </div>
                             </div>
 
-                            {/* Price */}
+                            {/* Price — resolved for the customer's vehicle type. */}
                             <div className="flex-shrink-0 text-right">
-                              <p className={`text-xl font-extrabold tracking-tight transition-colors ${isSelected ? "text-neutral-900" : "text-neutral-700"}`}>
-                                ${service.price}
+                              <p className={`text-xl font-extrabold tracking-tight transition-colors tabular-nums ${isSelected ? "text-neutral-900" : "text-neutral-700"}`}>
+                                ${resolved.price.toLocaleString()}
                               </p>
                             </div>
                           </div>
@@ -2108,18 +2613,53 @@ export default function BookingEnginePage() {
                               </div>
                               <h5 className="text-xs font-bold text-neutral-800 uppercase tracking-wider">What&apos;s Included</h5>
                             </div>
-                            <div className="space-y-2">
-                              {service.checklist.map((item, i) => (
-                                <div key={i} className="flex items-start gap-2.5 group/item" style={{ animation: `fadeSlideUp 0.3s ease-out ${i * 50}ms both` }}>
-                                  <div className="w-5 h-5 rounded-md bg-white border border-amber-200 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
-                                    <i className="fas fa-check text-amber-500 text-[8px]" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <span className="text-sm text-neutral-700 font-medium leading-snug block">{item.name}</span>
-                                    {item.description && (
-                                      <span className="text-xs text-neutral-400 leading-snug block mt-0.5">{item.description}</span>
+                            <div className="space-y-4">
+                              {groupChecklistItemsWithGlobalNumbers(service.checklist, (service as any).areaOrder).map((group, gi) => (
+                                <div key={group.key} className="space-y-2">
+                                  <div
+                                    className={
+                                      group.key === "unset"
+                                        ? "flex items-center gap-2 rounded-lg border-2 border-neutral-300 bg-neutral-50 px-2.5 py-1.5 text-neutral-800"
+                                        : `flex items-center gap-2 rounded-lg border-2 px-2.5 py-1.5 ${BOOK_NOW_SECTION_HEADER[group.key as ChecklistSection]}`
+                                    }
+                                  >
+                                    {group.key === "unset" ? (
+                                      <>
+                                        <i className="fas fa-question-circle text-[10px] text-neutral-500" />
+                                        <span className="text-[11px] font-bold">Area not set</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <i className={`${BOOK_NOW_SECTION_ICON[group.key as ChecklistSection]} text-[10px] opacity-90`} />
+                                        <span className="text-[11px] font-bold">
+                                          {CHECKLIST_SECTION_LABELS[group.key as ChecklistSection]}
+                                        </span>
+                                      </>
                                     )}
+                                    <span className="ml-auto text-[10px] font-semibold text-neutral-600">
+                                      {group.items.length} task{group.items.length !== 1 ? "s" : ""}
+                                    </span>
                                   </div>
+                                  {group.items.map(({ item, num }, ii) => {
+                                    const animIndex = gi * 20 + ii;
+                                    return (
+                                      <div
+                                        key={`${group.key}-${num}-${item.name}`}
+                                        className="flex items-start gap-2.5 group/item pl-0.5"
+                                        style={{ animation: `fadeSlideUp 0.3s ease-out ${animIndex * 50}ms both` }}
+                                      >
+                                        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 shadow-sm shadow-amber-500/40 tabular-nums">
+                                          <span className="text-[10px] font-black text-white leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]">{num}</span>
+                                        </div>
+                                        <div className="min-w-0">
+                                          <span className="text-sm text-neutral-800 font-medium leading-snug block">{item.name}</span>
+                                          {item.description && (
+                                            <span className="text-xs text-neutral-500 leading-snug block mt-0.5">{item.description}</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ))}
                             </div>
@@ -2129,6 +2669,18 @@ export default function BookingEnginePage() {
                     </div>
                   );
                 })}
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-neutral-300 shadow-sm">
+                <div className="w-14 h-14 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <i className="fas fa-arrow-up text-amber-500 text-sm" />
+                </div>
+                <p className="text-neutral-800 font-semibold text-sm">
+                  Pick a vehicle type to see available services
+                </p>
+                <p className="text-neutral-500 text-xs mt-1 max-w-xs mx-auto">
+                  Tap one of the 5 sizes above so we can show you what this workshop offers and the exact price for your vehicle.
+                </p>
               </div>
             )}
 
@@ -2507,14 +3059,45 @@ export default function BookingEnginePage() {
                               className="w-full appearance-none border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 pr-10 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white font-medium"
                             >
                               <option value="new">Add new vehicle</option>
-                              {customerVehicles.map((v) => (
-                                <option key={v.id} value={v.id}>
-                                  {[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"} {v.bodyType ? `(${v.bodyType})` : ""}
-                                </option>
-                              ))}
+                              {customerVehicles.map((v) => {
+                                const typeLabel = v.vehicleType && isVehicleTypeStr(v.vehicleType) ? VEHICLE_TYPE_LABELS[v.vehicleType] : "";
+                                return (
+                                  <option key={v.id} value={v.id}>
+                                    {[v.registrationNumber, v.make, v.model, v.year].filter(Boolean).join(" ") || "Vehicle"}{typeLabel ? ` — ${typeLabel}` : ""}
+                                  </option>
+                                );
+                              })}
                             </select>
                             <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-neutral-400" />
                           </div>
+                          {(() => {
+                            const v = customerVehicles.find((x) => x.id === selectedVehicleId);
+                            const fromVehicle = v?.vehicleType && isVehicleTypeStr(v.vehicleType);
+                            if (selectedVehicleId === "new") {
+                              return selectedVehicleType ? (
+                                <p className="text-[10px] text-neutral-500 mt-1.5 leading-snug">
+                                  New vehicle: pricing uses <span className="font-semibold text-neutral-700">{VEHICLE_TYPE_LABELS[selectedVehicleType]}</span> from the service step until you save this vehicle with a size class.
+                                </p>
+                              ) : null;
+                            }
+                            return (
+                              <p className="text-[10px] text-neutral-500 mt-1.5 leading-snug">
+                                {fromVehicle ? (
+                                  <>
+                                    Prices follow this vehicle&apos;s saved size:{" "}
+                                    <span className="font-semibold text-neutral-700">{VEHICLE_TYPE_LABELS[v!.vehicleType as VehicleType]}</span>.
+                                  </>
+                                ) : selectedVehicleType ? (
+                                  <>
+                                    No size saved on this vehicle — pricing uses{" "}
+                                    <span className="font-semibold text-neutral-700">{VEHICLE_TYPE_LABELS[selectedVehicleType]}</span> from the service step. Edit the vehicle to set a size class.
+                                  </>
+                                ) : (
+                                  "Add a size class to this vehicle (Edit) so we can price the booking correctly."
+                                )}
+                              </p>
+                            );
+                          })()}
                         </div>
                       )}
                       {customer && (
@@ -2554,17 +3137,10 @@ export default function BookingEnginePage() {
                         <input type="text" value={vehicleMileage} onChange={(e) => setVehicleMileage(e.target.value)} placeholder="e.g. 45000 km"
                           className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Body type <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                          <input type="text" value={vehicleBodyType} onChange={(e) => setVehicleBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
-                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
-                        </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
-                          <input type="text" value={vehicleColour} onChange={(e) => setVehicleColour(e.target.value)} placeholder="e.g. White, Black"
-                            className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
-                        </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Colour <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
+                        <input type="text" value={vehicleColour} onChange={(e) => setVehicleColour(e.target.value)} placeholder="e.g. White, Black"
+                          className="w-full border-2 border-neutral-200 hover:border-neutral-300 rounded-xl px-4 py-3 text-sm focus:ring-0 focus:border-neutral-900 transition-all outline-none bg-white placeholder:text-neutral-300 font-medium" />
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">VIN / Chassis <span className="text-neutral-300 text-[10px] font-normal lowercase">(optional)</span></label>
@@ -2644,6 +3220,16 @@ export default function BookingEnginePage() {
                           <span className="text-neutral-600 text-xs">Pick-up: <span className="font-semibold text-neutral-700">{pickupTime}</span></span>
                         </div>
                       )}
+                      {selectedVehicleType && (
+                        <div className="flex items-center gap-2.5 text-sm">
+                          <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                            <i className={`${VEHICLE_TYPE_ICONS[selectedVehicleType]} text-amber-600 text-[10px]`} />
+                          </div>
+                          <span className="text-neutral-600 text-xs">
+                            Price tier: <span className="font-semibold text-neutral-800">{VEHICLE_TYPE_LABELS[selectedVehicleType]}</span>
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Service list */}
@@ -2654,7 +3240,9 @@ export default function BookingEnginePage() {
                             <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
                             <span className="text-sm text-neutral-700 truncate">{s.name}</span>
                           </div>
-                          <span className="font-bold text-neutral-900 text-sm ml-2 flex-shrink-0">${s.price}</span>
+                          <span className="font-bold text-neutral-900 text-sm ml-2 flex-shrink-0 tabular-nums">
+                            ${priceForService(s).price.toLocaleString()}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -2821,7 +3409,9 @@ export default function BookingEnginePage() {
                           <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                           {s.name}
                         </span>
-                        <span className="font-semibold text-neutral-900">${s.price}</span>
+                        <span className="font-semibold text-neutral-900 tabular-nums">
+                          ${priceForService(s).price.toLocaleString()}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -2837,7 +3427,7 @@ export default function BookingEnginePage() {
             <div className="mt-8 animate-[fadeSlideUp_0.6s_ease-out_0.6s_both]">
               <button
                 onClick={() => {
-                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
+                  setStep(1); setSelectedBranch(null); setSelectedServices([]); setSelectedVehicleType(null); step1BrowseVehicleTypeRef.current = null; setDate(""); setTime(""); setPickupTime(""); setNotes(""); setBookingResult(null); setShowConfetti(false);
                 }}
                 className="group bg-neutral-900 text-white font-bold px-8 py-3.5 rounded-xl hover:bg-neutral-800 transition-all text-sm active:scale-[0.97] shadow-xl shadow-neutral-900/15 inline-flex items-center gap-2"
               >
@@ -3122,6 +3712,7 @@ export default function BookingEnginePage() {
                           {bk.tasks && bk.tasks.length > 0 && (() => {
                             const doneCount = bk.tasks.filter(t => !!t.done).length;
                             const totalCount = bk.tasks.length;
+                            const areaSegments = buildCustomerBookingAreaSegments(bk);
                             // Derive from task flags — stored taskProgress can be stale (e.g. 100 after new tasks were added)
                             const pct =
                               totalCount > 0
@@ -3158,7 +3749,9 @@ export default function BookingEnginePage() {
                                       <div>
                                         <span className="text-[11px] font-extrabold text-neutral-800 tracking-tight">Service Progress</span>
                                         <p className="text-[9px] text-neutral-400 font-medium -mt-0.5">
-                                          {isComplete ? "All tasks completed" : `${totalCount - doneCount} task${totalCount - doneCount !== 1 ? "s" : ""} remaining`}
+                                          {isComplete
+                                            ? "All tasks completed"
+                                            : `${totalCount - doneCount} task${totalCount - doneCount !== 1 ? "s" : ""} remaining`}
                                         </p>
                                       </div>
                                     </div>
@@ -3186,23 +3779,63 @@ export default function BookingEnginePage() {
                                     </div>
                                   </div>
 
-                                  {/* Segmented step dots */}
-                                  <div className="flex items-center gap-1 relative z-10">
-                                    {bk.tasks.map((task, i) => (
-                                      <div key={task.id || i} className="flex-1 flex items-center">
-                                        <div
-                                          className={`w-full h-2 rounded-full transition-all duration-500 ${
-                                            task.done
-                                              ? isComplete
-                                                ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
-                                                : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
-                                              : "bg-neutral-200/80"
-                                          }`}
-                                          style={{ animationDelay: `${i * 100}ms` }}
-                                        />
-                                      </div>
-                                    ))}
-                                  </div>
+                                  {/* Segmented bar: one strip per vehicle area (owner order),
+                                      each area further sub-divided into one pip per task it contains
+                                      (so Underbody with 2 tasks shows 2 pips, etc.). Falls back to a
+                                      flat per-task bar when tasks lack `section`. */}
+                                  {areaSegments ? (
+                                    <div className="flex items-stretch gap-1 sm:gap-1.5 relative z-10">
+                                      {areaSegments.map((seg) => {
+                                        const areaComplete = seg.total > 0 && seg.done === seg.total;
+                                        // Zero-task area still gets a single empty pip so the area is visible in the bar.
+                                        const pips = seg.total > 0 ? seg.taskDones : [false];
+                                        return (
+                                          <div
+                                            key={seg.key}
+                                            className="flex-1 flex flex-col gap-1 min-w-0"
+                                            title={`${seg.label}: ${seg.done}/${seg.total} tasks`}
+                                          >
+                                            <div className="w-full h-2 flex items-stretch gap-[2px]">
+                                              {pips.map((done, pi) => (
+                                                <div
+                                                  key={pi}
+                                                  className={`flex-1 h-full rounded-full transition-all duration-500 ${
+                                                    seg.total === 0
+                                                      ? "bg-neutral-200/80"
+                                                      : done
+                                                        ? areaComplete
+                                                          ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/25"
+                                                          : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                        : "bg-neutral-200/80"
+                                                  }`}
+                                                />
+                                              ))}
+                                            </div>
+                                            <span className="text-[7px] sm:text-[8px] font-bold text-neutral-400 truncate text-center leading-none px-0.5">
+                                              {seg.label}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1 relative z-10">
+                                      {bk.tasks.map((task, i) => (
+                                        <div key={task.id || i} className="flex-1 flex items-center">
+                                          <div
+                                            className={`w-full h-2 rounded-full transition-all duration-500 ${
+                                              task.done
+                                                ? isComplete
+                                                  ? "bg-gradient-to-r from-emerald-400 to-emerald-500 shadow-sm shadow-emerald-500/20"
+                                                  : "bg-gradient-to-r from-amber-400 to-amber-500 shadow-sm shadow-amber-500/20"
+                                                : "bg-neutral-200/80"
+                                            }`}
+                                            style={{ animationDelay: `${i * 100}ms` }}
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
 
                                   {/* Step labels */}
                                   <div className="flex items-center justify-between mt-2.5 relative z-10">
@@ -3224,85 +3857,132 @@ export default function BookingEnginePage() {
                                 </div>
                               </button>
 
-                              {/* Expanded task list */}
+                              {/* Expanded task list — grouped by vehicle area (service areaOrder) when tasks have `section` */}
                               {expandedBookingId === bk.id && (
-                                <div className="mt-3 space-y-2 animate-[fadeSlideUp_0.3s_ease-out]">
-                                  {bk.tasks.map((task, tIdx) => (
-                                    <div
-                                      key={task.id || tIdx}
-                                      className={`rounded-xl border p-3 transition-all ${
-                                        task.done
-                                          ? "bg-emerald-50/60 border-emerald-200/80"
-                                          : "bg-neutral-50 border-neutral-200/80"
-                                      }`}
-                                    >
-                                      <div className="flex items-start gap-2.5">
-                                        {/* Checkbox indicator */}
-                                        <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                                          task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
-                                        }`}>
-                                          {task.done ? (
-                                            <i className="fas fa-check text-[8px]" />
-                                          ) : (
-                                            <span className="text-[9px] font-bold">{tIdx + 1}</span>
-                                          )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center justify-between gap-2">
-                                            <p className={`text-xs font-semibold ${task.done ? "text-emerald-700" : "text-neutral-800"}`}>
-                                              {task.name}
-                                            </p>
-                                            {task.done && (
-                                              <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full shrink-0">
-                                                Done
-                                              </span>
+                                <div className="mt-3 space-y-3 animate-[fadeSlideUp_0.3s_ease-out]">
+                                  {(() => {
+                                    const taskAreaGroups = buildCustomerBookingTaskAreaGroups(bk);
+                                    let taskNum = 0;
+                                    const taskCard = (task: CustomerBookingTask, num: number) => (
+                                      <div
+                                        key={task.id ? `${task.id}-${num}` : `t-${num}`}
+                                        className={`rounded-xl border p-3 transition-all ${
+                                          task.done
+                                            ? "bg-emerald-50/60 border-emerald-200/80"
+                                            : "bg-neutral-50 border-neutral-200/80"
+                                        }`}
+                                      >
+                                        <div className="flex items-start gap-2.5">
+                                          <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                            task.done ? "bg-emerald-500 text-white" : "bg-neutral-200 text-neutral-400"
+                                          }`}>
+                                            {task.done ? (
+                                              <i className="fas fa-check text-[8px]" />
+                                            ) : (
+                                              <span className="text-[9px] font-bold">{num}</span>
                                             )}
                                           </div>
-                                          {task.description && (
-                                            <p className="text-[11px] text-neutral-500 mt-0.5 leading-relaxed">{task.description}</p>
-                                          )}
-                                          {task.serviceName && (
-                                            <p className="text-[10px] text-neutral-400 mt-1">
-                                              <i className="fas fa-wrench mr-1 text-[8px]" />{task.serviceName}
-                                            </p>
-                                          )}
-                                          {/* Staff note */}
-                                          {task.staffNote && (
-                                            <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
-                                              <p className="text-[11px] text-blue-700">
-                                                <i className="fas fa-comment-alt mr-1 text-[9px]" />
-                                                {task.staffNote}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <p className={`text-xs font-semibold ${task.done ? "text-emerald-700" : "text-neutral-800"}`}>
+                                                {task.name}
                                               </p>
-                                              {task.completedByStaffName && (
-                                                <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                              {task.done && (
+                                                <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded-full shrink-0">
+                                                  Done
+                                                </span>
                                               )}
                                             </div>
-                                          )}
-                                          {/* Task completion image */}
-                                          {task.done && task.imageUrl && (
-                                            <div className="mt-2">
-                                              <button
-                                                type="button"
-                                                onClick={() => setLightboxUrl(task.imageUrl)}
-                                                className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md"
-                                              >
-                                                <img
-                                                  src={task.imageUrl}
-                                                  alt={`${task.name} — completed`}
-                                                  className="w-full max-h-40 object-cover"
-                                                />
-                                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                                                  <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm text-neutral-700 text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
-                                                    <i className="fas fa-expand mr-1 text-[8px]" />View
+                                            {task.description && (
+                                              <p className="text-[11px] text-neutral-500 mt-0.5 leading-relaxed">{task.description}</p>
+                                            )}
+                                            {task.serviceName && (
+                                              <p className="text-[10px] text-neutral-400 mt-1">
+                                                <i className="fas fa-wrench mr-1 text-[8px]" />{task.serviceName}
+                                              </p>
+                                            )}
+                                            {(() => {
+                                              const opt = taskConditionOption(task.condition);
+                                              if (!opt) return null;
+                                              return (
+                                                <div className="mt-1.5">
+                                                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-bold ${opt.badgeClass}`}>
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${opt.dotClass}`} />
+                                                    {opt.label}
                                                   </span>
                                                 </div>
-                                              </button>
-                                            </div>
-                                          )}
+                                              );
+                                            })()}
+                                            {task.staffNote && (
+                                              <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                                                <p className="text-[11px] text-blue-700">
+                                                  <i className="fas fa-comment-alt mr-1 text-[9px]" />
+                                                  {task.staffNote}
+                                                </p>
+                                                {task.completedByStaffName && (
+                                                  <p className="text-[10px] text-blue-500 mt-0.5">— {task.completedByStaffName}</p>
+                                                )}
+                                              </div>
+                                            )}
+                                            {task.done && task.imageUrl && (
+                                              <div className="mt-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setLightboxUrl(task.imageUrl)}
+                                                  className="group relative rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-300 transition-all hover:shadow-md"
+                                                >
+                                                  <img
+                                                    src={task.imageUrl}
+                                                    alt={`${task.name} — completed`}
+                                                    className="w-full max-h-40 object-cover"
+                                                  />
+                                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                                    <span className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm text-neutral-700 text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-sm">
+                                                      <i className="fas fa-expand mr-1 text-[8px]" />View
+                                                    </span>
+                                                  </div>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+
+                                    if (taskAreaGroups) {
+                                      return (
+                                        <>
+                                          {taskAreaGroups.map((group) => {
+                                            const gDone = group.tasks.filter((t) => t.done).length;
+                                            const gTotal = group.tasks.length;
+                                            const headerClass =
+                                              group.key === "other"
+                                                ? "border-neutral-200 bg-neutral-50 text-neutral-800"
+                                                : BOOK_NOW_SECTION_HEADER[group.key];
+                                            const iconClass =
+                                              group.key === "other" ? "fas fa-ellipsis-h" : BOOK_NOW_SECTION_ICON[group.key];
+                                            return (
+                                              <div key={group.key} className="space-y-2">
+                                                <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${headerClass}`}>
+                                                  <i className={`${iconClass} text-[10px] opacity-80`} />
+                                                  <span className="text-[10px] font-extrabold uppercase tracking-wide">{group.label}</span>
+                                                  <span className="text-[9px] font-bold opacity-80 ml-auto tabular-nums">
+                                                    {gDone}/{gTotal}
+                                                  </span>
+                                                </div>
+                                                {group.tasks.map((task) => {
+                                                  taskNum += 1;
+                                                  return taskCard(task, taskNum);
+                                                })}
+                                              </div>
+                                            );
+                                          })}
+                                        </>
+                                      );
+                                    }
+
+                                    return <>{bk.tasks!.map((task, tIdx) => taskCard(task, tIdx + 1))}</>;
+                                  })()}
 
                                   {/* Final Submission */}
                                   {bk.finalSubmission && (
@@ -3751,7 +4431,6 @@ export default function BookingEnginePage() {
                     { label: "Make", value: v.make, icon: "fa-industry" },
                     { label: "Model", value: v.model, icon: "fa-tag" },
                     { label: "Year", value: v.year, icon: "fa-calendar" },
-                    { label: "Body Type", value: v.bodyType, icon: "fa-shapes" },
                     { label: "Colour", value: v.colour, icon: "fa-palette" },
                     { label: "Mileage", value: v.mileage, icon: "fa-gauge-high" },
                     { label: "VIN / Chassis", value: v.vinChassis, icon: "fa-barcode" },
@@ -3771,6 +4450,13 @@ export default function BookingEnginePage() {
                               {[v.make, v.model].filter(Boolean).join(" ") || "Vehicle"}
                               {v.year && <span className="font-normal text-neutral-500 ml-1">({v.year})</span>}
                             </p>
+                            {v.vehicleType && isVehicleTypeStr(v.vehicleType) && (
+                              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800">
+                                <i className={`${VEHICLE_TYPE_ICONS[v.vehicleType]} text-[10px]`} />
+                                {VEHICLE_TYPE_LABELS[v.vehicleType]}
+                                <span className="font-medium text-amber-600/80">· pricing class</span>
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <button
@@ -3867,17 +4553,58 @@ export default function BookingEnginePage() {
                     <input type="text" value={vehicleFormMileage} onChange={(e) => setVehicleFormMileage(e.target.value)} placeholder="e.g. 45000 km"
                       className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Body type <span className="text-neutral-300 text-[10px]">(optional)</span></label>
-                      <input type="text" value={vehicleFormBodyType} onChange={(e) => setVehicleFormBodyType(e.target.value)} placeholder="e.g. Sedan, SUV"
-                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+
+                  {/* Vehicle size class — drives per-service pricing in step 2 */}
+                  <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+                        Vehicle type <span className="text-amber-500 text-[10px] normal-case">(used for pricing)</span>
+                      </label>
+                      {vehicleFormVehicleType && (
+                        <button
+                          type="button"
+                          onClick={() => setVehicleFormVehicleType("")}
+                          className="text-[10px] font-semibold text-neutral-400 hover:text-neutral-700 transition-colors"
+                        >
+                          Clear
+                        </button>
+                      )}
                     </div>
-                    <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
-                      <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px]">(optional)</span></label>
-                      <input type="text" value={vehicleFormColour} onChange={(e) => setVehicleFormColour(e.target.value)} placeholder="e.g. White, Black"
-                        className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
+                    <p className="text-[10px] text-neutral-500 mb-2">Pick the size class that matches your vehicle. Service prices will use this on the booking page.</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                      {VEHICLE_TYPES.map((vt) => {
+                        const active = vehicleFormVehicleType === vt;
+                        return (
+                          <button
+                            key={vt}
+                            type="button"
+                            onClick={() => setVehicleFormVehicleType(active ? "" : vt)}
+                            className={`group relative flex flex-col items-center gap-1 rounded-xl border-2 px-1.5 py-2 text-center transition-all ${
+                              active
+                                ? "border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 shadow-sm"
+                                : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
+                            }`}
+                            aria-pressed={active}
+                          >
+                            <i className={`${VEHICLE_TYPE_ICONS[vt]} text-base ${active ? "text-amber-600" : "text-neutral-500"}`} />
+                            <span className={`text-[10px] font-bold leading-tight ${active ? "text-amber-900" : "text-neutral-700"}`}>
+                              {VEHICLE_TYPE_LABELS[vt]}
+                            </span>
+                            {active && (
+                              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center shadow">
+                                <i className="fas fa-check text-[8px]" />
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
+                  </div>
+
+                  <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">
+                    <label className="block text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-1.5">Colour <span className="text-neutral-300 text-[10px]">(optional)</span></label>
+                    <input type="text" value={vehicleFormColour} onChange={(e) => setVehicleFormColour(e.target.value)} placeholder="e.g. White, Black"
+                      className="w-full border-2 border-neutral-200 rounded-lg sm:rounded-xl px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm focus:ring-0 focus:border-neutral-900 outline-none bg-neutral-50" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="rounded-xl sm:rounded-2xl border border-neutral-200 bg-white p-2.5 sm:p-3.5">

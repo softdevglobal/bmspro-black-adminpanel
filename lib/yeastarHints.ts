@@ -25,12 +25,12 @@ export function yeastarHintForErrcode(errcode: number): string | undefined {
       );
     case 70087:
       return (
-        "IP FORBIDDEN (70087): Yeastar OpenAPI has IP restriction enabled and blocked this server's address. " +
-        "Fix in PBX web UI: Integrations → API (or Settings → PBX → General → API) → either disable IP restriction for API, " +
-        "or add allowed IPs for your hosting provider. Vercel uses many rotating egress IPs — whitelist Vercel ranges " +
-        "(see https://vercel.com/guides/how-to-allowlist-deployment-ip-address ) or use a fixed-IP proxy. " +
-        "Deploy the latest admin panel and open GET /api/yeastar/test-env?probe=1 — the JSON field openapiCallerEgressIpv4 is the IPv4 to allow. " +
-        "That is your API host's egress address, not the phone IP and not YEASTAR_LINKUS_HOST."
+        "IP FORBIDDEN (70087): Yeastar blocked the IP that called OpenAPI (often Vercel). " +
+        "Fix A — PBX: Integrations → API → disable API IP restriction or allow this caller IP. " +
+        "Fix B (recommended on Vercel): run repo script scripts/yeastar-openapi-relay/server.mjs on a VPS with stable egress; " +
+        "allowlist only that VPS IP in Yeastar. On Vercel set YEASTAR_OPENAPI_EDGE_PROXY_URL (https relay origin) and " +
+        "YEASTAR_OPENAPI_EDGE_PROXY_SECRET (same secret as the relay). Redeploy, then probe should show usesOpenApiEdgeProxy: true. " +
+        "If proxy is already on and you still see 70087, allowlist the VPS IP — not openapiCallerEgressIpv4 from Vercel."
       );
     default:
       return undefined;

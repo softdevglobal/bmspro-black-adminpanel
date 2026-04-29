@@ -124,9 +124,19 @@ export async function GET(req: NextRequest) {
       } catch (e) {
         const errText = String(e).slice(0, 500);
         const hint = yeastarProbeHint(errText);
+        const usesOpenApiEdgeProxy = isOpenApiEdgeProxyConfigured();
+        let openApiRequestHost: string | undefined;
+        try {
+          openApiRequestHost = new URL(
+            `${getYeastarOpenApiHttpOrigin(env)}/`,
+          ).host;
+        } catch {
+          openApiRequestHost = undefined;
+        }
         probeResult = {
           getTokenOk: false,
-          usesOpenApiEdgeProxy: isOpenApiEdgeProxyConfigured(),
+          usesOpenApiEdgeProxy,
+          openApiRequestHost,
           error: errText,
           ...(openapiCallerEgressIpv4
             ? { openapiCallerEgressIpv4 }
@@ -139,6 +149,11 @@ export async function GET(req: NextRequest) {
             ? { openApiHint: e.hint }
             : {}),
         };
+        if (e instanceof YeastarOpenApiError && e.errcode === 70087) {
+          probeResult.yeastar70087Action = usesOpenApiEdgeProxy
+            ? "Relay is configured but Yeastar still forbids the caller. Allowlist the VPS/outbound IP used by the relay (curl ifconfig.me from the VPS). Check relay env YEASTAR_PBX_BASE_URL matches your PBX. openApiRequestHost should be your relay hostname, not *.yeastar.com."
+            : "Direct Vercel→Yeastar is blocked. Add YEASTAR_OPENAPI_EDGE_PROXY_URL + YEASTAR_OPENAPI_EDGE_PROXY_SECRET on Vercel and run scripts/yeastar-openapi-relay/server.mjs on a VPS; allowlist only the VPS IP in Yeastar, redeploy.";
+        }
       }
     }
   }

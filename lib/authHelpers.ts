@@ -44,6 +44,12 @@ export const ADMIN_ROLES = ["workshop_owner", "branch_admin", "super_admin"];
 
 export const STAFF_MANAGEMENT_ROLES = ["workshop_owner", "branch_admin"];
 
+/**
+ * Roles allowed to use the mobile app (Yeastar Linkus VoIP, FCM, etc.).
+ * Mirrors the `allowedRoles` check in [`bmspro-black/lib/screens/login_screen.dart`].
+ */
+export const MOBILE_ROLES = ["staff", "workshop_owner", "branch_admin"];
+
 interface AuthResult {
   success: boolean;
   error?: string;

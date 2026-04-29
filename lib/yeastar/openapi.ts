@@ -67,20 +67,29 @@ export class YeastarOpenApiError extends Error {
   }
 }
 
+/** Prefer Linkus SDK AccessID/AccessKey; otherwise Integrations → API Client ID + Secret (full pair only). */
+function resolveOpenapiCredentials(): { accessId: string; accessKey: string } {
+  const linkusId =
+    process.env.YEASTAR_ACCESS_ID?.trim() ||
+    process.env.YEASTAR_PBX_ACCESS_ID?.trim() ||
+    "";
+  const linkusKey =
+    process.env.YEASTAR_ACCESS_KEY?.trim() ||
+    process.env.YEASTAR_PBX_ACCESS_KEY?.trim() ||
+    "";
+  if (linkusId && linkusKey) return { accessId: linkusId, accessKey: linkusKey };
+  const clientId = process.env.YEASTAR_OPENAPI_CLIENT_ID?.trim() || "";
+  const clientSecret = process.env.YEASTAR_OPENAPI_CLIENT_SECRET?.trim() || "";
+  return { accessId: clientId, accessKey: clientSecret };
+}
+
 export function getEnv(): YeastarEnv {
   const baseUrl =
     process.env.YEASTAR_BASE_URL?.trim() ||
     process.env.YEASTAR_PBX_BASE_URL?.trim() ||
     process.env.YEASTAR_PBX_URL?.trim() ||
     "";
-  const accessId =
-    process.env.YEASTAR_ACCESS_ID?.trim() ||
-    process.env.YEASTAR_PBX_ACCESS_ID?.trim() ||
-    "";
-  const accessKey =
-    process.env.YEASTAR_ACCESS_KEY?.trim() ||
-    process.env.YEASTAR_PBX_ACCESS_KEY?.trim() ||
-    "";
+  const { accessId, accessKey } = resolveOpenapiCredentials();
 
   // Linkus SDK SIP/TLS edge — RAS host normally matches the OpenAPI host.
   let linkusHost = process.env.YEASTAR_LINKUS_HOST?.trim() || "";

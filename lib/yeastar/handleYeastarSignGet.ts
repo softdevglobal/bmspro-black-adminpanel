@@ -44,7 +44,7 @@ export async function handleYeastarSignGet(
         success: false,
         error: "yeastar_not_configured",
         hint:
-          "Set YEASTAR_PBX_BASE_URL, YEASTAR_ACCESS_ID, YEASTAR_ACCESS_KEY, YEASTAR_LINKUS_HOST.",
+          "Set YEASTAR_PBX_BASE_URL, YEASTAR_PBX_ACCESS_ID/KEY (or YEASTAR_OPENAPI_CLIENT_ID/SECRET), YEASTAR_LINKUS_HOST.",
       },
       { status: 503 },
     );

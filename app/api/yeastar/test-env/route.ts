@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getEnv } from "@/lib/yeastar/openapi";
 import { yeastarProbeHint } from "@/lib/yeastarHints";
 
 export const runtime = "nodejs";
@@ -11,33 +12,6 @@ const YEASTAR_HEADERS = {
 
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
-}
-
-function resolveYeastarEnv(): {
-  baseUrl: string;
-  accessId: string;
-  accessKey: string;
-  configured: boolean;
-} {
-  const baseUrl =
-    process.env.YEASTAR_BASE_URL?.trim() ||
-    process.env.YEASTAR_PBX_BASE_URL?.trim() ||
-    process.env.YEASTAR_PBX_URL?.trim() ||
-    "";
-  const accessId =
-    process.env.YEASTAR_ACCESS_ID?.trim() ||
-    process.env.YEASTAR_PBX_ACCESS_ID?.trim() ||
-    "";
-  const accessKey =
-    process.env.YEASTAR_ACCESS_KEY?.trim() ||
-    process.env.YEASTAR_PBX_ACCESS_KEY?.trim() ||
-    "";
-  return {
-    baseUrl,
-    accessId,
-    accessKey,
-    configured: !!(baseUrl && accessId && accessKey),
-  };
 }
 
 async function fetchYeastarToken(
@@ -96,19 +70,10 @@ async function fetchOpenapiCallerEgressIpv4(): Promise<string | null> {
  * not the mobile client IP and not `YEASTAR_LINKUS_HOST`.
  */
 export async function GET(req: NextRequest) {
-  const hasBaseUrl = !!(
-    process.env.YEASTAR_BASE_URL?.trim() ||
-    process.env.YEASTAR_PBX_BASE_URL?.trim() ||
-    process.env.YEASTAR_PBX_URL?.trim()
-  );
-  const hasAccessId = !!(
-    process.env.YEASTAR_ACCESS_ID?.trim() ||
-    process.env.YEASTAR_PBX_ACCESS_ID?.trim()
-  );
-  const hasAccessKey = !!(
-    process.env.YEASTAR_ACCESS_KEY?.trim() ||
-    process.env.YEASTAR_PBX_ACCESS_KEY?.trim()
-  );
+  const env = getEnv();
+  const hasBaseUrl = env.baseUrl.length > 0;
+  const hasAccessId = env.accessId.length > 0;
+  const hasAccessKey = env.accessKey.length > 0;
   const probeRaw = req.nextUrl.searchParams.get("probe");
   const probe =
     probeRaw === "1" ||
@@ -121,11 +86,13 @@ export async function GET(req: NextRequest) {
     const openapiCallerEgressIpv4 = await fetchOpenapiCallerEgressIpv4();
     const probeEmail =
       req.nextUrl.searchParams.get("probeEmail")?.trim().toLowerCase() ?? "";
-    const { baseUrl, accessId, accessKey, configured } = resolveYeastarEnv();
+    const { baseUrl, accessId, accessKey, configured } = env;
     if (!configured) {
       probeResult = {
         skipped: true,
-        reason: "Yeastar env incomplete (base URL + Access ID + Access Key)",
+        reason:
+          "Yeastar env incomplete (base URL + OpenAPI credentials + YEASTAR_LINKUS_HOST). " +
+          "Set Linkus YEASTAR_PBX_ACCESS_ID/KEY or YEASTAR_OPENAPI_CLIENT_ID/SECRET pair.",
         ...(openapiCallerEgressIpv4
           ? { openapiCallerEgressIpv4 }
           : {}),

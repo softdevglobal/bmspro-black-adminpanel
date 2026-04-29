@@ -84,11 +84,12 @@ function resolveOpenapiCredentials(): { accessId: string; accessKey: string } {
 }
 
 export function getEnv(): YeastarEnv {
-  const baseUrl =
+  const baseUrlRaw =
     process.env.YEASTAR_BASE_URL?.trim() ||
     process.env.YEASTAR_PBX_BASE_URL?.trim() ||
     process.env.YEASTAR_PBX_URL?.trim() ||
     "";
+  const baseUrl = baseUrlRaw ? canonicalPbxBaseUrl(baseUrlRaw) : "";
   const { accessId, accessKey } = resolveOpenapiCredentials();
 
   // Linkus SDK SIP/TLS edge — RAS host normally matches the OpenAPI host.
@@ -117,6 +118,18 @@ function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
+/** Host-only PBX URLs (common in env UIs) must become absolute HTTPS origins for fetch(). */
+function ensureHttpsOrigin(raw: string): string {
+  const t = raw.trim();
+  if (!t) return "";
+  if (/^https?:\/\//i.test(t)) return t;
+  return `https://${t}`;
+}
+
+function canonicalPbxBaseUrl(raw: string): string {
+  return normalizeBaseUrl(ensureHttpsOrigin(raw));
+}
+
 /**
  * Vercel/serverless egress is often blocked by Yeastar cloud (**70087**). When
  * `YEASTAR_OPENAPI_EDGE_PROXY_URL` + `YEASTAR_OPENAPI_EDGE_PROXY_SECRET` are set,
@@ -127,7 +140,7 @@ function openApiRequestOrigin(env: YeastarEnv): string {
   const relay = process.env.YEASTAR_OPENAPI_EDGE_PROXY_URL?.trim();
   const secret = process.env.YEASTAR_OPENAPI_EDGE_PROXY_SECRET?.trim();
   // Require **both** — origin-only relay would send requests without Bearer and always fail.
-  if (relay && secret) return normalizeBaseUrl(relay);
+  if (relay && secret) return canonicalPbxBaseUrl(relay);
   return normalizeBaseUrl(env.baseUrl);
 }
 
@@ -183,8 +196,7 @@ async function readFirestoreTokenCache(
     const storedBase = (d.baseUrl as string | undefined) ?? "";
     const storedId = (d.accessId as string | undefined) ?? "";
     if (!token || typeof expiresAtMs !== "number") return null;
-    if (normalizeBaseUrl(storedBase) !== normalizeBaseUrl(env.baseUrl))
-      return null;
+    if (canonicalPbxBaseUrl(storedBase) !== env.baseUrl) return null;
     if (storedId !== env.accessId) return null;
     if (Date.now() + TOKEN_SAFETY_MS >= expiresAtMs) return null;
     return {

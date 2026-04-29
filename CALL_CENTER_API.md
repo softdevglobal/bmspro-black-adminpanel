@@ -151,3 +151,101 @@ Import: `postman/BMS_Call_Center_API.postman_collection.json` (folder **0. Publi
 ## Firestore (reference)
 
 Used by the API: `call_center_agents`, `did_mappings`, `cc_webhooks`, `call_logs`, plus existing `users`, `branches`, `services`, `customers`, `bookings`, `bookingActivities`, `notifications`.
+
+---
+
+# Mobile VoIP API — Yeastar Linkus SDK
+
+These endpoints are used by the **BMS Pro Black mobile app** (Flutter) to log into the Yeastar Linkus SDK after Firebase Auth. They are **not** part of the public call-center API.
+
+**Base URL:** `https://black.bmspros.com.au`
+**Auth:** `Authorization: Bearer <Firebase ID token>` on every request. The token must belong to a `users/{uid}` whose `role` is `staff`, `workshop_owner`, or `branch_admin`, and that user must not be suspended.
+
+**Why these exist:** Yeastar OpenAPI `AccessID` / `AccessKey` must NEVER ship in the mobile binary. The mobile app calls these three routes; the server alone holds the credentials and signs each request fresh.
+
+## Login flow (mobile)
+
+```
+Firebase signInWithEmailAndPassword
+        │
+        ▼
+GET /api/user-extension?email=…       (Bearer)
+        ▼
+GET /api/yeastar/sign?extension=…     (Bearer)   ← fresh sign every call
+        ▼
+Linkus SDK login(extension, sign, host=…ras.yeastar.com, port=443)
+        ▼
+POST /api/yeastar/register-push       (Bearer)   ← FCM (Android) / APNs (iOS)
+```
+
+## `GET /api/user-extension?email=<email>`
+
+Returns the PBX extension assigned to the authenticated user. Reads `users/{uid}.yeastarExtension` (admin-managed field).
+
+The `email` query parameter must equal the email on the Bearer token (we don't allow cross-user lookup).
+
+```
+200  { "extension": "1001", "email": "alice@example.com" }
+400  email missing/invalid
+401  missing/invalid Bearer
+403  asked for someone else's email
+404  { "error": "extension_not_assigned" }   ← admin hasn't set the field
+```
+
+## `GET /api/yeastar/sign?extension=<ext>`
+
+Generates a **fresh** Linkus SDK login signature via Yeastar OpenAPI `sign/create`. The caller's `users/{uid}.yeastarExtension` must equal `extension`.
+
+```
+200  { "sign": "…", "host": "bmsproslynbrook.ras.yeastar.com", "port": 443 }
+401  missing/invalid Bearer
+403  extension does not belong to caller
+404  extension_not_assigned
+429  rate_limited                    (5/min per user)
+502  upstream Yeastar OpenAPI error  (errcode + hint included)
+503  yeastar_not_configured
+```
+
+The mobile bridge passes `host` to `remoteIp` (and leaves `localeIp` empty for cloud RAS) and `port` to `remotePort` when calling the Linkus SDK login.
+
+A legacy `POST /api/yeastar/linkus-sign` endpoint accepts `{ email | extension | username }` in the body and returns the same data shaped as `{ sign, linkusRemoteIp, linkusLocaleIp, linkusRemotePort, linkusLocalePort }`. **`GET /api/yeastar/linkus-sign?extension=…`** is an alias of `GET /api/yeastar/sign` for clients that hard-coded the older path. New clients should prefer `/api/yeastar/sign`.
+
+## `POST /api/yeastar/register-push`
+
+Registers (or clears) a mobile push token with the PBX so it can wake the device for incoming calls when the SDK socket is dropped (background, screen off, doze).
+
+```jsonc
+{
+  "extension": "1001",
+  "deviceToken": "<fcm or apns hex>",   // empty string clears the registration
+  "platform": "android" | "ios",
+  "type":     "fcm" | "apns"
+}
+```
+
+```
+200  { "success": true, "cleared": false }
+401  missing/invalid Bearer
+403  extension does not belong to caller
+502  upstream Yeastar OpenAPI error
+```
+
+The server proxies to Yeastar OpenAPI `POST /openapi/v1.0/push/set` (with fallback to the legacy `extension/set_push` path for older firmware) and mirrors the registration to `users/{uid}.yeastarPush` for audit.
+
+## Firestore fields used
+
+| Path | Purpose |
+|------|---------|
+| `users/{uid}.yeastarExtension` | PBX extension number (string). Set by admin. |
+| `users/{uid}.yeastarPush` | `{ token, platform, type, updatedAt }` — server-mirrored push registration |
+
+## Required env (`.env.local` / Vercel)
+
+```
+YEASTAR_PBX_BASE_URL=https://bmsproslynbrook.ras.yeastar.com
+YEASTAR_PBX_ACCESS_ID=…
+YEASTAR_PBX_ACCESS_KEY=…
+YEASTAR_LINKUS_HOST=bmsproslynbrook.ras.yeastar.com
+YEASTAR_LINKUS_PORT=443
+```
+

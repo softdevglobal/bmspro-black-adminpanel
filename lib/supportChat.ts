@@ -13,7 +13,7 @@
  */
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentData } from "firebase-admin/firestore";
 import type { Message } from "firebase-admin/messaging";
 
 export type SupportChatRole = "owner" | "branch_admin" | "staff";
@@ -131,14 +131,11 @@ export async function loadAgentProfile(uid: string): Promise<AgentProfile> {
   };
 }
 
-/** Snapshot of a conversation; null if deleted. */
-export async function loadConversation(
-  conversationId: string
-): Promise<SupportConversation | null> {
-  const db = adminDb();
-  const snap = await db.collection(CONVERSATIONS).doc(conversationId).get();
-  if (!snap.exists) return null;
-  const d = snap.data() || {};
+/** Map a conversations/{id} document to our model (shared by load + list helpers). */
+function parseConversationSnapshot(
+  conversationId: string,
+  d: DocumentData,
+): SupportConversation {
   return {
     conversationId,
     userId: String(d.userId || ""),
@@ -164,6 +161,16 @@ export async function loadConversation(
   };
 }
 
+/** Snapshot of a conversation; null if deleted. */
+export async function loadConversation(
+  conversationId: string,
+): Promise<SupportConversation | null> {
+  const db = adminDb();
+  const snap = await db.collection(CONVERSATIONS).doc(conversationId).get();
+  if (!snap.exists) return null;
+  return parseConversationSnapshot(conversationId, snap.data() || {});
+}
+
 /** Most recent conversation for `userId`, or null. Used to decide create-vs-append on customer send. */
 export async function findLatestConversationForUser(
   userId: string
@@ -176,7 +183,196 @@ export async function findLatestConversationForUser(
     .limit(1)
     .get();
   if (snap.empty) return null;
-  return loadConversation(snap.docs[0].id);
+  return parseConversationSnapshot(snap.docs[0].id, snap.docs[0].data());
+}
+
+function workspaceMatchesAgentAssignments(
+  ownerUidOnConversation: string | null,
+  isCCAdmin: boolean,
+  assignedWorkshops: string[],
+): boolean {
+  if (isCCAdmin) return true;
+  if (assignedWorkshops.length === 0) return true;
+  const owner = (ownerUidOnConversation || "").trim();
+  if (!owner) return true;
+  return assignedWorkshops.includes(owner);
+}
+
+/** API-layer visibility: queue vs chats owned by another agent. */
+export function agentCanReadSupportConversation(params: {
+  convo: SupportConversation;
+  agentUid: string;
+  isCCAdmin: boolean;
+  assignedWorkshops: string[];
+}): boolean {
+  const { convo, agentUid, isCCAdmin, assignedWorkshops } = params;
+  if (convo.status === "waiting") {
+    return workspaceMatchesAgentAssignments(convo.ownerUid, isCCAdmin, assignedWorkshops);
+  }
+  if (isCCAdmin) return true;
+  return convo.agentId === agentUid;
+}
+
+function timestampToIso(t: Timestamp | null): string | null {
+  if (!t || !(t instanceof Timestamp)) return null;
+  return t.toDate().toISOString();
+}
+
+/** Conversation fields safe for REST JSON (timestamps as ISO strings). */
+export function supportConversationToJson(c: SupportConversation): Record<string, unknown> {
+  return {
+    conversationId: c.conversationId,
+    userId: c.userId,
+    userName: c.userName,
+    userEmail: c.userEmail,
+    userPhone: c.userPhone,
+    role: c.role,
+    ownerUid: c.ownerUid,
+    status: c.status,
+    agentId: c.agentId,
+    agentName: c.agentName,
+    agentEmail: c.agentEmail,
+    lastMessage: c.lastMessage,
+    lastMessageAt: timestampToIso(c.lastMessageAt),
+    lastSender: c.lastSender,
+    unreadForAgent: c.unreadForAgent,
+    unreadForCustomer: c.unreadForCustomer,
+    createdAt: timestampToIso(c.createdAt),
+    updatedAt: timestampToIso(c.updatedAt),
+    claimedAt: timestampToIso(c.claimedAt),
+    closedAt: timestampToIso(c.closedAt),
+    closedBy: c.closedBy,
+  };
+}
+
+export interface SupportChatMessageJson {
+  id: string;
+  sender: SupportChatSender;
+  senderId: string;
+  senderName: string;
+  message: string;
+  timestamp: string | null;
+  readByAgent: boolean;
+  readByCustomer: boolean;
+}
+
+function docToMessageJson(
+  id: string,
+  d: DocumentData,
+): SupportChatMessageJson {
+  const ts = d.timestamp instanceof Timestamp ? d.timestamp : null;
+  return {
+    id,
+    sender: (d.sender as SupportChatSender) || "customer",
+    senderId: String(d.senderId || ""),
+    senderName: String(d.senderName || ""),
+    message: String(d.message || ""),
+    timestamp: timestampToIso(ts),
+    readByAgent: Boolean(d.readByAgent),
+    readByCustomer: Boolean(d.readByCustomer),
+  };
+}
+
+/**
+ * Waiting queue + threads assigned to this agent (connected/closed), for call center dashboards.
+ * Queue rows are workshop-scoped when `assignedWorkshops` is non-empty (unless CC admin).
+ */
+export async function listSupportAgentConversationBuckets(params: {
+  agentUid: string;
+  isCCAdmin: boolean;
+  assignedWorkshops: string[];
+  queueLimit: number;
+  mineLimit: number;
+}): Promise<{ queue: SupportConversation[]; mine: SupportConversation[] }> {
+  const db = adminDb();
+  const ql = Math.max(1, Math.min(params.queueLimit, 100));
+  const ml = Math.max(1, Math.min(params.mineLimit, 100));
+  const overFetch = Math.min(300, ql * 5);
+
+  const waitingSnap = await db
+    .collection(CONVERSATIONS)
+    .where("status", "==", "waiting")
+    .orderBy("lastMessageAt", "desc")
+    .limit(overFetch)
+    .get();
+
+  const queue: SupportConversation[] = [];
+  for (const doc of waitingSnap.docs) {
+    const c = parseConversationSnapshot(doc.id, doc.data());
+    if (
+      workspaceMatchesAgentAssignments(
+        c.ownerUid,
+        params.isCCAdmin,
+        params.assignedWorkshops,
+      )
+    ) {
+      queue.push(c);
+      if (queue.length >= ql) break;
+    }
+  }
+
+  const mineSnap = await db
+    .collection(CONVERSATIONS)
+    .where("agentId", "==", params.agentUid)
+    .orderBy("lastMessageAt", "desc")
+    .limit(ml)
+    .get();
+
+  const mine = mineSnap.docs.map((doc) =>
+    parseConversationSnapshot(doc.id, doc.data()),
+  );
+
+  return { queue, mine };
+}
+
+/**
+ * Paginated messages (newest first). Pass `before` = message id of the oldest item from the
+ * previous page to load older messages.
+ */
+export async function listSupportMessagesForAgent(params: {
+  conversationId: string;
+  agentUid: string;
+  isCCAdmin: boolean;
+  assignedWorkshops: string[];
+  limit: number;
+  beforeMessageId: string | null;
+}): Promise<{ messages: SupportChatMessageJson[]; nextBefore: string | null }> {
+  const convo = await loadConversation(params.conversationId);
+  if (!convo) throw httpError(404, "Conversation not found");
+
+  if (
+    !agentCanReadSupportConversation({
+      convo,
+      agentUid: params.agentUid,
+      isCCAdmin: params.isCCAdmin,
+      assignedWorkshops: params.assignedWorkshops,
+    })
+  ) {
+    throw httpError(403, "You cannot view this conversation");
+  }
+
+  const lim = Math.max(1, Math.min(params.limit, 100));
+  const db = adminDb();
+  const col = db
+    .collection(CONVERSATIONS)
+    .doc(params.conversationId)
+    .collection(MESSAGES_SUBCOLLECTION);
+
+  let q = col.orderBy("timestamp", "desc").limit(lim + 1);
+  if (params.beforeMessageId) {
+    const beforeDoc = await col.doc(params.beforeMessageId).get();
+    if (!beforeDoc.exists) throw httpError(400, "Invalid before cursor");
+    q = q.startAfter(beforeDoc);
+  }
+
+  const snap = await q.get();
+  const hasMore = snap.docs.length > lim;
+  const pageDocs = hasMore ? snap.docs.slice(0, lim) : snap.docs;
+  const messages = pageDocs.map((doc) => docToMessageJson(doc.id, doc.data()));
+  const nextBefore =
+    hasMore && pageDocs.length > 0 ? pageDocs[pageDocs.length - 1].id : null;
+
+  return { messages, nextBefore };
 }
 
 /* ─── Mutations ───────────────────────────────────────────────────────── */

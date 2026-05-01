@@ -391,54 +391,103 @@ export async function createSdkSign(
       signal: AbortSignal.timeout(25_000),
     });
     const text = await res.text();
-    let parsed: {
-      errcode?: number;
-      errmsg?: string;
-      data?: { sign?: string };
-    };
+    let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(text) as Record<string, unknown>;
     } catch {
       throw new YeastarOpenApiError(
         `sign/create: invalid JSON ${text.slice(0, 200)}`,
       );
     }
-    return { http: res.status, parsed };
+    return { http: res.status, parsed, rawText: text };
   };
 
   let token = await getAccessToken(env);
-  let { http, parsed } = await callOnce(token);
+  let { http, parsed, rawText } = await callOnce(token);
 
   // Yeastar often returns errcode 10004 "TOKEN EXPIRED" or HTTP 401 when the
   // cached access_token is stale; refresh once then retry.
-  const errmsgUpper = (parsed.errmsg ?? "").toString().toUpperCase();
+  const errcodeRaw = parsed.errcode;
+  const errcode = typeof errcodeRaw === "number" ? errcodeRaw : null;
+  const errmsg = typeof parsed.errmsg === "string" ? parsed.errmsg : "";
+  const errmsgUpper = errmsg.toUpperCase();
   const tokenLikelyBad =
     http === 401 ||
     http === 403 ||
-    (parsed.errcode != null &&
-      (parsed.errcode === 401 ||
-        parsed.errcode === 10004 ||
-        (parsed.errcode >= 40000 && parsed.errcode < 41000))) ||
+    (errcode != null &&
+      (errcode === 401 ||
+        errcode === 10004 ||
+        (errcode >= 40000 && errcode < 41000))) ||
     errmsgUpper.includes("TOKEN EXPIRED");
   if (tokenLikelyBad) {
     clearAccessTokenCache();
     token = await getAccessToken(env, { forceRefresh: true });
-    ({ http, parsed } = await callOnce(token));
+    ({ http, parsed, rawText } = await callOnce(token));
   }
 
-  if (parsed.errcode != null && parsed.errcode !== 0) {
-    const hint = yeastarHintForErrcode(parsed.errcode);
+  const finalErrcodeRaw = parsed.errcode;
+  const finalErrcode =
+    typeof finalErrcodeRaw === "number" ? finalErrcodeRaw : null;
+  if (finalErrcode != null && finalErrcode !== 0) {
+    const hint = yeastarHintForErrcode(finalErrcode);
+    const finalErrmsg =
+      typeof parsed.errmsg === "string" ? parsed.errmsg : "";
     throw new YeastarOpenApiError(
-      `sign/create errcode=${parsed.errcode} ${parsed.errmsg ?? ""}`.trim(),
-      parsed.errcode,
+      `sign/create errcode=${finalErrcode} ${finalErrmsg}`.trim(),
+      finalErrcode,
       hint,
     );
   }
-  const sign = parsed.data?.sign?.trim();
+  const sign = extractSignFromYeastarResponse(parsed);
   if (!sign) {
-    throw new YeastarOpenApiError("sign/create: missing sign in response");
+    // Log the raw shape so server-side logs show the actual PBX response and we
+    // can adapt the parser without another deploy round-trip.
+    console.warn(
+      "[yeastar/openapi] sign/create returned errcode=0 but no sign field. " +
+        `username=${trimmed} bodyKeys=${Object.keys(parsed).join(",")} ` +
+        `body=${rawText.slice(0, 600)}`,
+    );
+    throw new YeastarOpenApiError(
+      `sign/create: success (errcode=0) but no sign in response. ` +
+        `Yeastar returned: ${rawText.slice(0, 400)}`,
+    );
   }
   return { sign, host: env.linkusHost, port: env.linkusPort };
+}
+
+/**
+ * Pulls the sign string out of a Yeastar `sign/create` response. P-Series
+ * firmware versions have shipped the sign at slightly different paths
+ * (`data.sign`, top-level `sign`, `data.signature`, `data.access_token`,
+ * `data.linkus_sign`). We try each in order and return the first non-empty
+ * string we find, so a firmware change doesn't silently break login.
+ */
+function extractSignFromYeastarResponse(
+  body: Record<string, unknown>,
+): string | null {
+  const dataNode = body.data;
+  const candidates: unknown[] = [];
+  if (dataNode && typeof dataNode === "object") {
+    const d = dataNode as Record<string, unknown>;
+    candidates.push(
+      d.sign,
+      d.signature,
+      d.access_sign,
+      d.linkus_sign,
+      d.access_token,
+      d.token,
+    );
+  }
+  candidates.push(
+    body.sign,
+    body.signature,
+    body.access_sign,
+    body.linkus_sign,
+  );
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  return null;
 }
 
 export type SetPushTokenResult = {

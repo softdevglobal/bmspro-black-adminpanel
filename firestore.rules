@@ -103,6 +103,36 @@ service cloud.firestore {
       }
     }
 
+    // ─── Centralized support chat (1xBet style) ────────────────────────
+    // - Customer reads their own thread.
+    // - Any active call-center agent reads (queue listener + claimed thread).
+    // - All writes go through the server (`/api/support-chat/...`) which uses
+    //   the Admin SDK and bypasses these rules. Direct client writes are rejected.
+    function isActiveCallCenterAgent() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/call_center_agents/$(request.auth.uid))
+        && get(/databases/$(database)/documents/call_center_agents/$(request.auth.uid)).data.suspended != true
+        && get(/databases/$(database)/documents/call_center_agents/$(request.auth.uid)).data.ccChatDisabled != true;
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if signedIn() && (
+           request.auth.uid == resource.data.userId
+        || request.auth.uid == resource.data.agentId
+        || isActiveCallCenterAgent()
+      );
+      allow write: if false;
+
+      match /messages/{messageId} {
+        allow read: if signedIn() && (
+             request.auth.uid == get(/databases/$(database)/documents/conversations/$(conversationId)).data.userId
+          || request.auth.uid == get(/databases/$(database)/documents/conversations/$(conversationId)).data.agentId
+          || isActiveCallCenterAgent()
+        );
+        allow write: if false;
+      }
+    }
+
     match /notifications/{notifId} {
       allow read: if canReadNotification();
       allow update: if canReadNotification()

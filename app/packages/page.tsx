@@ -7,6 +7,7 @@ import { auth, db, storage } from "@/lib/firebase";
 import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, serverTimestamp } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { logTenantPlanChanged } from "@/lib/auditLog";
+import { billingCycleCardLabel } from "@/lib/subscriptionPlans";
 
 type SubscriptionPlan = {
   id: string;
@@ -25,6 +26,8 @@ type SubscriptionPlan = {
   stripePriceId?: string;
   trialDays?: number;
   plan_key?: string;
+  billingCycle?: "weekly" | "monthly";
+  validityDays?: number;
 };
 
 export default function PackagesPage() {
@@ -66,6 +69,7 @@ export default function PackagesPage() {
     stripePriceId: "",
     trialDays: "0",
     plan_key: "",
+    billingCycle: "monthly" as "weekly" | "monthly",
   });
 
   useEffect(() => {
@@ -207,6 +211,21 @@ export default function PackagesPage() {
     setConfirmingPlan(null);
   };
 
+  const billingPeriodSlug = (cycle: "weekly" | "monthly") =>
+    cycle === "weekly" ? "5-day" : "28-day";
+
+  const suggestPriceLabelFromAmount = (
+    priceValue: string,
+    cycle: "weekly" | "monthly"
+  ): string => {
+    if (!priceValue || Number.isNaN(parseFloat(priceValue))) return "";
+    const numPrice = parseFloat(priceValue);
+    const period = billingPeriodSlug(cycle);
+    return numPrice % 1 === 0
+      ? `AU$${numPrice}/${period}`
+      : `AU$${numPrice.toFixed(2)}/${period}`;
+  };
+
   // Package CRUD functions
   const openCreatePackage = () => {
     setFormData({
@@ -226,6 +245,7 @@ export default function PackagesPage() {
       stripePriceId: "",
       trialDays: "0",
       plan_key: "",
+      billingCycle: "monthly",
     });
     setImageFile(null);
     setImagePreview(null);
@@ -236,6 +256,7 @@ export default function PackagesPage() {
   const openEditPackage = (pkg: SubscriptionPlan) => {
     const isUnlimitedBranches = pkg.branches === -1;
     const isUnlimitedStaff = pkg.staff === -1;
+    const cyl = pkg.billingCycle === "weekly" ? "weekly" : "monthly";
     setFormData({
       name: pkg.name,
       price: pkg.price.toString(),
@@ -253,6 +274,7 @@ export default function PackagesPage() {
       stripePriceId: pkg.stripePriceId || "",
       trialDays: (pkg.trialDays || 0).toString(),
       plan_key: pkg.plan_key || "",
+      billingCycle: cyl,
     });
     setImageFile(null);
     setImagePreview(pkg.image || null);
@@ -324,6 +346,7 @@ export default function PackagesPage() {
         stripePriceId: formData.stripePriceId.trim() || undefined,
         trialDays: parseInt(formData.trialDays, 10) || 0,
         plan_key: formData.plan_key.trim() || undefined,
+        billingCycle: formData.billingCycle,
       };
 
       const url = editingPackage ? "/api/packages" : "/api/packages";
@@ -487,7 +510,8 @@ export default function PackagesPage() {
                             </span>
                           </div>
                           <h3 className="text-xl font-bold text-neutral-900 mb-1">{plan.name}</h3>
-                          <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>{plan.priceLabel}</p>
+                          <p className={`text-2xl font-bold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-1`}>{plan.priceLabel}</p>
+                          <p className="text-xs font-semibold text-neutral-600 mb-2">{billingCycleCardLabel(plan)}</p>
                           <p className="text-sm text-neutral-500">
                             {plan.branches === -1 ? "Unlimited Branches" : `${plan.branches} ${plan.branches === 1 ? "Branch" : "Branches"}`} {" \u2022 "}
                             {plan.staff === -1 ? "Unlimited Staff" : `${plan.staff} Staff`}
@@ -608,9 +632,10 @@ export default function PackagesPage() {
                           <div className="pt-16 pb-6 px-6">
                             <div className="text-center mb-6">
                               <h3 className="text-2xl font-bold text-neutral-900 mb-2">{plan.name}</h3>
-                              <div className={`text-4xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-2`}>
+                              <div className={`text-4xl font-extrabold bg-gradient-to-r ${gradientClass} bg-clip-text text-transparent mb-1`}>
                                 {plan.priceLabel}
                               </div>
+                              <p className="text-xs font-semibold text-neutral-600 mb-3">{billingCycleCardLabel(plan)}</p>
                               <div className="flex items-center justify-center gap-3 text-sm text-neutral-500">
                                 <span className="flex items-center gap-1">
                                   <i className="fas fa-building text-xs" />
@@ -832,16 +857,15 @@ export default function PackagesPage() {
                                         value={formData.price}
                                         onChange={(e) => {
                                           const priceValue = e.target.value;
-                                          let priceLabel = "";
-                                          if (priceValue && !isNaN(parseFloat(priceValue))) {
-                                            const numPrice = parseFloat(priceValue);
-                                            if (numPrice % 1 === 0) {
-                                              priceLabel = `AU$${numPrice}/mo`;
-                                            } else {
-                                              priceLabel = `AU$${numPrice.toFixed(2)}/mo`;
-                                            }
-                                          }
-                                          setFormData({ ...formData, price: priceValue, priceLabel });
+                                          const priceLabel = suggestPriceLabelFromAmount(
+                                            priceValue,
+                                            formData.billingCycle
+                                          );
+                                          setFormData({
+                                            ...formData,
+                                            price: priceValue,
+                                            priceLabel,
+                                          });
                                         }}
                                         className="w-full pl-9 pr-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                         placeholder="99.00"
@@ -857,8 +881,75 @@ export default function PackagesPage() {
                                       value={formData.priceLabel}
                                       onChange={(e) => setFormData({ ...formData, priceLabel: e.target.value })}
                                       className="w-full px-4 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 placeholder-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
-                                      placeholder="AU$99/mo"
+                                      placeholder="AU$99/28-day"
                                     />
+                                  </div>
+                                </div>
+
+                                <div className="border-t border-neutral-200 pt-5 mt-5">
+                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                    Renewal period
+                                  </label>
+                                  <p className="text-[11px] text-neutral-500 mb-3">
+                                    Weekly renews every <strong className="text-neutral-700">5 days</strong>. Monthly renews every <strong className="text-neutral-700">28 days</strong>.
+                                  </p>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          billingCycle: "weekly",
+                                          priceLabel: prev.price
+                                            ? suggestPriceLabelFromAmount(prev.price, "weekly")
+                                            : prev.priceLabel,
+                                        }))
+                                      }
+                                      className={`rounded-xl border-2 px-4 py-3 text-left transition-all ${
+                                        formData.billingCycle === "weekly"
+                                          ? "border-neutral-900 bg-neutral-900 text-white shadow-md"
+                                          : "border-neutral-200 bg-white hover:border-neutral-300 text-neutral-800"
+                                      }`}
+                                    >
+                                      <p className="text-sm font-bold">Weekly</p>
+                                      <p
+                                        className={`text-[11px] mt-1 ${
+                                          formData.billingCycle === "weekly"
+                                            ? "text-neutral-300"
+                                            : "text-neutral-500"
+                                        }`}
+                                      >
+                                        5-day billing cycle
+                                      </p>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          billingCycle: "monthly",
+                                          priceLabel: prev.price
+                                            ? suggestPriceLabelFromAmount(prev.price, "monthly")
+                                            : prev.priceLabel,
+                                        }))
+                                      }
+                                      className={`rounded-xl border-2 px-4 py-3 text-left transition-all ${
+                                        formData.billingCycle === "monthly"
+                                          ? "border-neutral-900 bg-neutral-900 text-white shadow-md"
+                                          : "border-neutral-200 bg-white hover:border-neutral-300 text-neutral-800"
+                                      }`}
+                                    >
+                                      <p className="text-sm font-bold">Monthly</p>
+                                      <p
+                                        className={`text-[11px] mt-1 ${
+                                          formData.billingCycle === "monthly"
+                                            ? "text-neutral-300"
+                                            : "text-neutral-500"
+                                        }`}
+                                      >
+                                        28-day billing cycle
+                                      </p>
+                                    </button>
                                   </div>
                                 </div>
                               </div>
@@ -1278,8 +1369,15 @@ export default function PackagesPage() {
                                     {formData.name || "Package Name"}
                                   </h3>
                                   <div className={`text-3xl font-extrabold bg-gradient-to-r ${selectedColor.gradient} bg-clip-text text-transparent`}>
-                                    {formData.priceLabel || "AU$0/mo"}
+                                    {formData.priceLabel || "AU$0/28-day"}
                                   </div>
+                                  <p className="text-[11px] font-semibold text-neutral-600 mt-1">
+                                    {billingCycleCardLabel({
+                                      billingCycle: formData.billingCycle,
+                                      validityDays:
+                                        formData.billingCycle === "weekly" ? 5 : 28,
+                                    })}
+                                  </p>
                                   <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-500 mt-2">
                                     <span className="flex items-center gap-1">
                                       <i className="fas fa-building text-[9px]" />
@@ -1340,6 +1438,17 @@ export default function PackagesPage() {
                                   <span className="text-neutral-500">Key: <span className="font-mono font-bold text-neutral-800">{formData.plan_key}</span></span>
                                 </div>
                               )}
+                              <div className="flex items-center gap-2.5 text-[11px]">
+                                <div className="w-2 h-2 rounded-full bg-sky-500" />
+                                <span className="text-neutral-500">
+                                  Renewal:{" "}
+                                  <span className="font-semibold text-neutral-800">
+                                    {formData.billingCycle === "weekly"
+                                      ? "5-day cycle"
+                                      : "28-day cycle"}
+                                  </span>
+                                </span>
+                              </div>
                               {formData.popular && (
                                 <div className="flex items-center gap-2.5 text-[11px]">
                                   <div className="w-2 h-2 rounded-full bg-amber-500" />
@@ -1418,6 +1527,7 @@ export default function PackagesPage() {
                         <div className="bg-neutral-50 rounded-xl p-4">
                           <p className="font-semibold text-neutral-900">{deletingPackage.name}</p>
                           <p className="text-sm text-neutral-500">{deletingPackage.priceLabel}</p>
+                          <p className="text-xs text-neutral-600 font-medium">{billingCycleCardLabel(deletingPackage)}</p>
                         </div>
                         <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
                           <div className="flex items-start gap-2">
@@ -1568,9 +1678,10 @@ export default function PackagesPage() {
                                       )}
                                     </div>
                                     <h4 className="text-lg font-bold text-neutral-900 mb-1">{plan.name}</h4>
-                                    <div className="mb-2">
+                                    <div className="mb-1">
                                       <span className="text-3xl font-bold text-neutral-900">{plan.priceLabel}</span>
                                     </div>
+                                    <p className="text-[10px] font-semibold text-neutral-700 mb-2">{billingCycleCardLabel(plan)}</p>
                                     <div className="text-xs text-neutral-600">
                                       {plan.features.length} {plan.features.length === 1 ? "Feature" : "Features"} included
                                     </div>
@@ -1647,12 +1758,20 @@ export default function PackagesPage() {
                                   <p className="text-xs text-neutral-500 mb-1">Current Plan</p>
                                   <p className="font-semibold text-neutral-900">{currentPlan?.name || "No Plan"}</p>
                                   <p className="text-sm text-neutral-500">{currentPlan?.priceLabel || "—"}</p>
+                                  {currentPlan && (
+                                    <p className="text-[11px] font-medium text-neutral-600 mt-0.5">
+                                      {billingCycleCardLabel(currentPlan)}
+                                    </p>
+                                  )}
                                 </div>
                                 <i className="fas fa-arrow-right text-neutral-400 text-xl mx-4" />
                                 <div>
                                   <p className="text-xs text-neutral-500 mb-1">New Plan</p>
                                   <p className="font-semibold text-neutral-900">{confirmingPlan.name}</p>
                                   <p className="text-sm text-neutral-500">{confirmingPlan.priceLabel}</p>
+                                  <p className="text-[11px] font-medium text-neutral-600 mt-0.5">
+                                    {billingCycleCardLabel(confirmingPlan)}
+                                  </p>
                                 </div>
                               </div>
 

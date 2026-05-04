@@ -8,6 +8,7 @@ import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
 import { generateUniqueSlug } from "@/lib/slug";
+import { billingCycleCardLabel } from "@/lib/subscriptionPlans";
 import { 
   logTenantOnboarded, 
   logTenantDetailsUpdated, 
@@ -134,7 +135,25 @@ export default function TenantsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [packages, setPackages] = useState<Array<{ id: string; name: string; price: number; priceLabel: string; branches: number; staff: number; features: string[]; popular?: boolean; color: string; image?: string; icon?: string; active?: boolean; stripePriceId?: string; trialDays?: number; plan_key?: string }>>([]);
+  const [packages, setPackages] = useState<Array<{
+    id: string;
+    name: string;
+    price: number;
+    priceLabel: string;
+    branches: number;
+    staff: number;
+    features: string[];
+    popular?: boolean;
+    color: string;
+    image?: string;
+    icon?: string;
+    active?: boolean;
+    stripePriceId?: string;
+    trialDays?: number;
+    plan_key?: string;
+    billingCycle?: string;
+    validityDays?: number;
+  }>>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
   const [formBusinessName, setFormBusinessName] = useState("");
@@ -2203,6 +2222,7 @@ onClick={async () => {
                                     )}
                                   </div>
                                   <p className="text-xs text-neutral-400 mt-0.5">{pkg.priceLabel}</p>
+                                  <p className="text-[10px] font-semibold text-neutral-500">{billingCycleCardLabel(pkg)}</p>
                                 </div>
                                 
                                 <div className="flex-shrink-0">

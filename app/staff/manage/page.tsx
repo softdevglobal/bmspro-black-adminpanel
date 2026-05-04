@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { subscribeBranchesForOwner, syncBranchStaffFromSchedule, removeStaffFromAllBranches } from "@/lib/branches";
 import {
   createSalonStaffForOwner as createStaff,
@@ -17,6 +17,10 @@ import { deleteDoc } from "firebase/firestore";
 import WeeklyScheduleSelector, { WeeklySchedule } from "@/components/staff/WeeklyScheduleSelector";
 import { TIMEZONES } from "@/lib/timezone";
 import { subscribeToCheckInsForOwner, StaffCheckInRecord } from "@/lib/staffCheckIn";
+
+/** Shown under the Email field (and optionally as toast) — owner login can’t double as staff */
+const STAFF_OWNER_EMAIL_BLOCKED =
+  "You can’t create a staff login with your workshop owner email. Staff need their own address so everyone has their own password and access.";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -350,11 +354,18 @@ export default function SettingsPage() {
     setEmailError(null);
 
     if (!name || !role || !email || !mobile || !ownerUid) return;
-    
-    // Validate password: Must be exactly 6 digits
-    const passwordDigits = password.replace(/\D/g, ''); // Remove non-digits
+
+    const ownerSnap = await getDoc(doc(db, "users", ownerUid));
+    const ownerEmailFromDoc = String(ownerSnap.data()?.email ?? "").trim().toLowerCase();
+    if (ownerEmailFromDoc && email === ownerEmailFromDoc) {
+      setEmailError(STAFF_OWNER_EMAIL_BLOCKED);
+      showToast(STAFF_OWNER_EMAIL_BLOCKED);
+      return;
+    }
+
+    // Validate password: Must be exactly 6 digits for new staff
+    const passwordDigits = password.replace(/\D/g, ""); // Remove non-digits
     if (!editingStaffId) {
-      // Creating new staff - password is required
       if (!password || passwordDigits.length === 0) {
         setPasswordError("Password is required (6 digits)");
         showToast("Password is required when creating a new staff member (6 digits)");
@@ -415,33 +426,41 @@ export default function SettingsPage() {
               const currentUser = auth.currentUser;
               if (!currentUser) {
                 showToast("You must be logged in to perform this action");
+                setSavingStaff(false);
                 return;
               }
               const token = await currentUser.getIdToken();
+              const body: Record<string, string> = {
+                email,
+                displayName: name,
+                password,
+                ownerUid,
+              };
               const res = await fetch("/api/staff/auth/create", {
                 method: "POST",
                 headers: { 
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${token}`
                 },
-                body: JSON.stringify({ email, displayName: name, password }),
+                body: JSON.stringify(body),
               });
               const json = await res.json();
-              if (res.ok && json?.uid) {
-                newAuthUid = String(json.uid);
-                // Create user doc
-                await setDoc(doc(db, "users", newAuthUid), {
-                  uid: newAuthUid,
-                  email,
-                  displayName: name,
-                  role: systemRole,
-                  ownerUid,
-                  createdAt: serverTimestamp(),
-                  updatedAt: serverTimestamp(),
-                  provider: "password",
-                  status: "Active"
-                });
+              if (!res.ok || !json?.uid) {
+                const code =
+                  typeof json === "object" && json !== null && "code" in json
+                    ? String((json as { code?: unknown }).code ?? "")
+                    : "";
+                if (
+                  code === "owner_email_conflict" ||
+                  code === "workshop_owner_email_conflict"
+                ) {
+                  setEmailError(STAFF_OWNER_EMAIL_BLOCKED);
+                }
+                showToast(json?.error || "Failed to create or link staff account");
+                setSavingStaff(false);
+                return;
               }
+              newAuthUid = String(json.uid);
            } catch (err) {
              console.error("Failed to generate auth for existing staff", err);
            }
@@ -479,7 +498,7 @@ export default function SettingsPage() {
           await syncBranchStaffFromSchedule(newAuthUid, finalSchedule, oldSchedule, ownerUid);
           
           // Send welcome email if auth credentials were just created for this staff member
-          if (password && newAuthUid) {
+          if (password && newAuthUid && newAuthUid !== ownerUid) {
             try {
               // Get workshop name
               let workshopName: string | undefined;
@@ -617,6 +636,7 @@ export default function SettingsPage() {
           const currentUser = auth.currentUser;
           if (!currentUser) {
             showToast("You must be logged in to perform this action");
+            setSavingStaff(false);
             return;
           }
           const token = await currentUser.getIdToken();
@@ -626,24 +646,30 @@ export default function SettingsPage() {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${token}`
             },
-            body: JSON.stringify({ email, displayName: name, password }),
-          });
-          const json = await res.json();
-          if (res.ok && json?.uid) {
-            authUid = String(json.uid);
-            // Create the actual user document in 'users' collection so they can login with correct role
-            await setDoc(doc(db, "users", authUid), {
-              uid: authUid,
+            body: JSON.stringify({
               email,
               displayName: name,
-              role: systemRole, // staff or branch_admin
+              password,
               ownerUid,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-              provider: "password",
-              status: "Active"
-            });
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok || !json?.uid) {
+            const code =
+              typeof json === "object" && json !== null && "code" in json
+                ? String((json as { code?: unknown }).code ?? "")
+                : "";
+            if (
+              code === "owner_email_conflict" ||
+              code === "workshop_owner_email_conflict"
+            ) {
+              setEmailError(STAFF_OWNER_EMAIL_BLOCKED);
+            }
+            showToast(json?.error || "Failed to create or link staff account");
+            setSavingStaff(false);
+            return;
           }
+          authUid = String(json.uid);
         } catch (err) {
           console.error("Failed to create auth user", err);
         }
@@ -680,7 +706,7 @@ export default function SettingsPage() {
           }
           
           // Send welcome email to new staff member
-          if (!editingStaffId && password) {
+          if (!editingStaffId && password && authUid !== ownerUid) {
             try {
               // Get workshop name
               let workshopName: string | undefined;
@@ -1580,7 +1606,9 @@ export default function SettingsPage() {
                       }}
                     />
                     {emailError && (
-                      <p className="text-[10px] text-red-600 mt-1">{emailError}</p>
+                      <p className="text-xs text-red-600 mt-1.5 leading-snug">
+                        {emailError}
+                      </p>
                     )}
                   </div>
                   <div>
@@ -1846,6 +1874,15 @@ export default function SettingsPage() {
               
               {/* Footer with Submit Button */}
               <div className="p-3 sm:p-4 bg-neutral-50 border-t border-neutral-200 rounded-b-xl shrink-0">
+                {!editingStaffId && (
+                  <div
+                    role="note"
+                    className="mb-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-snug text-amber-950"
+                  >
+                    <i className="fas fa-user-lock mt-0.5 shrink-0 text-amber-600" aria-hidden />
+                    <span>{STAFF_OWNER_EMAIL_BLOCKED}</span>
+                  </div>
+                )}
                 <button
                   type="submit"
                   disabled={savingStaff}

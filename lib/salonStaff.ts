@@ -63,29 +63,37 @@ export async function createSalonStaffForOwner(ownerUid: string, data: SalonStaf
     throw new Error("authUid is required to create a staff member in the users table.");
   }
 
+  if (data.authUid === ownerUid) {
+    throw new Error(
+      "The salon owner's account cannot be onboarded as staff. Use another email address."
+    );
+  }
+
+  const systemRole = data.systemRole || "staff";
+
   await setDoc(doc(db, "users", data.authUid), {
     uid: data.authUid,
     email: data.email || null,
     displayName: data.name,
     name: data.name, // Keep 'name' for compatibility with staff views
-    role: data.systemRole || "staff", // 'role' in users table is the system role
-    staffRole: data.role, // 'staffRole' stores the job title (e.g. "Therapist")
-    
+    role: systemRole,
+    staffRole: data.role,
+
     ownerUid,
     branchId: data.branchId,
     branchName: data.branchName,
-    timezone: data.timezone || null, // Store timezone (especially for branch admins)
+    timezone: data.timezone || null,
     status: data.status || "Active",
     avatar: data.avatar || data.name,
     training: data.training || { ohs: false, prod: false, tool: false },
-    authUid: data.authUid, // Redundant but keeps schema consistent if UI expects it
-    systemRole: data.systemRole || "staff",
+    authUid: data.authUid,
+    systemRole,
     weeklySchedule: data.weeklySchedule || null,
     mobile: data.mobile || null,
-    
+
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-    provider: "password", // Assumed
+    provider: "password",
   });
 
   // Audit log for staff creation
@@ -113,13 +121,27 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
   const staffRef = doc(db, "users", staffId);
   const staffSnap = await getDoc(staffRef);
   const currentData = staffSnap.data();
+
+  const ownerKey = ownerUid ?? currentData?.ownerUid;
+  if (
+    ownerKey &&
+    staffId === ownerKey &&
+    currentData?.role === "workshop_owner"
+  ) {
+    throw new Error(
+      "Salon owners cannot be updated from staff management. Use account settings instead."
+    );
+  }
   
   // Map staff-specific fields to user schema if necessary
   const updatePayload: any = { ...data, updatedAt: serverTimestamp() };
   
   if (data.name) updatePayload.displayName = data.name;
   if (data.role) updatePayload.staffRole = data.role; // Update job title
-  if (data.systemRole) updatePayload.role = data.systemRole; // Update system access level
+  if (data.systemRole !== undefined && data.systemRole !== null) {
+    updatePayload.systemRole = data.systemRole;
+    updatePayload.role = data.systemRole;
+  }
   if (data.timezone !== undefined) updatePayload.timezone = data.timezone; // Update timezone
   if (data.branchId !== undefined) updatePayload.branchId = data.branchId; // Update branch assignment
   if (data.branchName !== undefined) updatePayload.branchName = data.branchName; // Update branch name
@@ -246,6 +268,15 @@ export async function deleteSalonStaff(staffId: string, ownerUid?: string) {
   const staffName = staffData?.name || staffData?.displayName || "Unknown Staff";
   const staffOwnerUid = ownerUid || staffData?.ownerUid || "";
 
+  if (
+    staffData?.role === "workshop_owner" &&
+    staffId === staffOwnerUid
+  ) {
+    throw new Error(
+      "Cannot delete the salon owner account from staff management."
+    );
+  }
+
   await deleteDoc(staffRef);
 
   // Audit log for staff deletion
@@ -276,25 +307,35 @@ export function subscribeSalonStaffForOwner(
     q,
     (snap) => {
       const staffList = snap.docs
+        .filter((d) => {
+          const raw = d.data();
+          const firebaseRole = typeof raw.role === "string" ? raw.role : "";
+          if (firebaseRole === "workshop_owner") return false;
+          const sr = typeof raw.systemRole === "string" ? raw.systemRole : "";
+          return (
+            ["staff", "branch_admin"].includes(firebaseRole) ||
+            ["staff", "branch_admin"].includes(sr)
+          );
+        })
         .map((d) => {
           const data = d.data();
-          return { 
-            id: d.id, 
+          const firebaseRole =
+            typeof data.role === "string" ? data.role : "";
+          const systemRoleForUi =
+            typeof data.systemRole === "string" && data.systemRole
+              ? data.systemRole
+              : firebaseRole;
+          return {
+            id: d.id,
             ...data,
-            // Ensure authUid is available (should match doc.id for properly created staff)
             authUid: data.authUid || data.uid || d.id,
             uid: data.uid || data.authUid || d.id,
-            // Ensure compatibility with UI which expects 'name' and 'role' (job title)
             name: data.displayName || data.name || "Unknown",
-            role: data.staffRole || data.role || "Staff", // prioritize job title, fallback to system role
-            systemRole: data.role // 'role' field in users is the system role
-          }; 
-        })
-        // Filter out non-staff if necessary (e.g. customers if they have ownerUid?)
-        // Assuming customers don't have ownerUid or are in a different collection/structure.
-        // We only want staff-like roles.
-        .filter(u => ["staff", "branch_admin"].includes(u.systemRole as string));
-      
+            role: data.staffRole || "Staff",
+            systemRole: systemRoleForUi,
+          };
+        });
+
       onChange(staffList);
     },
     (error) => {
@@ -369,7 +410,7 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
     }
   }
   
-  const updatePayload: any = {
+  const updatePayload: Record<string, unknown> = {
     role: "branch_admin",
     systemRole: "branch_admin",
     updatedAt: serverTimestamp(),

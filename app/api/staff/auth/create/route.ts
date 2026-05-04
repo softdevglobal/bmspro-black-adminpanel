@@ -70,33 +70,58 @@ export async function POST(req: NextRequest) {
     let uid: string;
 
     try {
-      // Check if user already exists
       const existingUser = await auth.getUserByEmail(email.trim().toLowerCase());
       uid = existingUser.uid;
-      
-      // Security: Verify the existing user belongs to the same salon
+
+      const salonOwnerUid = userData.ownerUid;
       const existingUserDoc = await adminDb().doc(`users/${uid}`).get();
-      if (existingUserDoc.exists) {
-        const existingUserData = existingUserDoc.data();
-        // If user has an ownerUid and it doesn't match, deny
-        if (existingUserData?.ownerUid && existingUserData.ownerUid !== userData.ownerUid) {
+      const existingUserData = existingUserDoc.exists ? existingUserDoc.data() : null;
+
+      // Never onboard staff onto the salon owner's auth account — same email must be rejected
+      if (salonOwnerUid && uid === salonOwnerUid) {
+        return NextResponse.json(
+          {
+            error:
+              "You can\u2019t create a staff login with your workshop owner email. Staff need their own address so everyone has their own password and access.",
+            code: "owner_email_conflict",
+          },
+          { status: 403 }
+        );
+      }
+
+      if (
+        existingUserData?.role === "workshop_owner" &&
+        salonOwnerUid &&
+        (existingUserData.ownerUid === salonOwnerUid || uid === salonOwnerUid)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "You can\u2019t create a staff login with your workshop owner email. Staff need their own address so everyone has their own password and access.",
+            code: "workshop_owner_email_conflict",
+          },
+          { status: 403 }
+        );
+      }
+
+      if (existingUserData) {
+        if (existingUserData.ownerUid && existingUserData.ownerUid !== salonOwnerUid) {
           return NextResponse.json(
             { error: "This email is already associated with another salon" },
             { status: 403 }
           );
         }
       }
-      
-      // If user exists, update password if provided, and ensure account is enabled
-      const updateData: any = {
+
+      const updateData: Record<string, unknown> = {
         disabled: false,
         displayName: displayName || existingUser.displayName,
         emailVerified: false,
       };
-      if (password && password.length >= 6) {
+      if (password && typeof password === "string" && password.length >= 6) {
         updateData.password = password;
       }
-      
+
       await auth.updateUser(uid, updateData);
 
     } catch (error: any) {
@@ -140,17 +165,15 @@ export async function POST(req: NextRequest) {
         throw error;
       }
     }
-    
-    // Revoke existing sessions
+
     try {
       await auth.revokeRefreshTokens(uid);
-    } catch (revokeError) {
+    } catch {
       console.log("Could not revoke tokens (may not exist)");
     }
 
-    // Return the created staff's ownerUid so the client knows which salon they belong to
-    return NextResponse.json({ 
-      uid, 
+    return NextResponse.json({
+      uid,
       ownerUid: userData.ownerUid,
       createdBy: userData.uid,
     }, { status: 200 });

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { TIMEZONES } from "@/lib/timezone";
+import { billingCycleCardLabel } from "@/lib/subscriptionPlans";
 
 interface Package {
   id: string;
@@ -18,9 +19,11 @@ interface Package {
   color: string;
   image?: string;
   trialDays?: number;
-  plan_key?: string;
+  plan_key?: string | null;
   active?: boolean;
   hidden?: boolean;
+  billingCycle?: "weekly" | "monthly";
+  validityDays?: number;
 }
 
 export default function SignupPage() {
@@ -798,11 +801,15 @@ export default function SignupPage() {
                           </p>
 
                           {/* Price */}
-                          <div className="flex items-baseline gap-1 mb-5">
-                            <span className={`text-3xl font-extrabold tracking-tight ${isSelected ? "text-white" : "text-neutral-900"}`}>
-                              {pkg.priceLabel?.replace('/mo', '')}
-                            </span>
-                            <span className={`text-sm font-medium ${isSelected ? "text-neutral-400" : "text-neutral-400"}`}>/mo</span>
+                          <div className="mb-5">
+                            <div className="flex items-baseline gap-1">
+                              <span className={`text-3xl font-extrabold tracking-tight ${isSelected ? "text-white" : "text-neutral-900"}`}>
+                                {pkg.priceLabel}
+                              </span>
+                            </div>
+                            <p className={`text-xs font-semibold mt-2 ${isSelected ? "text-neutral-300" : "text-neutral-600"}`}>
+                              {billingCycleCardLabel(pkg)}
+                            </p>
                           </div>
 
                           {/* Limits */}

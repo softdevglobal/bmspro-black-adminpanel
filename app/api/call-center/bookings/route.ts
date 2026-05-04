@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
+  canAccessWorkshop,
   getTenantId,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
@@ -45,6 +46,80 @@ export async function OPTIONS() {
 const BOOKINGS_LIST_BATCH_SIZE = 500;
 /** Optional cap when client passes limit=N (avoids accidental huge values). */
 const BOOKINGS_LIST_MAX_EXPLICIT_LIMIT = 50_000;
+/** Firestore `in` clause max discrete values */
+const FIRESTORE_OWNER_IN_MAX = 30;
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+}
+
+function createdAtSortMs(data: FirebaseFirestore.DocumentData): number {
+  const c = data?.createdAt as FirebaseFirestore.Timestamp | undefined;
+  if (c && typeof c.toMillis === "function") return c.toMillis();
+  const sec =
+    c && typeof (c as { seconds?: unknown }).seconds === "number"
+      ? (c as { seconds: number }).seconds
+      : NaN;
+  if (Number.isFinite(sec)) return sec * 1000;
+  return 0;
+}
+
+function buildBookingsListBaseQuery(
+  db: FirebaseFirestore.Firestore,
+  opts: {
+    ownerUidEq?: string;
+    ownerUidsIn?: string[];
+    filterDate: string | null;
+    filterBranchId: string | null;
+  }
+): FirebaseFirestore.Query {
+  let q: FirebaseFirestore.Query = db.collection("bookings");
+  if (opts.ownerUidEq) {
+    q = q.where("ownerUid", "==", opts.ownerUidEq);
+  } else if (opts.ownerUidsIn && opts.ownerUidsIn.length > 0) {
+    if (opts.ownerUidsIn.length === 1) {
+      q = q.where("ownerUid", "==", opts.ownerUidsIn[0]);
+    } else {
+      q = q.where("ownerUid", "in", opts.ownerUidsIn);
+    }
+  }
+  if (opts.filterDate) {
+    q = q.where("date", "==", opts.filterDate);
+  }
+  if (opts.filterBranchId) {
+    q = q.where("branchId", "==", opts.filterBranchId);
+  }
+  return q.orderBy("createdAt", "desc");
+}
+
+async function paginateBookingsQuery(
+  orderedQuery: FirebaseFirestore.Query,
+  fetchAll: boolean,
+  explicitLimit: number | null
+): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+  if (fetchAll) {
+    const listDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    let last: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+    while (true) {
+      let paged = orderedQuery.limit(BOOKINGS_LIST_BATCH_SIZE);
+      if (last) {
+        paged = paged.startAfter(last);
+      }
+      const snap = await paged.get();
+      if (snap.empty) break;
+      listDocs.push(...snap.docs);
+      last = snap.docs[snap.docs.length - 1];
+      if (snap.docs.length < BOOKINGS_LIST_BATCH_SIZE) break;
+    }
+    return listDocs;
+  }
+  const snap = await orderedQuery.limit(explicitLimit!).get();
+  return snap.docs;
+}
 
 /**
  * GET /api/call-center/bookings?ownerUid=X&status=Confirmed&date=2026-03-31&customerId=X&limit=100
@@ -52,6 +127,11 @@ const BOOKINGS_LIST_MAX_EXPLICIT_LIMIT = 50_000;
  * List bookings for a workshop with optional filters.
  * By default returns every matching Firestore row (loaded in batches server-side).
  * Pass limit=N to return at most N rows (max BOOKINGS_LIST_MAX_EXPLICIT_LIMIT).
+ *
+ * **`ownerUid` optional for `super_admin` and call-center agents:**
+ * Omit `ownerUid` (and `X-Tenant-Id`) to list bookings across tenants — super admins see all workshops;
+ * unscoped agents (no assigned workshops, or CC admin) see every booking; scoped agents merge all
+ * assigned workshops. Salon staff (`workshop_owner` / `branch_admin`) must always pass `ownerUid`.
  */
 export async function GET(req: NextRequest) {
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
@@ -62,20 +142,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const ownerUid = getTenantId(req);
-  if (!ownerUid) {
-    return NextResponse.json(
-      { error: "Missing ownerUid" },
-      { status: 400, headers: CORS_HEADERS }
-    );
-  }
-
-  if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
-    return NextResponse.json(
-      { error: "Access denied" },
-      { status: 403, headers: CORS_HEADERS }
-    );
-  }
+  const tenantParamRaw = getTenantId(req)?.trim();
+  const tenantPresent = !!(tenantParamRaw && tenantParamRaw.length > 0);
 
   const filterStatus = req.nextUrl.searchParams.get("status");
   const filterDate = req.nextUrl.searchParams.get("date");
@@ -100,39 +168,88 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = adminDb();
-
-    let query: FirebaseFirestore.Query = db
-      .collection("bookings")
-      .where("ownerUid", "==", ownerUid);
-
-    if (filterDate) {
-      query = query.where("date", "==", filterDate);
-    }
-
-    if (filterBranchId) {
-      query = query.where("branchId", "==", filterBranchId);
-    }
-
-    query = query.orderBy("createdAt", "desc");
-
     let listDocs: FirebaseFirestore.QueryDocumentSnapshot[];
-    if (fetchAll) {
-      listDocs = [];
-      let last: FirebaseFirestore.QueryDocumentSnapshot | undefined;
-      while (true) {
-        let paged = query.limit(BOOKINGS_LIST_BATCH_SIZE);
-        if (last) {
-          paged = paged.startAfter(last);
+
+    const auth = gate.auth;
+    const filterOpts = { filterDate, filterBranchId };
+
+    /** Single-tenant booking list (equality on ownerUid) */
+    async function docsForTenant(tid: string): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+      const q = buildBookingsListBaseQuery(db, {
+        ownerUidEq: tid,
+        ...filterOpts,
+      });
+      return paginateBookingsQuery(q, fetchAll, explicitLimit);
+    }
+
+    /** All tenants (no ownerUid constraint in query) — super_admin / global agents only */
+    async function docsAllTenants(): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+      const q = buildBookingsListBaseQuery(db, { ...filterOpts });
+      return paginateBookingsQuery(q, fetchAll, explicitLimit);
+    }
+
+    /** Agent with explicit workshop roster: merge chunked `ownerUid in` queries, then sort & optional slice */
+    async function docsMergedWorkshops(ownerUids: string[]): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+      const chunks = chunkArray(ownerUids, FIRESTORE_OWNER_IN_MAX);
+      const merged: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+      for (const ids of chunks) {
+        const q = buildBookingsListBaseQuery(db, { ownerUidsIn: ids, ...filterOpts });
+        merged.push(...(await paginateBookingsQuery(q, true, null)));
+      }
+      const byId = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+      for (const d of merged) {
+        byId.set(d.id, d);
+      }
+      let out = Array.from(byId.values()).sort(
+        (a, b) => createdAtSortMs(b.data()) - createdAtSortMs(a.data())
+      );
+      if (!fetchAll && explicitLimit != null) {
+        out = out.slice(0, explicitLimit);
+      }
+      return out;
+    }
+
+    if (auth.kind === "tenant_admin" && !auth.isSuperAdmin) {
+      // workshop_owner / branch_admin — must scope to tenant
+      if (!tenantPresent) {
+        return NextResponse.json(
+          {
+            error:
+              "Missing ownerUid: send X-Tenant-Id header or ?ownerUid= when listing bookings as salon staff.",
+          },
+          { status: 400, headers: CORS_HEADERS }
+        );
+      }
+      if (!tenantParamRaw || !canAccessWorkshopForAuth(auth, tenantParamRaw)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403, headers: CORS_HEADERS });
+      }
+      listDocs = await docsForTenant(tenantParamRaw);
+    } else if (auth.kind === "tenant_admin" && auth.isSuperAdmin) {
+      if (tenantPresent) {
+        if (!tenantParamRaw || !canAccessWorkshopForAuth(auth, tenantParamRaw)) {
+          return NextResponse.json({ error: "Access denied" }, { status: 403, headers: CORS_HEADERS });
         }
-        const snap = await paged.get();
-        if (snap.empty) break;
-        listDocs.push(...snap.docs);
-        last = snap.docs[snap.docs.length - 1];
-        if (snap.docs.length < BOOKINGS_LIST_BATCH_SIZE) break;
+        listDocs = await docsForTenant(tenantParamRaw);
+      } else {
+        listDocs = await docsAllTenants();
+      }
+    } else if (gate.auth.kind === "agent") {
+      const agent = gate.auth.user;
+      if (tenantPresent) {
+        if (!tenantParamRaw || !canAccessWorkshop(agent, tenantParamRaw)) {
+          return NextResponse.json({ error: "Access denied" }, { status: 403, headers: CORS_HEADERS });
+        }
+        listDocs = await docsForTenant(tenantParamRaw);
+      } else {
+        const globalAgent = agent.isCCAdmin || agent.assignedWorkshops.length === 0;
+        if (globalAgent) {
+          listDocs = await docsAllTenants();
+        } else {
+          listDocs = await docsMergedWorkshops(agent.assignedWorkshops);
+        }
       }
     } else {
-      const snap = await query.limit(explicitLimit!).get();
-      listDocs = snap.docs;
+      listDocs = [];
     }
 
     const bookings: any[] = [];
@@ -158,6 +275,7 @@ export async function GET(req: NextRequest) {
       bookings.push({
         id: doc.id,
         bookingCode: d.bookingCode || "",
+        ownerUid: d.ownerUid || "",
         status,
         date: d.date || "",
         time: d.time || "",

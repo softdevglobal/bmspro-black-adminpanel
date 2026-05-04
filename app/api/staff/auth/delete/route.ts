@@ -73,19 +73,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Get staff data before deletion for audit log
-    let staffDisplayName = staffName || "Unknown Staff";
-    
-    try {
-      const db = adminDb();
-      const userDoc = await db.doc(`users/${targetUid}`).get();
-      const staffData = userDoc.data();
-      if (staffData) {
-        staffDisplayName = staffData.name || staffData.displayName || staffDisplayName;
-      }
-    } catch (e) {
-      // Continue with provided data
+    const db = adminDb();
+    const targetUserDoc = await db.doc(`users/${targetUid}`).get();
+    const targetUserData = targetUserDoc.data();
+    if (targetUserData?.role === "workshop_owner" && !userData.isSuperAdmin) {
+      return NextResponse.json(
+        {
+          error:
+            "Salon owners cannot be deleted from staff management. Remove their staff profile from account settings if needed.",
+        },
+        { status: 403 }
+      );
     }
+
+    const staffDisplayName =
+      staffName ||
+      targetUserData?.name ||
+      targetUserData?.displayName ||
+      "Unknown Staff";
 
     // Delete the user from Firebase Auth
     try {

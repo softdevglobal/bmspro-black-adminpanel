@@ -53,6 +53,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const db = adminDb();
+    const targetDoc = await db.doc(`users/${uid}`).get();
+    const targetData = targetDoc.data();
+    if (targetData?.role === "workshop_owner" && !userData.isSuperAdmin) {
+      return NextResponse.json(
+        {
+          error:
+            "Salon owners cannot be suspended from staff management.",
+        },
+        { status: 403 }
+      );
+    }
+
     // Security: Prevent users from suspending themselves
     if (uid === userData.uid) {
       return NextResponse.json(

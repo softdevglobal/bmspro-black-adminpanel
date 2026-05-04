@@ -13,7 +13,12 @@
  */
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { apnsAlertConfig, normalizeFcmData } from "@/lib/fcmIosHelpers";
-import { FieldValue, Timestamp, type DocumentData } from "firebase-admin/firestore";
+import {
+  FieldValue,
+  Timestamp,
+  type DocumentData,
+  type QueryDocumentSnapshot,
+} from "firebase-admin/firestore";
 import type { Message } from "firebase-admin/messaging";
 
 export type SupportChatRole = "owner" | "branch_admin" | "staff";
@@ -204,8 +209,11 @@ export function agentCanReadSupportConversation(params: {
   agentUid: string;
   isCCAdmin: boolean;
   assignedWorkshops: string[];
+  /** BMS platform super_admin: may read every support thread (oversight dashboards). */
+  viewerIsSuperAdmin?: boolean;
 }): boolean {
-  const { convo, agentUid, isCCAdmin, assignedWorkshops } = params;
+  const { convo, agentUid, isCCAdmin, assignedWorkshops, viewerIsSuperAdmin } = params;
+  if (viewerIsSuperAdmin) return true;
   if (convo.status === "waiting") {
     return workspaceMatchesAgentAssignments(convo.ownerUid, isCCAdmin, assignedWorkshops);
   }
@@ -326,6 +334,55 @@ export async function listSupportAgentConversationBuckets(params: {
 }
 
 /**
+ * Super admin oversight: newest conversations first across all workshops. `mine` carries
+ * connected/closed threads (anything not waiting) regardless of assigning agent.
+ */
+export async function listSupportSuperAdminBuckets(params: {
+  queueLimit: number;
+  mineLimit: number;
+}): Promise<{ queue: SupportConversation[]; mine: SupportConversation[] }> {
+  const db = adminDb();
+  const ql = Math.max(1, Math.min(params.queueLimit, 100));
+  const ml = Math.max(1, Math.min(params.mineLimit, 100));
+  const fetchLim = Math.min(500, ql + ml + 100);
+
+  const partitionSorted = (
+    docs: QueryDocumentSnapshot<DocumentData>[],
+  ): { queue: SupportConversation[]; mine: SupportConversation[] } => {
+    const queue: SupportConversation[] = [];
+    const mine: SupportConversation[] = [];
+    for (const doc of docs) {
+      const c = parseConversationSnapshot(doc.id, doc.data());
+      if (c.status === "waiting") {
+        if (queue.length < ql) queue.push(c);
+      } else if (mine.length < ml) mine.push(c);
+      if (queue.length >= ql && mine.length >= ml) break;
+    }
+    return { queue, mine };
+  };
+
+  try {
+    const snap = await db
+      .collection(CONVERSATIONS)
+      .orderBy("lastMessageAt", "desc")
+      .limit(fetchLim)
+      .get();
+    return partitionSorted(snap.docs);
+  } catch {
+    const cap = Math.min(800, Math.max(fetchLim * 6, 200));
+    const snap = await db.collection(CONVERSATIONS).limit(cap).get();
+    const sorted = [...snap.docs].sort((a, b) => {
+      const ca = parseConversationSnapshot(a.id, a.data());
+      const cb = parseConversationSnapshot(b.id, b.data());
+      const ta = ca.lastMessageAt?.toMillis?.() ?? 0;
+      const tb = cb.lastMessageAt?.toMillis?.() ?? 0;
+      return tb - ta;
+    });
+    return partitionSorted(sorted);
+  }
+}
+
+/**
  * Paginated messages (newest first). Pass `before` = message id of the oldest item from the
  * previous page to load older messages.
  */
@@ -336,6 +393,8 @@ export async function listSupportMessagesForAgent(params: {
   assignedWorkshops: string[];
   limit: number;
   beforeMessageId: string | null;
+  /** When true, bypass agent claim / workspace checks (platform super_admin read-only). */
+  viewerIsSuperAdmin?: boolean;
 }): Promise<{ messages: SupportChatMessageJson[]; nextBefore: string | null }> {
   const convo = await loadConversation(params.conversationId);
   if (!convo) throw httpError(404, "Conversation not found");
@@ -346,6 +405,7 @@ export async function listSupportMessagesForAgent(params: {
       agentUid: params.agentUid,
       isCCAdmin: params.isCCAdmin,
       assignedWorkshops: params.assignedWorkshops,
+      viewerIsSuperAdmin: params.viewerIsSuperAdmin,
     })
   ) {
     throw httpError(403, "You cannot view this conversation");

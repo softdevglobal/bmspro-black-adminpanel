@@ -12,6 +12,7 @@ Authorization: Bearer <firebase_id_token>
 
 - **Workshop app** (owner / branch admin / staff): use routes under `/api/chats/cc/…`.
 - **Call center** (agent): use routes under `/api/call-center/chats/…`.
+- **BMS `super_admin`**: Firebase token from `super_admins/{uid}` (or `users/` with role `super_admin`) can authorize the **`/api/call-center/chats`** GET endpoints for cross-tenant oversight in addition to an agent enrolment (`verifyCallCenterOrTenantAdminAuth` in [`lib/callCenterAuth.ts`](../lib/callCenterAuth.ts)).
 
 ## Firestore shape (read-only from clients)
 
@@ -39,10 +40,10 @@ CORS is enabled for browser tools (`Access-Control-Allow-Origin: *` on these rou
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/call-center/chats?limit=50` | Your assigned threads **plus** unclaimed **queue** requests (`queueStatus: pending`). **Workshop scope:** if `call_center_agents/{uid}.assignedWorkshops` is **empty**, the agent sees **all** pending queue items; if non-empty, only those whose `workshopOwnerUid` is in the list (CC admins still see all). |
+| `GET` | `/api/call-center/chats?limit=50` | Agent: assigned threads plus unclaimed **queue**. **Super admin**: omit `ownerUid`, `tenantId`, and **`X-Tenant-Id`** to list the **latest threads across every workshop**. With `tenantId` / owner header, list stays scoped to that tenant (unchanged). **Workshop scope (agents)** if `call_center_agents/{uid}.assignedWorkshops` is **empty**, pending queue applies to **all** workshops; if non-empty, only matching `workshopOwnerUid`; CC admins see all queues. |
 | `POST` | `/api/call-center/chats/:chatId/claim` | Claim a pending queue chat (body empty). You become `agentUid` on the thread. |
-| `GET` | `/api/call-center/chats/:chatId` | Room metadata (participant, or pending queue for your workshop scope). |
-| `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | List messages. |
+| `GET` | `/api/call-center/chats/:chatId` | Room metadata. **Super admin:** any workshop thread. |
+| `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | Paginate messages. **Super admin:** any thread — read gate skips participant check (`preenacted` path in API route). |
 | `POST` | `/api/call-center/chats/:chatId/messages` | Body: `{ "text": "…" }`. Sends + **FCM** to the workshop user. |
 | `POST` | `/api/call-center/chats/:chatId/read` | Mark messages from the tenant user as read. |
 

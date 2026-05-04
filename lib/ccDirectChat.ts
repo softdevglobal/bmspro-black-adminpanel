@@ -819,6 +819,27 @@ export async function listCcChatsForWorkshop(workshopOwnerUid: string, limit: nu
   return attachDetailsToCcChats(rows, { includeWorkshopUser: true });
 }
 
+/** Most recent CC threads across all workshops (BMS super admin oversight). */
+export async function listCcChatsGlobally(limit: number): Promise<CcChatWithDetails[]> {
+  const db = adminDb();
+  const lim = Math.min(Math.max(1, limit), 100);
+  let rows: ReturnType<typeof serializeCcRoom>[];
+  try {
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .orderBy("lastMessageAt", "desc")
+      .limit(lim)
+      .get();
+    rows = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
+  } catch (e) {
+    if (!isMissingCompositeIndexError(e)) throw e;
+    const scanCap = Math.min(1000, Math.max(lim * 30, 200));
+    const snap = await db.collection(CC_DIRECT_CHATS).limit(scanCap).get();
+    rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
+  }
+  return attachDetailsToCcChats(rows, { includeWorkshopUser: true });
+}
+
 /**
  * For branch_admin / multiple assigned workshops. Fetches in parallel, merges, sorts by `lastMessageAt`, caps at `lim`.
  */

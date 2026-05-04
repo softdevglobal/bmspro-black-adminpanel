@@ -170,7 +170,7 @@ export async function verifyCallCenterOrTenantAdminAuth(
         email: u.email,
         name: u.name,
         ownerUid: u.ownerUid,
-        isSuperAdmin: u.isSuperAdmin,
+        isSuperAdmin: u.isSuperAdmin || u.role === "super_admin",
       },
     };
   }
@@ -211,6 +211,8 @@ export function canAccessCcDirectChatRoom(
   requesterUid: string
 ): boolean {
   if (participantIdList(room).includes(requesterUid)) return true;
+  /** Super admins may read metadata + messages across all workshops / queue threads for oversight. */
+  if (auth.kind === "tenant_admin" && auth.isSuperAdmin) return true;
   if (auth.kind === "agent") {
     if (String(room.queueStatus ?? "") !== "pending") return false;
     const w = String(room.workshopOwnerUid ?? "").trim();
@@ -273,4 +275,42 @@ export function getTenantId(req: NextRequest): string | null {
     req.nextUrl.searchParams.get("tenantId") ||
     null
   );
+}
+
+export type SupportChatViewerAuth =
+  | { kind: "agent"; user: CallCenterUser }
+  | { kind: "super_admin"; uid: string };
+
+/**
+ * Call center agent (`call_center_agents`) OR BMS super_admin (Firestore `super_admins/{uid}`
+ * or `users/{uid}` role `super_admin`) for read-only dashboards that must see support threads
+ * without an agent enrollment row.
+ */
+export async function verifyCallCenterAgentOrSuperAdmin(req: NextRequest): Promise<
+  { ok: false; error: string; status: number } | { ok: true; viewer: SupportChatViewerAuth }
+> {
+  const cc = await verifyCallCenterAuth(req);
+  if (cc.success && cc.user) {
+    return { ok: true, viewer: { kind: "agent", user: cc.user } };
+  }
+
+  const admin = await verifyAdminAuth(req, ["super_admin"]);
+  if (admin.success && admin.userData) {
+    const ud = admin.userData;
+    if (ud.isSuperAdmin || ud.role === "super_admin") {
+      return { ok: true, viewer: { kind: "super_admin", uid: ud.uid } };
+    }
+  }
+
+  const fallbackStatus =
+    cc.status === 401 || admin.status === 401
+      ? 401
+      : [cc.status, admin.status].find((x): x is number => typeof x === "number" && Number.isFinite(x)) ?? 403;
+  const error =
+    cc.status === 401
+      ? cc.error || admin.error || "Unauthorized"
+      : admin.error ??
+        cc.error ??
+        "Require call center agent session or super_admin Authorization token.";
+  return { ok: false, error: error || "Forbidden", status: fallbackStatus };
 }

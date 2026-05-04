@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { CORS_HEADERS, verifyCallCenterAuth } from "@/lib/callCenterAuth";
+import {
+  CORS_HEADERS,
+  verifyCallCenterAgentOrSuperAdmin,
+  verifyCallCenterAuth,
+} from "@/lib/callCenterAuth";
 import {
   agentSendMessage,
   listSupportMessagesForAgent,
@@ -16,22 +20,26 @@ export async function OPTIONS() {
 /**
  * GET /api/support-chat/agent/conversations/{conversationId}/messages?limit=40&before=<messageId>
  * Newest-first; `before` returns older messages after that cursor.
+ *
+ * **`super_admin`:** same Bearer as BMS super admin — full read across all support threads (oversight).
  */
 export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ conversationId: string }> },
 ) {
-  const auth = await verifyCallCenterAuth(req);
-  if (!auth.success || !auth.user) {
+  const viewerGate = await verifyCallCenterAgentOrSuperAdmin(req);
+  if (!viewerGate.ok) {
     return NextResponse.json(
-      { error: auth.error },
-      { status: auth.status || 401, headers: CORS_HEADERS },
+      { error: viewerGate.error },
+      { status: viewerGate.status, headers: CORS_HEADERS },
     );
   }
   const { conversationId } = await ctx.params;
 
   try {
-    await loadAgentProfile(auth.user.uid);
+    if (viewerGate.viewer.kind === "agent") {
+      await loadAgentProfile(viewerGate.viewer.user.uid);
+    }
   } catch (e: unknown) {
     const status =
       typeof e === "object" && e !== null && "status" in e ? Number((e as { status: number }).status) : 403;
@@ -45,13 +53,23 @@ export async function GET(
   const limitRaw = req.nextUrl.searchParams.get("limit");
   const before = req.nextUrl.searchParams.get("before")?.trim() || null;
   const limit = limitRaw ? parseInt(limitRaw, 10) : 40;
+  const viewerIsSuperAdmin = viewerGate.viewer.kind === "super_admin";
+  const agentUid =
+    viewerGate.viewer.kind === "super_admin"
+      ? viewerGate.viewer.uid
+      : viewerGate.viewer.user.uid;
+  const isCCAdmin =
+    viewerGate.viewer.kind === "super_admin" ? false : viewerGate.viewer.user.isCCAdmin;
+  const assignedWorkshops =
+    viewerGate.viewer.kind === "super_admin" ? [] : viewerGate.viewer.user.assignedWorkshops;
 
   try {
     const out = await listSupportMessagesForAgent({
       conversationId,
-      agentUid: auth.user.uid,
-      isCCAdmin: auth.user.isCCAdmin,
-      assignedWorkshops: auth.user.assignedWorkshops,
+      agentUid,
+      isCCAdmin,
+      assignedWorkshops,
+      viewerIsSuperAdmin,
       limit: Number.isFinite(limit) ? limit : 40,
       beforeMessageId: before,
     });

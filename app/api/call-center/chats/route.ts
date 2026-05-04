@@ -8,6 +8,7 @@ import {
 import {
   type CcChatWithDetails,
   listCcChatsForAgent,
+  listCcChatsGlobally,
   listCcChatsForWorkshop,
   listCcChatsForWorkshopIds,
 } from "@/lib/ccDirectChat";
@@ -47,16 +48,19 @@ export async function GET(req: NextRequest) {
       const scope = workshopListScopeForAuth(auth);
       if (scope.mode === "all") {
         const tenant = getTenantId(req)?.trim();
-        if (!tenant) {
+        if (!tenant && auth.isSuperAdmin) {
+          chats = await listCcChatsGlobally(lim);
+        } else if (!tenant) {
           return NextResponse.json(
             {
               error:
-                "Specify ownerUid, tenantId, or X-Tenant-Id to list chats for a workshop (super admin).",
+                "Specify ownerUid, tenantId, or X-Tenant-Id to list chats for a workshop (super admin), or omit tenant only when authenticated as global super admin to list all chats.",
             },
             { status: 400, headers: CORS_HEADERS }
           );
+        } else {
+          chats = await listCcChatsForWorkshop(tenant, lim);
         }
-        chats = await listCcChatsForWorkshop(tenant, lim);
       } else if (scope.ids.length === 0) {
         chats = [];
       } else {

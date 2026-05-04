@@ -261,6 +261,8 @@ export function workshopListScopeForAuth(
 ): { mode: "all" } | { mode: "ids"; ids: string[] } {
   if (auth.kind === "agent") {
     if (auth.user.isCCAdmin) return { mode: "all" };
+    // Match `canAccessWorkshop` / CC chat: no explicit rows ⇒ operate across all workshops.
+    if (auth.user.assignedWorkshops.length === 0) return { mode: "all" };
     return { mode: "ids", ids: auth.user.assignedWorkshops };
   }
   if (auth.isSuperAdmin) return { mode: "all" };

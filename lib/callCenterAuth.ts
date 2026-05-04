@@ -135,11 +135,15 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
 
 /**
  * Check if an agent has access to a specific workshop (ownerUid).
- * CC admins can access all workshops; agents need explicit assignment.
+ * CC admins can access all workshops. Agents with **`assignedWorkshops` empty**
+ * behave like chat queue/list rules: they may operate across every workshop (dedicated /
+ * unscoped agents). Otherwise the workshop `ownerUid` must be listed in `assignedWorkshops`.
  */
 export function canAccessWorkshop(user: CallCenterUser, ownerUid: string): boolean {
   if (user.isCCAdmin) return true;
   const id = ownerUid.trim();
+  if (!id) return false;
+  if (user.assignedWorkshops.length === 0) return true;
   return user.assignedWorkshops.includes(id);
 }
 

@@ -41,6 +41,7 @@ const WORKSHOP_ALERT_TYPES = new Set([
   "staff_clocked_out",
   "staff_break_started",
   "staff_break_ended",
+  "leave_request_pending",
 ]);
 
 export const useNotifications = () => {

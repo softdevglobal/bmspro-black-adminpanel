@@ -31,6 +31,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isEstimates = pathname?.startsWith("/estimates");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
+  const isLeaveRequests = pathname?.startsWith("/staff/leave-requests");
   const isBilling = pathname?.startsWith("/billing");
   const isSettings = pathname?.startsWith("/settings");
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
@@ -418,7 +419,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>Branch Management</span>
         </Link>
       )}
-        {mounted && role === "workshop_owner" && (
+        {mounted && (role === "workshop_owner" || role === "branch_admin") && (
           <>
             <div
               role="button"
@@ -437,39 +438,56 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             </div>
             {openStaff && (
               <>
-                <Link
-                  href="/staff/manage"
-                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    pathname === "/staff" || pathname?.startsWith("/staff/manage")
-                      ? "bg-neutral-800 text-white"
-                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
-                  }`}
-                >
-                  <i className="fas fa-user-cog w-4" />
-                  <span>Staff Management</span>
-                </Link>
-                <Link
-                  href="/staff/attendance"
-                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    pathname === "/staff/attendance"
-                      ? "bg-neutral-800 text-white"
-                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
-                  }`}
-                >
-                  <i className="fas fa-map-location-dot w-4" />
-                  <span>Attendance & GPS</span>
-                </Link>
-                <Link
-                  href="/staff/timesheets"
-                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    pathname === "/staff/timesheets"
-                      ? "bg-neutral-800 text-white"
-                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
-                  }`}
-                >
-                  <i className="fas fa-clock w-4" />
-                  <span>Timesheets</span>
-                </Link>
+                {role === "workshop_owner" && (
+                  <>
+                    <Link
+                      href="/staff/manage"
+                      className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                        pathname === "/staff" || (pathname?.startsWith("/staff/manage") && !isLeaveRequests)
+                          ? "bg-neutral-800 text-white"
+                          : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                      }`}
+                    >
+                      <i className="fas fa-user-cog w-4" />
+                      <span>Staff Management</span>
+                    </Link>
+                    <Link
+                      href="/staff/attendance"
+                      className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                        pathname === "/staff/attendance"
+                          ? "bg-neutral-800 text-white"
+                          : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                      }`}
+                    >
+                      <i className="fas fa-map-location-dot w-4" />
+                      <span>Attendance & GPS</span>
+                    </Link>
+                    <Link
+                      href="/staff/timesheets"
+                      className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                        pathname === "/staff/timesheets"
+                          ? "bg-neutral-800 text-white"
+                          : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                      }`}
+                    >
+                      <i className="fas fa-clock w-4" />
+                      <span>Timesheets</span>
+                    </Link>
+                  </>
+                )}
+                {(role === "workshop_owner" || role === "branch_admin") && (
+                  <Link
+                    href="/staff/leave-requests"
+                    className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                      isLeaveRequests
+                        ? "bg-neutral-800 text-white"
+                        : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                    }`}
+                  >
+                    <i className="fas fa-umbrella-beach w-4" />
+                    <span>Leave requests</span>
+                  </Link>
+                )}
               </>
             )}
           </>

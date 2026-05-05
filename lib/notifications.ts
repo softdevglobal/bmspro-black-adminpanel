@@ -19,7 +19,9 @@ export type StaffNotificationType =
   | "staff_unassigned"      // Staff was removed from a booking (reassigned to someone else)
   | "additional_issue_accepted"   // Customer accepted additional work - staff can proceed
   | "additional_issue_rejected"   // Admin rejected additional work - staff sees it in app
-  | "additional_issue_customer_rejected";  // Customer declined additional work - staff sees it in app
+  | "additional_issue_customer_rejected"  // Customer declined additional work - staff sees it in app
+  | "leave_request_approved"   // Owner approved leave request
+  | "leave_request_denied";    // Owner denied leave request
 
 // Admin-facing notification types
 // NOTE: staff_accepted is NOT sent to admin panel (per business logic).
@@ -43,7 +45,8 @@ export type OwnerNotificationType =
   | "staff_clocked_in"           // Staff clocked on
   | "staff_clocked_out"          // Staff clocked off (manual, suspicious, or auto)
   | "staff_break_started"        // Staff started a break
-  | "staff_break_ended";         // Staff ended a break
+  | "staff_break_ended"          // Staff ended a break
+  | "leave_request_pending";     // Staff/branch admin submitted leave — owner must approve
 
 export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType | OwnerNotificationType;
 

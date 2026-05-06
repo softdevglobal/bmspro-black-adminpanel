@@ -31,16 +31,16 @@ function formatMsgTime(ts: Timestamp | null): string {
 }
 
 function headerSubtitle(latest: LatestConversationRow | null): string {
-  if (!latest) return "We are online";
+  if (!latest) return "Receptionist is online";
   const status = latest.status;
-  if (status === "waiting") return "Connecting you to an agent…";
+  if (status === "waiting") return "Connecting you to a receptionist…";
   if (status === "connected") {
     return latest.agentName.trim()
-      ? `Talking with ${latest.agentName}`
-      : "Connected to support";
+      ? `Chatting with ${latest.agentName}`
+      : "Connected to a receptionist";
   }
   if (status === "closed") return "Chat ended — send a message to start again";
-  return "We are online";
+  return "Receptionist is online";
 }
 
 export default function SupportChatWidget() {
@@ -83,7 +83,7 @@ export default function SupportChatWidget() {
     return () => unsub();
   }, [uid, eligible]);
 
-  /** Live session (not ended by agent). Sending still works after close via new conversation. */
+  /** Live session (not closed by receptionist). Sending still works after close via new conversation. */
   const activeConversation =
     latest && latest.status !== "closed" ? latest : null;
 
@@ -165,14 +165,14 @@ export default function SupportChatWidget() {
         role="dialog"
         aria-modal={open}
         aria-hidden={!open}
-        aria-label="Agent support chat"
+        aria-label="Chat with receptionist"
         className={`chat-box ${open ? "show" : ""}`}
       >
         <div className="chat-header">
           <div className="header-left">
             <div className={statusDotClass} aria-hidden />
             <div>
-              <h3>Agent Support</h3>
+              <h3>Chat with receptionist</h3>
               <p>{subtitle}</p>
             </div>
           </div>
@@ -189,12 +189,12 @@ export default function SupportChatWidget() {
         <div ref={scrollRef} className="chat-body">
           {!latest && (
             <div className="support-message welcome-msg">
-              👋 Hello! How can we help you today?
+              👋 Hi! Message our receptionist if you need anything.
             </div>
           )}
           {latest && messages.length === 0 && latest.status !== "closed" && (
             <div className="support-message welcome-msg">
-              Say hello — a support agent will join shortly.
+              Say hello — a receptionist will reply shortly.
             </div>
           )}
           {latest &&
@@ -264,13 +264,13 @@ export default function SupportChatWidget() {
         data-support-chat-launcher
         className="support-btn"
         onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close agent support" : "Open agent support"}
+        aria-label={open ? "Close receptionist chat" : "Open receptionist chat"}
         aria-expanded={open}
       >
         <div className="icon">
           <MessageCircle size={20} strokeWidth={2} />
         </div>
-        <div className="support-btn-label">Agent Support</div>
+        <div className="support-btn-label">Chat with receptionist</div>
         {!open && unread > 0 ? (
           <span className="unread-badge">{unread > 9 ? "9+" : unread}</span>
         ) : null}
@@ -313,7 +313,7 @@ export default function SupportChatWidget() {
         }
 
         .support-btn:hover {
-          max-width: min(calc(100vw - 40px), 220px);
+          max-width: min(calc(100vw - 40px), 280px);
           background: ${ACCENT_HOVER};
         }
 
@@ -340,7 +340,7 @@ export default function SupportChatWidget() {
         }
 
         .support-btn:hover .support-btn-label {
-          max-width: 140px;
+          max-width: 205px;
           opacity: 1;
           margin-left: 11px;
           transition-delay: 0.08s;

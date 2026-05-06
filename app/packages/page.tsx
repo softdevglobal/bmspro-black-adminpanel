@@ -212,7 +212,7 @@ export default function PackagesPage() {
   };
 
   const billingPeriodSlug = (cycle: "weekly" | "monthly") =>
-    cycle === "weekly" ? "5-day" : "28-day";
+    cycle === "weekly" ? "7-day" : "28-day";
 
   const suggestPriceLabelFromAmount = (
     priceValue: string,
@@ -891,7 +891,7 @@ export default function PackagesPage() {
                                     Renewal period
                                   </label>
                                   <p className="text-[11px] text-neutral-500 mb-3">
-                                    Weekly renews every <strong className="text-neutral-700">5 days</strong>. Monthly renews every <strong className="text-neutral-700">28 days</strong>.
+                                    Weekly renews every <strong className="text-neutral-700">7 days</strong>. Monthly renews every <strong className="text-neutral-700">28 days</strong>.
                                   </p>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <button
@@ -919,7 +919,7 @@ export default function PackagesPage() {
                                             : "text-neutral-500"
                                         }`}
                                       >
-                                        5-day billing cycle
+                                        7-day billing cycle
                                       </p>
                                     </button>
                                     <button
@@ -1375,7 +1375,7 @@ export default function PackagesPage() {
                                     {billingCycleCardLabel({
                                       billingCycle: formData.billingCycle,
                                       validityDays:
-                                        formData.billingCycle === "weekly" ? 5 : 28,
+                                        formData.billingCycle === "weekly" ? 7 : 28,
                                     })}
                                   </p>
                                   <div className="flex items-center justify-center gap-2 text-[11px] text-neutral-500 mt-2">
@@ -1444,7 +1444,7 @@ export default function PackagesPage() {
                                   Renewal:{" "}
                                   <span className="font-semibold text-neutral-800">
                                     {formData.billingCycle === "weekly"
-                                      ? "5-day cycle"
+                                      ? "7-day cycle"
                                       : "28-day cycle"}
                                   </span>
                                 </span>

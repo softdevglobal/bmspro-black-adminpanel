@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
+import { planValidityDays } from "@/lib/subscriptionPlans";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ const getStripe = () => _stripe || (_stripe = new Stripe(process.env.STRIPE_SECR
 
 /**
  * POST /api/billing/upgrade
- * Upgrades subscription immediately - charges now and restarts 28-day cycle
+ * Upgrades subscription immediately - charges now and restarts the new plan's billing cycle
  * 
  * Input: { newPlanId }
  * 
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     const newPlanData = newPlanDoc.data()!;
+    const newPlanValidityDays = planValidityDays(newPlanData);
     if (!newPlanData.price || newPlanData.price <= 0) {
       return NextResponse.json(
         { error: "Plan does not have a valid price" },
@@ -116,7 +118,7 @@ export async function POST(req: NextRequest) {
       unit_amount: Math.round(newPlanData.price * 100), // Convert to cents
       recurring: {
         interval: "day",
-        interval_count: 28, // 28-day billing cycle
+        interval_count: newPlanValidityDays,
       },
       product_data: {
         name: newPlanData.name || "BMS Pro Subscription",

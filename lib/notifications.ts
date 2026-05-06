@@ -46,7 +46,7 @@ export type OwnerNotificationType =
   | "staff_clocked_out"          // Staff clocked off (manual, suspicious, or auto)
   | "staff_break_started"        // Staff started a break
   | "staff_break_ended"          // Staff ended a break
-  | "leave_request_pending";     // Staff/branch admin submitted leave — owner must approve
+  | "leave_request_pending";     // Staff (or branch admin) submitted leave — owner must approve
 
 export type NotificationType = CustomerNotificationType | StaffNotificationType | AdminNotificationType | OwnerNotificationType;
 

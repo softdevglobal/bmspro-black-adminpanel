@@ -390,13 +390,17 @@ export default function NotificationProvider({ children }: NotificationProviderP
           // 1. New booking notifications (if still pending)
           // 2. Staff rejected notifications
           // 3. Not previously dismissed
-          const relevantNotifications = newNotifications.filter((notif) => {
-            // Skip dismissed notifications
-            if (dismissedNotificationIds.has(notif.id)) {
-              return false;
-            }
-            
-            const isNewBooking = 
+            const relevantNotifications = newNotifications.filter((notif) => {
+              // Skip dismissed notifications
+              if (dismissedNotificationIds.has(notif.id)) {
+                return false;
+              }
+
+              if (isBranchAdmin && notif.type === "leave_request_pending") {
+                return false;
+              }
+
+              const isNewBooking =
               notif.type === "booking_engine_new_booking" ||
               notif.type === "staff_booking_created" ||
               notif.type === "booking_needs_assignment" ||
@@ -461,7 +465,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
           if (dismissedNotificationIds.has(notifId)) {
             continue;
           }
-          
+
+          if (isBranchAdmin && data.type === "leave_request_pending") {
+            continue;
+          }
+
           // Get booking status to filter out confirmed/canceled
           let bookingStatus = data.status;
           if (data.bookingId) {

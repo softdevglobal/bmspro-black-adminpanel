@@ -20,8 +20,6 @@ import {
 } from "firebase/firestore";
 import { fetchCurrentUser } from "@/lib/authClient";
 
-const ADMIN_ROLES = new Set(["workshop_owner", "branch_admin"]);
-
 type DayDetail = {
   date: string;
   fullDay: boolean;
@@ -161,10 +159,7 @@ export default function LeaveRequestsPage() {
   const [leavePreviewRow, setLeavePreviewRow] = useState<LeaveRow | null>(null);
   const [leavePreviewOpen, setLeavePreviewOpen] = useState(false);
 
-  const canView = useMemo(
-    () => !!role && ADMIN_ROLES.has(role),
-    [role]
-  );
+  const canView = useMemo(() => role === "workshop_owner", [role]);
 
   const resolveStaffProfile = useCallback(
     async (
@@ -211,21 +206,12 @@ export default function LeaveRequestsPage() {
         const me = await fetchCurrentUser();
         const r = (me?.role || "").toString().toLowerCase();
         setRole(r);
-        if (!ADMIN_ROLES.has(r)) {
+        if (r !== "workshop_owner") {
           router.replace("/dashboard");
           return;
         }
-        if (r === "workshop_owner") {
-          setOwnerUid(user.uid);
-          setLoading(false);
-          return;
-        }
-        if (r === "branch_admin") {
-          const ou = (me?.ownerUid as string) || "";
-          setOwnerUid(ou || null);
-          setLoading(false);
-          return;
-        }
+        setOwnerUid(user.uid);
+        setLoading(false);
       } catch {
         setError("Could not load your account.");
       } finally {

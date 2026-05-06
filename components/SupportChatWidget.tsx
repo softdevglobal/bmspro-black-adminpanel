@@ -159,7 +159,7 @@ export default function SupportChatWidget() {
         : "online-dot";
 
   return createPortal(
-    <div className="support-chat-root" style={{ zIndex: 900000 }}>
+    <div className="support-chat-root">
       {/* Chat panel */}
       <div
         role="dialog"
@@ -278,7 +278,13 @@ export default function SupportChatWidget() {
 
       <style jsx>{`
         .support-chat-root {
+          /* z-index only applies with non-static position; full-viewport layer so chat stays above sticky headers (e.g. dashboard calendar z-30). */
+          position: fixed;
+          inset: 0;
+          width: 100%;
+          height: 100%;
           pointer-events: none;
+          z-index: 2147483646;
         }
 
         .support-btn {
@@ -302,7 +308,7 @@ export default function SupportChatWidget() {
             box-shadow 0.25s ease;
           box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
           padding: 0 13px;
-          z-index: 3;
+          z-index: 2;
           color: white;
         }
 
@@ -375,7 +381,7 @@ export default function SupportChatWidget() {
           opacity: 0;
           transition: all 0.3s ease;
           box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
-          z-index: 2;
+          z-index: 1;
           font-family: var(--font-geist-sans), ui-sans-serif, system-ui,
             sans-serif;
         }

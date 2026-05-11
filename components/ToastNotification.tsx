@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { openSupportChatWidget } from "@/lib/supportChatEvents";
 
 interface ToastNotificationProps {
   id: string;
@@ -58,7 +59,7 @@ export default function ToastNotification({
 
   const handleClick = () => {
     if (type === "cc_chat_inbound" && chatId) {
-      router.push(`/call-center-chat?chatId=${encodeURIComponent(chatId)}`);
+      openSupportChatWidget();
     } else if (type === "owner_booking_completed" && bookingId) {
       router.push("/bookings/completed");
     } else if (type === "booking_rescheduled" && bookingId) {

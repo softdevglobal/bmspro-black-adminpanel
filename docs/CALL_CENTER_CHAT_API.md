@@ -30,6 +30,7 @@ Authorization: Bearer <firebase_id_token>
 | `POST` | `/api/chats/cc/rooms` | Body: `{ "queue": true }` to open the **shared queue** (no agent pick — first agent to claim in admin / `POST /api/call-center/chats/[chatId]/claim`). Or `{ "agentUid": "…" }` for a **specific** agent (legacy). Response: `{ chat, created }`. |
 | `GET` | `/api/chats/cc/rooms/:chatId/messages?limit=40&before=<messageId>` | Page messages (optional cursor `before`). |
 | `POST` | `/api/chats/cc/rooms/:chatId/messages` | Body: `{ "text": "…" }`. Sends message + **FCM** to the agent. |
+| `POST` | `/api/chats/cc/rooms/:chatId/close` | End this session (system `Chat ended`, `sessionStatus: closed`). Same thread; sending again reopens. |
 | `POST` | `/api/chats/cc/rooms/:chatId/read` | Mark inbound messages as read (read receipts). |
 
 Allowed roles: `workshop_owner`, `branch_admin`, `staff` (Firebase `users/{uid}`).
@@ -47,6 +48,7 @@ CORS is enabled for browser tools (`Access-Control-Allow-Origin: *` on these rou
 | `GET` | `/api/call-center/chats/:chatId` | Room metadata. **Super admin:** any workshop thread. |
 | `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | Paginate messages. **Super admin:** any thread — read gate skips participant check (`preenacted` path in API route). |
 | `POST` | `/api/call-center/chats/:chatId/messages` | Body: `{ "text": "…" }`. Sends + **FCM** to the workshop user. |
+| `POST` | `/api/call-center/chats/:chatId/close` | End this session on the **same** thread (writes system line `Chat ended`, sets `sessionStatus: closed`). Participant or **`call_center_admin`**. Next message or `start-with-owner` reopens the same `cc_direct_chats/{chatId}`. |
 | `POST` | `/api/call-center/chats/:chatId/read` | Mark messages from the tenant user as read. |
 
 **Agent-initiated chats:** After `start-with-owner`, the thread is a normal 1:1 room: use `POST /api/call-center/chats/:chatId/messages` for further messages (including farewell / “thank you”), `read`, and `reviewed` the same as inbound threads.

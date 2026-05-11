@@ -4,8 +4,7 @@ import React, { useEffect, useState, useRef, startTransition } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { fetchCurrentUser } from "@/lib/authClient";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
 
@@ -37,7 +36,6 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isSettings = pathname?.startsWith("/settings");
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
   const isAuditLogs = pathname?.startsWith("/audit-logs");
-  const isCallCenterChat = pathname?.startsWith("/call-center-chat");
   const isSubscription = pathname?.startsWith("/subscription");
   const isPackages = pathname?.startsWith("/packages");
   const isSuperAdminAuditLogs = pathname?.startsWith("/super-admin-audit-logs");
@@ -45,7 +43,6 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [mounted, setMounted] = useState(false);
-  const [ccUnreadCount, setCcUnreadCount] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false); // Loading state for sign out
   const [openBookings, setOpenBookings] = useState(pathname?.startsWith("/bookings") || false);
@@ -151,42 +148,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     }
   }, [mounted, role]);
 
-  useEffect(() => {
-    if (!mounted) return;
-    if (role !== "workshop_owner" && role !== "branch_admin") {
-      startTransition(() => setCcUnreadCount(0));
-      return;
-    }
-    let unsubChats: (() => void) | undefined;
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
-      unsubChats?.();
-      unsubChats = undefined;
-      if (!user) {
-        setCcUnreadCount(0);
-        return;
-      }
-      const q = query(collection(db, "cc_direct_chats"), where("tenantUserUid", "==", user.uid));
-      unsubChats = onSnapshot(
-        q,
-        (snap) => {
-          let n = 0;
-          snap.forEach((d) => {
-            if (d.data().unreadForTenant === true) n += 1;
-          });
-          setCcUnreadCount(n);
-        },
-        (err) => {
-          console.warn("[Sidebar] cc_direct_chats listener:", err);
-          setCcUnreadCount(0);
-        }
-      );
-    });
-    return () => {
-      unsubChats?.();
-      unsubAuth();
-      startTransition(() => setCcUnreadCount(0));
-    };
-  }, [mounted, role]);
+
 
   const toggleBookings = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -315,29 +277,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Dashboard</span>
           </Link>
         )}
-        {mounted && (role === "workshop_owner" || role === "branch_admin") && (
-          <Link
-            href="/call-center-chat"
-            className={`flex items-center space-x-3 px-4 py-3 rounded-xl font-medium text-sm transition ${
-              isCallCenterChat
-                ? "bg-white/10 text-white font-semibold"
-                : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
-            }`}
-          >
-            <span className="relative w-5 flex justify-center">
-              <i className="fas fa-headset" />
-              {ccUnreadCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 min-w-[1.125rem] h-[1.125rem] px-1 flex items-center justify-center rounded-full bg-sky-500 text-[10px] font-bold text-white leading-none">
-                  {ccUnreadCount > 9 ? "9+" : ccUnreadCount}
-                </span>
-              )}
-            </span>
-            <span className="flex-1">Call center chat</span>
-            {ccUnreadCount > 0 && (
-              <span className="text-[10px] font-bold uppercase tracking-wide text-sky-400">New</span>
-            )}
-          </Link>
-        )}
+
+
         {/* Super Admin - Only Dashboard and Tenants */}
         {mounted && role === "super_admin" && (
           <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>

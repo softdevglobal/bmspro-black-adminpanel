@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, ReactNod
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import ToastNotification from "./ToastNotification";
+import { SUPPORT_CHAT_PANEL_STATE_EVENT } from "@/lib/supportChatEvents";
 
 interface Notification {
   id: string;
@@ -18,7 +19,7 @@ interface Notification {
   createdAt: Date;
   read: boolean;
   status?: string;
-  /** Call center direct chat — open `/call-center-chat`. */
+  /** Call center direct chat — open floating reception widget. */
   chatId?: string;
   /** Present on `additional_issue_found` — used to dedupe duplicate Firestore docs. */
   issueId?: string;
@@ -65,13 +66,15 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const [readPendingBookings, setReadPendingBookings] = useState<Set<string>>(new Set());
   const [dismissedPendingBookings, setDismissedPendingBookings] = useState<Set<string>>(new Set()); // Track deleted/dismissed pending booking notifications
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set()); // Track deleted Firestore notification IDs (persist across sessions)
-  const [unreadCount, setUnreadCount] = useState(0);
   const [toastNotifications, setToastNotifications] = useState<any[]>([]);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
   const [isBranchAdmin, setIsBranchAdmin] = useState<boolean>(false);
   const [isStaffUser, setIsStaffUser] = useState<boolean>(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  /** While the floating reception chat is open, suppress CC message toasts/sounds and bell unread for `cc_chat_inbound`. */
+  const [supportChatPanelOpen, setSupportChatPanelOpen] = useState(false);
+  const supportChatPanelOpenRef = useRef(false);
   const previousNotificationIdsRef = useRef<Set<string>>(new Set());
   const previousPendingIdsRef = useRef<Set<string>>(new Set());
   const isInitialLoadRef = useRef(true);
@@ -118,6 +121,18 @@ export default function NotificationProvider({ children }: NotificationProviderP
       }
     }
   }, [dismissedNotificationIds]);
+
+  useEffect(() => {
+    const onPanel = (e: Event) => {
+      const d = (e as CustomEvent<{ open?: boolean }>).detail;
+      const open = Boolean(d?.open);
+      supportChatPanelOpenRef.current = open;
+      setSupportChatPanelOpen(open);
+    };
+    if (typeof window === "undefined") return undefined;
+    window.addEventListener(SUPPORT_CHAT_PANEL_STATE_EVENT, onPanel);
+    return () => window.removeEventListener(SUPPORT_CHAT_PANEL_STATE_EVENT, onPanel);
+  }, []);
 
   // Initialize audio element for notification sound
   useEffect(() => {
@@ -447,7 +462,10 @@ export default function NotificationProvider({ children }: NotificationProviderP
             if (isCustomerAcceptedAdditionalWork) return true;
             if (isCustomerRejectedAdditionalWork) return true;
             if (isWorkshopAlert) return true;
-            if (isCcChatInbound) return true;
+            if (isCcChatInbound) {
+              if (supportChatPanelOpenRef.current) return false;
+              return true;
+            }
 
             return isStaffRejected;
           });
@@ -1084,8 +1102,12 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
   // Calculate unread count from combined notifications
   const combinedUnreadCount = useMemo(() => {
-    return combinedNotifications.filter((n) => !n.read).length;
-  }, [combinedNotifications]);
+    return combinedNotifications.filter((n) => {
+      if (n.read) return false;
+      if (n.type === "cc_chat_inbound" && supportChatPanelOpen) return false;
+      return true;
+    }).length;
+  }, [combinedNotifications, supportChatPanelOpen]);
 
   const value: NotificationContextType = {
     notifications: combinedNotifications,

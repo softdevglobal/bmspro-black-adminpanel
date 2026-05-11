@@ -7,6 +7,7 @@ import Script from "next/script";
 import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
 import { useNotifications } from "@/components/NotificationProvider";
 import { subscribeBranchesForOwner } from "@/lib/branches";
+import { openSupportChatWidget } from "@/lib/supportChatEvents";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -3129,7 +3130,7 @@ export default function DashboardPage() {
                           onClick={() => {
                             markAsRead(notif.id);
                             if (notif.type === "cc_chat_inbound" && notif.chatId) {
-                              router.push(`/call-center-chat?chatId=${encodeURIComponent(notif.chatId)}`);
+                              openSupportChatWidget();
                               setNotificationPanelOpen(false);
                               return;
                             }

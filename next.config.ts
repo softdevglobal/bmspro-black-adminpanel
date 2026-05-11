@@ -89,6 +89,22 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  /** Old full-page reception chat merged into floating widget */
+  async redirects() {
+    return [
+      {
+        source: "/call-center-chat",
+        destination: "/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/call-center-chat/:path*",
+        destination: "/dashboard",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -117,14 +117,20 @@ export function serializeCcRoom(chatId: string, d: DocumentData) {
     updatedAt: iso(d.updatedAt as Timestamp),
     /** `pending` = waiting for an agent to claim; `active` = assigned (includes legacy docs without field). */
     queueStatus: d.queueStatus === "pending" ? "pending" : "active",
+    /** `open` (default) = active session; `closed` = ended (next message reopens the same thread). */
+    sessionStatus: d.sessionStatus === "closed" ? "closed" : "open",
+    closedAt: iso(d.closedAt as Timestamp | undefined),
+    closedByUid: d.closedByUid != null ? String(d.closedByUid) : null,
   };
 }
 
 export function serializeCcMessage(docId: string, d: DocumentData) {
+  const role = String(d.senderRole || "");
   return {
     messageId: String(d.messageId || docId),
     senderId: String(d.senderId || ""),
-    senderRole: String(d.senderRole || ""),
+    senderRole: role,
+    messageKind: String(d.messageKind || (role === "system" ? "system" : "user")),
     text: String(d.text || ""),
     createdAt: iso(d.createdAt as Timestamp),
     seenByRecipient: d.seenByRecipient === true,
@@ -328,6 +334,7 @@ export async function ensureCcDirectChat(input: {
       unreadForTenant: false,
       unreadForAgent: false,
       chatsReviewed: false,
+      sessionStatus: "open",
       createdAt: now,
       updatedAt: now,
     });
@@ -344,6 +351,10 @@ export async function ensureCcDirectChat(input: {
       tenantRole: input.tenantRole,
       agentUid: input.agentUid,
       updatedAt: now,
+      /** Re-open the same deterministic thread when the agent starts again from the picker. */
+      sessionStatus: "open",
+      closedAt: FieldValue.delete(),
+      closedByUid: FieldValue.delete(),
     },
     { merge: true }
   );
@@ -514,6 +525,16 @@ export async function appendCcDirectMessage(input: {
   const agentUid = String(room.agentUid || "");
   const fromTenant = input.senderUid === tenantUid;
   await db.runTransaction(async (tx) => {
+    const fresh = await tx.get(chatRef);
+    if (!fresh.exists) {
+      const err = new Error("Chat not found");
+      (err as Error & { status?: number }).status = 404;
+      throw err;
+    }
+    const r = fresh.data()!;
+    assertRoomParticipant(r, input.senderUid);
+    const closed = String(r.sessionStatus || "") === "closed";
+
     tx.set(msgRef, {
       messageId: msgRef.id,
       senderId: input.senderUid,
@@ -528,11 +549,16 @@ export async function appendCcDirectMessage(input: {
       lastMessageAt: now,
       lastSenderId: input.senderUid,
       updatedAt: now,
-      // Recipient has "new" until they call mark read (clears the matching flag).
       unreadForTenant: fromTenant ? false : true,
       unreadForAgent: fromTenant ? true : false,
-      // New message from workshop → needs call-center review again.
       ...(fromTenant ? { chatsReviewed: false } : {}),
+      ...(closed
+        ? {
+            sessionStatus: "open",
+            closedAt: FieldValue.delete(),
+            closedByUid: FieldValue.delete(),
+          }
+        : {}),
     });
   });
 
@@ -565,6 +591,72 @@ export async function appendCcDirectMessage(input: {
   }
 
   return { messageId: msgRef.id };
+}
+
+/**
+ * End the current CC session on this thread (same Firestore doc + message history).
+ * Any participant may close (including the agent on agent-started threads). `call_center_admin` may close any assigned thread.
+ * Writes a system line "Chat ended" and sets `sessionStatus: "closed"`. The next `POST …/messages` or `ensureCcDirectChat` reopens.
+ */
+export async function closeCcDirectSession(
+  chatId: string,
+  closerUid: string,
+  options?: { isCallCenterAdmin?: boolean }
+): Promise<{ ok: true }> {
+  const db = adminDb();
+  const chatRef = db.collection(CC_DIRECT_CHATS).doc(chatId);
+  const snap = await chatRef.get();
+  if (!snap.exists) {
+    const err = new Error("Chat not found");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  const room = snap.data()!;
+  if (!options?.isCallCenterAdmin) {
+    assertRoomParticipant(room, closerUid);
+  }
+
+  if (String(room.sessionStatus || "") === "closed") {
+    return { ok: true };
+  }
+
+  const msgRef = chatRef.collection("messages").doc();
+  const now = FieldValue.serverTimestamp();
+  const tenantUid = String(room.tenantUserUid || "");
+  const agentUid = String(room.agentUid || "");
+  const unreadForTenant = Boolean(tenantUid && closerUid !== tenantUid);
+  const unreadForAgent = Boolean(agentUid && closerUid !== agentUid);
+
+  await db.runTransaction(async (tx) => {
+    const cur = await tx.get(chatRef);
+    if (!cur.exists) return;
+    const d = cur.data()!;
+    if (String(d.sessionStatus || "") === "closed") return;
+
+    tx.set(msgRef, {
+      messageId: msgRef.id,
+      senderId: closerUid,
+      senderRole: "system",
+      messageKind: "system",
+      text: "Chat ended",
+      createdAt: now,
+      seenByRecipient: false,
+      readAt: null,
+    });
+    tx.update(chatRef, {
+      sessionStatus: "closed",
+      closedAt: now,
+      closedByUid: closerUid,
+      lastMessageText: "Chat ended",
+      lastMessageAt: now,
+      lastSenderId: closerUid,
+      updatedAt: now,
+      unreadForTenant,
+      unreadForAgent,
+    });
+  });
+
+  return { ok: true };
 }
 
 /** Firestore row for workshop admin panel bell + toasts when a call center agent sends a message. */
@@ -663,6 +755,7 @@ export async function markCcDirectChatRead(chatId: string, readerUid: string): P
 
   for (const doc of recent.docs) {
     const d = doc.data();
+    if (String(d.senderRole || "") === "system") continue;
     if (String(d.senderId || "") === readerUid) continue;
     if (d.seenByRecipient === true) continue;
     batch.update(doc.ref, { seenByRecipient: true, readAt: readTs });

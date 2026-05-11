@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, MessageCircle, Send, X } from "lucide-react";
 import { onAuthStateChanged } from "firebase/auth";
 import { Timestamp } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { fetchCurrentUser } from "@/lib/authClient";
+import { markCustomerConversationRead } from "@/lib/supportChatClient";
+import { OPEN_SUPPORT_CHAT_EVENT, dispatchSupportChatPanelState } from "@/lib/supportChatEvents";
 import {
-  markCustomerConversationRead,
-  sendCustomerSupportMessage,
-  subscribeLatestConversation,
-  subscribeMessages,
-  type LatestConversationRow,
-  type SupportChatMsgRow,
-} from "@/lib/supportChatClient";
+  subscribeUnifiedWorkshopChat,
+  sendUnifiedWorkshopChatMessage,
+  markAllCcRoomsRead,
+  injectReceptionConnectionHints,
+  type UnifiedChatBubble,
+} from "@/lib/unifiedWorkshopChatClient";
 
 const WORKSHOP_CHAT_ROLES = new Set(["workshop_owner", "branch_admin"]);
 
@@ -30,31 +31,25 @@ function formatMsgTime(ts: Timestamp | null): string {
   }
 }
 
-function headerSubtitle(latest: LatestConversationRow | null): string {
-  if (!latest) return "Receptionist is online";
-  const status = latest.status;
-  if (status === "waiting") return "Connecting you to a receptionist…";
-  if (status === "connected") {
-    return latest.agentName.trim()
-      ? `Chatting with ${latest.agentName}`
-      : "Connected to a receptionist";
-  }
-  if (status === "closed") return "Chat ended — send a message to start again";
-  return "Receptionist is online";
-}
-
 export default function SupportChatWidget() {
   const [eligible, setEligible] = useState(false);
   const [uid, setUid] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [latest, setLatest] = useState<LatestConversationRow | null>(null);
-  const [messages, setMessages] = useState<SupportChatMsgRow[]>([]);
+  const [bubbles, setBubbles] = useState<UnifiedChatBubble[]>([]);
+  const [preferredCcChatId, setPreferredCcChatId] = useState<string | null>(null);
+  const [headerSubtitle, setHeaderSubtitle] = useState("Chat with reception team");
+  const [fabUnread, setFabUnread] = useState(0);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const markedOpenRef = useRef<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const openRef = useRef(false);
+
+  const unreadTargetsRef = useRef({ supportConversationIds: [] as string[], ccRoomIds: [] as string[] });
+  const markedReadThisOpenRef = useRef(false);
+
+  const displayBubbles = useMemo(() => injectReceptionConnectionHints(bubbles), [bubbles]);
 
   useEffect(() => {
     setMounted(true);
@@ -77,38 +72,50 @@ export default function SupportChatWidget() {
 
   useEffect(() => {
     if (!uid || !eligible) return;
-    const unsub = subscribeLatestConversation(uid, setLatest, (e) =>
-      console.error("[SupportChatWidget] conversation listener:", e),
-    );
-    return () => unsub();
+    const unsub = subscribeUnifiedWorkshopChat(uid, {
+      onBubbles: setBubbles,
+      onPreferredCcChatId: setPreferredCcChatId,
+      onUnreadBadge: (n) => setFabUnread(openRef.current ? 0 : n),
+      onHeaderHint: setHeaderSubtitle,
+      onUnreadTargets: (targets) => {
+        unreadTargetsRef.current = targets;
+      },
+    });
+    return unsub;
   }, [uid, eligible]);
 
-  /** Live session (not closed by receptionist). Sending still works after close via new conversation. */
-  const activeConversation =
-    latest && latest.status !== "closed" ? latest : null;
-
+  /** Mark read across support + CC when sheet opens once per open gesture. */
   useEffect(() => {
-    if (!latest?.id) {
-      setMessages([]);
+    if (!open) {
+      markedReadThisOpenRef.current = false;
       return;
     }
-    const unsub = subscribeMessages(
-      latest.id,
-      setMessages,
-      (e) => console.error("[SupportChatWidget] messages listener:", e),
-    );
-    return () => unsub();
-  }, [latest?.id]);
+    if (markedReadThisOpenRef.current) return;
+    markedReadThisOpenRef.current = true;
+
+    const t = unreadTargetsRef.current;
+    void markAllCcRoomsRead(t.ccRoomIds);
+    for (const id of t.supportConversationIds) {
+      void markCustomerConversationRead(id);
+    }
+  }, [open]);
 
   useEffect(() => {
-    if (!open || !latest?.id || latest.status === "closed") return;
-    if (markedOpenRef.current === latest.id) return;
-    markedOpenRef.current = latest.id;
-    void markCustomerConversationRead(latest.id);
-  }, [open, latest?.id, latest?.status]);
+    const h = () => setOpen(true);
+    if (typeof window !== "undefined") {
+      window.addEventListener(OPEN_SUPPORT_CHAT_EVENT, h);
+      return () => window.removeEventListener(OPEN_SUPPORT_CHAT_EVENT, h);
+    }
+    return undefined;
+  }, []);
 
   useEffect(() => {
-    if (!open) markedOpenRef.current = null;
+    openRef.current = open;
+    dispatchSupportChatPanelState(open);
+    return () => {
+      openRef.current = false;
+      dispatchSupportChatPanelState(false);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -124,7 +131,7 @@ export default function SupportChatWidget() {
     const el = scrollRef.current;
     if (!el || !open) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages, open]);
+  }, [displayBubbles, open]);
 
   const send = useCallback(async () => {
     const text = input.trim();
@@ -133,34 +140,20 @@ export default function SupportChatWidget() {
     setSendError(null);
     setInput("");
     try {
-      await sendCustomerSupportMessage(text);
+      await sendUnifiedWorkshopChatMessage(text, preferredCcChatId);
     } catch (e) {
       setInput(text);
       setSendError(e instanceof Error ? e.message : "Could not send");
     } finally {
       setSending(false);
     }
-  }, [input, sending]);
+  }, [input, sending, preferredCcChatId]);
 
   if (!eligible) return null;
   if (!mounted || typeof document === "undefined") return null;
 
-  const unread =
-    activeConversation && activeConversation.unreadForCustomer > 0
-      ? activeConversation.unreadForCustomer
-      : 0;
-
-  const subtitle = headerSubtitle(latest);
-  const statusDotClass =
-    latest?.status === "connected"
-      ? "online-dot online-dot--live"
-      : latest?.status === "waiting"
-        ? "online-dot online-dot--pending"
-        : "online-dot";
-
   return createPortal(
     <div className="support-chat-root">
-      {/* Chat panel */}
       <div
         role="dialog"
         aria-modal={open}
@@ -170,10 +163,10 @@ export default function SupportChatWidget() {
       >
         <div className="chat-header">
           <div className="header-left">
-            <div className={statusDotClass} aria-hidden />
+            <div className="online-dot online-dot--live" aria-hidden />
             <div>
               <h3>Chat with receptionist</h3>
-              <p>{subtitle}</p>
+              <p>{headerSubtitle}</p>
             </div>
           </div>
           <button
@@ -187,43 +180,33 @@ export default function SupportChatWidget() {
         </div>
 
         <div ref={scrollRef} className="chat-body">
-          {!latest && (
+          {displayBubbles.length === 0 ? (
             <div className="support-message welcome-msg">
-              👋 Hi! Message our receptionist if you need anything.
+              👋 Hi! Messages with our reception team (queue + direct chats) appear here in one thread.
             </div>
-          )}
-          {latest && messages.length === 0 && latest.status !== "closed" && (
-            <div className="support-message welcome-msg">
-              Say hello — a receptionist will reply shortly.
-            </div>
-          )}
-          {latest &&
-            messages.map((m) => {
-              if (m.sender === "system") {
+          ) : (
+            displayBubbles.map((m) => {
+              if (m.isSystem) {
                 return (
-                  <div key={m.id} className="system-line">
-                    {m.message}
+                  <div key={m.key} className="system-line">
+                    {m.text}
                   </div>
                 );
               }
-              const mine = m.sender === "customer";
+              const mine = m.isMine;
               return (
-                <div
-                  key={m.id}
-                  className={`bubble-row ${mine ? "bubble-row--mine" : ""}`}
-                >
-                  <div
-                    className={`bubble ${mine ? "bubble--mine" : "bubble--theirs"}`}
-                  >
-                    {!mine && m.senderName.trim() ? (
-                      <div className="bubble-name">{m.senderName}</div>
+                <div key={m.key} className={`bubble-row ${mine ? "bubble-row--mine" : ""}`}>
+                  <div className={`bubble ${mine ? "bubble--mine" : "bubble--theirs"}`}>
+                    {!mine && (m.senderLabel || "").trim() ? (
+                      <div className="bubble-name">{m.senderLabel}</div>
                     ) : null}
-                    <div className="bubble-text">{m.message}</div>
-                    <div className="bubble-time">{formatMsgTime(m.timestamp)}</div>
+                    <div className="bubble-text">{m.text}</div>
+                    <div className="bubble-time">{formatMsgTime(m.at)}</div>
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
         </div>
 
         <div className="chat-input-area">
@@ -258,7 +241,6 @@ export default function SupportChatWidget() {
         </div>
       </div>
 
-      {/* FAB */}
       <button
         type="button"
         data-support-chat-launcher
@@ -271,14 +253,13 @@ export default function SupportChatWidget() {
           <MessageCircle size={20} strokeWidth={2} />
         </div>
         <div className="support-btn-label">Chat with receptionist</div>
-        {!open && unread > 0 ? (
-          <span className="unread-badge">{unread > 9 ? "9+" : unread}</span>
+        {!open && fabUnread > 0 ? (
+          <span className="unread-badge">{fabUnread > 9 ? "9+" : fabUnread}</span>
         ) : null}
       </button>
 
       <style jsx>{`
         .support-chat-root {
-          /* z-index only applies with non-static position; full-viewport layer so chat stays above sticky headers (e.g. dashboard calendar z-30). */
           position: fixed;
           inset: 0;
           width: 100%;
@@ -397,14 +378,14 @@ export default function SupportChatWidget() {
           color: white;
           padding: 18px;
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: space-between;
           flex-shrink: 0;
         }
 
         .header-left {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           gap: 12px;
           min-width: 0;
         }
@@ -428,17 +409,10 @@ export default function SupportChatWidget() {
         .online-dot {
           width: 10px;
           height: 10px;
-          background: white;
+          background: #4ade80;
           border-radius: 50%;
           flex-shrink: 0;
-        }
-
-        .online-dot--pending {
-          background: #fbbf24;
-        }
-
-        .online-dot--live {
-          background: #4ade80;
+          margin-top: 4px;
         }
 
         .close-btn {
@@ -452,6 +426,7 @@ export default function SupportChatWidget() {
           padding: 4px;
           border-radius: 8px;
           transition: background 0.15s ease;
+          flex-shrink: 0;
         }
 
         .close-btn:hover {
@@ -462,6 +437,7 @@ export default function SupportChatWidget() {
           flex: 1;
           padding: 18px;
           overflow-y: auto;
+          overflow-x: hidden;
           background: #111;
           min-height: 0;
         }

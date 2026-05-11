@@ -3125,9 +3125,14 @@ export default function DashboardPage() {
                           <i className="fas fa-trash-alt text-xs" />
                         </button>
                         
-                        <div 
+                        <div
                           onClick={() => {
                             markAsRead(notif.id);
+                            if (notif.type === "cc_chat_inbound" && notif.chatId) {
+                              router.push(`/call-center-chat?chatId=${encodeURIComponent(notif.chatId)}`);
+                              setNotificationPanelOpen(false);
+                              return;
+                            }
                             const status = (notif.status || "").toString();
                             const bookingId = notif.bookingId || "";
                             let path = "/bookings/pending";
@@ -3142,44 +3147,60 @@ export default function DashboardPage() {
                           className="cursor-pointer"
                         >
                           <div className="flex items-start gap-3">
-                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                              notif.type === 'booking_request' 
-                                ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
-                                : 'bg-neutral-900 text-white'
-                            }`}>
-                              <i className={`fas ${
-                                notif.type === 'booking_request' ? 'fa-calendar-plus' : 'fa-bell'
-                              } text-lg`} />
+                            <div
+                              className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                notif.type === "booking_request"
+                                  ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
+                                  : notif.type === "cc_chat_inbound"
+                                    ? "bg-gradient-to-br from-sky-500 to-indigo-600 text-white"
+                                    : "bg-neutral-900 text-white"
+                              }`}
+                            >
+                              <i
+                                className={`fas ${
+                                  notif.type === "booking_request"
+                                    ? "fa-calendar-plus"
+                                    : notif.type === "cc_chat_inbound"
+                                      ? "fa-headset"
+                                      : "fa-bell"
+                                } text-lg`}
+                              />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2 pr-8">
                                 <div className="flex items-center gap-2">
                                   <p className="font-bold text-neutral-900">{notif.title}</p>
                                   {!notif.read && (
-                                    <span className="px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded-full uppercase">New</span>
+                                    <span className="px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded-full uppercase">
+                                      New
+                                    </span>
                                   )}
                                 </div>
                                 <span className="text-xs text-neutral-400 flex-shrink-0">{timeAgo}</span>
                               </div>
                               <p className="text-sm text-neutral-600 mt-1">{notif.message}</p>
-                              <div className="flex items-center flex-wrap gap-2 mt-3">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">
-                                  <i className="fas fa-tag text-amber-500" />
-                                  {notif.serviceName}
-                                </span>
-                                {notif.date && (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">
-                                    <i className="fas fa-calendar text-blue-500" />
-                                    {new Date(notif.date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
-                                  </span>
-                                )}
-                                {notif.price && (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg text-xs text-emerald-700 font-semibold">
-                                    <i className="fas fa-dollar-sign" />
-                                    AU${Number(notif.price).toLocaleString()}
-                                  </span>
-                                )}
-                              </div>
+                              {(notif.serviceName || notif.branchName || (notif.date && notif.time) || notif.price) && (
+                                <div className="flex items-center flex-wrap gap-2 mt-3">
+                                  {notif.serviceName && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">
+                                      <i className="fas fa-tag text-amber-500" />
+                                      {notif.serviceName}
+                                    </span>
+                                  )}
+                                  {notif.date && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">
+                                      <i className="fas fa-calendar text-blue-500" />
+                                      {new Date(notif.date).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}
+                                    </span>
+                                  )}
+                                  {notif.price && (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg text-xs text-emerald-700 font-semibold">
+                                      <i className="fas fa-dollar-sign" />
+                                      AU${Number(notif.price).toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>

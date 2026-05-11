@@ -9,6 +9,7 @@ interface ToastNotificationProps {
   serviceName?: string;
   price?: number;
   bookingId?: string;
+  chatId?: string;
   type?: string;
   branchName?: string;
   date?: string;
@@ -23,6 +24,7 @@ export default function ToastNotification({
   serviceName,
   price,
   bookingId,
+  chatId,
   type,
   branchName,
   date,
@@ -55,7 +57,9 @@ export default function ToastNotification({
   };
 
   const handleClick = () => {
-    if (type === "owner_booking_completed" && bookingId) {
+    if (type === "cc_chat_inbound" && chatId) {
+      router.push(`/call-center-chat?chatId=${encodeURIComponent(chatId)}`);
+    } else if (type === "owner_booking_completed" && bookingId) {
       router.push("/bookings/completed");
     } else if (type === "booking_rescheduled" && bookingId) {
       router.push("/bookings/confirmed");
@@ -101,6 +105,8 @@ export default function ToastNotification({
       case "staff_break_started":
       case "staff_break_ended":
         return "fa-mug-hot";
+      case "cc_chat_inbound":
+        return "fa-headset";
       default:
         return "fa-bell";
     }
@@ -126,6 +132,8 @@ export default function ToastNotification({
       case "staff_break_started":
       case "staff_break_ended":
         return "from-amber-600 to-yellow-600";
+      case "cc_chat_inbound":
+        return "from-sky-500 to-indigo-600";
       default:
         return "from-neutral-700 to-neutral-900";
     }

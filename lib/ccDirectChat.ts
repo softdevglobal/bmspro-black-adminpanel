@@ -560,7 +560,60 @@ export async function appendCcDirectMessage(input: {
     });
   }
 
+  if (!fromTenant) {
+    await deliverCcInboundAdminNotification(room, text, input.chatId);
+  }
+
   return { messageId: msgRef.id };
+}
+
+/** Firestore row for workshop admin panel bell + toasts when a call center agent sends a message. */
+function buildCcInboundAdminNotification(
+  room: DocumentData,
+  messageText: string,
+  chatId: string
+): Record<string, unknown> {
+  const workshopOwnerUid = String(room.workshopOwnerUid || "").trim();
+  const tenantUserUid = String(room.tenantUserUid || "").trim();
+  const tenantRole = String(room.tenantRole || "").toLowerCase();
+  const agentName = String(room.agentName || "Call center").trim() || "Call center";
+  const preview = messageText.trim().slice(0, 280);
+
+  const doc: Record<string, unknown> = {
+    type: "cc_chat_inbound",
+    title: `Message from ${agentName}`,
+    message: preview || "New message",
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+    chatId,
+    tenantUserUid,
+    workshopOwnerUid,
+  };
+
+  if (tenantRole === "branch_admin") {
+    doc.branchAdminUid = tenantUserUid;
+  } else if (tenantRole === "staff") {
+    doc.targetStaffUid = tenantUserUid;
+  } else {
+    doc.ownerUid = tenantUserUid;
+  }
+
+  return doc;
+}
+
+async function deliverCcInboundAdminNotification(
+  room: DocumentData,
+  messageText: string,
+  chatId: string
+): Promise<void> {
+  const tenantUserUid = String(room.tenantUserUid || "").trim();
+  if (!tenantUserUid) return;
+  try {
+    const db = adminDb();
+    await db.collection("notifications").add(buildCcInboundAdminNotification(room, messageText, chatId));
+  } catch (e) {
+    console.error("[ccDirectChat] deliverCcInboundAdminNotification:", e);
+  }
 }
 
 export async function listCcMessages(

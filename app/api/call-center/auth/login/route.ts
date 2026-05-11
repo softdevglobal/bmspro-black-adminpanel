@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { CORS_HEADERS } from "@/lib/callCenterAuth";
+import { CALL_CENTER_ROLES, CORS_HEADERS } from "@/lib/callCenterAuth";
 
 export const runtime = "nodejs";
 
@@ -95,13 +95,29 @@ export async function POST(req: NextRequest) {
 
     const db = adminDb();
     const agentDoc = await db.doc(`call_center_agents/${localId}`).get();
-    if (!agentDoc.exists) {
+    const agentData = agentDoc.exists ? agentDoc.data() : null;
+
+    let allowed = false;
+    if (agentData && !agentData.suspended) {
+      const r = (agentData.role || "agent").toString().toLowerCase();
+      allowed = CALL_CENTER_ROLES.includes(r);
+    }
+    if (!allowed) {
+      const userDoc = await db.doc(`users/${localId}`).get();
+      if (userDoc.exists && !userDoc.data()?.suspended) {
+        const ud = userDoc.data()!;
+        const ur = (ud.role || ud.systemRole || "").toString().toLowerCase();
+        allowed = CALL_CENTER_ROLES.includes(ur);
+      }
+    }
+
+    if (!allowed) {
       return NextResponse.json(
         { error: "Not a registered call center agent" },
         { status: 403, headers: CORS_HEADERS }
       );
     }
-    if (agentDoc.data()?.suspended) {
+    if (agentData?.suspended) {
       return NextResponse.json(
         { error: "Agent account suspended" },
         { status: 403, headers: CORS_HEADERS }

@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseAdmin";
 import {
   verifyCallCenterOrTenantAdminAuth,
   workshopListScopeForAuth,
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
-import { fetchWorkshopFullDetail } from "@/lib/callCenterWorkshopDetail";
 import {
   queryActiveWorkshopOwnerDocs,
   workshopOwnerDocToSummary,
@@ -18,18 +16,14 @@ export async function OPTIONS() {
 }
 
 /**
- * GET /api/call-center/workshops
+ * GET /api/call-center/chats/workshop-owners
  *
- * Lists workshops the caller can access. Each item includes full detail:
- * workshop profile, branches, services, staff (same shape as GET .../workshops/[ownerUid]).
+ * Lightweight list of workshop owner accounts for starting 1:1 CC chats (same scope as
+ * GET /api/call-center/workshops?summary=1 — agents with assignedWorkshops only see those uids).
  *
- * Query: summary=1 — legacy light list (ownerUid, name, slug, … only).
- *
- * Local dev: without Bearer, all workshops are listed unless CALL_CENTER_DEV_LIST_ALL_WORKSHOPS=false.
+ * Local dev: without Bearer, all workshops when CALL_CENTER_DEV_LIST_ALL_WORKSHOPS is not "false".
  */
 export async function GET(req: NextRequest) {
-  const summaryOnly = req.nextUrl.searchParams.get("summary") === "1";
-
   const devListAllUnauthed =
     process.env.NODE_ENV === "development" &&
     process.env.CALL_CENTER_DEV_LIST_ALL_WORKSHOPS !== "false";
@@ -44,7 +38,7 @@ export async function GET(req: NextRequest) {
       const body: Record<string, string> = { error: gate.error || "Unauthorized" };
       if (process.env.NODE_ENV === "development") {
         body.hint =
-          "Add Authorization: Bearer <Firebase idToken>, or ?access_token=… on localhost. To require a token in dev, set CALL_CENTER_DEV_LIST_ALL_WORKSHOPS=false in .env.local.";
+          "Add Authorization: Bearer <Firebase idToken>. In dev you can use ?access_token=… or set CALL_CENTER_DEV_LIST_ALL_WORKSHOPS=false to require auth.";
       }
       return NextResponse.json(body, {
         status: gate.status || 401,
@@ -55,31 +49,21 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const db = adminDb();
     if (scope.mode === "ids" && scope.ids.length === 0) {
-      return NextResponse.json({ workshops: [] }, { headers: CORS_HEADERS });
+      return NextResponse.json({ workshopOwners: [] }, { headers: CORS_HEADERS });
     }
 
     const activeDocs = await queryActiveWorkshopOwnerDocs(scope);
+    const workshopOwners = activeDocs.map(workshopOwnerDocToSummary);
 
     const headers =
       devListAllUnauthed && process.env.NODE_ENV === "development"
         ? { ...CORS_HEADERS, "X-Dev-Auth-Bypass": "development-default" }
         : CORS_HEADERS;
 
-    if (summaryOnly) {
-      const workshops = activeDocs.map(workshopOwnerDocToSummary);
-      return NextResponse.json({ workshops }, { headers });
-    }
-
-    const bundles = await Promise.all(
-      activeDocs.map((doc) => fetchWorkshopFullDetail(db, doc.id))
-    );
-    const workshops = bundles.filter((b): b is NonNullable<typeof b> => b != null);
-
-    return NextResponse.json({ workshops }, { headers });
-  } catch (error: unknown) {
-    console.error("[call-center/workshops] Error:", error);
+    return NextResponse.json({ workshopOwners }, { headers });
+  } catch (e: unknown) {
+    console.error("[call-center/chats/workshop-owners] Error:", e);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: CORS_HEADERS }

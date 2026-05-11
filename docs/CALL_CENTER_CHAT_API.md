@@ -41,11 +41,15 @@ CORS is enabled for browser tools (`Access-Control-Allow-Origin: *` on these rou
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/call-center/chats?limit=50` | Agent: assigned threads plus unclaimed **queue**. **Super admin**: omit `ownerUid`, `tenantId`, and **`X-Tenant-Id`** to list the **latest threads across every workshop**. With `tenantId` / owner header, list stays scoped to that tenant (unchanged). **Workshop scope (agents)** if `call_center_agents/{uid}.assignedWorkshops` is **empty**, pending queue applies to **all** workshops; if non-empty, only matching `workshopOwnerUid`; CC admins see all queues. |
+| `GET` | `/api/call-center/chats/workshop-owners` | **Outbound / picker:** active `workshop_owner` rows you may contact (same scope as `GET /api/call-center/workshops?summary=1`). Response: `{ workshopOwners: [{ ownerUid, name, slug, logoUrl, contactPhone, email, timezone, state, accountStatus }] }`. |
+| `POST` | `/api/call-center/chats/start-with-owner` | **Agent-only** (`call_center_agents` token). Body: `{ "workshopOwnerUid": "<uid>", "text": "optional first message" }`. Creates or reopens the deterministic 1:1 thread with the **owner** as `tenantUserUid` (`cc_<sorted(ownerUid, agentUid)>`). Same `chat` shape as other CC list endpoints. Optional `text` sends the first message + **FCM** like `POST .../chats/:chatId/messages`. |
 | `POST` | `/api/call-center/chats/:chatId/claim` | Claim a pending queue chat (body empty). You become `agentUid` on the thread. |
 | `GET` | `/api/call-center/chats/:chatId` | Room metadata. **Super admin:** any workshop thread. |
 | `GET` | `/api/call-center/chats/:chatId/messages?limit=40&before=<messageId>` | Paginate messages. **Super admin:** any thread — read gate skips participant check (`preenacted` path in API route). |
 | `POST` | `/api/call-center/chats/:chatId/messages` | Body: `{ "text": "…" }`. Sends + **FCM** to the workshop user. |
 | `POST` | `/api/call-center/chats/:chatId/read` | Mark messages from the tenant user as read. |
+
+**Agent-initiated chats:** After `start-with-owner`, the thread is a normal 1:1 room: use `POST /api/call-center/chats/:chatId/messages` for further messages (including farewell / “thank you”), `read`, and `reviewed` the same as inbound threads.
 
 ## FCM data payload (chat)
 

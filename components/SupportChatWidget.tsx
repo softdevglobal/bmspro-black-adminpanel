@@ -31,6 +31,24 @@ function formatMsgTime(ts: Timestamp | null): string {
   }
 }
 
+/** Green when CC direct thread is open *or* support subtitle shows connected. */
+function headerStatusDotModifier(subtitle: string, preferredCcChatId: string | null): "live" | "waiting" | "idle" {
+  if (preferredCcChatId) return "live";
+  const t = subtitle.trim();
+  if (t.includes("· Connected")) return "live";
+  if (t.includes("Waiting for an agent")) return "waiting";
+  return "idle";
+}
+
+/** Main header line when we know who claimed the thread (subtitle comes from unified chat). */
+function receptionHeaderTitle(subtitle: string): string {
+  const t = subtitle.trim();
+  const m = /^(?:Support|Reception) \((.+?)\) · Connected$/.exec(t);
+  if (m) return `Connected with ${m[1]}`;
+  if (t.includes("Waiting for an agent")) return "Waiting for an agent";
+  return "Chat with receptionist";
+}
+
 export default function SupportChatWidget() {
   const [eligible, setEligible] = useState(false);
   const [uid, setUid] = useState<string | null>(null);
@@ -164,11 +182,11 @@ export default function SupportChatWidget() {
         <div className="chat-header">
           <div className="header-left">
             <div
-              className={`online-dot ${preferredCcChatId ? "online-dot--live" : "online-dot--idle"}`}
+              className={`online-dot online-dot--${headerStatusDotModifier(headerSubtitle, preferredCcChatId)}`}
               aria-hidden
             />
             <div>
-              <h3>Chat with receptionist</h3>
+              <h3>{receptionHeaderTitle(headerSubtitle)}</h3>
               <p>{headerSubtitle}</p>
             </div>
           </div>
@@ -419,6 +437,10 @@ export default function SupportChatWidget() {
 
         .online-dot--live {
           background: #4ade80;
+        }
+
+        .online-dot--waiting {
+          background: #fbbf24;
         }
 
         .online-dot--idle {

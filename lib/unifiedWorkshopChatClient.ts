@@ -6,6 +6,8 @@ import {
   query,
   Timestamp,
   where,
+  type DocumentData,
+  type QueryDocumentSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -30,9 +32,9 @@ const virtKey = (prefix: string, threadKey: string, baseKey: string) =>
   `__virt_${prefix}_${threadKey}_${baseKey}`;
 
 /**
- * Per support / CC thread: after "Chat ended" (support) or at thread start, show who connected.
- * - Agent speaks first → "Receptionist {name} connected with you" before their message.
- * - User speaks first → "You are connected with {name}" before the agent's first reply.
+ * Per **cc_direct_chats** thread: after "Chat ended" or at thread start, show who connected.
+ * Support (`conversations`) already has server system lines on claim ("You are connected with …")
+ * — we never inject virtual hints there, to avoid duplicates in the merged timeline.
  */
 export function injectReceptionConnectionHints(bubbles: UnifiedChatBubble[]): UnifiedChatBubble[] {
   type St = { awaitingNewSegment: boolean; waitingForAgentAfterUser: boolean };
@@ -60,11 +62,16 @@ export function injectReceptionConnectionHints(bubbles: UnifiedChatBubble[]): Un
         st.waitingForAgentAfterUser = false;
         byThread.set(tid, st);
       } else if (tlow.includes("connected with") || tlow.includes("you are now connected")) {
-        /* Support claim already writes "You are connected with …" — clear so we don't inject a duplicate before the next agent bubble. */
         st.awaitingNewSegment = false;
         st.waitingForAgentAfterUser = false;
         byThread.set(tid, st);
       }
+      out.push(m);
+      continue;
+    }
+
+    /* Support: no virtual hints (claim + system lines come from API). */
+    if (m.source === "support") {
       out.push(m);
       continue;
     }
@@ -108,7 +115,56 @@ export function injectReceptionConnectionHints(bubbles: UnifiedChatBubble[]): Un
     byThread.set(tid, st);
   }
 
+  return dedupeAdjacentIdenticalSystemBubbles(out);
+}
+
+/** Removes back-to-back identical system lines (e.g. duplicate claim echoes in Firestore). */
+function dedupeAdjacentIdenticalSystemBubbles(rows: UnifiedChatBubble[]): UnifiedChatBubble[] {
+  const out: UnifiedChatBubble[] = [];
+  for (const m of rows) {
+    const prev = out[out.length - 1];
+    if (
+      m.isSystem &&
+      prev?.isSystem &&
+      m.text.trim().toLowerCase() === prev.text.trim().toLowerCase()
+    ) {
+      continue;
+    }
+    out.push(m);
+  }
   return out;
+}
+
+/** Prefer an active support thread for the header — newest-by-createdAt may be a closed doc. */
+function pickConvHeadForHeader(
+  docs: QueryDocumentSnapshot<DocumentData>[],
+): { status: string; agentName: string } | null {
+  if (docs.length === 0) return null;
+  let bestConnected: { agentName: string; lastMs: number } | null = null;
+  let bestWaiting: { agentName: string; lastMs: number } | null = null;
+  for (const doc of docs) {
+    const d = doc.data();
+    const status = String(d.status || "").toLowerCase();
+    const agentName = String(d.agentName || "").trim();
+    const lm = d.lastMessageAt;
+    const lastMs = lm instanceof Timestamp ? lm.toMillis() : 0;
+    if (status === "connected") {
+      if (!bestConnected || lastMs > bestConnected.lastMs) {
+        bestConnected = { agentName, lastMs };
+      }
+    } else if (status === "waiting") {
+      if (!bestWaiting || lastMs > bestWaiting.lastMs) {
+        bestWaiting = { agentName, lastMs };
+      }
+    }
+  }
+  if (bestConnected) return { status: "connected", agentName: bestConnected.agentName };
+  if (bestWaiting) return { status: "waiting", agentName: bestWaiting.agentName };
+  const d0 = docs[0].data();
+  return {
+    status: String(d0.status || "").toLowerCase(),
+    agentName: String(d0.agentName || "").trim(),
+  };
 }
 
 export type UnifiedWorkshopChatCallbacks = {
@@ -244,15 +300,7 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
       limit(CONV_LIMIT),
     ),
     (snap) => {
-      if (snap.docs.length > 0) {
-        const d0 = snap.docs[0].data();
-        latestConvHead = {
-          status: String(d0.status || "").toLowerCase(),
-          agentName: String(d0.agentName || "").trim(),
-        };
-      } else {
-        latestConvHead = null;
-      }
+      latestConvHead = pickConvHeadForHeader(snap.docs);
 
       const keep = new Set(snap.docs.map((d) => d.id));
 

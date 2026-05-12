@@ -163,7 +163,10 @@ export default function SupportChatWidget() {
       >
         <div className="chat-header">
           <div className="header-left">
-            <div className="online-dot online-dot--live" aria-hidden />
+            <div
+              className={`online-dot ${preferredCcChatId ? "online-dot--live" : "online-dot--idle"}`}
+              aria-hidden
+            />
             <div>
               <h3>Chat with receptionist</h3>
               <p>{headerSubtitle}</p>
@@ -409,10 +412,17 @@ export default function SupportChatWidget() {
         .online-dot {
           width: 10px;
           height: 10px;
-          background: #4ade80;
           border-radius: 50%;
           flex-shrink: 0;
           margin-top: 4px;
+        }
+
+        .online-dot--live {
+          background: #4ade80;
+        }
+
+        .online-dot--idle {
+          background: #94a3b8;
         }
 
         .close-btn {

@@ -519,11 +519,19 @@ export async function appendCcDirectMessage(input: {
     throw err;
   }
 
-  const msgRef = chatRef.collection("messages").doc();
-  const now = FieldValue.serverTimestamp();
   const tenantUid = String(room.tenantUserUid || "");
   const agentUid = String(room.agentUid || "");
   const fromTenant = input.senderUid === tenantUid;
+  if (String(room.sessionStatus || "") === "closed" && fromTenant) {
+    const err = new Error(
+      "This chat has ended. Send through the reception queue so any available agent can help.",
+    );
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
+
+  const msgRef = chatRef.collection("messages").doc();
+  const now = FieldValue.serverTimestamp();
   await db.runTransaction(async (tx) => {
     const fresh = await tx.get(chatRef);
     if (!fresh.exists) {
@@ -596,7 +604,9 @@ export async function appendCcDirectMessage(input: {
 /**
  * End the current CC session on this thread (same Firestore doc + message history).
  * Any participant may close (including the agent on agent-started threads). `call_center_admin` may close any assigned thread.
- * Writes a system line "Chat ended" and sets `sessionStatus: "closed"`. The next `POST …/messages` or `ensureCcDirectChat` reopens.
+ * Writes a system line "Chat ended" and sets `sessionStatus: "closed"`. The next **agent**
+ * message or `ensureCcDirectChat` / `start-with-owner` can reopen the same thread. Workshop
+ * tenant messages after close go to the support queue (client + server block), not this doc.
  */
 export async function closeCcDirectSession(
   chatId: string,

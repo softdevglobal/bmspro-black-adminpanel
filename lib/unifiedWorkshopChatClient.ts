@@ -120,7 +120,14 @@ const CONV_LIMIT = 40;
 const CC_LIMIT = 50;
 
 /** CC room doc subset for unread + sorting. */
-type CcRoomMeta = { chatId: string; unreadForTenant: boolean; lastMessageAtMs: number; agentLabel: string };
+type CcRoomMeta = {
+  chatId: string;
+  unreadForTenant: boolean;
+  lastMessageAtMs: number;
+  agentLabel: string;
+  /** When true, tenant messages must not go to this thread — use support queue instead. */
+  sessionClosed: boolean;
+};
 
 function tsMs(t: Timestamp | null | undefined): number {
   if (!t || !(t instanceof Timestamp)) return 0;
@@ -166,7 +173,8 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
   const ccInboundUnreadCount = new Map<string, number>();
 
   const flushHeader = (): void => {
-    const ccList = [...ccMetaById.values()].sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs);
+    const openRooms = [...ccMetaById.values()].filter((m) => !m.sessionClosed);
+    const ccList = openRooms.sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs);
     if (ccList.length === 0) {
       cb.onPreferredCcChatId(null);
       cb.onHeaderHint("Message our reception team");
@@ -368,11 +376,13 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
           typeof x.agentName === "string" && x.agentName.trim()
             ? String(x.agentName).trim()
             : "Agent";
+        const sessionClosed = String(x.sessionStatus || "") === "closed";
         nextMeta.set(id, {
           chatId: id,
           unreadForTenant: x.unreadForTenant === true,
           lastMessageAtMs: tsMs(lm),
           agentLabel,
+          sessionClosed,
         });
         attachCcMessages(id, agentLabel);
       }

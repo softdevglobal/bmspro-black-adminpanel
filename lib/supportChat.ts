@@ -191,6 +191,52 @@ export async function findLatestConversationForUser(
   return parseConversationSnapshot(snap.docs[0].id, snap.docs[0].data());
 }
 
+/**
+ * Latest support thread for this customer + agent (after the agent claimed the queue).
+ * Requires composite index: conversations — userId, agentId, updatedAt (desc).
+ */
+export async function findLatestConversationForUserAndAgent(
+  userId: string,
+  agentId: string,
+): Promise<SupportConversation | null> {
+  const uid = userId.trim();
+  const aid = agentId.trim();
+  if (!uid || !aid) return null;
+  const db = adminDb();
+  const snap = await db
+    .collection(CONVERSATIONS)
+    .where("userId", "==", uid)
+    .where("agentId", "==", aid)
+    .orderBy("updatedAt", "desc")
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  return parseConversationSnapshot(snap.docs[0].id, snap.docs[0].data());
+}
+
+/**
+ * If a prior `conversations/{id}` between the same workshop user and agent was closed,
+ * reopen it (same document id and message subcollection) so history stays on one thread.
+ */
+export async function reopenClosedSupportConversationForUserAgentPair(args: {
+  userId: string;
+  agentId: string;
+}): Promise<{ conversationId: string | null; reopened: boolean }> {
+  const convo = await findLatestConversationForUserAndAgent(args.userId, args.agentId);
+  if (!convo) return { conversationId: null, reopened: false };
+  if (convo.status !== "closed") {
+    return { conversationId: convo.conversationId, reopened: false };
+  }
+  const db = adminDb();
+  await db.collection(CONVERSATIONS).doc(convo.conversationId).update({
+    status: "connected" as SupportChatStatus,
+    closedAt: null,
+    closedBy: null,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return { conversationId: convo.conversationId, reopened: true };
+}
+
 function workspaceMatchesAgentAssignments(
   ownerUidOnConversation: string | null,
   isCCAdmin: boolean,

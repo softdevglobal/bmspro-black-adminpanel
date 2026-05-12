@@ -54,9 +54,14 @@ export function injectReceptionConnectionHints(bubbles: UnifiedChatBubble[]): Un
     const st = ensureSt(tid);
 
     if (m.isSystem) {
-      const closed = m.text.toLowerCase().includes("chat ended");
-      if (closed) {
+      const tlow = m.text.toLowerCase();
+      if (tlow.includes("chat ended")) {
         st.awaitingNewSegment = true;
+        st.waitingForAgentAfterUser = false;
+        byThread.set(tid, st);
+      } else if (tlow.includes("connected with") || tlow.includes("you are now connected")) {
+        /* Support claim already writes "You are connected with …" — clear so we don't inject a duplicate before the next agent bubble. */
+        st.awaitingNewSegment = false;
         st.waitingForAgentAfterUser = false;
         byThread.set(tid, st);
       }
@@ -171,19 +176,31 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
   const ccMsgUnsubs = new Map<string, Unsubscribe>();
   /** Per CC room: inbound messages not yet seen by tenant (for FAB numeric badge). */
   const ccInboundUnreadCount = new Map<string, number>();
+  /** Newest conversation row (query is createdAt desc) — for header when no open CC thread. */
+  let latestConvHead: { status: string; agentName: string } | null = null;
 
   const flushHeader = (): void => {
     const openRooms = [...ccMetaById.values()].filter((m) => !m.sessionClosed);
     const ccList = openRooms.sort((a, b) => b.lastMessageAtMs - a.lastMessageAtMs);
-    if (ccList.length === 0) {
-      cb.onPreferredCcChatId(null);
-      cb.onHeaderHint("Message our reception team");
+    if (ccList.length > 0) {
+      const top = ccList[0];
+      cb.onPreferredCcChatId(top.chatId);
+      const label = top.agentLabel.trim();
+      cb.onHeaderHint(label ? `Reception (${label}) · Connected` : "Reception · Connected");
       return;
     }
-    const top = ccList[0];
-    cb.onPreferredCcChatId(top.chatId);
-    const label = top.agentLabel.trim();
-    cb.onHeaderHint(label ? `Reception (${label})` : "Chat with reception");
+    cb.onPreferredCcChatId(null);
+    const st = latestConvHead?.status ?? "";
+    const agent = (latestConvHead?.agentName ?? "").trim();
+    if (st === "connected" && agent) {
+      cb.onHeaderHint(`Support (${agent}) · Connected`);
+      return;
+    }
+    if (st === "waiting") {
+      cb.onHeaderHint("Waiting for an agent…");
+      return;
+    }
+    cb.onHeaderHint("Message our reception team");
   };
 
   const flush = (): void => {
@@ -227,6 +244,16 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
       limit(CONV_LIMIT),
     ),
     (snap) => {
+      if (snap.docs.length > 0) {
+        const d0 = snap.docs[0].data();
+        latestConvHead = {
+          status: String(d0.status || "").toLowerCase(),
+          agentName: String(d0.agentName || "").trim(),
+        };
+      } else {
+        latestConvHead = null;
+      }
+
       const keep = new Set(snap.docs.map((d) => d.id));
 
       for (const id of [...convMsgUnsubs.keys()]) {

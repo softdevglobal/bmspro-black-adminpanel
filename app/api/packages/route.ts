@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import {
+  normalizeBillingCycle,
+  validityDaysForCycle,
+} from "@/lib/subscriptionPlans";
 
 export const runtime = "nodejs";
 
@@ -44,6 +48,8 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { name, price, priceLabel, branches, staff, features, popular, color, image, icon, active, stripePriceId, trialDays, plan_key } = body;
+    const billingCycle = normalizeBillingCycle(body.billingCycle);
+    const validityDays = validityDaysForCycle(billingCycle);
 
     // Validation
     if (!name || price === undefined || !priceLabel) {
@@ -68,6 +74,8 @@ export async function POST(req: NextRequest) {
       hidden: body.hidden === true || body.hidden === "true",
       // Trial period in days (0 = no trial, null = no trial)
       trialDays: trialDays !== undefined && trialDays !== null && trialDays !== "" ? parseInt(trialDays, 10) : 0,
+      billingCycle,
+      validityDays,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -179,6 +187,11 @@ export async function PUT(req: NextRequest) {
     // Internal plan key (e.g., SOLO, TEAM5)
     if (plan_key !== undefined) {
       updateData.plan_key = plan_key && plan_key.trim() ? plan_key.trim() : null;
+    }
+    if (body.billingCycle !== undefined) {
+      const cycle = normalizeBillingCycle(body.billingCycle);
+      updateData.billingCycle = cycle;
+      updateData.validityDays = validityDaysForCycle(cycle);
     }
 
     await planRef.update(updateData);

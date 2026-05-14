@@ -9,6 +9,7 @@ import {
   assertWorkshopUserOwnsRoom,
   attachDetailsToCcChats,
 } from "@/lib/ccDirectChat";
+import { reopenClosedSupportConversationForUserAgentPair } from "@/lib/supportChat";
 
 export const runtime = "nodejs";
 
@@ -66,13 +67,36 @@ export async function POST(req: NextRequest) {
           tenantRole: auth.userData.role,
           agentUid: agentUid!,
         });
+
+    const isWorkshopOwner =
+      auth.userData.role === "workshop_owner" && auth.userData.uid === auth.userData.ownerUid;
+    let supportConversationId: string | null = null;
+    let supportConversationReopened = false;
+    if (!useQueue && isWorkshopOwner) {
+      const reopen = await reopenClosedSupportConversationForUserAgentPair({
+        userId: auth.userData.uid,
+        agentId: agentUid!,
+      });
+      supportConversationId = reopen.conversationId;
+      supportConversationReopened = reopen.reopened;
+    }
+
     const room = await getCcRoomOrNull(chatId);
     if (!room) {
       return NextResponse.json({ error: "Failed to load chat" }, { status: 500 });
     }
     assertWorkshopUserOwnsRoom(room, auth.userData.uid, auth.userData.ownerUid);
     const [chat] = await attachDetailsToCcChats([serializeCcRoom(chatId, room)], { includeWorkshopUser: false });
-    return NextResponse.json({ chat, created });
+    return NextResponse.json({
+      chat,
+      created,
+      ...(supportConversationId != null
+        ? {
+            supportConversationId,
+            supportConversationReopened,
+          }
+        : {}),
+    });
   } catch (e: unknown) {
     const status = typeof e === "object" && e !== null && "status" in e ? Number((e as { status: number }).status) : 500;
     const msg = e instanceof Error ? e.message : "Server error";

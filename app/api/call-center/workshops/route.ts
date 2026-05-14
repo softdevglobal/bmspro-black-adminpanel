@@ -6,6 +6,10 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { fetchWorkshopFullDetail } from "@/lib/callCenterWorkshopDetail";
+import {
+  queryActiveWorkshopOwnerDocs,
+  workshopOwnerDocToSummary,
+} from "@/lib/callCenterWorkshopOwnersQuery";
 
 export const runtime = "nodejs";
 
@@ -52,39 +56,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = adminDb();
-
-    let workshopDocs;
-
-    if (scope.mode === "all") {
-      const snap = await db
-        .collection("users")
-        .where("role", "==", "workshop_owner")
-        .get();
-      workshopDocs = snap.docs;
-    } else {
-      if (scope.ids.length === 0) {
-        return NextResponse.json({ workshops: [] }, { headers: CORS_HEADERS });
-      }
-      const batches: string[][] = [];
-      for (let i = 0; i < scope.ids.length; i += 30) {
-        batches.push(scope.ids.slice(i, i + 30));
-      }
-      workshopDocs = [];
-      for (const batch of batches) {
-        const snap = await db
-          .collection("users")
-          .where("role", "==", "workshop_owner")
-          .where("__name__", "in", batch)
-          .get();
-        workshopDocs.push(...snap.docs);
-      }
+    if (scope.mode === "ids" && scope.ids.length === 0) {
+      return NextResponse.json({ workshops: [] }, { headers: CORS_HEADERS });
     }
 
-    const activeDocs = workshopDocs.filter((doc) => {
-      const d = doc.data();
-      const status = d.accountStatus || d.status || "";
-      return status !== "suspended" && status !== "inactive";
-    });
+    const activeDocs = await queryActiveWorkshopOwnerDocs(scope);
 
     const headers =
       devListAllUnauthed && process.env.NODE_ENV === "development"
@@ -92,20 +68,7 @@ export async function GET(req: NextRequest) {
         : CORS_HEADERS;
 
     if (summaryOnly) {
-      const workshops = activeDocs.map((doc) => {
-        const d = doc.data();
-        return {
-          ownerUid: doc.id,
-          name: d.name || d.displayName || "",
-          slug: d.slug || "",
-          logoUrl: d.logoUrl || "",
-          contactPhone: d.contactPhone || "",
-          email: d.email || "",
-          timezone: d.timezone || "Australia/Sydney",
-          state: d.state || "",
-          accountStatus: d.accountStatus || "active",
-        };
-      });
+      const workshops = activeDocs.map(workshopOwnerDocToSummary);
       return NextResponse.json({ workshops }, { headers });
     }
 
@@ -115,7 +78,7 @@ export async function GET(req: NextRequest) {
     const workshops = bundles.filter((b): b is NonNullable<typeof b> => b != null);
 
     return NextResponse.json({ workshops }, { headers });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[call-center/workshops] Error:", error);
     return NextResponse.json(
       { error: "Internal server error" },

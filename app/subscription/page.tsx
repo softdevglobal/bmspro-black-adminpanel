@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { billingCycleCardLabel, planValidityDays } from "@/lib/subscriptionPlans";
 
 interface Package {
   id: string;
@@ -23,6 +24,8 @@ interface Package {
   hidden?: boolean; // Hidden packages are not shown for upgrade/downgrade (budget plans)
   stripePriceId?: string;
   trialDays?: number;
+  billingCycle?: "weekly" | "monthly";
+  validityDays?: number;
 }
 
 interface UserData {
@@ -900,6 +903,9 @@ export default function SubscriptionPage() {
                               <div className="text-3xl font-extrabold text-neutral-900">
                                 {pkg.priceLabel}
                               </div>
+                              <p className="text-xs font-semibold text-neutral-700 mt-1.5">
+                                {billingCycleCardLabel(pkg)}
+                              </p>
                             </div>
                             
                             {/* Branches & Staff */}
@@ -1049,6 +1055,9 @@ export default function SubscriptionPage() {
                     <div className="text-left">
                       <div className="font-bold text-neutral-900">{selectedPackage.name}</div>
                       <div className="text-sm text-neutral-700 font-semibold">{selectedPackage.priceLabel}</div>
+                      <div className="text-xs text-neutral-600 font-medium mt-0.5">
+                        {billingCycleCardLabel(selectedPackage)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1065,6 +1074,12 @@ export default function SubscriptionPage() {
                     <span className="text-neutral-500 flex items-center gap-2"><i className="fas fa-users text-xs" /> Staff</span>
                     <span className="font-medium text-neutral-700">
                       {selectedPackage.staff === -1 ? "Unlimited" : selectedPackage.staff}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-neutral-500 flex items-center gap-2"><i className="fas fa-rotate text-xs" /> Billing</span>
+                    <span className="font-medium text-neutral-700 text-right max-w-[60%]">
+                      {billingCycleCardLabel(selectedPackage)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
@@ -1166,6 +1181,9 @@ export default function SubscriptionPage() {
                     <div className="text-xs text-neutral-400 mb-1">New</div>
                     <div className="font-bold text-neutral-900">{upgradePkg.name}</div>
                     <div className="text-sm text-neutral-700 font-semibold">{upgradePkg.priceLabel}</div>
+                    <div className="text-[11px] text-neutral-600 font-semibold mt-1">
+                      {billingCycleCardLabel(upgradePkg)}
+                    </div>
                   </div>
                 </div>
 
@@ -1184,7 +1202,7 @@ export default function SubscriptionPage() {
                       {upgradeAction === "upgrade" ? (
                         <>
                           <p className="font-medium mb-1">Immediate upgrade</p>
-                          <p>A new 28-day billing cycle starts today. Payment will be charged immediately.</p>
+                          <p>A new {planValidityDays(upgradePkg)}-day billing cycle starts today. Payment will be charged immediately.</p>
                         </>
                       ) : (
                         <>
@@ -1203,10 +1221,16 @@ export default function SubscriptionPage() {
                       {upgradePkg.branches === -1 ? "Unlimited" : upgradePkg.branches}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between text-sm mb-2">
                     <span className="text-neutral-500">Staff</span>
                     <span className="font-medium text-neutral-700">
                       {upgradePkg.staff === -1 ? "Unlimited" : upgradePkg.staff}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-neutral-500">Renewal</span>
+                    <span className="font-medium text-neutral-700 text-right max-w-[65%]">
+                      {billingCycleCardLabel(upgradePkg)}
                     </span>
                   </div>
                 </div>

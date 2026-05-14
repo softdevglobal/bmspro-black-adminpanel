@@ -241,11 +241,25 @@ The server proxies to Yeastar OpenAPI `POST /openapi/v1.0/push/set` (with fallba
 
 ## Required env (`.env.local` / Vercel)
 
+**Linkus SDK** (`Integrations → Linkus SDK`) — primary for `get_token` / sign for the mobile bridge when both are set:
+
 ```
-YEASTAR_PBX_BASE_URL=https://bmsproslynbrook.ras.yeastar.com
 YEASTAR_PBX_ACCESS_ID=…
 YEASTAR_PBX_ACCESS_KEY=…
-YEASTAR_LINKUS_HOST=bmsproslynbrook.ras.yeastar.com
+```
+
+**General OpenAPI** (`Integrations → API`) — used only if Linkus AccessID/AccessKey are **not** both set (same username/password to `get_token`):
+
+```
+YEASTAR_OPENAPI_CLIENT_ID=…
+YEASTAR_OPENAPI_CLIENT_SECRET=…
+```
+
+**PBX + Linkus transport** (always):
+
+```
+YEASTAR_PBX_BASE_URL=https://…ras.yeastar.com
+YEASTAR_LINKUS_HOST=…ras.yeastar.com
 YEASTAR_LINKUS_PORT=443
 ```
 

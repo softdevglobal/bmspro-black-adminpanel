@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, startTransition } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -31,6 +31,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isEstimates = pathname?.startsWith("/estimates");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
+  const isLeaveRequests = pathname?.startsWith("/staff/leave-requests");
   const isBilling = pathname?.startsWith("/billing");
   const isSettings = pathname?.startsWith("/settings");
   const isOwnerSettings = pathname?.startsWith("/owner-settings");
@@ -146,6 +147,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
       } catch {}
     }
   }, [mounted, role]);
+
+
 
   const toggleBookings = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -274,6 +277,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Dashboard</span>
           </Link>
         )}
+
+
         {/* Super Admin - Only Dashboard and Tenants */}
         {mounted && role === "super_admin" && (
           <Link href="/tenants" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isTenants ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
@@ -418,14 +423,14 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <span>Branch Management</span>
         </Link>
       )}
-        {mounted && role === "workshop_owner" && (
+      {mounted && role === "workshop_owner" && (
           <>
             <div
               role="button"
               tabIndex={0}
               onClick={(e) => toggleStaff(e)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleStaff(e as unknown as React.MouseEvent); }}
-              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
+              className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer select-none ${
                 isStaff ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
               }`}
             >
@@ -440,7 +445,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <Link
                   href="/staff/manage"
                   className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    pathname === "/staff" || pathname?.startsWith("/staff/manage")
+                    pathname === "/staff" || (pathname?.startsWith("/staff/manage") && !isLeaveRequests)
                       ? "bg-neutral-800 text-white"
                       : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
                   }`}
@@ -469,6 +474,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 >
                   <i className="fas fa-clock w-4" />
                   <span>Timesheets</span>
+                </Link>
+                <Link
+                  href="/staff/leave-requests"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isLeaveRequests
+                      ? "bg-neutral-800 text-white"
+                      : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-umbrella-beach w-4" />
+                  <span>Leave requests</span>
                 </Link>
               </>
             )}

@@ -38,17 +38,22 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS });
 }
 
-/** `?all=1` — super admin, or any call center agent (scoped to assigned workshops unless CC admin / super admin). */
+/** `?all=1` — super admin tenant, or any call center agent. */
 function canUseAllQueryParam(auth: CallCenterRequestAuth): boolean {
   if (auth.kind === "tenant_admin" && auth.isSuperAdmin) return true;
   if (auth.kind === "agent") return true;
   return false;
 }
 
-/** Full database read (no workshop filter): super admin or call center admin only. */
+/**
+ * “Full access” merges (no workshop filter on aggregates + `fullSystemAccess: true`):
+ * platform super_admin, **`call_center_admin`**, or **unscoped** agents (`assignedWorkshops` empty).
+ * Scoped agents use `scopedToWorkshops` + {@link fetchAdminNotificationsForWorkshops} instead.
+ */
 function hasFullSystemWideAccess(auth: CallCenterRequestAuth): boolean {
   if (auth.kind === "tenant_admin" && auth.isSuperAdmin) return true;
   if (auth.kind === "agent" && auth.user.isCCAdmin) return true;
+  if (auth.kind === "agent" && auth.user.assignedWorkshops.length === 0) return true;
   return false;
 }
 
@@ -771,7 +776,8 @@ async function fetchEntireCustomerNotificationsCollection(
  * **System scope** — `all=1` or `scope=all`: customer inbox plus **call-center extras** (unless `customerOnly=1`):
  * - `additional_issue_found` and `new_estimate` from `notifications` (when not already covered by `includeAdmin=1`).
  * - All **`estimates`** documents (`source: "estimate"`) with vehicle / description / status.
- * Super admin / CC-admin agents: all workshops; other agents: `assignedWorkshops` via `ownerUid`.
+ * **`fullSystemAccess`** is true for super admin, **`call_center_admin`**, or **unscoped** agents (empty `assignedWorkshops`).
+ * Scoped agents merge only tenants in `assignedWorkshops`.
  * **Customer-only feed:** `customerOnly=1` — hide ops notifications and estimate records (book-now inbox only).
  * Optional **`includeAdmin=1`**: full `notifications` as `admin_panel` (includes ops types; dedicated ops fetch is skipped to avoid duplicates).
  *
@@ -827,17 +833,19 @@ export async function GET(req: NextRequest) {
       const fullAccess = hasFullSystemWideAccess(gate.auth);
       /**
        * Call center agents without CC-admin: data is limited to `assignedWorkshops` (owner UIDs).
+       * Empty `assignedWorkshops` matches booking/services/chat: unscoped agents see all tenants.
        * Super admins and call_center_admin agents see all tenants.
        */
       let scopedToWorkshops: string[] | null = null;
       if (!fullAccess && gate.auth.kind === "agent") {
-        scopedToWorkshops = [...gate.auth.user.assignedWorkshops];
+        const aw = gate.auth.user.assignedWorkshops;
+        scopedToWorkshops = aw.length > 0 ? [...aw] : null;
       }
 
       const workshopScopeForFetch: string[] | null = fullAccess
         ? null
         : gate.auth.kind === "agent"
-          ? scopedToWorkshops ?? []
+          ? scopedToWorkshops
           : null;
 
       const estimateDocs = !customerOnly

@@ -19,6 +19,10 @@ import {
 } from "@/lib/services";
 import Sidebar from "@/components/Sidebar";
 import { updateBookingStatus } from "@/lib/bookings";
+import {
+  collectStaffIdsOnApprovedLeaveForDate,
+  parseBookingYmd,
+} from "@/lib/leaveBookingAssignment";
 import BookingsExportModal from "./BookingsExportModal";
 import BookingJobReportPdfViewer from "./BookingJobReportPdfViewer";
 import { bookingJobReportPdfFilename } from "@/lib/bookingPdfFilename";
@@ -549,8 +553,8 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const [bookingToConfirm, setBookingToConfirm] = useState<Row | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
   const [selectedStaffPerService, setSelectedStaffPerService] = useState<Record<string, string>>({});
-  const [availableStaff, setAvailableStaff] = useState<Array<{ id: string; name: string; branchId?: string; avatar?: string }>>([]);
-  const [availableStaffPerService, setAvailableStaffPerService] = useState<Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string }>>>({});
+  const [availableStaff, setAvailableStaff] = useState<Array<{ id: string; name: string; branchId?: string; avatar?: string; onApprovedLeave?: boolean }>>([]);
+  const [availableStaffPerService, setAvailableStaffPerService] = useState<Record<string, Array<{ id: string; name: string; branchId?: string; avatar?: string; onApprovedLeave?: boolean }>>>({});
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [serviceQualifiedStaffIds, setServiceQualifiedStaffIds] = useState<string[]>([]);
   const [currentServiceQualifiedStaffIds, setCurrentServiceQualifiedStaffIds] = useState<Record<string, string[]>>({});
@@ -598,10 +602,18 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   // id) is used depending on the booking shape. Values are compared against
   // the booking's original assignments to decide whether to send staff
   // overrides to the API on save.
-  type ReschedStaffOption = { id: string; name: string; branchId?: string; avatar?: string };
+  type ReschedStaffOption = {
+    id: string;
+    name: string;
+    branchId?: string;
+    avatar?: string;
+    onApprovedLeave?: boolean;
+  };
   /** Full user rows (for branch + weeklySchedule filter when date changes). */
   const [rescheduleStaffRaw, setRescheduleStaffRaw] = useState<any[]>([]);
   const [rescheduleStaffOptions, setRescheduleStaffOptions] = useState<ReschedStaffOption[]>([]);
+  /** Auth/salon staff ids on approved leave for the effective reschedule calendar date. */
+  const [rescheduleLeaveStaffIds, setRescheduleLeaveStaffIds] = useState<string[]>([]);
   const [rescheduleStaffLoading, setRescheduleStaffLoading] = useState(false);
   const [rescheduleStaffId, setRescheduleStaffId] = useState<string>("");
   const [rescheduleStaffByService, setRescheduleStaffByService] = useState<Record<string, string>>({});
@@ -617,6 +629,46 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
   const [serviceAreaOrderFallback, setServiceAreaOrderFallback] = useState<Record<string, ChecklistSection[]>>({});
 
   useEffect(() => {
+    if (!rescheduleModalOpen || !bookingToReschedule) {
+      setRescheduleLeaveStaffIds([]);
+      return;
+    }
+    const dateEff = (rescheduleNewDate || bookingToReschedule.date || "").trim();
+    if (!dateEff) {
+      setRescheduleLeaveStaffIds([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const userId = auth.currentUser?.uid;
+        if (!userId) return;
+        const { getDoc, doc: firestoreDoc, getDocs, query, collection, where } = await import("firebase/firestore");
+        const userSnap = await getDoc(firestoreDoc(db, "users", userId));
+        const userData = userSnap.data();
+        const userRole = (userData?.role || "").toString();
+        const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
+        const leaveSnap = await getDocs(
+          query(
+            collection(db, "leave_requests"),
+            where("ownerUid", "==", ownerUid),
+            where("status", "==", "approved"),
+          ),
+        );
+        const bookingDay = parseBookingYmd(dateEff);
+        if (!bookingDay || cancelled) return;
+        const ids = collectStaffIdsOnApprovedLeaveForDate(leaveSnap.docs, bookingDay);
+        if (!cancelled) setRescheduleLeaveStaffIds(Array.from(ids));
+      } catch {
+        if (!cancelled) setRescheduleLeaveStaffIds([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rescheduleModalOpen, bookingToReschedule, rescheduleNewDate]);
+
+  useEffect(() => {
     if (!rescheduleModalOpen) return;
     if (!rescheduleStaffRaw.length) {
       setRescheduleStaffOptions([]);
@@ -630,19 +682,25 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       row.branchId,
       dateEff
     );
+    const leaveSet = new Set(rescheduleLeaveStaffIds);
     setRescheduleStaffOptions(
-      pool.map((s: any) => ({
-        id: String(s._rescheduleId || s.id),
-        name: String(s.name || s.displayName || "Unknown"),
-        branchId: s.branchId,
-        avatar: s.avatar,
-      }))
+      pool.map((s: any) => {
+        const id = String(s._rescheduleId || s.id);
+        return {
+          id,
+          name: String(s.name || s.displayName || "Unknown"),
+          branchId: s.branchId,
+          avatar: s.avatar,
+          onApprovedLeave: leaveSet.has(id),
+        };
+      }),
     );
   }, [
     rescheduleModalOpen,
     bookingToReschedule,
     rescheduleNewDate,
     rescheduleStaffRaw,
+    rescheduleLeaveStaffIds,
   ]);
 
   // Sync mileage edit value when preview row changes
@@ -733,8 +791,8 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         const { subscribeServicesForOwner } = await import("@/lib/services");
         const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
 
-        // Fetch staff on approved leave for the booking date (exclude from assignable list - like mobile app)
-        const staffIdsOnLeave = new Set<string>();
+        // Fetch staff on approved leave for the booking date (shown, not selectable)
+        let staffIdsOnLeave = new Set<string>();
         if (bookingToConfirm.date) {
           try {
             const leaveSnap = await getDocs(
@@ -744,22 +802,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 where("status", "==", "approved")
               )
             );
-            const bookingDateOnly = new Date(bookingToConfirm.date);
-            bookingDateOnly.setHours(0, 0, 0, 0);
-            for (const docSnap of leaveSnap.docs) {
-              const d = docSnap.data();
-              const staffId = (d.staffId ?? "").toString();
-              if (!staffId) continue;
-              const start = d.startDate;
-              const end = d.endDate ?? start;
-              if (!start || !end) continue;
-              const startDate = start?.toDate ? start.toDate() : new Date(start);
-              const endDate = end?.toDate ? end.toDate() : new Date(end);
-              const startOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-              const endOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-              if (bookingDateOnly >= startOnly && bookingDateOnly <= endOnly) {
-                staffIdsOnLeave.add(staffId);
-              }
+            const bookingDay = parseBookingYmd(String(bookingToConfirm.date));
+            if (bookingDay) {
+              staffIdsOnLeave = collectStaffIdsOnApprovedLeaveForDate(
+                leaveSnap.docs,
+                bookingDay
+              );
             }
           } catch {
             // leave_requests may not exist; ignore
@@ -824,14 +872,13 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               } else if (bookingToConfirm.branchId) {
                 filtered = filtered.filter((s: any) => s.branchId === bookingToConfirm.branchId);
               }
-              // Exclude staff on approved leave on the booking date
-              filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
               
               staffPerService[serviceKey] = filtered.map((s: any) => ({
                 id: String(s.id),
                 name: String(s.name || s.displayName || "Staff"),
                 branchId: s.branchId,
                 avatar: s.avatar || s.name || s.displayName || "Staff",
+                onApprovedLeave: isStaffOnLeave(s),
               }));
             });
             
@@ -874,8 +921,6 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
             } else if (bookingToConfirm.branchId) {
               filtered = filtered.filter((s: any) => s.branchId === bookingToConfirm.branchId);
             }
-            // Exclude staff on approved leave on the booking date
-            filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
 
             setAvailableStaff(
               filtered.map((s: any) => ({
@@ -883,6 +928,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 name: String(s.name || s.displayName || "Staff"),
                 branchId: s.branchId,
                 avatar: s.avatar || s.name || s.displayName || "Staff",
+                onApprovedLeave: isStaffOnLeave(s),
               }))
             );
           }
@@ -938,8 +984,8 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         const { subscribeServicesForOwner } = await import("@/lib/services");
         const { subscribeSalonStaffForOwner } = await import("@/lib/salonStaff");
 
-        // Fetch staff on approved leave for the booking date (exclude from assignable list - like mobile app)
-        const staffIdsOnLeave = new Set<string>();
+        // Fetch staff on approved leave for the booking date (shown, not selectable)
+        let staffIdsOnLeave = new Set<string>();
         if (bookingToReassign.date) {
           try {
             const leaveSnap = await getDocs(
@@ -949,22 +995,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 where("status", "==", "approved")
               )
             );
-            const bookingDateOnly = new Date(bookingToReassign.date);
-            bookingDateOnly.setHours(0, 0, 0, 0);
-            for (const docSnap of leaveSnap.docs) {
-              const d = docSnap.data();
-              const staffId = (d.staffId ?? "").toString();
-              if (!staffId) continue;
-              const start = d.startDate;
-              const end = d.endDate ?? start;
-              if (!start || !end) continue;
-              const startDate = start?.toDate ? start.toDate() : new Date(start);
-              const endDate = end?.toDate ? end.toDate() : new Date(end);
-              const startOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-              const endOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-              if (bookingDateOnly >= startOnly && bookingDateOnly <= endOnly) {
-                staffIdsOnLeave.add(staffId);
-              }
+            const bookingDay = parseBookingYmd(String(bookingToReassign.date));
+            if (bookingDay) {
+              staffIdsOnLeave = collectStaffIdsOnApprovedLeaveForDate(
+                leaveSnap.docs,
+                bookingDay
+              );
             }
           } catch {
             // leave_requests may not exist; ignore
@@ -1047,14 +1083,13 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   return s.branchId === bookingToReassign.branchId;
                 });
               }
-              // Exclude staff on approved leave on the booking date
-              filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
               
               staffPerService[serviceKey] = filtered.map((s: any) => ({
                 id: String(s.id),
                 name: String(s.name || s.displayName || "Staff"),
                 branchId: s.branchId,
                 avatar: s.avatar || s.name || s.displayName || "Staff",
+                onApprovedLeave: isStaffOnLeave(s),
               }));
             });
             
@@ -1098,8 +1133,6 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 return s.branchId === bookingToReassign.branchId;
               });
             }
-            // Exclude staff on approved leave on the booking date
-            filtered = filtered.filter((s: any) => !isStaffOnLeave(s));
 
             setAvailableStaff(
               filtered.map((s: any) => ({
@@ -1107,6 +1140,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                 name: String(s.name || s.displayName || "Staff"),
                 branchId: s.branchId,
                 avatar: s.avatar || s.name || s.displayName || "Staff",
+                onApprovedLeave: isStaffOnLeave(s),
               }))
             );
           }
@@ -1200,9 +1234,24 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         alert("Please assign staff to all services");
         return;
       }
+      for (const s of bookingToConfirm.services!) {
+        const serviceKey = String(s.id || s.serviceId || s.name);
+        const id = selectedStaffPerService[serviceKey];
+        if (!id) continue;
+        const st = availableStaffPerService[serviceKey]?.find((x) => x.id === id);
+        if (st?.onApprovedLeave) {
+          alert("You cannot assign staff who are on approved leave on this date.");
+          return;
+        }
+      }
     } else {
       // Single service - must have staff selected
       if (!selectedStaffId) return;
+      const picked = availableStaff.find((s) => s.id === selectedStaffId);
+      if (picked?.onApprovedLeave) {
+        alert("You cannot assign staff who are on approved leave on this date.");
+        return;
+      }
     }
 
     try {
@@ -1362,8 +1411,23 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
         alert("Please assign staff to all services that need assignment");
         return;
       }
+      for (const s of servicesToReassign) {
+        const serviceKey = String(s.id || s.serviceId || s.name);
+        const id = selectedStaffPerService[serviceKey];
+        if (!id) continue;
+        const st = availableStaffPerService[serviceKey]?.find((x) => x.id === id);
+        if (st?.onApprovedLeave) {
+          alert("You cannot assign staff who are on approved leave on this date.");
+          return;
+        }
+      }
     } else {
       if (!selectedStaffId) return;
+      const picked = availableStaff.find((s) => s.id === selectedStaffId);
+      if (picked?.onApprovedLeave) {
+        alert("You cannot assign staff who are on approved leave on this date.");
+        return;
+      }
     }
 
     try {
@@ -1581,6 +1645,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
     setRescheduleStaffByService({});
     setRescheduleStaffRaw([]);
     setRescheduleStaffOptions([]);
+    setRescheduleLeaveStaffIds([]);
   };
 
   const confirmReschedule = async () => {
@@ -1597,6 +1662,10 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       setRescheduleError("Pick-up time must be after the drop-off time.");
       return;
     }
+
+    const leaveOnNewDate = new Set(rescheduleLeaveStaffIds);
+    const assignmentUsesLeave = (staffId: string) =>
+      !!staffId && leaveOnNewDate.has(staffId);
 
     // Compute staff changes vs. the booking's current state.
     const hasServices = Array.isArray(bookingToReschedule.services) && bookingToReschedule.services.length > 0;
@@ -1623,6 +1692,29 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
       newStaffName = picked?.name || bookingToReschedule.staffName || "Staff";
     }
     const staffChanged = !!newStaffId || Object.keys(staffAssignments).length > 0;
+
+    if (hasServices) {
+      for (const svc of bookingToReschedule.services!) {
+        const sidSvc = String(svc.id);
+        const raw = rescheduleStaffByService[sidSvc];
+        const eff =
+            raw !== undefined ? String(raw) : String(svc.staffId || "");
+        if (assignmentUsesLeave(eff)) {
+          setRescheduleError(
+            "A service is still assigned to someone on approved leave on this date. Choose another staff member or unassign.",
+          );
+          return;
+        }
+      }
+    } else {
+      const effSingle = (rescheduleStaffId ?? "").toString();
+      if (assignmentUsesLeave(effSingle)) {
+        setRescheduleError(
+          "This booking is still assigned to someone on approved leave on the new date. Choose another staff member or unassign.",
+        );
+        return;
+      }
+    }
 
     if (
       bookingToReschedule.date === newDate &&
@@ -3907,23 +3999,30 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                   <div className="space-y-1.5">
                                     {serviceStaff.map((staff) => (
                                       <button
+                                        type="button"
                                         key={staff.id}
+                                        disabled={!!staff.onApprovedLeave}
                                         onClick={(e) => {
                                           e.stopPropagation();
+                                          if (staff.onApprovedLeave) return;
                                           setSelectedStaffPerService(prev => ({
                                             ...prev,
                                             [serviceKey]: staff.id
                                           }));
                                         }}
                                         className={`w-full text-left p-1.5 rounded-lg border-2 transition-all ${
-                                          selectedStaff === staff.id
+                                          staff.onApprovedLeave
+                                            ? "border-neutral-100 bg-neutral-100/90 cursor-not-allowed opacity-60"
+                                            : selectedStaff === staff.id
                                             ? "border-emerald-500 bg-emerald-50 shadow-sm"
                                             : "border-neutral-200 hover:border-emerald-300 hover:bg-white"
                                         }`}
                                       >
                                         <div className="flex items-center gap-2">
                                           <div className={`w-7 h-7 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                            selectedStaff === staff.id ? "border-emerald-500" : "border-neutral-200"
+                                            staff.onApprovedLeave
+                                              ? "border-neutral-200 opacity-70"
+                                              : selectedStaff === staff.id ? "border-emerald-500" : "border-neutral-200"
                                           }`}>
                                             <img
                                               src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -3931,14 +4030,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                               className="w-full h-full object-cover"
                                             />
                                           </div>
-                                          <div className="flex-1">
-                                            <p className={`font-semibold text-xs ${
-                                              selectedStaff === staff.id ? "text-emerald-900" : "text-neutral-800"
+                                          <div className="flex-1 min-w-0">
+                                            <p className={`font-semibold text-xs truncate ${
+                                              staff.onApprovedLeave
+                                                ? "text-neutral-500"
+                                                : selectedStaff === staff.id ? "text-emerald-900" : "text-neutral-800"
                                             }`}>
                                               {staff.name}
                                             </p>
+                                            {staff.onApprovedLeave && (
+                                              <p className="text-[10px] text-neutral-500 font-medium">On approved leave</p>
+                                            )}
                                           </div>
-                                          {selectedStaff === staff.id && (
+                                          {!staff.onApprovedLeave && selectedStaff === staff.id && (
                                             <i className="fas fa-check-circle text-emerald-500"></i>
                                           )}
                                         </div>
@@ -3960,26 +4064,33 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         {availableStaff.length === 0 ? (
                           <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
                             <i className="fas fa-exclamation-triangle mr-2"></i>
-                            No available staff. Staff must work at this branch on the booking date and not be on leave.
+                            No available staff. Staff must work at this branch on the booking date.
                           </div>
                         ) : (
                           <div className="space-y-2 max-h-64 overflow-y-auto">
                             {availableStaff.map((staff) => (
                               <button
+                                type="button"
                                 key={staff.id}
+                                disabled={!!staff.onApprovedLeave}
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  if (staff.onApprovedLeave) return;
                                   setSelectedStaffId(staff.id);
                                 }}
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
-                                  selectedStaffId === staff.id
+                                  staff.onApprovedLeave
+                                    ? "border-neutral-100 bg-neutral-100/90 cursor-not-allowed opacity-60"
+                                    : selectedStaffId === staff.id
                                     ? "border-emerald-500 bg-emerald-50 shadow-sm"
                                     : "border-neutral-200 hover:border-emerald-300 hover:bg-neutral-50"
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
                                   <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                    selectedStaffId === staff.id
+                                    staff.onApprovedLeave
+                                      ? "border-neutral-200 opacity-70"
+                                      : selectedStaffId === staff.id
                                       ? "border-emerald-500"
                                       : "border-neutral-200"
                                   }`}>
@@ -3989,14 +4100,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       className="w-full h-full object-cover"
                                     />
                                   </div>
-                                  <div className="flex-1">
+                                  <div className="flex-1 min-w-0">
                                     <p className={`font-semibold ${
-                                      selectedStaffId === staff.id ? "text-emerald-900" : "text-neutral-800"
+                                      staff.onApprovedLeave
+                                        ? "text-neutral-500"
+                                        : selectedStaffId === staff.id ? "text-emerald-900" : "text-neutral-800"
                                     }`}>
                                       {staff.name}
                                     </p>
+                                    {staff.onApprovedLeave && (
+                                      <p className="text-[11px] text-neutral-500 mt-0.5">On approved leave</p>
+                                    )}
                                   </div>
-                                  {selectedStaffId === staff.id && (
+                                  {!staff.onApprovedLeave && selectedStaffId === staff.id && (
                                     <i className="fas fa-check-circle text-emerald-500 text-lg"></i>
                                   )}
                                 </div>
@@ -4035,14 +4151,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                   const hasMultipleServices = Array.isArray(bookingToConfirm.services) && bookingToConfirm.services.length > 0;
                   
                   if (hasMultipleServices) {
-                    // Check if all services have staff assigned
+                    // All services must have non–on-leave staff selected
                     return !bookingToConfirm.services!.every(s => {
                       const serviceKey = String(s.id || s.serviceId || s.name);
-                      return selectedStaffPerService[serviceKey];
+                      const id = selectedStaffPerService[serviceKey];
+                      if (!id) return false;
+                      const st = availableStaffPerService[serviceKey]?.find(x => x.id === id);
+                      return !!st && !st.onApprovedLeave;
                     });
                   } else {
                     // Single service
-                    return !selectedStaffId;
+                    if (!selectedStaffId) return true;
+                    const st = availableStaff.find(s => s.id === selectedStaffId);
+                    return !st || !!st.onApprovedLeave;
                   }
                 })()}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-emerald-200"
@@ -4249,23 +4370,30 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       <div className="space-y-2">
                                         {serviceStaff.map((staff) => (
                                           <button
+                                            type="button"
                                             key={staff.id}
+                                            disabled={!!staff.onApprovedLeave}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              if (staff.onApprovedLeave) return;
                                               setSelectedStaffPerService(prev => ({
                                                 ...prev,
                                                 [serviceKey]: staff.id
                                               }));
                                             }}
                                             className={`w-full text-left p-2 rounded-lg border-2 transition-all ${
-                                              selectedStaff === staff.id
+                                              staff.onApprovedLeave
+                                                ? "border-neutral-100 bg-neutral-100/90 cursor-not-allowed opacity-60"
+                                                : selectedStaff === staff.id
                                                 ? "border-amber-500 bg-amber-50 shadow-sm"
                                                 : "border-neutral-200 hover:border-amber-300 hover:bg-white"
                                             }`}
                                           >
                                             <div className="flex items-center gap-2">
                                               <div className={`w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                                selectedStaff === staff.id ? "border-amber-500" : "border-neutral-200"
+                                                staff.onApprovedLeave
+                                                  ? "border-neutral-200 opacity-70"
+                                                  : selectedStaff === staff.id ? "border-amber-500" : "border-neutral-200"
                                               }`}>
                                                 <img
                                                   src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(staff.avatar || staff.name)}`}
@@ -4273,14 +4401,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                                   className="w-full h-full object-cover"
                                                 />
                                               </div>
-                                              <div className="flex-1">
-                                                <p className={`font-semibold text-sm ${
-                                                  selectedStaff === staff.id ? "text-amber-900" : "text-neutral-800"
+                                              <div className="flex-1 min-w-0">
+                                                <p className={`font-semibold text-sm truncate ${
+                                                  staff.onApprovedLeave
+                                                    ? "text-neutral-500"
+                                                    : selectedStaff === staff.id ? "text-amber-900" : "text-neutral-800"
                                                 }`}>
                                                   {staff.name}
                                                 </p>
+                                                {staff.onApprovedLeave && (
+                                                  <p className="text-[10px] text-neutral-500 font-medium">On approved leave</p>
+                                                )}
                                               </div>
-                                              {selectedStaff === staff.id && (
+                                              {!staff.onApprovedLeave && selectedStaff === staff.id && (
                                                 <i className="fas fa-check-circle text-amber-500"></i>
                                               )}
                                             </div>
@@ -4310,20 +4443,27 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           <div className="space-y-2 max-h-64 overflow-y-auto">
                             {availableStaff.map((staff) => (
                               <button
+                                type="button"
                                 key={staff.id}
+                                disabled={!!staff.onApprovedLeave}
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  if (staff.onApprovedLeave) return;
                                   setSelectedStaffId(staff.id);
                                 }}
                                 className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
-                                  selectedStaffId === staff.id
+                                  staff.onApprovedLeave
+                                    ? "border-neutral-100 bg-neutral-100/90 cursor-not-allowed opacity-60"
+                                    : selectedStaffId === staff.id
                                     ? "border-amber-500 bg-amber-50 shadow-sm"
                                     : "border-neutral-200 hover:border-amber-300 hover:bg-neutral-50"
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
                                   <div className={`w-10 h-10 rounded-full overflow-hidden flex-shrink-0 border-2 ${
-                                    selectedStaffId === staff.id
+                                    staff.onApprovedLeave
+                                      ? "border-neutral-200 opacity-70"
+                                      : selectedStaffId === staff.id
                                       ? "border-amber-500"
                                       : "border-neutral-200"
                                   }`}>
@@ -4333,14 +4473,19 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                       className="w-full h-full object-cover"
                                     />
                                   </div>
-                                  <div className="flex-1">
+                                  <div className="flex-1 min-w-0">
                                     <p className={`font-semibold ${
-                                      selectedStaffId === staff.id ? "text-amber-900" : "text-neutral-800"
+                                      staff.onApprovedLeave
+                                        ? "text-neutral-500"
+                                        : selectedStaffId === staff.id ? "text-amber-900" : "text-neutral-800"
                                     }`}>
                                       {staff.name}
                                     </p>
+                                    {staff.onApprovedLeave && (
+                                      <p className="text-[11px] text-neutral-500 mt-0.5">On approved leave</p>
+                                    )}
                                   </div>
-                                  {selectedStaffId === staff.id && (
+                                  {!staff.onApprovedLeave && selectedStaffId === staff.id && (
                                     <i className="fas fa-check-circle text-amber-500 text-lg"></i>
                                   )}
                                 </div>
@@ -4389,13 +4534,17 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                     // If no services to reassign, allow button (edge case)
                     if (servicesToReassign.length === 0) return false;
                     
-                    // All rejected/unassigned services must have staff selected
                     return !servicesToReassign.every(s => {
                       const serviceKey = String(s.id || s.serviceId || s.name);
-                      return selectedStaffPerService[serviceKey];
+                      const id = selectedStaffPerService[serviceKey];
+                      if (!id) return false;
+                      const st = availableStaffPerService[serviceKey]?.find(x => x.id === id);
+                      return !!st && !st.onApprovedLeave;
                     });
                   } else {
-                    return !selectedStaffId;
+                    if (!selectedStaffId) return true;
+                    const st = availableStaff.find(s => s.id === selectedStaffId);
+                    return !st || !!st.onApprovedLeave;
                   }
                 })()}
                 className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm shadow-lg shadow-amber-200"
@@ -4951,8 +5100,13 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                         </option>
                       )}
                       {options.map((s) => (
-                        <option key={s.id} value={s.id}>
+                        <option
+                          key={s.id}
+                          value={s.id}
+                          disabled={!!s.onApprovedLeave}
+                        >
                           {s.name}
+                          {s.onApprovedLeave ? " — on approved leave" : ""}
                           {s.id === currentId ? " (current)" : ""}
                         </option>
                       ))}

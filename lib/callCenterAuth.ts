@@ -72,10 +72,55 @@ interface CCAuthResult {
   user?: CallCenterUser;
 }
 
+function callCenterUserFromAgentDoc(
+  uid: string,
+  data: FirebaseFirestore.DocumentData,
+  decodedToken: { email?: string }
+): CallCenterUser | null {
+  if (data.suspended) return null;
+  const role = (data.role || "agent").toString().toLowerCase();
+  if (!CALL_CENTER_ROLES.includes(role)) return null;
+  const assignedWorkshops = normalizeAssignedWorkshopIds([
+    ...(Array.isArray(data.assignedWorkshops) ? data.assignedWorkshops : []),
+    ...(Array.isArray(data.assigned_workshops) ? data.assigned_workshops : []),
+  ]);
+  return {
+    uid,
+    role,
+    email: data.email || decodedToken.email || "",
+    name: data.displayName || data.name || "",
+    assignedWorkshops,
+    isCCAdmin: role === "call_center_admin",
+  };
+}
+
+/** When `call_center_agents/{uid}` is missing, allow `users/{uid}` with a call-center role. */
+function callCenterUserFromUsersDoc(
+  uid: string,
+  data: FirebaseFirestore.DocumentData,
+  decodedToken: { email?: string }
+): CallCenterUser | null {
+  if (data.suspended) return null;
+  const role = (data.role || data.systemRole || "").toString().toLowerCase();
+  if (!CALL_CENTER_ROLES.includes(role)) return null;
+  const assignedWorkshops = normalizeAssignedWorkshopIds([
+    ...(Array.isArray(data.assignedWorkshops) ? data.assignedWorkshops : []),
+    ...(Array.isArray(data.assigned_workshops) ? data.assigned_workshops : []),
+  ]);
+  return {
+    uid,
+    role,
+    email: data.email || decodedToken.email || "",
+    name: data.displayName || data.name || "",
+    assignedWorkshops,
+    isCCAdmin: role === "call_center_admin",
+  };
+}
+
 /**
  * Verify that the request comes from an authenticated call center agent.
- * Reads from `call_center_agents` Firestore collection.
- * Returns the agent's profile including assigned workshop list.
+ * Reads `call_center_agents/{uid}` first; if absent, accepts `users/{uid}` with role
+ * `agent` / `call_center_agent` / `call_center_admin` (same as `CALL_CENTER_ROLES`).
  */
 export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResult> {
   try {
@@ -96,37 +141,31 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
 
     const agentDoc = await db.doc(`call_center_agents/${uid}`).get();
 
-    if (!agentDoc.exists) {
-      return { success: false, error: "Not a registered call center agent", status: 403 };
+    if (agentDoc.exists) {
+      const data = agentDoc.data()!;
+      if (data.suspended) {
+        return { success: false, error: "Agent account suspended", status: 403 };
+      }
+      const user = callCenterUserFromAgentDoc(uid, data, decodedToken);
+      if (!user) {
+        return { success: false, error: "Invalid call center role", status: 403 };
+      }
+      return { success: true, user };
     }
 
-    const data = agentDoc.data()!;
-
-    if (data.suspended) {
-      return { success: false, error: "Agent account suspended", status: 403 };
+    const userDoc = await db.doc(`users/${uid}`).get();
+    if (userDoc.exists) {
+      const data = userDoc.data()!;
+      if (data.suspended) {
+        return { success: false, error: "Agent account suspended", status: 403 };
+      }
+      const user = callCenterUserFromUsersDoc(uid, data, decodedToken);
+      if (user) {
+        return { success: true, user };
+      }
     }
 
-    const role = (data.role || "agent").toString();
-    if (!CALL_CENTER_ROLES.includes(role)) {
-      return { success: false, error: "Invalid call center role", status: 403 };
-    }
-
-    const assignedWorkshops = normalizeAssignedWorkshopIds([
-      ...(Array.isArray(data.assignedWorkshops) ? data.assignedWorkshops : []),
-      ...(Array.isArray(data.assigned_workshops) ? data.assigned_workshops : []),
-    ]);
-
-    return {
-      success: true,
-      user: {
-        uid,
-        role,
-        email: data.email || decodedToken.email || "",
-        name: data.displayName || data.name || "",
-        assignedWorkshops,
-        isCCAdmin: role === "call_center_admin",
-      },
-    };
+    return { success: false, error: "Not a registered call center agent", status: 403 };
   } catch (error: any) {
     console.error("[verifyCallCenterAuth] Error:", error);
     return { success: false, error: "Authentication failed", status: 500 };
@@ -135,11 +174,15 @@ export async function verifyCallCenterAuth(req: NextRequest): Promise<CCAuthResu
 
 /**
  * Check if an agent has access to a specific workshop (ownerUid).
- * CC admins can access all workshops; agents need explicit assignment.
+ * CC admins can access all workshops. Agents with **`assignedWorkshops` empty**
+ * behave like chat queue/list rules: they may operate across every workshop (dedicated /
+ * unscoped agents). Otherwise the workshop `ownerUid` must be listed in `assignedWorkshops`.
  */
 export function canAccessWorkshop(user: CallCenterUser, ownerUid: string): boolean {
   if (user.isCCAdmin) return true;
   const id = ownerUid.trim();
+  if (!id) return false;
+  if (user.assignedWorkshops.length === 0) return true;
   return user.assignedWorkshops.includes(id);
 }
 
@@ -170,7 +213,7 @@ export async function verifyCallCenterOrTenantAdminAuth(
         email: u.email,
         name: u.name,
         ownerUid: u.ownerUid,
-        isSuperAdmin: u.isSuperAdmin,
+        isSuperAdmin: u.isSuperAdmin || u.role === "super_admin",
       },
     };
   }
@@ -179,7 +222,7 @@ export async function verifyCallCenterOrTenantAdminAuth(
     cc.status === 401 || admin.status === 401 ? 401 : cc.status || admin.status || 401;
   const error =
     cc.error === "Not a registered call center agent"
-      ? "Not a call center agent: add Firestore doc call_center_agents/{uid} for this Firebase user, or sign in as BMS staff (workshop_owner, branch_admin, super_admin) with a users/ doc"
+      ? "Not a call center agent: add Firestore call_center_agents/{uid}, or set users/{uid} role to agent / call_center_agent / call_center_admin, or sign in as BMS staff (workshop_owner, branch_admin, super_admin)."
       : cc.status === 401
         ? cc.error || "Unauthorized"
         : admin.error || cc.error || "Unauthorized";
@@ -211,6 +254,8 @@ export function canAccessCcDirectChatRoom(
   requesterUid: string
 ): boolean {
   if (participantIdList(room).includes(requesterUid)) return true;
+  /** Super admins may read metadata + messages across all workshops / queue threads for oversight. */
+  if (auth.kind === "tenant_admin" && auth.isSuperAdmin) return true;
   if (auth.kind === "agent") {
     if (String(room.queueStatus ?? "") !== "pending") return false;
     const w = String(room.workshopOwnerUid ?? "").trim();
@@ -255,6 +300,8 @@ export function workshopListScopeForAuth(
 ): { mode: "all" } | { mode: "ids"; ids: string[] } {
   if (auth.kind === "agent") {
     if (auth.user.isCCAdmin) return { mode: "all" };
+    // Match `canAccessWorkshop` / CC chat: no explicit rows ⇒ operate across all workshops.
+    if (auth.user.assignedWorkshops.length === 0) return { mode: "all" };
     return { mode: "ids", ids: auth.user.assignedWorkshops };
   }
   if (auth.isSuperAdmin) return { mode: "all" };
@@ -273,4 +320,42 @@ export function getTenantId(req: NextRequest): string | null {
     req.nextUrl.searchParams.get("tenantId") ||
     null
   );
+}
+
+export type SupportChatViewerAuth =
+  | { kind: "agent"; user: CallCenterUser }
+  | { kind: "super_admin"; uid: string };
+
+/**
+ * Call center agent (`call_center_agents`) OR BMS super_admin (Firestore `super_admins/{uid}`
+ * or `users/{uid}` role `super_admin`) for read-only dashboards that must see support threads
+ * without an agent enrollment row.
+ */
+export async function verifyCallCenterAgentOrSuperAdmin(req: NextRequest): Promise<
+  { ok: false; error: string; status: number } | { ok: true; viewer: SupportChatViewerAuth }
+> {
+  const cc = await verifyCallCenterAuth(req);
+  if (cc.success && cc.user) {
+    return { ok: true, viewer: { kind: "agent", user: cc.user } };
+  }
+
+  const admin = await verifyAdminAuth(req, ["super_admin"]);
+  if (admin.success && admin.userData) {
+    const ud = admin.userData;
+    if (ud.isSuperAdmin || ud.role === "super_admin") {
+      return { ok: true, viewer: { kind: "super_admin", uid: ud.uid } };
+    }
+  }
+
+  const fallbackStatus =
+    cc.status === 401 || admin.status === 401
+      ? 401
+      : [cc.status, admin.status].find((x): x is number => typeof x === "number" && Number.isFinite(x)) ?? 403;
+  const error =
+    cc.status === 401
+      ? cc.error || admin.error || "Unauthorized"
+      : admin.error ??
+        cc.error ??
+        "Require call center agent session or super_admin Authorization token.";
+  return { ok: false, error: error || "Forbidden", status: fallbackStatus };
 }

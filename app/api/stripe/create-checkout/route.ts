@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { planValidityDays, planBillingCycle } from "@/lib/subscriptionPlans";
 
 export const runtime = "nodejs";
 
@@ -59,6 +60,8 @@ export async function POST(req: NextRequest) {
     }
 
     const planData = planDoc.data()!;
+    const billingCycle = planBillingCycle(planData);
+    const validityDays = planValidityDays(planData);
     
     // Validate plan has a price
     if (!planData.price || planData.price <= 0) {
@@ -129,6 +132,8 @@ export async function POST(req: NextRequest) {
         planId: planId,
         planName: planData.name,
         plan_key: planData.plan_key || "",
+        billingCycle,
+        validityDays: String(validityDays),
       },
     };
     
@@ -148,12 +153,14 @@ export async function POST(req: NextRequest) {
             metadata: {
               planId: planId,
               plan_key: planData.plan_key || "",
+              billingCycle,
+              validityDays: String(validityDays),
             },
           },
           unit_amount: Math.round(planData.price * 100), // Convert to cents
           recurring: {
             interval: "day",
-            interval_count: 28, // 28-day billing cycle
+            interval_count: validityDays,
           },
         },
         quantity: 1,
@@ -173,6 +180,8 @@ export async function POST(req: NextRequest) {
         planName: planData.name,
         trialDays: effectiveTrialDays.toString(),
         price: planData.price.toString(),
+        billingCycle,
+        validityDays: String(validityDays),
       },
       subscription_data: subscriptionData,
       allow_promotion_codes: true,

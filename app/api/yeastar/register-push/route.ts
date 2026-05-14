@@ -107,8 +107,9 @@ export async function POST(req: NextRequest) {
 
   const isClear = deviceToken.length === 0;
 
+  let pbxPushApplied = false;
   try {
-    await setPushToken(
+    const result = await setPushToken(
       {
         extension,
         deviceToken,
@@ -117,6 +118,12 @@ export async function POST(req: NextRequest) {
       },
       env,
     );
+    pbxPushApplied = result.applied;
+    if (!pbxPushApplied && !isClear) {
+      console.warn(
+        `${LOG_PREFIX} PBX did not apply push token (OpenAPI push not on firmware); Linkus foreground calls still work`,
+      );
+    }
   } catch (e) {
     console.error(LOG_PREFIX, e);
     const ann = annotateOpenApiError(e);
@@ -131,27 +138,40 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Mirror to Firestore so admins can audit and so we can re-register on
-  // PBX cache loss without round-tripping the device.
+  // Mirror to Firestore only when the PBX accepted the change, or when
+  // clearing local mapping after logout.
   try {
-    await adminDb()
-      .doc(`users/${auth.caller.uid}`)
-      .set(
-        {
-          yeastarPush: isClear
-            ? FieldValue.delete()
-            : {
-                token: deviceToken,
-                platform,
-                type,
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-        },
-        { merge: true },
-      );
+    if (isClear) {
+      await adminDb()
+        .doc(`users/${auth.caller.uid}`)
+        .set(
+          {
+            yeastarPush: FieldValue.delete(),
+          },
+          { merge: true },
+        );
+    } else if (pbxPushApplied) {
+      await adminDb()
+        .doc(`users/${auth.caller.uid}`)
+        .set(
+          {
+            yeastarPush: {
+              token: deviceToken,
+              platform,
+              type,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+          },
+          { merge: true },
+        );
+    }
   } catch (e) {
     console.warn(`${LOG_PREFIX} firestore mirror failed`, e);
   }
 
-  return NextResponse.json({ success: true, cleared: isClear });
+  return NextResponse.json({
+    success: true,
+    cleared: isClear,
+    pbxPushApplied,
+  });
 }

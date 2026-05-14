@@ -21,6 +21,10 @@ import {
   resolveServicePricingForVehicleType,
   type VehicleType,
 } from "@/lib/services";
+import {
+  collectStaffIdsOnApprovedLeaveForDate,
+  parseBookingYmd,
+} from "@/lib/leaveBookingAssignment";
 
 export const runtime = "nodejs";
 
@@ -376,6 +380,57 @@ export async function POST(req: NextRequest) {
     // Determine if this is a staff-created booking (auto-confirm)
     let finalStatus = normalizeBookingStatus(body.status || "Pending");
     let processedServices = body.services || null;
+
+    // Do not persist assignments to staff on approved leave for this date
+    try {
+      const dateStr = String(body.date ?? "").trim();
+      const bookingDay = dateStr ? parseBookingYmd(dateStr) : null;
+      if (bookingDay) {
+        const leaveSnap = await adminDb()
+          .collection("leave_requests")
+          .where("ownerUid", "==", ownerUid)
+          .where("status", "==", "approved")
+          .get();
+        const blocked = collectStaffIdsOnApprovedLeaveForDate(
+          leaveSnap.docs.map((d) => ({
+            data: () => d.data() as Record<string, unknown>,
+          })),
+          bookingDay,
+        );
+        const isBlockedStaff = (sid: unknown): boolean => {
+          if (sid == null) return false;
+          const s = String(sid).trim();
+          if (!s || s.toLowerCase() === "null" || s.toLowerCase().includes("any")) {
+            return false;
+          }
+          return blocked.has(s);
+        };
+        if (processedServices && Array.isArray(processedServices)) {
+          for (const svc of processedServices) {
+            if (isBlockedStaff((svc as { staffId?: string }).staffId)) {
+              return NextResponse.json(
+                {
+                  error:
+                    "Cannot assign staff who is on approved leave on that date.",
+                },
+                { status: 400 },
+              );
+            }
+          }
+        }
+        if (isBlockedStaff(body.staffId)) {
+          return NextResponse.json(
+            {
+              error:
+                "Cannot assign staff who is on approved leave on that date.",
+            },
+            { status: 400 },
+          );
+        }
+      }
+    } catch (leaveCheckErr) {
+      console.warn("Leave assignment check skipped:", leaveCheckErr);
+    }
     
     // Check if user is staff, workshop_owner, or branch_admin for auto-confirmation logic
     try {

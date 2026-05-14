@@ -20,8 +20,8 @@ export async function OPTIONS() {
  * All branches for a workshop owner, each in the same shape as GET …/branches/[branchId].
  * Optional `date=YYYY-MM-DD` sets `daySchedule` on every row.
  *
- * **Call center agents:** may list branches for any owner.
- * **BMS staff:** only for workshops they are allowed to access (`canAccessWorkshopForAuth`).
+ * **Call center agents + BMS staff:** list only when `canAccessWorkshopForAuth` allows that
+ * `ownerUid` (unscoped agents: all workshops; scoped agents: `assignedWorkshops` only).
  */
 export async function GET(req: NextRequest) {
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
@@ -41,10 +41,8 @@ export async function GET(req: NextRequest) {
   }
   const ownerUid = ownerUidRaw.trim();
 
-  if (gate.auth.kind !== "agent") {
-    if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403, headers: CORS_HEADERS });
-    }
+  if (!canAccessWorkshopForAuth(gate.auth, ownerUid)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403, headers: CORS_HEADERS });
   }
 
   const dateParam = req.nextUrl.searchParams.get("date");

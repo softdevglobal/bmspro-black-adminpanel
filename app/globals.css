@@ -151,3 +151,14 @@ select.select-inset-chevron {
   animation: previewExpand 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   transform-origin: top center;
 }
+
+/*
+ * Support chat FAB — backup hover / label (main styles are styled-jsx in SupportChatWidget).
+ */
+button[data-support-chat-launcher]:hover {
+  background-color: #1d4ed8 !important;
+}
+
+button[data-support-chat-launcher] .support-btn-label {
+  color: #ffffff !important;
+}

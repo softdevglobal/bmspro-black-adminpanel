@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { planBillingCycle, planValidityDays } from "@/lib/subscriptionPlans";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,8 @@ export async function GET(req: NextRequest) {
           trialDays: data.trialDays || 0,
           plan_key: data.plan_key || null,
           active: data.active !== false,
+          billingCycle: planBillingCycle(data),
+          validityDays: planValidityDays(data),
         });
       }
     });

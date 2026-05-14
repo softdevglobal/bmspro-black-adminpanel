@@ -13,6 +13,10 @@ import {
 import { logBookingRescheduledServer } from "@/lib/auditLogServer";
 import { sendBookingRescheduledEmail } from "@/lib/emailService";
 import {
+  collectStaffIdsOnApprovedLeaveForDate,
+  parseBookingYmd,
+} from "@/lib/leaveBookingAssignment";
+import {
   checkRateLimit,
   getClientIdentifier,
   RateLimiters,
@@ -153,6 +157,49 @@ export async function PATCH(
 
     const ownerUid =
       userRole === "workshop_owner" ? callerUid : (userData?.ownerUid || callerUid);
+
+    // Cannot reassign to staff on approved leave on the new date
+    try {
+      const bookingDay = parseBookingYmd(newDate);
+      if (bookingDay) {
+        const leaveSnap = await db
+          .collection("leave_requests")
+          .where("ownerUid", "==", ownerUid)
+          .where("status", "==", "approved")
+          .get();
+        const blocked = collectStaffIdsOnApprovedLeaveForDate(
+          leaveSnap.docs.map((d) => ({
+            data: () => d.data() as Record<string, unknown>,
+          })),
+          bookingDay,
+        );
+        const isBad = (sid: string) =>
+          sid.trim().length > 0 && blocked.has(sid.trim());
+        if (isBad(newStaffId)) {
+          return NextResponse.json(
+            {
+              error:
+                "Cannot assign staff who is on approved leave on that date.",
+            },
+            { status: 400 },
+          );
+        }
+        for (const v of Object.values(staffAssignments)) {
+          const sid = (v?.staffId || "").trim();
+          if (isBad(sid)) {
+            return NextResponse.json(
+              {
+                error:
+                  "Cannot assign staff who is on approved leave on that date.",
+              },
+              { status: 400 },
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Reschedule leave check skipped:", e);
+    }
 
     // ── Locate booking (either collection) ────────────────────────────────
     let ref = db.doc(`bookings/${id}`);

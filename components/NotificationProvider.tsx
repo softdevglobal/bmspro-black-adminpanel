@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, ReactNod
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import ToastNotification from "./ToastNotification";
+import { SUPPORT_CHAT_PANEL_STATE_EVENT } from "@/lib/supportChatEvents";
 
 interface Notification {
   id: string;
@@ -18,6 +19,8 @@ interface Notification {
   createdAt: Date;
   read: boolean;
   status?: string;
+  /** Call center direct chat — open floating reception widget. */
+  chatId?: string;
   /** Present on `additional_issue_found` — used to dedupe duplicate Firestore docs. */
   issueId?: string;
 }
@@ -41,6 +44,8 @@ const WORKSHOP_ALERT_TYPES = new Set([
   "staff_clocked_out",
   "staff_break_started",
   "staff_break_ended",
+  "leave_request_pending",
+  "cc_chat_inbound",
 ]);
 
 export const useNotifications = () => {
@@ -61,12 +66,15 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const [readPendingBookings, setReadPendingBookings] = useState<Set<string>>(new Set());
   const [dismissedPendingBookings, setDismissedPendingBookings] = useState<Set<string>>(new Set()); // Track deleted/dismissed pending booking notifications
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<Set<string>>(new Set()); // Track deleted Firestore notification IDs (persist across sessions)
-  const [unreadCount, setUnreadCount] = useState(0);
   const [toastNotifications, setToastNotifications] = useState<any[]>([]);
   const [ownerUid, setOwnerUid] = useState<string | null>(null);
   const [currentUserUid, setCurrentUserUid] = useState<string | null>(null);
   const [isBranchAdmin, setIsBranchAdmin] = useState<boolean>(false);
+  const [isStaffUser, setIsStaffUser] = useState<boolean>(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  /** While the floating reception chat is open, suppress CC message toasts/sounds and bell unread for `cc_chat_inbound`. */
+  const [supportChatPanelOpen, setSupportChatPanelOpen] = useState(false);
+  const supportChatPanelOpenRef = useRef(false);
   const previousNotificationIdsRef = useRef<Set<string>>(new Set());
   const previousPendingIdsRef = useRef<Set<string>>(new Set());
   const isInitialLoadRef = useRef(true);
@@ -113,6 +121,18 @@ export default function NotificationProvider({ children }: NotificationProviderP
       }
     }
   }, [dismissedNotificationIds]);
+
+  useEffect(() => {
+    const onPanel = (e: Event) => {
+      const d = (e as CustomEvent<{ open?: boolean }>).detail;
+      const open = Boolean(d?.open);
+      supportChatPanelOpenRef.current = open;
+      setSupportChatPanelOpen(open);
+    };
+    if (typeof window === "undefined") return undefined;
+    window.addEventListener(SUPPORT_CHAT_PANEL_STATE_EVENT, onPanel);
+    return () => window.removeEventListener(SUPPORT_CHAT_PANEL_STATE_EVENT, onPanel);
+  }, []);
 
   // Initialize audio element for notification sound
   useEffect(() => {
@@ -216,8 +236,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
     const toast = {
       id,
       title: isNotification ? notification.title : "New Booking Request!",
-      message: isNotification 
-        ? notification.message 
+      message: isNotification
+        ? notification.message
         : `${notification.customerName || notification.clientName || "A customer"} requested a booking`,
       serviceName: notification.serviceName || notification.services?.[0]?.name || "Service",
       price: notification.price || notification.totalPrice,
@@ -226,6 +246,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
       branchName: notification.branchName,
       date: notification.date || notification.bookingDate,
       time: notification.time || notification.bookingTime,
+      chatId: notification.chatId,
     };
     
     console.log("🔔 Showing toast notification:", toast);
@@ -269,6 +290,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
           setIsSuperAdmin(role === "super_admin");
           setIsBranchAdmin(role === "branch_admin");
+          setIsStaffUser(role === "staff");
 
           // For branch admin, use their owner UID for owner-scoped notifications
           if (role === "branch_admin" && userData?.ownerUid) {
@@ -350,13 +372,26 @@ export default function NotificationProvider({ children }: NotificationProviderP
           )
         : null;
 
+      const targetStaffQuery = currentUserUid && isStaffUser
+        ? query(
+            collection(db, "notifications"),
+            where("targetStaffUid", "==", currentUserUid)
+          )
+        : null;
+
       // Track notifications from all queries to deduplicate
       const allNotificationsMap = new Map<string, Notification>();
-      const queryLoadedFlags = { main: false, targetOwner: false, targetAdmin: false, branchAdmin: !branchAdminQuery };
+      const queryLoadedFlags = {
+        main: false,
+        targetOwner: false,
+        targetAdmin: false,
+        branchAdmin: !branchAdminQuery,
+        staff: !targetStaffQuery,
+      };
 
       const processNotifications = async () => {
         // Wait until all queries have loaded once
-        if (!queryLoadedFlags.main || !queryLoadedFlags.targetOwner || !queryLoadedFlags.targetAdmin || !queryLoadedFlags.branchAdmin) {
+        if (!queryLoadedFlags.main || !queryLoadedFlags.targetOwner || !queryLoadedFlags.targetAdmin || !queryLoadedFlags.branchAdmin || !queryLoadedFlags.staff) {
           return;
         }
 
@@ -389,13 +424,17 @@ export default function NotificationProvider({ children }: NotificationProviderP
           // 1. New booking notifications (if still pending)
           // 2. Staff rejected notifications
           // 3. Not previously dismissed
-          const relevantNotifications = newNotifications.filter((notif) => {
-            // Skip dismissed notifications
-            if (dismissedNotificationIds.has(notif.id)) {
-              return false;
-            }
-            
-            const isNewBooking = 
+            const relevantNotifications = newNotifications.filter((notif) => {
+              // Skip dismissed notifications
+              if (dismissedNotificationIds.has(notif.id)) {
+                return false;
+              }
+
+              if (isBranchAdmin && notif.type === "leave_request_pending") {
+                return false;
+              }
+
+              const isNewBooking =
               notif.type === "booking_engine_new_booking" ||
               notif.type === "staff_booking_created" ||
               notif.type === "booking_needs_assignment" ||
@@ -408,6 +447,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
             const isCustomerRejectedAdditionalWork = notif.type === "additional_issue_customer_rejected";
             const isWorkshopAlert = WORKSHOP_ALERT_TYPES.has(notif.type);
+            const isCcChatInbound = notif.type === "cc_chat_inbound";
             
             if (isNewBooking) {
               const isPending = !notif.status || 
@@ -422,7 +462,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
             if (isCustomerAcceptedAdditionalWork) return true;
             if (isCustomerRejectedAdditionalWork) return true;
             if (isWorkshopAlert) return true;
-            
+            if (isCcChatInbound) {
+              if (supportChatPanelOpenRef.current) return false;
+              return true;
+            }
+
             return isStaffRejected;
           });
           
@@ -460,7 +504,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
           if (dismissedNotificationIds.has(notifId)) {
             continue;
           }
-          
+
+          if (isBranchAdmin && data.type === "leave_request_pending") {
+            continue;
+          }
+
           // Get booking status to filter out confirmed/canceled
           let bookingStatus = data.status;
           if (data.bookingId) {
@@ -497,6 +545,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
           const isCustomerAcceptedAdditionalWork = data.type === "additional_issue_customer_accepted";
           const isCustomerRejectedAdditionalWork = data.type === "additional_issue_customer_rejected";
           const isWorkshopAlert = WORKSHOP_ALERT_TYPES.has(data.type);
+          const isCcChatInbound = data.type === "cc_chat_inbound";
           
           // Only show new booking notifications if booking is still pending/awaiting
           const isPendingStatus = !bookingStatus || 
@@ -504,13 +553,14 @@ export default function NotificationProvider({ children }: NotificationProviderP
             bookingStatus === "AwaitingStaffApproval" ||
             bookingStatus === "PartiallyApproved";
           
-          const shouldShow = 
-            (isNewBookingNotification && isPendingStatus) || 
+          const shouldShow =
+            (isNewBookingNotification && isPendingStatus) ||
             isStaffRejectedNotification ||
             isAdditionalIssueNotification ||
             isCustomerAcceptedAdditionalWork ||
             isCustomerRejectedAdditionalWork ||
-            isWorkshopAlert;
+            isWorkshopAlert ||
+            isCcChatInbound;
 
           if (!shouldShow) {
             continue;
@@ -520,6 +570,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
             (typeof data.issueId === "string" && data.issueId.trim()) ||
             (typeof data.additionalIssueId === "string" && data.additionalIssueId.trim()) ||
             undefined;
+          const chatIdRaw =
+            typeof data.chatId === "string" && data.chatId.trim() ? data.chatId.trim() : undefined;
           const notification: Notification = {
             id: notifId,
             bookingId: data.bookingId || "",
@@ -535,6 +587,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
             read: data.read || false,
             status: bookingStatus || data.status,
             ...(issueIdRaw ? { issueId: issueIdRaw } : {}),
+            ...(chatIdRaw ? { chatId: chatIdRaw } : {}),
           };
           
           allNotificationsMap.set(notifId, notification);
@@ -545,6 +598,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
         if (queryName === "targetOwner") queryLoadedFlags.targetOwner = true;
         if (queryName === "targetAdmin") queryLoadedFlags.targetAdmin = true;
         if (queryName === "branchAdmin") queryLoadedFlags.branchAdmin = true;
+        if (queryName === "staff") queryLoadedFlags.staff = true;
 
         // Process all notifications
         await processNotifications();
@@ -632,13 +686,34 @@ export default function NotificationProvider({ children }: NotificationProviderP
         );
       }
 
-      // Store unsubscribe for targetOwner, targetAdmin, and branchAdmin
+      let unsubTargetStaff: (() => void) | undefined;
+      if (targetStaffQuery) {
+        unsubTargetStaff = onSnapshot(
+          targetStaffQuery,
+          async (snapshot) => {
+            await processSnapshot(snapshot, "staff");
+          },
+          (error) => {
+            if (error.code === "permission-denied") {
+              queryLoadedFlags.staff = true;
+              processNotifications();
+              return;
+            }
+            console.error("Error listening to staff-target notifications:", error);
+            queryLoadedFlags.staff = true;
+            processNotifications();
+          }
+        );
+      }
+
+      // Store unsubscribe for targetOwner, targetAdmin, branchAdmin, and staff
       const originalUnsub = unsubNotifications;
       unsubNotifications = () => {
         originalUnsub?.();
         unsubTargetOwner?.();
         unsubTargetAdmin?.();
         unsubBranchAdmin?.();
+        unsubTargetStaff?.();
       };
 
       // Listen for booking updates that add additional issues - trigger immediate notification creation
@@ -741,7 +816,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
       unsubBookingsWithIssues?.();
       unsubBookingsWithIssuesId?.();
     };
-  }, [ownerUid, currentUserUid, isBranchAdmin, isSuperAdmin]);
+  }, [ownerUid, currentUserUid, isBranchAdmin, isStaffUser, isSuperAdmin]);
 
   // Mark notification as read
   const markAsRead = async (notifId: string) => {
@@ -969,26 +1044,28 @@ export default function NotificationProvider({ children }: NotificationProviderP
       const isCustomerAcceptedAdditionalWork = notif.type === "additional_issue_customer_accepted";
       const isCustomerRejectedAdditionalWork = notif.type === "additional_issue_customer_rejected";
       const isWorkshopAlert = WORKSHOP_ALERT_TYPES.has(notif.type);
-      
+      const isCcChatInbound = notif.type === "cc_chat_inbound";
+
       // For new booking notifications, only show if booking is still pending
       if (isNewBookingNotification) {
-        const isPendingStatus = !notif.status || 
-          notif.status === "Pending" || 
+        const isPendingStatus =
+          !notif.status ||
+          notif.status === "Pending" ||
           notif.status === "AwaitingStaffApproval" ||
           notif.status === "PartiallyApproved";
         return isPendingStatus;
       }
-      
+
       // Always show staff rejection notifications (admin needs to reassign or cancel)
       if (isStaffRejectedNotification) {
         return true;
       }
-      
+
       // Always show additional issue notifications (owner/branch admin must set price)
       if (isAdditionalIssueNotification) {
         return true;
       }
-      
+
       // Always show customer response to additional work (accepted or rejected)
       if (isCustomerAcceptedAdditionalWork || isCustomerRejectedAdditionalWork) {
         return true;
@@ -997,7 +1074,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
       if (isWorkshopAlert) {
         return true;
       }
-      
+
+      if (isCcChatInbound) {
+        return true;
+      }
+
       // Don't show any other notification types
       return false;
     });
@@ -1021,8 +1102,12 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
   // Calculate unread count from combined notifications
   const combinedUnreadCount = useMemo(() => {
-    return combinedNotifications.filter((n) => !n.read).length;
-  }, [combinedNotifications]);
+    return combinedNotifications.filter((n) => {
+      if (n.read) return false;
+      if (n.type === "cc_chat_inbound" && supportChatPanelOpen) return false;
+      return true;
+    }).length;
+  }, [combinedNotifications, supportChatPanelOpen]);
 
   const value: NotificationContextType = {
     notifications: combinedNotifications,
@@ -1051,6 +1136,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
               branchName={toast.branchName}
               date={toast.date}
               time={toast.time}
+              chatId={toast.chatId}
               onClose={() => {
                 setToastNotifications((prev) => prev.filter((t) => t.id !== toast.id));
               }}

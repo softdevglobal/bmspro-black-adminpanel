@@ -481,9 +481,15 @@ export default function BookingEnginePage() {
     }
     if (view !== "my-bookings") return;
     setActiveView("myBookings");
+    // The session is mirrored to localStorage so it persists across tabs/windows
+    // (e.g. when the customer opens this link from their email client in a new
+    // tab). sessionStorage alone would appear empty and trigger the sign-in
+    // modal even for already-logged-in users — see `loadCustomerSession` below.
     let loggedIn = false;
     try {
-      const saved = sessionStorage.getItem(`bms_customer_${slug}`);
+      const saved =
+        sessionStorage.getItem(`bms_customer_${slug}`) ||
+        localStorage.getItem(`bms_customer_${slug}`);
       loggedIn = !!(saved && (JSON.parse(saved) as CustomerSession)?.customerId);
     } catch {
       loggedIn = false;
@@ -497,7 +503,20 @@ export default function BookingEnginePage() {
   useEffect(() => {
     if (!slug) return;
     try {
-      const saved = sessionStorage.getItem(`bms_customer_${slug}`);
+      // Read session from sessionStorage first (current-tab session), then
+      // localStorage as a fallback so deep links opened in a new tab still
+      // recognise the logged-in customer. Re-seed sessionStorage from
+      // localStorage so subsequent reads are consistent.
+      let saved = sessionStorage.getItem(`bms_customer_${slug}`);
+      if (!saved) {
+        const persisted = localStorage.getItem(`bms_customer_${slug}`);
+        if (persisted) {
+          saved = persisted;
+          try {
+            sessionStorage.setItem(`bms_customer_${slug}`, persisted);
+          } catch {}
+        }
+      }
       if (saved) {
         const parsed = JSON.parse(saved) as CustomerSession;
         setCustomer(parsed); setCustomerName(parsed.name); setCustomerEmail(parsed.email); setCustomerPhone(parsed.phone);
@@ -1265,7 +1284,11 @@ export default function BookingEnginePage() {
       if (!estimateName) setEstimateName(data.name || "");
       if (!estimateEmail) setEstimateEmail(data.email || "");
       if (!estimatePhone) setEstimatePhone(data.phone || "");
-      sessionStorage.setItem(`bms_customer_${slug}`, JSON.stringify(session));
+      const serializedSession = JSON.stringify(session);
+      sessionStorage.setItem(`bms_customer_${slug}`, serializedSession);
+      // Mirror to localStorage so the session is recognised in other tabs
+      // (e.g. when the customer follows a quote link from their email).
+      try { localStorage.setItem(`bms_customer_${slug}`, serializedSession); } catch {}
       setShowAuth(false); setAuthEmail(""); setAuthPassword(""); setAuthConfirmPassword(""); setAuthName(""); setAuthPhone("");
     } catch (err: any) { setAuthError(err.message || "Something went wrong"); }
     finally { setAuthLoading(false); }
@@ -1333,6 +1356,8 @@ export default function BookingEnginePage() {
     const storageKey = getSelectedVehicleStorageKey();
     if (storageKey) localStorage.removeItem(storageKey);
     sessionStorage.removeItem(`bms_customer_${slug}`);
+    // Also clear the cross-tab persisted session.
+    try { localStorage.removeItem(`bms_customer_${slug}`); } catch {}
     setShowLogoutConfirm(false);
     setShowProfileMenu(false);
   };
@@ -1377,7 +1402,9 @@ export default function BookingEnginePage() {
         setCustomer(updated);
         setCustomerName(editName.trim());
         setCustomerPhone(editPhone.trim());
-        sessionStorage.setItem(`bms_customer_${slug}`, JSON.stringify(updated));
+        const serializedUpdated = JSON.stringify(updated);
+        sessionStorage.setItem(`bms_customer_${slug}`, serializedUpdated);
+        try { localStorage.setItem(`bms_customer_${slug}`, serializedUpdated); } catch {}
         setEditingProfile(false);
       }
     } catch (err) {

@@ -221,23 +221,29 @@ export async function getCanonicalCustomerContact(
 
 /**
  * Build the public booking engine URL for a given workshop.
- * Prefers the owner's stored `bookingEngineUrl` field; falls back to
- * `${NEXT_PUBLIC_APP_URL}/book-now/${slug}` when a slug is available; finally
- * returns the plain app URL if nothing else is known.
+ *
+ * The customer-facing portal is always served by *this* app (the black
+ * admin/customer panel) at `${NEXT_PUBLIC_APP_URL}/book-now/${slug}`, so we
+ * always prefer the slug-based URL on the current host. We only fall back to
+ * the owner's stored `bookingEngineUrl` field when no slug is available — that
+ * stored value can be stale (e.g. populated at signup with a different
+ * `NEXT_PUBLIC_BOOKING_ENGINE_URL` that points to the legacy `bmspros.com.au`
+ * site instead of `black.bmspros.com.au`), which would send customers to the
+ * wrong portal from emails such as the additional-work-quote notification.
  */
 export function resolveBookingEngineUrl(
   ownerData: Record<string, unknown> | null | undefined
 ): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au").replace(/\/$/, "");
   if (!ownerData) return appUrl;
+
+  const slug = typeof ownerData.slug === "string" ? ownerData.slug.trim() : "";
+  if (slug) return `${appUrl}/book-now/${slug}`;
 
   const stored = typeof ownerData.bookingEngineUrl === "string"
     ? ownerData.bookingEngineUrl.trim()
     : "";
   if (stored) return stored;
-
-  const slug = typeof ownerData.slug === "string" ? ownerData.slug.trim() : "";
-  if (slug) return `${appUrl}/book-now/${slug}`;
 
   return appUrl;
 }

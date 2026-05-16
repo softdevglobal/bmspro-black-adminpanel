@@ -322,7 +322,6 @@ export default function BookingEnginePage() {
   const [estimateImages, setEstimateImages] = useState<File[]>([]);
   const [estimateImagePreviews, setEstimateImagePreviews] = useState<string[]>([]);
   const [customerEstimateNotifications, setCustomerEstimateNotifications] = useState<any[]>([]);
-  const [customerEstimateUnreadCount, setCustomerEstimateUnreadCount] = useState(0);
 
   const [step, setStep] = useState(1);
   const [prevStep, setPrevStep] = useState(1);
@@ -735,6 +734,19 @@ export default function BookingEnginePage() {
   const visibleBookings = customerBookings.filter((b) => !dismissedIds.has(b.id));
   const bookingUnreadCount = visibleBookings.filter((b) => !readIds.has(b.id)).length;
   const customerNotifUnreadCount = customerEstimateNotifications.filter((n) => !n.read).length;
+  /** Badge on "My Estimates" — only true estimate-reply pings, not booking/additional-work notifications */
+  const estimateReplyUnreadCount = customerEstimateNotifications.filter(
+    (n) => !n.read && String(n.type || "") === "estimate_reply"
+  ).length;
+  const hasUnreadAdditionalQuoteNotification = customerEstimateNotifications.some(
+    (n) => n.type === "additional_issue_quote" && !n.read
+  );
+  const hasUnreadRescheduleNotification = customerEstimateNotifications.some(
+    (n) =>
+      !n.read &&
+      n.type === "booking_status_changed" &&
+      String(n.title || "").toLowerCase().includes("reschedul")
+  );
   const unreadCount = bookingUnreadCount + customerNotifUnreadCount;
 
   // Fetch customer bookings via API (server-side, no Firestore permissions needed)
@@ -898,7 +910,6 @@ export default function BookingEnginePage() {
       if (res.ok) {
         const data = await res.json();
         setCustomerEstimateNotifications(data.notifications || []);
-        setCustomerEstimateUnreadCount(data.unreadCount ?? 0);
       }
     } catch (err) {
       console.error("Failed to fetch customer notifications:", err);
@@ -933,7 +944,6 @@ export default function BookingEnginePage() {
   useEffect(() => {
     if (!customer?.customerId) {
       setCustomerEstimateNotifications([]);
-      setCustomerEstimateUnreadCount(0);
       return;
     }
     fetchCustomerNotifications();
@@ -1747,12 +1757,12 @@ export default function BookingEnginePage() {
               >
                 <i className="fas fa-file-invoice text-[9px]" />
                 My Estimates
-                {customerEstimateUnreadCount > 0 && (
+                {estimateReplyUnreadCount > 0 && (
                   <span className="min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 bg-amber-500 text-white">
-                    {customerEstimateUnreadCount}
+                    {estimateReplyUnreadCount}
                   </span>
                 )}
-                {customerEstimateUnreadCount === 0 && customerEstimates.length > 0 && (
+                {estimateReplyUnreadCount === 0 && customerEstimates.length > 0 && (
                   <span className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
                     activeView === "myEstimates" ? "bg-neutral-900 text-white" : "bg-neutral-200 text-neutral-700"
                   }`}>
@@ -2174,33 +2184,41 @@ export default function BookingEnginePage() {
       )}
 
       {/* ═══════════════════ NOTIFICATION BANNER (estimates + additional work) ═══════════════════ */}
-      {customer && customerEstimateUnreadCount > 0 && activeView !== "myEstimates" && activeView !== "myBookings" && (
+      {customer && customerNotifUnreadCount > 0 && activeView !== "myEstimates" && activeView !== "myBookings" && (
         <div className="relative z-20 bg-amber-50 border-b border-amber-200/80">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <i className="fas fa-bell text-amber-600 text-sm" />
               <span className="text-sm font-medium text-amber-900">
-                {customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)
+                {hasUnreadAdditionalQuoteNotification
                   ? "You have an additional work quote to review."
-                  : `You have ${customerEstimateUnreadCount} new reply${customerEstimateUnreadCount > 1 ? "s" : ""} to your estimate request${customerEstimateUnreadCount > 1 ? "s" : ""}.`}
+                  : hasUnreadRescheduleNotification
+                    ? "Your booking was rescheduled. Please review the new details."
+                    : estimateReplyUnreadCount > 0
+                      ? `You have ${estimateReplyUnreadCount} new reply${estimateReplyUnreadCount > 1 ? "s" : ""} to your estimate request${estimateReplyUnreadCount > 1 ? "s" : ""}.`
+                      : `You have ${customerNotifUnreadCount} unread notification${customerNotifUnreadCount > 1 ? "s" : ""}.`}
               </span>
             </div>
             <button
               onClick={() => {
-                if (customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)) {
+                if (hasUnreadAdditionalQuoteNotification || hasUnreadRescheduleNotification) {
                   setActiveView("myBookings");
                   fetchCustomerBookings();
-                } else {
+                } else if (estimateReplyUnreadCount > 0) {
                   setActiveView("myEstimates");
                   fetchCustomerEstimates();
+                } else {
+                  setShowNotifications(true);
                 }
                 fetchCustomerNotifications();
               }}
               className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors"
             >
-              {customerEstimateNotifications.some((n) => n.type === "additional_issue_quote" && !n.read)
+              {hasUnreadAdditionalQuoteNotification || hasUnreadRescheduleNotification
                 ? "View My Bookings"
-                : "View My Estimates"}
+                : estimateReplyUnreadCount > 0
+                  ? "View My Estimates"
+                  : "View notifications"}
             </button>
           </div>
         </div>

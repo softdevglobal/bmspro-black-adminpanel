@@ -220,21 +220,69 @@ export async function getCanonicalCustomerContact(
 }
 
 /**
+ * Hard-coded production host for customer-facing links. We use this whenever
+ * the configured app/booking-engine base looks like a local dev host (localhost,
+ * 127.0.0.1, *.local, *.test, an IP, or empty), so that emails sent from a dev
+ * machine still point real customers at the live black portal instead of a URL
+ * they cannot reach (e.g. http://localhost:3000/book-now/...).
+ */
+const LIVE_BLACK_PORTAL_BASE = "https://black.bmspros.com.au";
+
+function isUsableProductionHost(value: string | null | undefined): boolean {
+  const v = (value || "").trim();
+  if (!v) return false;
+  try {
+    const href = v.includes("://") ? v : `https://${v}`;
+    const host = new URL(href).hostname.toLowerCase();
+    if (!host) return false;
+    if (host === "localhost") return false;
+    if (host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") return false;
+    if (host.endsWith(".local") || host.endsWith(".test") || host.endsWith(".localhost")) return false;
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the customer-facing booking-engine *base* URL (i.e. the host) used in
+ * outbound emails. Order of preference:
+ *   1. `NEXT_PUBLIC_BOOKING_ENGINE_URL`  (e.g. `https://black.bmspros.com.au/book-now`)
+ *   2. `NEXT_PUBLIC_APP_URL`             (e.g. `https://black.bmspros.com.au`)
+ *   3. Hard-coded live black portal     (`https://black.bmspros.com.au`)
+ *
+ * Localhost / dev hosts are skipped so dev-mode emails still point at the live
+ * black portal, never `http://localhost:3000`.
+ */
+function resolveCustomerFacingAppBase(): string {
+  const candidates = [
+    process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ];
+  for (const candidate of candidates) {
+    if (!isUsableProductionHost(candidate)) continue;
+    const trimmed = (candidate as string).trim().replace(/\/$/, "");
+    // `NEXT_PUBLIC_BOOKING_ENGINE_URL` is conventionally `<host>/book-now`;
+    // strip the trailing `/book-now` so callers can append it themselves.
+    return trimmed.replace(/\/book-now$/i, "");
+  }
+  return LIVE_BLACK_PORTAL_BASE;
+}
+
+/**
  * Build the public booking engine URL for a given workshop.
  *
- * The customer-facing portal is always served by *this* app (the black
- * admin/customer panel) at `${NEXT_PUBLIC_APP_URL}/book-now/${slug}`, so we
- * always prefer the slug-based URL on the current host. We only fall back to
- * the owner's stored `bookingEngineUrl` field when no slug is available — that
- * stored value can be stale (e.g. populated at signup with a different
- * `NEXT_PUBLIC_BOOKING_ENGINE_URL` that points to the legacy `bmspros.com.au`
- * site instead of `black.bmspros.com.au`), which would send customers to the
- * wrong portal from emails such as the additional-work-quote notification.
+ * The customer-facing portal lives at `<app-base>/book-now/<slug>`. We always
+ * prefer the slug-based URL on the live host (see `resolveCustomerFacingAppBase`
+ * above for the precedence + localhost guard). We only fall back to the owner's
+ * stored `bookingEngineUrl` field when no slug is available; that stored value
+ * can be stale or pointing at the wrong portal.
  */
 export function resolveBookingEngineUrl(
   ownerData: Record<string, unknown> | null | undefined
 ): string {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au").replace(/\/$/, "");
+  const appUrl = resolveCustomerFacingAppBase();
   if (!ownerData) return appUrl;
 
   const slug = typeof ownerData.slug === "string" ? ownerData.slug.trim() : "";
@@ -243,7 +291,7 @@ export function resolveBookingEngineUrl(
   const stored = typeof ownerData.bookingEngineUrl === "string"
     ? ownerData.bookingEngineUrl.trim()
     : "";
-  if (stored) return stored;
+  if (stored && isUsableProductionHost(stored)) return stored;
 
   return appUrl;
 }
@@ -251,14 +299,24 @@ export function resolveBookingEngineUrl(
 /**
  * Appends `view=my-bookings` so the book-now page opens the customer's portal tab,
  * where they accept or decline additional-work quotes.
+ *
+ * If the input URL points at a local/dev host, we rewrite the host to the live
+ * black portal so emails generated from a dev machine still reach customers
+ * with a clickable production link.
  */
 export function appendBookNowMyBookingsDeepLink(bookingEngineUrl: string): string {
   const trimmed = (bookingEngineUrl || "").trim();
-  const fallbackBase = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+  const fallbackBase = resolveCustomerFacingAppBase();
   const base = trimmed || fallbackBase;
   try {
     const href = base.includes("://") ? base : `https://${base}`;
     const u = new URL(href);
+    if (!isUsableProductionHost(u.origin)) {
+      const live = new URL(resolveCustomerFacingAppBase());
+      u.protocol = live.protocol;
+      u.hostname = live.hostname;
+      u.port = live.port;
+    }
     u.searchParams.set("view", "my-bookings");
     return u.toString();
   } catch {

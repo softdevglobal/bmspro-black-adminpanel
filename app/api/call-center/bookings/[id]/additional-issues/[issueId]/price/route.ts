@@ -15,6 +15,10 @@ import {
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
 import { sendAdditionalIssuePriceSetEmail } from "@/lib/emailService";
+import {
+  appendBookNowMyBookingsDeepLink,
+  resolveBookingEngineUrl,
+} from "@/lib/customerAccount";
 import { createAuditLogServer } from "@/lib/auditLogServer";
 
 export const runtime = "nodejs";
@@ -303,10 +307,9 @@ export async function PATCH(
           const ownerData = ownerDoc.data();
           const workshopName =
             ownerData?.workshopName || ownerData?.displayName || "Workshop";
-          const baseUrl =
-            process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
-          const slug = ownerData?.slug || "";
-          const viewUrl = slug ? `${baseUrl}/book-now/${slug}` : baseUrl;
+          const viewUrl = appendBookNowMyBookingsDeepLink(
+            resolveBookingEngineUrl(ownerData),
+          );
           await sendAdditionalIssuePriceSetEmail({
             to: customerEmail,
             customerName: clientName,

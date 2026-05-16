@@ -294,6 +294,8 @@ export default function BookingEnginePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [activeView, setActiveView] = useState<"booking" | "myBookings" | "myVehicles" | "estimate" | "myEstimates">("booking");
+  /** Avoid re-opening sign-in when `view=my-bookings` is present but session restores async. */
+  const myBookingsQuoteLinkAuthOpenedRef = useRef(false);
   const [bookingsFilter, setBookingsFilter] = useState("All");
   const [customerEstimates, setCustomerEstimates] = useState<any[]>([]);
   const [customerEstimatesLoading, setCustomerEstimatesLoading] = useState(false);
@@ -466,6 +468,31 @@ export default function BookingEnginePage() {
       finally { setLoading(false); }
     })();
   }, [slug]);
+
+  // Email deep link: additional-work quote → My Bookings tab (black customer portal).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!slug || loading) return;
+    let view: string | null = null;
+    try {
+      view = new URLSearchParams(window.location.search).get("view");
+    } catch {
+      return;
+    }
+    if (view !== "my-bookings") return;
+    setActiveView("myBookings");
+    let loggedIn = false;
+    try {
+      const saved = sessionStorage.getItem(`bms_customer_${slug}`);
+      loggedIn = !!(saved && (JSON.parse(saved) as CustomerSession)?.customerId);
+    } catch {
+      loggedIn = false;
+    }
+    if (!loggedIn && !myBookingsQuoteLinkAuthOpenedRef.current) {
+      myBookingsQuoteLinkAuthOpenedRef.current = true;
+      setShowAuth(true);
+    }
+  }, [slug, loading]);
 
   useEffect(() => {
     if (!slug) return;

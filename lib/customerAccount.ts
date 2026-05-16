@@ -241,3 +241,22 @@ export function resolveBookingEngineUrl(
 
   return appUrl;
 }
+
+/**
+ * Appends `view=my-bookings` so the book-now page opens the customer's portal tab,
+ * where they accept or decline additional-work quotes.
+ */
+export function appendBookNowMyBookingsDeepLink(bookingEngineUrl: string): string {
+  const trimmed = (bookingEngineUrl || "").trim();
+  const fallbackBase = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+  const base = trimmed || fallbackBase;
+  try {
+    const href = base.includes("://") ? base : `https://${base}`;
+    const u = new URL(href);
+    u.searchParams.set("view", "my-bookings");
+    return u.toString();
+  } catch {
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}view=my-bookings`;
+  }
+}

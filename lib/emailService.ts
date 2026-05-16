@@ -3,6 +3,7 @@ import { adminDb } from "./firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
+import { appendBookNowMyBookingsDeepLink } from "./customerAccount";
 
 // Initialize SendGrid
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -2111,7 +2112,11 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
     return { success: false, error: "SendGrid API key not configured" };
   }
   try {
-    const viewUrl = data.viewUrl || process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+    const viewUrl = appendBookNowMyBookingsDeepLink(
+      data.viewUrl?.trim() ||
+        process.env.NEXT_PUBLIC_APP_URL ||
+        "https://black.bmspros.com.au",
+    );
     const html = `
 <!DOCTYPE html>
 <html>

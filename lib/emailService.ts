@@ -2161,7 +2161,17 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
   </table>
 </body>
 </html>`;
-    const msg = { to: email, from: ADMIN_FROM_EMAIL, subject: `Additional Work Quote: ${data.issueTitle} - $${data.price.toFixed(2)}`, html };
+    const msg = {
+      to: email,
+      from: ADMIN_FROM_EMAIL,
+      subject: `Additional Work Quote: ${data.issueTitle} - $${data.price.toFixed(2)}`,
+      html,
+      // Avoid SendGrid link branding (url5514.bmspros.com.au/ls/click?...) so the
+      // customer sees and lands on the real booking-engine URL (black portal).
+      trackingSettings: {
+        clickTracking: { enable: false, enableText: false },
+      },
+    };
     await sgMail.send(msg);
     console.log(`[EMAIL] ✅ Additional issue price-set email sent to ${email}`);
     return { success: true };

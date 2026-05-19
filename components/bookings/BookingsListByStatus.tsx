@@ -259,8 +259,21 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
       const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
       const userBranchId = userData?.branchId;
       
-      // Build query constraints
-      const constraints = [where("ownerUid", "==", ownerUid)];
+      // Build query constraints. We bound the listener to the last 12 months
+      // by `date` so we don't re-read every historical booking on every change.
+      // Status filtering still happens client-side because stored values can
+      // vary in casing/spacing (`normalizeBookingStatus` handles them).
+      const lookback = new Date();
+      lookback.setMonth(lookback.getMonth() - 12);
+      lookback.setHours(0, 0, 0, 0);
+      const yyyy = lookback.getFullYear();
+      const mm = String(lookback.getMonth() + 1).padStart(2, "0");
+      const dd = String(lookback.getDate()).padStart(2, "0");
+      const lookbackStr = `${yyyy}-${mm}-${dd}`;
+      const constraints = [
+        where("ownerUid", "==", ownerUid),
+        where("date", ">=", lookbackStr),
+      ];
       
       // Branch admin should only see bookings for their branch
       if (userRole === "branch_admin" && userBranchId) {

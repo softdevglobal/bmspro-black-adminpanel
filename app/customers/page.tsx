@@ -105,10 +105,23 @@ export default function CustomersPage() {
 
   // Remove dummy/local storage seed; show only real customers from bookings
 
-  // Live customers derived from bookings for this owner
+  // Live customers derived from bookings for this owner. Bounded to the last
+  // 12 months of bookings so we don't re-read the entire bookings collection
+  // on every change. The `customers` collection (separate listener below) is
+  // the source of truth — this listener only adds visit counts / lastVisit
+  // for active customers and surfaces walk-ins who haven't been saved as a
+  // customer doc yet, which is fine to limit to recent activity.
   useEffect(() => {
     if (!ownerUid) return;
-    const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+    const lookback = new Date();
+    lookback.setMonth(lookback.getMonth() - 12);
+    lookback.setHours(0, 0, 0, 0);
+    const lookbackStr = `${lookback.getFullYear()}-${String(lookback.getMonth() + 1).padStart(2, "0")}-${String(lookback.getDate()).padStart(2, "0")}`;
+    const q = query(
+      collection(db, "bookings"),
+      where("ownerUid", "==", ownerUid),
+      where("date", ">=", lookbackStr)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -300,7 +313,19 @@ export default function CustomersPage() {
                 )
               )
             : Promise.resolve([]),
-          getDocs(query(collection(db, "bookings"), where("ownerUid", "==", ownerUid))).then((snap) => {
+          // Bound preview bookings to last 24 months (was: read every booking
+          // for the owner just to render the preview modal).
+          (() => {
+            const previewLookback = new Date();
+            previewLookback.setMonth(previewLookback.getMonth() - 24);
+            previewLookback.setHours(0, 0, 0, 0);
+            const previewLookbackStr = `${previewLookback.getFullYear()}-${String(previewLookback.getMonth() + 1).padStart(2, "0")}-${String(previewLookback.getDate()).padStart(2, "0")}`;
+            return getDocs(query(
+              collection(db, "bookings"),
+              where("ownerUid", "==", ownerUid),
+              where("date", ">=", previewLookbackStr)
+            ));
+          })().then((snap) => {
             const email = (previewCust.email || "").trim().toLowerCase();
             const phone = (previewCust.phone || "").trim();
             const name = (previewCust.name || "").trim().toLowerCase();

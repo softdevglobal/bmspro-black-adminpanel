@@ -26,10 +26,32 @@ export async function POST(req: NextRequest) {
 
     const db = adminDb();
 
-    // Get all bookings for this owner (try ownerUid and ownerId)
+    // Bound the backfill scan to bookings from the last 180 days. This route
+    // is called on every session start by NotificationProvider, and previously
+    // it read EVERY booking ever created for the owner on each call (often
+    // thousands), only to find pending additional issues that are practically
+    // always on recent bookings. The pre-existing client-side bookings
+    // listeners that re-triggered this API have been removed alongside this
+    // change, so this is now a once-per-session scan capped at ~6 months.
+    const lookback = new Date();
+    lookback.setDate(lookback.getDate() - 180);
+    lookback.setHours(0, 0, 0, 0);
+    const yyyy = lookback.getFullYear();
+    const mm = String(lookback.getMonth() + 1).padStart(2, "0");
+    const dd = String(lookback.getDate()).padStart(2, "0");
+    const lookbackStr = `${yyyy}-${mm}-${dd}`;
+
     const [snap1, snap2] = await Promise.all([
-      db.collection("bookings").where("ownerUid", "==", ownerUid).get(),
-      db.collection("bookings").where("ownerId", "==", ownerUid).get(),
+      db
+        .collection("bookings")
+        .where("ownerUid", "==", ownerUid)
+        .where("date", ">=", lookbackStr)
+        .get(),
+      db
+        .collection("bookings")
+        .where("ownerId", "==", ownerUid)
+        .where("date", ">=", lookbackStr)
+        .get(),
     ]);
     const allDocs = [...snap1.docs];
     for (const d of snap2.docs) {

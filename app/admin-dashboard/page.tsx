@@ -4,7 +4,24 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, getCountFromServer } from "firebase/firestore";
+
+// Bound the platform-wide aggregate listener to the last 12 months. Most stats
+// shown on the super-admin dashboard (monthly revenue, weekly bookings, status
+// breakdown, 6-month trend) only need recent data, and a global, unbounded
+// `bookings` listener was the single most expensive Firestore subscription in
+// the platform: every booking write across every tenant re-delivered the entire
+// collection to every open super-admin tab.
+const ADMIN_DASHBOARD_LOOKBACK_DAYS = 365;
+const adminDashboardLookbackDateStr = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - ADMIN_DASHBOARD_LOOKBACK_DAYS);
+  d.setHours(0, 0, 0, 0);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+})();
 import { useNotifications } from "@/components/NotificationProvider";
 
 /** Long currency strings use smaller type so they fit; short strings stay hero-sized. */
@@ -186,8 +203,13 @@ export default function AdminDashboardPage() {
         }
       );
 
-      // Fetch all bookings across all tenants for aggregate revenue
-      const allBookingsQuery = query(collection(db, "bookings"));
+      // Fetch bookings across all tenants for aggregate revenue, bounded to
+      // the last ADMIN_DASHBOARD_LOOKBACK_DAYS so we don't re-read every
+      // booking ever made across the entire platform on every change.
+      const allBookingsQuery = query(
+        collection(db, "bookings"),
+        where("date", ">=", adminDashboardLookbackDateStr)
+      );
       unsubAllBookings = onSnapshot(
         allBookingsQuery,
         (snapshot) => {
@@ -395,80 +417,42 @@ export default function AdminDashboardPage() {
     };
   }, [authLoading]);
 
-  // Fetch additional platform metrics (staff, services, branches, top tenants)
+  // Fetch additional platform metrics (staff/services/branches/customers).
+  // Previously these were 4 unbounded `onSnapshot` listeners on whole-platform
+  // collections that only fed counter cards. We replaced each with
+  // `getCountFromServer` (1 billed read per query, regardless of doc count) and
+  // refresh every 60s. This alone removes 4 of the most expensive subscriptions
+  // on the super-admin dashboard.
   useEffect(() => {
     if (authLoading) return;
 
-    let unsubStaff: (() => void) | undefined;
-    let unsubServices: (() => void) | undefined;
-    let unsubBranches: (() => void) | undefined;
-    let unsubCustomers: (() => void) | undefined;
+    let cancelled = false;
 
-    (async () => {
-      const { db } = await import("@/lib/firebase");
+    const refreshCounts = async () => {
+      try {
+        const { db } = await import("@/lib/firebase");
+        const [staffCount, servicesCount, branchesCount, customersCount] = await Promise.all([
+          getCountFromServer(query(collection(db, "users"), where("role", "in", ["staff"]))).catch(() => null),
+          getCountFromServer(query(collection(db, "services"))).catch(() => null),
+          getCountFromServer(query(collection(db, "branches"))).catch(() => null),
+          getCountFromServer(query(collection(db, "customers"))).catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (staffCount) setTotalStaff(staffCount.data().count);
+        if (servicesCount) setTotalServices(servicesCount.data().count);
+        if (branchesCount) setTotalBranches(branchesCount.data().count);
+        if (customersCount) setTotalCustomers(customersCount.data().count);
+      } catch (err) {
+        if (!cancelled) console.error("Error refreshing platform counts:", err);
+      }
+    };
 
-      // Fetch all staff members
-      const staffQuery = query(collection(db, "users"), where("role", "in", ["staff"]));
-      unsubStaff = onSnapshot(
-        staffQuery,
-        (snapshot) => {
-          setTotalStaff(snapshot.docs.length);
-        },
-        (error) => {
-          if (error.code !== "permission-denied") {
-            console.error("Error in staff snapshot:", error);
-          }
-        }
-      );
-
-      // Fetch all services
-      const servicesQuery = query(collection(db, "services"));
-      unsubServices = onSnapshot(
-        servicesQuery,
-        (snapshot) => {
-          setTotalServices(snapshot.docs.length);
-        },
-        (error) => {
-          if (error.code !== "permission-denied") {
-            console.error("Error in services snapshot:", error);
-          }
-        }
-      );
-
-      // Fetch all branches
-      const branchesQuery = query(collection(db, "branches"));
-      unsubBranches = onSnapshot(
-        branchesQuery,
-        (snapshot) => {
-          setTotalBranches(snapshot.docs.length);
-        },
-        (error) => {
-          if (error.code !== "permission-denied") {
-            console.error("Error in branches snapshot:", error);
-          }
-        }
-      );
-
-      // Fetch all customers
-      const customersQuery = query(collection(db, "customers"));
-      unsubCustomers = onSnapshot(
-        customersQuery,
-        (snapshot) => {
-          setTotalCustomers(snapshot.docs.length);
-        },
-        (error) => {
-          if (error.code !== "permission-denied") {
-            console.error("Error in customers snapshot:", error);
-          }
-        }
-      );
-    })();
+    refreshCounts();
+    const interval = setInterval(refreshCounts, 60_000);
 
     return () => {
-      unsubStaff?.();
-      unsubServices?.();
-      unsubBranches?.();
-      unsubCustomers?.();
+      cancelled = true;
+      clearInterval(interval);
     };
   }, [authLoading]);
 
@@ -478,19 +462,21 @@ export default function AdminDashboardPage() {
 
     (async () => {
       const { db } = await import("@/lib/firebase");
-      
-      // Get all bookings
-      const allBookingsQuery = query(collection(db, "bookings"));
       const { getDocs } = await import("firebase/firestore");
+
+      // Bound the top-tenants getDocs to the lookback window so we don't read
+      // every booking ever made on every super-admin login.
+      const allBookingsQuery = query(
+        collection(db, "bookings"),
+        where("date", ">=", adminDashboardLookbackDateStr)
+      );
       const bookingsSnapshot = await getDocs(allBookingsQuery);
       const allBookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Get tenants
       const tenantsQuery = query(collection(db, "users"), where("role", "==", "workshop_owner"));
       const tenantsSnapshot = await getDocs(tenantsQuery);
       const tenants = tenantsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // Calculate revenue per tenant
       const tenantRevenue = tenants.map((tenant: any) => {
         const revenue = allBookings
           .filter((b: any) => b.ownerUid === tenant.id && (b.status || '').toLowerCase() === 'completed')

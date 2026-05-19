@@ -1,7 +1,9 @@
 "use client";
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode, useMemo } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
+
+const NOTIFICATION_QUERY_LIMIT = 50;
 import ToastNotification from "./ToastNotification";
 import { SUPPORT_CHAT_PANEL_STATE_EVENT } from "@/lib/supportChatEvents";
 
@@ -311,8 +313,6 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
     let unsubNotifications: (() => void) | undefined;
     let unsubBookings: (() => void) | undefined;
-    let unsubBookingsWithIssues: (() => void) | undefined;
-    let unsubBookingsWithIssuesId: (() => void) | undefined;
 
     // Backfill: ensure notifications exist for additional issues awaiting price
     (async () => {
@@ -333,8 +333,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
     (async () => {
       const { db, auth } = await import("@/lib/firebase");
-      const { doc, getDoc } = await import("firebase/firestore");
-      
+
       // Ensure user is authenticated before setting up listeners
       const user = auth.currentUser;
       if (!user) {
@@ -347,35 +346,49 @@ export default function NotificationProvider({ children }: NotificationProviderP
       // 1. ownerUid - general owner notifications
       // 2. targetOwnerUid - specific owner-targeted notifications (staff created bookings, etc.)
       // 3. targetAdminUid - admin-targeted notifications (staff rejections, etc.)
+      // All notification queries are bounded with orderBy(createdAt desc) + limit
+      // to prevent reading the entire historical notifications collection on every
+      // page load. We only need the most recent N for the bell/toast UX (UI also
+      // slices to 50 in `combinedNotifications`).
       const notificationsQuery = query(
         collection(db, "notifications"),
-        where("ownerUid", "==", ownerUid)
+        where("ownerUid", "==", ownerUid),
+        orderBy("createdAt", "desc"),
+        limit(NOTIFICATION_QUERY_LIMIT)
       );
 
       // Also listen for targetOwnerUid notifications (for staff-created booking notifications)
       const targetOwnerQuery = query(
         collection(db, "notifications"),
-        where("targetOwnerUid", "==", ownerUid)
+        where("targetOwnerUid", "==", ownerUid),
+        orderBy("createdAt", "desc"),
+        limit(NOTIFICATION_QUERY_LIMIT)
       );
 
       // Also listen for targetAdminUid notifications
       const targetAdminQuery = query(
         collection(db, "notifications"),
-        where("targetAdminUid", "==", ownerUid)
+        where("targetAdminUid", "==", ownerUid),
+        orderBy("createdAt", "desc"),
+        limit(NOTIFICATION_QUERY_LIMIT)
       );
 
       // For branch admins: also listen for branchAdminUid (their own uid) - additional_issue_found etc.
       const branchAdminQuery = currentUserUid && isBranchAdmin
         ? query(
             collection(db, "notifications"),
-            where("branchAdminUid", "==", currentUserUid)
+            where("branchAdminUid", "==", currentUserUid),
+            orderBy("createdAt", "desc"),
+            limit(NOTIFICATION_QUERY_LIMIT)
           )
         : null;
 
       const targetStaffQuery = currentUserUid && isStaffUser
         ? query(
             collection(db, "notifications"),
-            where("targetStaffUid", "==", currentUserUid)
+            where("targetStaffUid", "==", currentUserUid),
+            orderBy("createdAt", "desc"),
+            limit(NOTIFICATION_QUERY_LIMIT)
           )
         : null;
 
@@ -509,18 +522,13 @@ export default function NotificationProvider({ children }: NotificationProviderP
             continue;
           }
 
-          // Get booking status to filter out confirmed/canceled
-          let bookingStatus = data.status;
-          if (data.bookingId) {
-            try {
-              const bookingDoc = await getDoc(doc(db, "bookings", data.bookingId));
-              if (bookingDoc.exists()) {
-                bookingStatus = bookingDoc.data()?.status || data.status;
-              }
-            } catch (error) {
-              console.error("Error fetching booking status:", error);
-            }
-          }
+          // Use the status stored on the notification doc itself instead of
+          // reading the parent booking. Doing a getDoc per notification was
+          // an N+1 hot path (50 notifs × 5 queries × every snapshot delivery
+          // could easily add 250+ extra reads on each refresh). Slightly
+          // stale status on the bell is an acceptable trade-off; the booking
+          // detail pages always show the live status.
+          const bookingStatus = data.status;
 
           // ADMIN NOTIFICATION RULES:
           // Only show notifications for:
@@ -716,53 +724,27 @@ export default function NotificationProvider({ children }: NotificationProviderP
         unsubTargetStaff?.();
       };
 
-      // Listen for booking updates that add additional issues - trigger immediate notification creation
-      let ensureTimeout: ReturnType<typeof setTimeout> | null = null;
-      const triggerEnsure = () => {
-        if (ensureTimeout) clearTimeout(ensureTimeout);
-        ensureTimeout = setTimeout(async () => {
-          ensureTimeout = null;
-          try {
-            const { auth } = await import("@/lib/firebase");
-            const user = auth.currentUser;
-            const token = user ? await user.getIdToken() : null;
-            if (token) {
-              await fetch("/api/notifications/ensure-additional-issues", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}` },
-              });
-            }
-          } catch {
-            /* ignore */
-          }
-        }, 300);
-      };
-      const checkSnapshot = (snapshot: any) => {
-        const hasNewPendingIssue = snapshot.docChanges().some((change: any) => {
-          if (change.type !== "modified" && change.type !== "added") return false;
-          const data = change.doc.data() as any;
-          const issues = Array.isArray(data?.additionalIssues) ? data.additionalIssues : [];
-          return issues.some((i: any) => i?.status === "pending");
-        });
-        if (hasNewPendingIssue) triggerEnsure();
-      };
-      const bookingsQueryUid = query(
-        collection(db, "bookings"),
-        where("ownerUid", "==", ownerUid)
-      );
-      unsubBookingsWithIssues = onSnapshot(bookingsQueryUid, checkSnapshot);
-      // Also listen for ownerId (some bookings may use ownerId)
-      const bookingsQueryId = query(
-        collection(db, "bookings"),
-        where("ownerId", "==", ownerUid)
-      );
-      unsubBookingsWithIssuesId = onSnapshot(bookingsQueryId, checkSnapshot);
+      // NOTE: Previously there were TWO additional `onSnapshot` listeners on the
+      // entire `bookings` collection (filtered only by ownerUid / ownerId, no
+      // limit) whose only purpose was to detect when an owner added a pending
+      // additional-issue and call /api/notifications/ensure-additional-issues.
+      // Those listeners alone could account for millions of reads/month on
+      // active tenants because every booking update re-delivered every booking
+      // doc. They have been removed: the once-per-session backfill call above
+      // (and per-page-load when this Provider remounts on auth change) plus
+      // the additional_issue_found notification listener cover the same UX,
+      // and the source of truth (creating the notification) belongs in the
+      // backend, not in a client-side full-collection listener.
 
-      // Also listen to pending bookings to include them in the notification panel
+      // Also listen to pending bookings to include them in the notification panel.
+      // Bounded to the most recent 50 pending bookings — the panel only ever
+      // shows up to 50 combined notifications anyway.
       const pendingQuery = query(
         collection(db, "bookings"),
         where("ownerUid", "==", ownerUid),
-        where("status", "==", "Pending")
+        where("status", "==", "Pending"),
+        orderBy("createdAt", "desc"),
+        limit(NOTIFICATION_QUERY_LIMIT)
       );
 
       unsubBookings = onSnapshot(
@@ -813,8 +795,6 @@ export default function NotificationProvider({ children }: NotificationProviderP
     return () => {
       unsubNotifications?.();
       unsubBookings?.();
-      unsubBookingsWithIssues?.();
-      unsubBookingsWithIssuesId?.();
     };
   }, [ownerUid, currentUserUid, isBranchAdmin, isStaffUser, isSuperAdmin]);
 

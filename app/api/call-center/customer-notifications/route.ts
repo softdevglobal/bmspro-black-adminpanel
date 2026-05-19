@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
-import {
-  LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
-  LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
-  isCustomerFacingNotificationsDoc,
-} from "@/lib/callCenterCustomerInboxFilters";
+import { isCustomerFacingNotificationsDoc } from "@/lib/callCenterCustomerInboxFilters";
 import {
   enrichNotificationAgentTrackingFromProfiles,
   loadActorProfilesByUid,
@@ -58,12 +54,53 @@ function hasFullSystemWideAccess(auth: CallCenterRequestAuth): boolean {
 }
 
 /**
+ * Hard caps for the call-center inbox.
+ *
+ * Reads on this endpoint were the dominant Firestore cost driver (millions/day):
+ * a single polled GET could read every `customer_notifications` doc plus every
+ * `notifications` doc plus a 4 000-row "recent scan" of `notifications`. The
+ * call center only displays the newest N rows in the inbox, so we cap every
+ * fetch to a recent window + a row ceiling, then merge in memory.
+ *
+ * Tune via env / query string if a tenant genuinely needs deeper history:
+ * `?limit=<n>` (≤ MAX_HARD_CAP) and `?sinceDays=<n>` (≤ MAX_LOOKBACK_DAYS).
+ */
+const DEFAULT_INBOX_LIMIT = 300;
+const MAX_HARD_CAP = 1000;
+const MAX_LOOKBACK_DAYS = 365;
+const DEFAULT_LOOKBACK_DAYS = 60;
+const MAX_OPS_PER_TYPE = 300;
+const MAX_PER_WORKSHOP_CHUNK = 300;
+
+function clampLimit(raw: string | null, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), MAX_HARD_CAP);
+}
+
+function clampLookbackDays(raw: string | null, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), MAX_LOOKBACK_DAYS);
+}
+
+function lookbackDateFromDays(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
  * Booking-engine `customer_notifications` for one or more workshop owner UIDs
  * (matches per-tenant logic: by ownerUid field + legacy via customers → customerId).
+ * Bounded to most-recent `MAX_PER_WORKSHOP_CHUNK` per `in` chunk so a tenant with
+ * many historical rows can't blow up read counts on every poll.
  */
 async function fetchBookingEngineNotificationsForWorkshops(
   db: Firestore,
-  workshopOwnerUids: string[]
+  workshopOwnerUids: string[],
+  perChunkLimit: number = MAX_PER_WORKSHOP_CHUNK
 ): Promise<QueryDocumentSnapshot[]> {
   const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
   if (normalized.length === 0) return [];
@@ -76,6 +113,8 @@ async function fetchBookingEngineNotificationsForWorkshops(
     const snap = await db
       .collection("customer_notifications")
       .where("ownerUid", "in", chunk)
+      .orderBy("createdAt", "desc")
+      .limit(perChunkLimit)
       .get();
     for (const doc of snap.docs) {
       if (seen.has(doc.id)) continue;
@@ -93,6 +132,8 @@ async function fetchBookingEngineNotificationsForWorkshops(
       const snap = await db
         .collection("customer_notifications")
         .where("customerId", "in", chunk)
+        .orderBy("createdAt", "desc")
+        .limit(perChunkLimit)
         .get();
       for (const doc of snap.docs) {
         if (seen.has(doc.id)) continue;
@@ -105,10 +146,15 @@ async function fetchBookingEngineNotificationsForWorkshops(
   return rows;
 }
 
-/** Internal `notifications` rows whose ownerUid is in the allowed workshop list (max 30 per `in` query). */
+/**
+ * Internal `notifications` rows whose ownerUid is in the allowed workshop list
+ * (max 30 per `in` query). Bounded to the most recent `perChunkLimit` rows per
+ * chunk; the call-center inbox only displays the newest items anyway.
+ */
 async function fetchAdminNotificationsForWorkshops(
   db: Firestore,
-  workshopOwnerUids: string[]
+  workshopOwnerUids: string[],
+  perChunkLimit: number = MAX_PER_WORKSHOP_CHUNK
 ): Promise<QueryDocumentSnapshot[]> {
   const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
   if (normalized.length === 0) return [];
@@ -118,7 +164,12 @@ async function fetchAdminNotificationsForWorkshops(
 
   for (let i = 0; i < normalized.length; i += 30) {
     const chunk = normalized.slice(i, i + 30);
-    const snap = await db.collection("notifications").where("ownerUid", "in", chunk).get();
+    const snap = await db
+      .collection("notifications")
+      .where("ownerUid", "in", chunk)
+      .orderBy("createdAt", "desc")
+      .limit(perChunkLimit)
+      .get();
     for (const doc of snap.docs) {
       if (seen.has(doc.id)) continue;
       seen.add(doc.id);
@@ -348,103 +399,81 @@ function mapNotificationsDocToCustomerPanel(
 
 /**
  * Legacy rows in `notifications` aimed at customers (`customerUid` and/or booking-type + email).
- * Scoped: `ownerUid in workshops`. Unscoped: per booking type (full history) + recent scan for other customerUid rows.
+ *
+ * Scoped: a single bounded read per workshop chunk, ordered by `createdAt desc`,
+ * capped at `perChunkLimit` rows. Unscoped (system wide): the most recent
+ * `recentLimit` rows of `notifications` filtered in memory; we no longer scan
+ * the historical collection per booking type.
+ *
+ * Previously this function could read up to 4 000 + (500 × types) docs per
+ * call. The call-center inbox only ever surfaces the newest customer rows, so
+ * bounding to recent rows is functionally equivalent.
  */
 async function fetchLegacyCustomerBookingNotifications(
   db: Firestore,
-  workshopOwnerUids: string[] | null
+  workshopOwnerUids: string[] | null,
+  options: { perChunkLimit?: number; recentLimit?: number; sinceDays?: number } = {}
 ): Promise<QueryDocumentSnapshot[]> {
+  const perChunkLimit = options.perChunkLimit ?? MAX_PER_WORKSHOP_CHUNK;
+  const recentLimit = options.recentLimit ?? DEFAULT_INBOX_LIMIT;
+  const sinceCutoff = lookbackDateFromDays(options.sinceDays ?? DEFAULT_LOOKBACK_DAYS);
+
   const out: QueryDocumentSnapshot[] = [];
   const seen = new Set<string>();
-
-  const visit = (doc: QueryDocumentSnapshot) => {
-    const d = doc.data();
-    if (!isCustomerFacingNotificationsDoc(d)) return;
-    if (workshopOwnerUids !== null) {
-      const ou = d.ownerUid as string | undefined;
-      if (!ou || !workshopOwnerUids.includes(ou)) return;
-    }
-    if (seen.has(doc.id)) return;
-    seen.add(doc.id);
-    out.push(doc);
-  };
 
   if (workshopOwnerUids !== null) {
     if (workshopOwnerUids.length === 0) return [];
     const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
     for (let i = 0; i < normalized.length; i += 30) {
       const chunk = normalized.slice(i, i + 30);
-      const snap = await db.collection("notifications").where("ownerUid", "in", chunk).get();
-      snap.docs.forEach(visit);
-    }
-    return out;
-  }
-
-  const legacyTypesToScan = [
-    ...LEGACY_BOOKING_TYPES_FOR_FULL_SCAN,
-    ...LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN,
-  ] as const;
-
-  for (const t of legacyTypesToScan) {
-    try {
-      let last: QueryDocumentSnapshot | undefined;
-      while (true) {
-        let q = db
-          .collection("notifications")
-          .where("type", "==", t)
-          .orderBy("createdAt", "desc")
-          .limit(PAGE_SIZE);
-        if (last) q = q.startAfter(last);
-        const snap = await q.get();
-        if (snap.empty) break;
-        snap.docs.forEach((doc) => {
-          const d = doc.data();
-          if (!isCustomerFacingNotificationsDoc(d)) return;
-          if (seen.has(doc.id)) return;
-          seen.add(doc.id);
-          out.push(doc);
-        });
-        if (snap.docs.length < PAGE_SIZE) break;
-        last = snap.docs[snap.docs.length - 1];
-      }
-    } catch {
-      const snap = await db.collection("notifications").where("type", "==", t).get();
-      snap.docs.forEach((doc) => {
-        const d = doc.data();
-        if (!isCustomerFacingNotificationsDoc(d)) return;
-        if (seen.has(doc.id)) return;
-        seen.add(doc.id);
-        out.push(doc);
-      });
-    }
-  }
-
-  const rowsAfterBookingTypeQueries = out.length;
-  const MAX_RECENT_SCAN_BATCHES = 60;
-  const MAX_RECENT_CUSTOMER_ROWS = 4000;
-  try {
-    let last: QueryDocumentSnapshot | undefined;
-    let batches = 0;
-    while (batches < MAX_RECENT_SCAN_BATCHES) {
-      let q = db.collection("notifications").orderBy("createdAt", "desc").limit(PAGE_SIZE);
-      if (last) q = q.startAfter(last);
-      const snap = await q.get();
-      if (snap.empty) break;
+      const snap = await db
+        .collection("notifications")
+        .where("ownerUid", "in", chunk)
+        .orderBy("createdAt", "desc")
+        .limit(perChunkLimit)
+        .get();
       for (const doc of snap.docs) {
         const d = doc.data();
         if (!isCustomerFacingNotificationsDoc(d)) continue;
         if (seen.has(doc.id)) continue;
         seen.add(doc.id);
         out.push(doc);
-        if (out.length - rowsAfterBookingTypeQueries >= MAX_RECENT_CUSTOMER_ROWS) break;
       }
-      if (out.length - rowsAfterBookingTypeQueries >= MAX_RECENT_CUSTOMER_ROWS) break;
-      batches += 1;
-      if (snap.docs.length < PAGE_SIZE) break;
-      last = snap.docs[snap.docs.length - 1];
+    }
+    return out;
+  }
+
+  try {
+    const snap = await db
+      .collection("notifications")
+      .where("createdAt", ">=", sinceCutoff)
+      .orderBy("createdAt", "desc")
+      .limit(recentLimit)
+      .get();
+    for (const doc of snap.docs) {
+      const d = doc.data();
+      if (!isCustomerFacingNotificationsDoc(d)) continue;
+      if (seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      out.push(doc);
     }
   } catch {
-    /* orderBy(createdAt) may fail without index */
+    try {
+      const snap = await db
+        .collection("notifications")
+        .orderBy("createdAt", "desc")
+        .limit(recentLimit)
+        .get();
+      for (const doc of snap.docs) {
+        const d = doc.data();
+        if (!isCustomerFacingNotificationsDoc(d)) continue;
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        out.push(doc);
+      }
+    } catch {
+      /* orderBy may fail without a single-field index; fall through */
+    }
   }
 
   return out;
@@ -723,48 +752,55 @@ function parseTime(iso: string | null): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-const PAGE_SIZE = 500;
-
-/** Read every document in a collection, newest first (paginated). Falls back to full scan if orderBy fails. */
-async function fetchAllDocumentsNewestFirst(
+/**
+ * Read the most-recent `limit` documents from a collection ordered by
+ * `createdAt desc`. Falls back to a bounded unordered read of the same size
+ * when the ordered query fails (e.g. missing index in a fresh project).
+ *
+ * We deliberately do **not** paginate beyond `limit`: the call-center inbox
+ * surfaces the newest rows and old rows are not useful for the live workflow.
+ */
+async function fetchRecentDocumentsNewestFirst(
   db: Firestore,
-  collectionPath: string
+  collectionPath: string,
+  rowLimit: number,
+  sinceDays?: number
 ): Promise<QueryDocumentSnapshot[]> {
   const col = db.collection(collectionPath);
-  const out: QueryDocumentSnapshot[] = [];
+  const effLimit = Math.max(1, Math.min(rowLimit, MAX_HARD_CAP));
   try {
-    let last: QueryDocumentSnapshot | undefined;
-    while (true) {
-      let q = col.orderBy("createdAt", "desc").limit(PAGE_SIZE);
-      if (last) q = q.startAfter(last);
-      const snap = await q.get();
-      if (snap.empty) break;
-      out.push(...snap.docs);
-      if (snap.docs.length < PAGE_SIZE) break;
-      last = snap.docs[snap.docs.length - 1];
+    const lookback = lookbackDateFromDays(sinceDays ?? DEFAULT_LOOKBACK_DAYS);
+    let q = col
+      .where("createdAt", ">=", lookback)
+      .orderBy("createdAt", "desc")
+      .limit(effLimit);
+    let snap = await q.get();
+    if (snap.empty) {
+      q = col.orderBy("createdAt", "desc").limit(effLimit);
+      snap = await q.get();
     }
-    return out;
-  } catch {
-    const snap = await col.get();
     return snap.docs as QueryDocumentSnapshot[];
+  } catch {
+    try {
+      const snap = await col.orderBy("createdAt", "desc").limit(effLimit).get();
+      return snap.docs as QueryDocumentSnapshot[];
+    } catch {
+      const snap = await col.limit(effLimit).get();
+      return snap.docs as QueryDocumentSnapshot[];
+    }
   }
 }
 
 /**
- * Every `customer_notifications` doc for all owners (no orderBy — Firestore would omit rows missing `createdAt`).
- * Sorted newest-first in memory for the merged response.
+ * Most-recent `customer_notifications` docs across all owners, newest first.
+ * Bounded by `rowLimit` to keep system-wide polling from re-reading historical rows.
  */
-async function fetchEntireCustomerNotificationsCollection(
-  db: Firestore
+async function fetchRecentCustomerNotificationsCollection(
+  db: Firestore,
+  rowLimit: number,
+  sinceDays?: number
 ): Promise<QueryDocumentSnapshot[]> {
-  const snap = await db.collection("customer_notifications").get();
-  const docs = [...snap.docs] as QueryDocumentSnapshot[];
-  docs.sort(
-    (a, b) =>
-      parseTime(b.data().createdAt?.toDate?.()?.toISOString() || null) -
-      parseTime(a.data().createdAt?.toDate?.()?.toISOString() || null)
-  );
-  return docs;
+  return fetchRecentDocumentsNewestFirst(db, "customer_notifications", rowLimit, sinceDays);
 }
 
 /**
@@ -817,6 +853,12 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get("unreadOnly") === "1" ||
     req.nextUrl.searchParams.get("unreadOnly")?.toLowerCase() === "true";
 
+  const inboxLimit = clampLimit(req.nextUrl.searchParams.get("limit"), DEFAULT_INBOX_LIMIT);
+  const sinceDays = clampLookbackDays(
+    req.nextUrl.searchParams.get("sinceDays"),
+    DEFAULT_LOOKBACK_DAYS
+  );
+
   if (systemWide) {
     if (!canUseAllQueryParam(gate.auth)) {
       return NextResponse.json(
@@ -849,27 +891,46 @@ export async function GET(req: NextRequest) {
           : null;
 
       const estimateDocs = !customerOnly
-        ? await fetchEstimatesForCallCenter(db, workshopScopeForFetch)
+        ? await fetchEstimatesForCallCenter(db, workshopScopeForFetch, {
+            rowLimit: inboxLimit,
+            sinceDays,
+          })
         : [];
       const opsDocsDedicated =
         !customerOnly && !includeAdminPanel
-          ? await fetchCallCenterOpsNotifications(db, workshopScopeForFetch)
+          ? await fetchCallCenterOpsNotifications(db, workshopScopeForFetch, {
+              perTypeLimit: Math.min(inboxLimit, MAX_OPS_PER_TYPE),
+              sinceDays,
+            })
           : [];
 
-      const custDocs = await fetchEntireCustomerNotificationsCollection(db);
+      const custDocs = await fetchRecentCustomerNotificationsCollection(
+        db,
+        inboxLimit,
+        sinceDays
+      );
 
       const adminDocs =
         includeAdminPanel && fullAccess
-          ? await fetchAllDocumentsNewestFirst(db, "notifications")
+          ? await fetchRecentDocumentsNewestFirst(
+              db,
+              "notifications",
+              inboxLimit,
+              sinceDays
+            )
           : includeAdminPanel && gate.auth.kind === "agent"
             ? await fetchAdminNotificationsForWorkshops(
                 db,
-                gate.auth.user.assignedWorkshops
+                gate.auth.user.assignedWorkshops,
+                Math.min(inboxLimit, MAX_PER_WORKSHOP_CHUNK)
               )
             : [];
 
       const legacyScope: string[] | null = null;
-      const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, legacyScope);
+      const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, legacyScope, {
+        recentLimit: inboxLimit,
+        sinceDays,
+      });
 
       const customerIds = new Set<string>();
       const ownerUids = new Set<string>();
@@ -1003,6 +1064,9 @@ export async function GET(req: NextRequest) {
           notifications: out,
           totalMerged: merged.length,
           unreadCount,
+          /** Caps applied to each underlying fetch (callers can detect saturation). */
+          limit: inboxLimit,
+          sinceDays,
           counts: {
             bookingEngineCustomerInbox: customerFacingNotificationCount,
             customerNotificationsDocs: custDocs.length,
@@ -1057,9 +1121,12 @@ export async function GET(req: NextRequest) {
     const seen = new Set<string>();
     const rows: MappedNotification[] = [];
 
+    const perChunkLimit = Math.min(inboxLimit, MAX_PER_WORKSHOP_CHUNK);
     const byOwner = await db
       .collection("customer_notifications")
       .where("ownerUid", "==", tenant)
+      .orderBy("createdAt", "desc")
+      .limit(inboxLimit)
       .get();
     for (const doc of byOwner.docs) {
       seen.add(doc.id);
@@ -1073,6 +1140,8 @@ export async function GET(req: NextRequest) {
       const snap = await db
         .collection("customer_notifications")
         .where("customerId", "in", chunk)
+        .orderBy("createdAt", "desc")
+        .limit(perChunkLimit)
         .get();
       for (const doc of snap.docs) {
         if (seen.has(doc.id)) continue;
@@ -1093,14 +1162,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, [tenant]);
+    const legacyDocs = await fetchLegacyCustomerBookingNotifications(db, [tenant], {
+      perChunkLimit,
+      sinceDays,
+    });
 
     const mergedRows = mergeCustomerPanelInbox(rows, legacyDocs, customerMeta, ownerNames);
 
     const opsDocsW = !customerOnly
-      ? await fetchCallCenterOpsNotifications(db, [tenant])
+      ? await fetchCallCenterOpsNotifications(db, [tenant], {
+          perTypeLimit: Math.min(inboxLimit, MAX_OPS_PER_TYPE),
+          sinceDays,
+        })
       : [];
-    const estimateDocsW = !customerOnly ? await fetchEstimatesForCallCenter(db, [tenant]) : [];
+    const estimateDocsW = !customerOnly
+      ? await fetchEstimatesForCallCenter(db, [tenant], {
+          rowLimit: inboxLimit,
+          sinceDays,
+        })
+      : [];
     const estimateRowsW = estimateDocsW.map((doc) =>
       mapEstimateDocForCallCenterFeed(doc, ownerNames)
     );
@@ -1133,6 +1213,8 @@ export async function GET(req: NextRequest) {
         notifications: filtered,
         totalFetched: workshopMerged.length,
         unreadCount,
+        limit: inboxLimit,
+        sinceDays,
         counts: {
           customerNotificationsDocs: rows.length,
           legacyNotificationsMerged: legacyDocs.length,

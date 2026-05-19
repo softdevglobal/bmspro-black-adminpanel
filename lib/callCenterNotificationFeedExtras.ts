@@ -6,7 +6,29 @@ export const CALL_CENTER_OPS_NOTIFICATION_TYPES = [
   "new_estimate",
 ] as const;
 
-const PAGE_SIZE = 500;
+/**
+ * Hard caps. The previous implementation paginated through the entire
+ * `notifications` collection per type (500 rows × N pages) which dominated
+ * Firestore read costs when polled by the call-center. The inbox surfaces the
+ * newest rows, so bounded single-shot reads are functionally equivalent.
+ */
+const DEFAULT_PER_TYPE_LIMIT = 300;
+const DEFAULT_ESTIMATES_LIMIT = 300;
+const MAX_HARD_CAP = 1000;
+const DEFAULT_LOOKBACK_DAYS = 60;
+
+function clamp(value: number, fallback: number): number {
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.floor(value), MAX_HARD_CAP);
+}
+
+function lookbackDateFromDays(days: number): Date {
+  const d = new Date();
+  const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : DEFAULT_LOOKBACK_DAYS;
+  d.setDate(d.getDate() - safeDays);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
 function parseTimeMs(iso: string | null): number {
   if (!iso) return 0;
@@ -15,49 +37,57 @@ function parseTimeMs(iso: string | null): number {
 }
 
 /**
- * Paginate `notifications` by `type`, optionally filter by `ownerUid` in allowed set (in-memory filter if needed).
+ * Most-recent rows of each call-center ops type, optionally filtered to allowed
+ * workshop owner UIDs (in-memory post-filter). Bounded by `perTypeLimit` per
+ * type and (when supported) by a `createdAt >= sinceDays` cutoff.
  */
 export async function fetchCallCenterOpsNotifications(
   db: Firestore,
-  workshopOwnerUids: string[] | null
+  workshopOwnerUids: string[] | null,
+  options: { perTypeLimit?: number; sinceDays?: number } = {}
 ): Promise<QueryDocumentSnapshot[]> {
   const allow =
-    workshopOwnerUids !== null ? new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean)) : null;
+    workshopOwnerUids !== null
+      ? new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))
+      : null;
+  const perTypeLimit = clamp(options.perTypeLimit ?? DEFAULT_PER_TYPE_LIMIT, DEFAULT_PER_TYPE_LIMIT);
+  const cutoff = lookbackDateFromDays(options.sinceDays ?? DEFAULT_LOOKBACK_DAYS);
 
   const seen = new Set<string>();
   const out: QueryDocumentSnapshot[] = [];
 
   for (const t of CALL_CENTER_OPS_NOTIFICATION_TYPES) {
+    let snap;
     try {
-      let last: QueryDocumentSnapshot | undefined;
-      while (true) {
-        let q = db
+      snap = await db
+        .collection("notifications")
+        .where("type", "==", t)
+        .where("createdAt", ">=", cutoff)
+        .orderBy("createdAt", "desc")
+        .limit(perTypeLimit)
+        .get();
+    } catch {
+      try {
+        snap = await db
           .collection("notifications")
           .where("type", "==", t)
           .orderBy("createdAt", "desc")
-          .limit(PAGE_SIZE);
-        if (last) q = q.startAfter(last);
-        const snap = await q.get();
-        if (snap.empty) break;
-        for (const doc of snap.docs) {
-          if (seen.has(doc.id)) continue;
-          const ou = String(doc.data().ownerUid || "").trim();
-          if (allow && (!ou || !allow.has(ou))) continue;
-          seen.add(doc.id);
-          out.push(doc);
-        }
-        if (snap.docs.length < PAGE_SIZE) break;
-        last = snap.docs[snap.docs.length - 1];
+          .limit(perTypeLimit)
+          .get();
+      } catch {
+        snap = await db
+          .collection("notifications")
+          .where("type", "==", t)
+          .limit(perTypeLimit)
+          .get();
       }
-    } catch {
-      const snap = await db.collection("notifications").where("type", "==", t).get();
-      for (const doc of snap.docs) {
-        if (seen.has(doc.id)) continue;
-        const ou = String(doc.data().ownerUid || "").trim();
-        if (allow && (!ou || !allow.has(ou))) continue;
-        seen.add(doc.id);
-        out.push(doc);
-      }
+    }
+    for (const doc of snap.docs) {
+      if (seen.has(doc.id)) continue;
+      const ou = String(doc.data().ownerUid || "").trim();
+      if (allow && (!ou || !allow.has(ou))) continue;
+      seen.add(doc.id);
+      out.push(doc);
     }
   }
 
@@ -69,11 +99,18 @@ export async function fetchCallCenterOpsNotifications(
   return out;
 }
 
-/** All estimates for given workshop owner UIDs, or entire collection if `workshopOwnerUids` is null. */
+/**
+ * Most-recent estimates for given workshop owner UIDs, or across all owners
+ * when `workshopOwnerUids` is null. Bounded to keep system-wide polls cheap.
+ */
 export async function fetchEstimatesForCallCenter(
   db: Firestore,
-  workshopOwnerUids: string[] | null
+  workshopOwnerUids: string[] | null,
+  options: { rowLimit?: number; sinceDays?: number } = {}
 ): Promise<QueryDocumentSnapshot[]> {
+  const rowLimit = clamp(options.rowLimit ?? DEFAULT_ESTIMATES_LIMIT, DEFAULT_ESTIMATES_LIMIT);
+  const cutoff = lookbackDateFromDays(options.sinceDays ?? DEFAULT_LOOKBACK_DAYS);
+
   if (workshopOwnerUids !== null) {
     if (workshopOwnerUids.length === 0) return [];
     const normalized = [...new Set(workshopOwnerUids.map((x) => String(x).trim()).filter(Boolean))];
@@ -81,7 +118,12 @@ export async function fetchEstimatesForCallCenter(
     const rows: QueryDocumentSnapshot[] = [];
     for (let i = 0; i < normalized.length; i += 30) {
       const chunk = normalized.slice(i, i + 30);
-      const snap = await db.collection("estimates").where("ownerUid", "in", chunk).get();
+      const snap = await db
+        .collection("estimates")
+        .where("ownerUid", "in", chunk)
+        .orderBy("createdAt", "desc")
+        .limit(rowLimit)
+        .get();
       for (const doc of snap.docs) {
         if (seen.has(doc.id)) continue;
         seen.add(doc.id);
@@ -96,7 +138,21 @@ export async function fetchEstimatesForCallCenter(
     return rows;
   }
 
-  const snap = await db.collection("estimates").get();
+  let snap;
+  try {
+    snap = await db
+      .collection("estimates")
+      .where("createdAt", ">=", cutoff)
+      .orderBy("createdAt", "desc")
+      .limit(rowLimit)
+      .get();
+  } catch {
+    try {
+      snap = await db.collection("estimates").orderBy("createdAt", "desc").limit(rowLimit).get();
+    } catch {
+      snap = await db.collection("estimates").limit(rowLimit).get();
+    }
+  }
   const docs = [...snap.docs] as QueryDocumentSnapshot[];
   docs.sort(
     (a, b) =>

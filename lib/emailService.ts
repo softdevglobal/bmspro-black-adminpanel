@@ -927,7 +927,7 @@ function generateWelcomeEmailHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to BMS PRO BLACK</title>
+  <title>Welcome to BMS PRO WORKSHOP</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
   <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
@@ -940,7 +940,7 @@ function generateWelcomeEmailHTML(
             <td style="padding: 0; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);">
               <div style="padding: 40px; text-align: center;">
                 <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
-                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Welcome to BMS PRO BLACK</h1>
+                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Welcome to BMS PRO WORKSHOP</h1>
                 <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your workshop account has been created</p>
               </div>
             </td>
@@ -951,7 +951,7 @@ function generateWelcomeEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello,</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                Your workshop <strong>${businessName}</strong> has been successfully onboarded to BMS PRO BLACK. ${hasFreeTrial ? `<strong>Your ${trialDays}-day free trial is now active!</strong> You can start using all features immediately - no payment required during your trial.` : (paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your workshop management dashboard using the login credentials below.')}
+                Your workshop <strong>${businessName}</strong> has been successfully onboarded to BMS PRO WORKSHOP. ${hasFreeTrial ? `<strong>Your ${trialDays}-day free trial is now active!</strong> You can start using all features immediately - no payment required during your trial.` : (paymentUrl ? '<strong>To activate your account, please complete your subscription payment below.</strong>' : 'You can now access your workshop management dashboard using the login credentials below.')}
               </p>
             </td>
           </tr>
@@ -1061,9 +1061,9 @@ function generateWelcomeEmailHTML(
           <!-- Footer -->
           <tr>
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO BLACK</p>
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO WORKSHOP</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
-                This is an automated email from BMS PRO BLACK.<br>
+                This is an automated email from BMS PRO WORKSHOP.<br>
                 Please do not reply to this message.
               </p>
             </td>
@@ -1117,10 +1117,10 @@ export async function sendSalonOwnerWelcomeEmail(
     const html = generateWelcomeEmailHTML(email, password, businessName, planName, planPrice, paymentUrl, trialDays, bookingEngineUrl);
     const hasFreeTrial = trialDays && trialDays > 0;
     const subject = hasFreeTrial
-      ? `Welcome to BMS PRO BLACK - Your ${trialDays}-Day Free Trial is Active!`
+      ? `Welcome to BMS PRO WORKSHOP - Your ${trialDays}-Day Free Trial is Active!`
       : (paymentUrl 
-        ? `Welcome to BMS PRO BLACK - Complete Your Subscription`
-        : `Welcome to BMS PRO BLACK - Your Account is Ready`);
+        ? `Welcome to BMS PRO WORKSHOP - Complete Your Subscription`
+        : `Welcome to BMS PRO WORKSHOP - Your Account is Ready`);
     
     const msg = {
       to: email,
@@ -1182,7 +1182,7 @@ function generateStaffWelcomeEmailHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to BMS PRO BLACK</title>
+  <title>Welcome to BMS PRO WORKSHOP</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
   <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
@@ -1195,7 +1195,7 @@ function generateStaffWelcomeEmailHTML(
             <td style="padding: 0; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);">
               <div style="padding: 40px; text-align: center;">
                 <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
-                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Welcome to BMS PRO BLACK</h1>
+                <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Welcome to BMS PRO WORKSHOP</h1>
                 <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">Your ${roleDisplayName} account has been created</p>
               </div>
             </td>
@@ -1208,7 +1208,7 @@ function generateStaffWelcomeEmailHTML(
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
                 ${workshopName ? `You have been added as a <strong>${roleDisplayName}</strong> to <strong>${workshopName}</strong>.` : `You have been added as a <strong>${roleDisplayName}</strong>.`}
                 ${branchName && isBranchAdmin ? ` You have been assigned as the administrator for the <strong>${branchName}</strong> branch.` : ''}
-                You can now access the BMS PRO BLACK system using the login credentials below.
+                You can now access the BMS PRO WORKSHOP system using the login credentials below.
               </p>
             </td>
           </tr>
@@ -1271,7 +1271,7 @@ function generateStaffWelcomeEmailHTML(
                   <li style="margin-bottom: 10px;">Log in using the credentials above</li>
                   <li style="margin-bottom: 10px;">Change your temporary password to a secure one</li>
                   <li style="margin-bottom: 10px;">Complete your profile</li>
-                  <li>Start using the BMS PRO BLACK system</li>
+                  <li>Start using the BMS PRO WORKSHOP system</li>
                 </ol>
               </div>
             </td>
@@ -1300,9 +1300,9 @@ function generateStaffWelcomeEmailHTML(
           <!-- Footer -->
           <tr>
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO BLACK</p>
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO WORKSHOP</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
-                This is an automated email from BMS PRO BLACK.<br>
+                This is an automated email from BMS PRO WORKSHOP.<br>
                 Please do not reply to this message.
               </p>
             </td>
@@ -1352,7 +1352,7 @@ export async function sendStaffWelcomeEmail(
   try {
     const html = generateStaffWelcomeEmailHTML(email, password, staffName, role, workshopName, branchName);
     const roleDisplayName = role === 'branch_admin' ? 'Branch Administrator' : 'Staff Member';
-    const subject = `Welcome to BMS PRO BLACK - Your ${roleDisplayName} Account is Ready`;
+    const subject = `Welcome to BMS PRO WORKSHOP - Your ${roleDisplayName} Account is Ready`;
     
     const msg = {
       to: email,
@@ -1520,7 +1520,7 @@ function generateCustomerWelcomeEmailHTML(params: {
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
               <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">${workshopName}</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
-                Powered by BMS PRO BLACK.<br>
+                Powered by BMS PRO WORKSHOP.<br>
                 This is an automated email — please do not reply.
               </p>
             </td>
@@ -1637,7 +1637,7 @@ function generateBranchAdminAssignmentEmailHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Branch Administrator Assignment - BMS PRO BLACK</title>
+  <title>Branch Administrator Assignment - BMS PRO WORKSHOP</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
   <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
@@ -1707,9 +1707,9 @@ function generateBranchAdminAssignmentEmailHTML(
           <!-- Footer -->
           <tr>
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO BLACK</p>
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO WORKSHOP</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
-                This is an automated email from BMS PRO BLACK.<br>
+                This is an automated email from BMS PRO WORKSHOP.<br>
                 Please do not reply to this message.
               </p>
             </td>
@@ -1812,7 +1812,7 @@ function generatePasswordResetEmailHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reset Your Password - BMS PRO BLACK</title>
+  <title>Reset Your Password - BMS PRO WORKSHOP</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
   <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
@@ -1826,7 +1826,7 @@ function generatePasswordResetEmailHTML(
               <div style="padding: 40px; text-align: center;">
                 <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🔐</div>
                 <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">Reset Your Password</h1>
-                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">BMS PRO BLACK</p>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">BMS PRO WORKSHOP</p>
               </div>
             </td>
           </tr>
@@ -1836,7 +1836,7 @@ function generatePasswordResetEmailHTML(
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 15px; color: #374151; font-size: 16px; line-height: 1.6;">Hello ${userName},</p>
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                We received a request to reset your password for your BMS PRO BLACK account. Use the 6-digit code below to verify your identity and reset your password.
+                We received a request to reset your password for your BMS PRO WORKSHOP account. Use the 6-digit code below to verify your identity and reset your password.
               </p>
             </td>
           </tr>
@@ -1903,9 +1903,9 @@ function generatePasswordResetEmailHTML(
           <!-- Footer -->
           <tr>
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO BLACK</p>
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO WORKSHOP</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
-                This is an automated email from BMS PRO BLACK.<br>
+                This is an automated email from BMS PRO WORKSHOP.<br>
                 Please do not reply to this message.
               </p>
             </td>
@@ -1952,7 +1952,7 @@ function generateAdminSignupNotificationEmailHTML(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>New Workshop Signup - BMS PRO BLACK</title>
+  <title>New Workshop Signup - BMS PRO WORKSHOP</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f3f4f6;">
   <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f3f4f6;">
@@ -1966,7 +1966,7 @@ function generateAdminSignupNotificationEmailHTML(
               <div style="padding: 40px; text-align: center;">
                 <div style="font-size: 56px; margin-bottom: 15px; line-height: 1;">🎉</div>
                 <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.3px;">New Workshop Signup!</h1>
-                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">A new business has joined BMS PRO BLACK</p>
+                <p style="margin: 15px 0 0; color: rgba(255,255,255,0.9); font-size: 16px;">A new business has joined BMS PRO WORKSHOP</p>
               </div>
             </td>
           </tr>
@@ -1975,7 +1975,7 @@ function generateAdminSignupNotificationEmailHTML(
           <tr>
             <td style="padding: 30px 40px 20px;">
               <p style="margin: 0 0 25px; color: #374151; font-size: 16px; line-height: 1.6;">
-                A new workshop has signed up for BMS PRO BLACK. Here are the details:
+                A new workshop has signed up for BMS PRO WORKSHOP. Here are the details:
               </p>
             </td>
           </tr>
@@ -2073,7 +2073,7 @@ function generateAdminSignupNotificationEmailHTML(
           <!-- Footer -->
           <tr>
             <td style="padding: 25px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO BLACK - Admin Notification</p>
+              <p style="margin: 0 0 8px; color: #111827; font-size: 14px; font-weight: 600;">BMS PRO WORKSHOP - Admin Notification</p>
               <p style="margin: 0; color: #6b7280; font-size: 12px; line-height: 1.5;">
                 This is an automated notification email.<br>
                 New customer signup details for your records.
@@ -2458,7 +2458,7 @@ export async function sendPasswordResetEmail(
   
   try {
     const html = generatePasswordResetEmailHTML(userName, resetCode);
-    const subject = `Reset Your Password - BMS PRO BLACK`;
+    const subject = `Reset Your Password - BMS PRO WORKSHOP`;
     
     const msg = {
       to: emailAddress,

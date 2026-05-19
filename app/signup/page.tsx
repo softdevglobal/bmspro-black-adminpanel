@@ -329,10 +329,10 @@ export default function SignupPage() {
       <div className="bg-neutral-950 sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-9 h-9 rounded-xl object-cover" />
+            <img src="/bmsblack-icon.jpeg" alt="BMS PRO WORKSHOP" className="w-9 h-9 rounded-xl object-cover" />
             <div>
               <span className="text-white font-bold text-base tracking-tight">BMS PRO</span>
-              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>
+              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Workshop</span>
             </div>
           </div>
           <Link

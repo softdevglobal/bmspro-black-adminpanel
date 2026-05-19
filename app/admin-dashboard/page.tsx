@@ -864,7 +864,7 @@ export default function AdminDashboardPage() {
                   <i className="fas fa-gauge-high text-2xl text-amber-400" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold">BMS Pro Black</h1>
+                  <h1 className="text-2xl font-bold">BMS Pro Workshop</h1>
                   <p className="text-sm text-neutral-400 mt-1">Workshop Management &mdash; Super Admin Dashboard</p>
                 </div>
               </div>

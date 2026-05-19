@@ -215,10 +215,10 @@ export default function LoginPage() {
         <div className="relative z-10">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-6">
-            <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-10 h-10 rounded-xl shadow-lg shadow-black/20 object-cover" />
+            <img src="/bmsblack-icon.jpeg" alt="BMS PRO WORKSHOP" className="w-10 h-10 rounded-xl shadow-lg shadow-black/20 object-cover" />
             <div>
               <span className="text-white font-bold text-lg tracking-tight">BMS PRO</span>
-              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>
+              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Workshop</span>
             </div>
           </div>
           {/* Headline */}
@@ -243,10 +243,10 @@ export default function LoginPage() {
 
         <div className={`relative z-10 flex flex-col p-12 xl:p-16 w-full transition-all duration-1000 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
           <div className="flex items-center gap-3 mb-auto">
-            <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-10 h-10 rounded-xl object-cover" />
+            <img src="/bmsblack-icon.jpeg" alt="BMS PRO WORKSHOP" className="w-10 h-10 rounded-xl object-cover" />
             <div>
               <span className="text-white font-bold text-lg tracking-tight">BMS PRO</span>
-              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Black</span>
+              <span className="text-neutral-500 text-[10px] font-semibold tracking-[0.3em] uppercase ml-2">Workshop</span>
             </div>
           </div>
 

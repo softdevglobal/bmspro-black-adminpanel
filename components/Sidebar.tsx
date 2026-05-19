@@ -247,10 +247,10 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
     >
       <div className="p-6 border-b border-neutral-800">
         <div className="flex items-center space-x-3">
-          <img src="/bmsblack-icon.jpeg" alt="BMS PRO BLACK" className="w-10 h-10 rounded-xl shadow-lg object-cover" />
+          <img src="/bmsblack-icon.jpeg" alt="BMS PRO WORKSHOP" className="w-10 h-10 rounded-xl shadow-lg object-cover" />
           <div>
             <h1 className="font-bold text-base text-white">BMS PRO</h1>
-            <p className="text-[10px] font-semibold tracking-[0.2em] text-neutral-500 uppercase">Black</p>
+            <p className="text-[10px] font-semibold tracking-[0.2em] text-neutral-500 uppercase">Workshop</p>
           </div>
         </div>
         {mobile && (

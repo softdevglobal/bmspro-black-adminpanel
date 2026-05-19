@@ -270,15 +270,12 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
       const mm = String(lookback.getMonth() + 1).padStart(2, "0");
       const dd = String(lookback.getDate()).padStart(2, "0");
       const lookbackStr = `${yyyy}-${mm}-${dd}`;
-      const constraints = [
-        where("ownerUid", "==", ownerUid),
-        where("date", ">=", lookbackStr),
-      ];
-      
-      // Branch admin should only see bookings for their branch
+      // Equalities first, then the range on `date` (Firestore requires this order).
+      const constraints = [where("ownerUid", "==", ownerUid)];
       if (userRole === "branch_admin" && userBranchId) {
         constraints.push(where("branchId", "==", userBranchId));
       }
+      constraints.push(where("date", ">=", lookbackStr));
       
       // Query only "bookings" collection (booking engine now saves directly to bookings)
       const q = query(collection(db, "bookings"), ...constraints);

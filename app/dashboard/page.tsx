@@ -454,8 +454,17 @@ export default function DashboardPage() {
         }
       );
 
-      // Fetch all bookings across all tenants for aggregate revenue
-      const allBookingsQuery = query(collection(db, "bookings"));
+      // Fetch bookings across all tenants for aggregate revenue, bounded to the
+      // same dashboard lookback window used elsewhere. Previously this was an
+      // **unfiltered** snapshot listener on the entire platform `bookings`
+      // collection — every booking write anywhere in the platform re-delivered
+      // every historical booking to every open super-admin dashboard tab. With
+      // a few thousand historical bookings and even modest write traffic this
+      // could read tens of millions of docs/day from this listener alone.
+      const allBookingsQuery = query(
+        collection(db, "bookings"),
+        where("date", ">=", dashboardLookbackDateStr)
+      );
       unsubAllBookings = onSnapshot(
         allBookingsQuery,
         (snapshot) => {

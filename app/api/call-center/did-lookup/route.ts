@@ -83,19 +83,57 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Strategy 2: Search branches by phone number
-    const normalizedDid = did.replace(/[\s\-\(\)]/g, "");
-    const branchesSnap = await db.collection("branches").get();
+    // Strategy 2: Search branches by phone number. Each inbound call hits
+    // this endpoint, and previously this scanned the **entire** `branches`
+    // collection across the whole platform (every workshop, every branch).
+    // We try an exact-match index first (`phone` or `normalizedPhone` field
+    // on the branch doc), then fall back to a capped scan if no index exists.
+    const normalizedDid = did.replace(/[\s\-()]/g, "");
     let matchedBranch: any = null;
     let matchedOwnerUid: string | null = null;
-
-    for (const doc of branchesSnap.docs) {
-      const data = doc.data();
-      const branchPhone = (data.phone || "").replace(/[\s\-\(\)]/g, "");
-      if (branchPhone && branchPhone === normalizedDid) {
-        matchedBranch = { id: doc.id, ...data };
-        matchedOwnerUid = data.ownerUid;
-        break;
+    // Indexed lookup paths first.
+    try {
+      const byNormalized = await db
+        .collection("branches")
+        .where("normalizedPhone", "==", normalizedDid)
+        .limit(1)
+        .get();
+      if (!byNormalized.empty) {
+        const doc = byNormalized.docs[0];
+        matchedBranch = { id: doc.id, ...doc.data() };
+        matchedOwnerUid = (doc.data() as { ownerUid?: string }).ownerUid ?? null;
+      }
+    } catch {
+      /* index missing — fall through */
+    }
+    if (!matchedBranch) {
+      try {
+        const byPhone = await db
+          .collection("branches")
+          .where("phone", "==", did)
+          .limit(1)
+          .get();
+        if (!byPhone.empty) {
+          const doc = byPhone.docs[0];
+          matchedBranch = { id: doc.id, ...doc.data() };
+          matchedOwnerUid = (doc.data() as { ownerUid?: string }).ownerUid ?? null;
+        }
+      } catch {
+        /* index missing — fall through */
+      }
+    }
+    if (!matchedBranch) {
+      // Last-resort fallback: bounded scan. The previous unbounded scan was
+      // the single highest-cost path on inbound-call traffic.
+      const branchesSnap = await db.collection("branches").limit(500).get();
+      for (const doc of branchesSnap.docs) {
+        const data = doc.data();
+        const branchPhone = (data.phone || "").replace(/[\s\-()]/g, "");
+        if (branchPhone && branchPhone === normalizedDid) {
+          matchedBranch = { id: doc.id, ...data };
+          matchedOwnerUid = data.ownerUid;
+          break;
+        }
       }
     }
 

@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
 import { toCsv, parseCsv, downloadFile } from "@/lib/csvUtils";
 import { dedupeVehiclesByIdentity } from "@/lib/callCenterCustomerVehicles";
 
@@ -117,10 +117,16 @@ export default function CustomersPage() {
     lookback.setMonth(lookback.getMonth() - 12);
     lookback.setHours(0, 0, 0, 0);
     const lookbackStr = `${lookback.getFullYear()}-${String(lookback.getMonth() + 1).padStart(2, "0")}-${String(lookback.getDate()).padStart(2, "0")}`;
+    // Cap to 1000 most-recent bookings — the customer list only needs visit
+    // counts / last-visit dates derived from recent activity. Workshops with
+    // very high booking volumes would otherwise re-read the full 12-month
+    // window on every booking mutation.
     const q = query(
       collection(db, "bookings"),
       where("ownerUid", "==", ownerUid),
-      where("date", ">=", lookbackStr)
+      where("date", ">=", lookbackStr),
+      orderBy("date", "desc"),
+      limit(1000)
     );
     const unsub = onSnapshot(
       q,
@@ -166,10 +172,17 @@ export default function CustomersPage() {
     return () => unsub();
   }, [ownerUid]);
 
-  // Live customers saved in a dedicated "customers" collection (if your system writes them)
+  // Live customers saved in a dedicated "customers" collection (if your system
+  // writes them). Capped at 2000 — the UI is paginated client-side anyway, and
+  // CRMs with more than 2000 rows would otherwise re-read the entire collection
+  // on every customer create/update.
   useEffect(() => {
     if (!ownerUid) return;
-    const q = query(collection(db, "customers"), where("ownerUid", "==", ownerUid));
+    const q = query(
+      collection(db, "customers"),
+      where("ownerUid", "==", ownerUid),
+      limit(2000)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {

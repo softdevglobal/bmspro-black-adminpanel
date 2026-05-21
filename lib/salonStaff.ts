@@ -299,10 +299,24 @@ export function subscribeSalonStaffForOwner(
   ownerUid: string,
   onChange: (rows: Array<{ id: string } & DocumentData>) => void
 ) {
-  // Subscribe to all users belonging to this owner (staff & branch admins)
-  // We filter for roles that are NOT 'workshop_owner' just in case, though ownerUid check usually suffices for staff
-  const q = query(collection(db, "users"), where("ownerUid", "==", ownerUid));
-  
+  // Subscribe to staff & branch admins for this owner. Previously this
+  // listened to the **entire** `users` collection scoped only by ownerUid
+  // (including the workshop owner doc itself and legacy roles), then
+  // filtered client-side. Filtering on `role` in the query removes that
+  // overhead and avoids re-delivering the owner doc on owner-profile edits.
+  // Legacy rows that only store role on `systemRole` will not be caught by
+  // this query, so we still apply the client-side filter for compatibility.
+  let q;
+  try {
+    q = query(
+      collection(db, "users"),
+      where("ownerUid", "==", ownerUid),
+      where("role", "in", ["staff", "branch_admin"])
+    );
+  } catch {
+    q = query(collection(db, "users"), where("ownerUid", "==", ownerUid));
+  }
+
   return onSnapshot(
     q,
     (snap) => {

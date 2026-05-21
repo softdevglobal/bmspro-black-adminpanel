@@ -64,20 +64,26 @@ export async function GET(req: NextRequest) {
   try {
     const db = adminDb();
 
-    // Fetch customers for this workshop
+    // Firestore has no native substring search, so we still have to scan
+    // and filter in memory. We cap both the `customers` and the fallback
+    // `bookings` scans at CUSTOMER_SEARCH_SCAN_LIMIT — this keeps the
+    // worst-case search cost predictable on large tenants while still
+    // returning the (up to) 50 matches that the UI displays.
+    const CUSTOMER_SEARCH_SCAN_LIMIT = 2000;
     const custSnap = await db
       .collection("customers")
       .where("ownerUid", "==", ownerUid)
+      .limit(CUSTOMER_SEARCH_SCAN_LIMIT)
       .get();
 
     const results: any[] = [];
-    const normalizedQ = q.replace(/[\s\-\(\)]/g, "");
+    const normalizedQ = q.replace(/[\s\-()]/g, "");
 
     for (const doc of custSnap.docs) {
       const d = doc.data();
       const name = (d.name || d.client || "").toString().toLowerCase();
       const email = (d.email || "").toString().toLowerCase();
-      const phone = (d.phone || d.clientPhone || "").toString().replace(/[\s\-\(\)]/g, "");
+      const phone = (d.phone || d.clientPhone || "").toString().replace(/[\s\-()]/g, "");
 
       let matched = false;
 
@@ -106,12 +112,25 @@ export async function GET(req: NextRequest) {
       if (results.length >= 50) break;
     }
 
-    // Also search bookings for customers not in the customers collection
+    // Also search bookings for walk-ins not yet saved as customer docs.
+    // Capped to CUSTOMER_SEARCH_SCAN_LIMIT most-recent bookings — walk-ins
+    // we've never converted are almost always recent.
     if (results.length < 50) {
-      const bookingSnap = await db
-        .collection("bookings")
-        .where("ownerUid", "==", ownerUid)
-        .get();
+      let bookingSnap;
+      try {
+        bookingSnap = await db
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .orderBy("createdAt", "desc")
+          .limit(CUSTOMER_SEARCH_SCAN_LIMIT)
+          .get();
+      } catch {
+        bookingSnap = await db
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .limit(CUSTOMER_SEARCH_SCAN_LIMIT)
+          .get();
+      }
 
       const existingKeys = new Set(
         results.map((r) =>
@@ -123,7 +142,7 @@ export async function GET(req: NextRequest) {
         const d = doc.data();
         const clientName = (d.client || d.clientName || "").toString().toLowerCase();
         const clientEmail = (d.clientEmail || "").toString().toLowerCase();
-        const clientPhone = (d.clientPhone || "").toString().replace(/[\s\-\(\)]/g, "");
+        const clientPhone = (d.clientPhone || "").toString().replace(/[\s\-()]/g, "");
 
         const key = (clientEmail || clientPhone || clientName).toLowerCase();
         if (existingKeys.has(key)) continue;
@@ -165,13 +184,19 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Cap per-customer vehicle reads. The UI shows a small list and very few
+    // customers have more than a handful of vehicles — 50 is more than enough
+    // and prevents a runaway subcollection read for the rare misconfigured row.
     const customers = await Promise.all(
       results.map(async (row: Record<string, unknown>) => {
         const id = row.id as string | null;
         if (!id) {
           return { ...row, vehicles: [] as unknown[] };
         }
-        const vs = await db.collection(`customers/${id}/vehicles`).get();
+        const vs = await db
+          .collection(`customers/${id}/vehicles`)
+          .limit(50)
+          .get();
         const vehicles = dedupeVehiclesByIdentity(
           vs.docs.map((v) =>
             mapCustomerVehicleDoc(v.id, v.data() as Record<string, unknown>)

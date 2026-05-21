@@ -31,10 +31,17 @@ export async function POST(req: NextRequest) {
     const now = new Date();
     const twoDaysFromNow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
 
-    // Query all users with active trial status
+    // Query all users with active trial status. Cap each pass at
+    // CRON_BATCH_LIMIT — if a single run finds more than this we surface a
+    // `truncated` flag so the next scheduled run picks up where this one
+    // stopped. Both queries (the legacy `accountStatus == "active_trial"`
+    // and the newer `subscriptionStatus == "trialing"`) tend to overlap
+    // heavily; we de-dupe via `updatedUsers`.
+    const CRON_BATCH_LIMIT = 500;
     const usersRef = db.collection("users");
     const trialUsersSnapshot = await usersRef
       .where("accountStatus", "==", "active_trial")
+      .limit(CRON_BATCH_LIMIT)
       .get();
 
     const expiredTrials: string[] = [];
@@ -83,9 +90,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Also check users marked as trialing in subscription status
+    // Also check users marked as trialing in subscription status. Same
+    // CRON_BATCH_LIMIT cap as the first query.
     const trialingUsersSnapshot = await usersRef
       .where("subscriptionStatus", "==", "trialing")
+      .limit(CRON_BATCH_LIMIT)
       .get();
 
     for (const doc of trialingUsersSnapshot.docs) {
@@ -123,6 +132,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const truncated =
+      trialUsersSnapshot.size === CRON_BATCH_LIMIT ||
+      trialingUsersSnapshot.size === CRON_BATCH_LIMIT;
     return NextResponse.json({
       success: true,
       message: "Trial expiration check completed",
@@ -130,6 +142,8 @@ export async function POST(req: NextRequest) {
         checkedAt: now.toISOString(),
         expiredTrials: expiredTrials.length,
         expiringIn2Days: expiringIn2Days.length,
+        /** True when either underlying batch hit `CRON_BATCH_LIMIT` — the next scheduled run will pick up the rest. */
+        truncated,
       },
       expiredUserIds: expiredTrials,
       warningUserIds: expiringIn2Days,

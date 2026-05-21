@@ -11,11 +11,16 @@ export const CALL_CENTER_OPS_NOTIFICATION_TYPES = [
  * `notifications` collection per type (500 rows × N pages) which dominated
  * Firestore read costs when polled by the call-center. The inbox surfaces the
  * newest rows, so bounded single-shot reads are functionally equivalent.
+ *
+ * Defaults are intentionally tight (50 rows / 14 days) so a polling client
+ * costs ~50 reads/poll/type rather than ~300. The hard cap stays at 1000 so
+ * a one-off "show me history" call can still request more by passing
+ * `?limit=` / `?sinceDays=` on the wrapping endpoint.
  */
-const DEFAULT_PER_TYPE_LIMIT = 300;
-const DEFAULT_ESTIMATES_LIMIT = 300;
+const DEFAULT_PER_TYPE_LIMIT = 50;
+const DEFAULT_ESTIMATES_LIMIT = 50;
 const MAX_HARD_CAP = 1000;
-const DEFAULT_LOOKBACK_DAYS = 60;
+const DEFAULT_LOOKBACK_DAYS = 14;
 
 function clamp(value: number, fallback: number): number {
   if (!Number.isFinite(value) || value <= 0) return fallback;

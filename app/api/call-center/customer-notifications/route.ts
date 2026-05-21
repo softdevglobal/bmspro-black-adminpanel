@@ -27,6 +27,11 @@ import {
   CORS_HEADERS,
   type CallCenterRequestAuth,
 } from "@/lib/callCenterAuth";
+import {
+  buildCallCenterNotificationsCacheKey,
+  readCallCenterNotificationsCache,
+  writeCallCenterNotificationsCache,
+} from "@/lib/callCenterNotificationsResponseCache";
 
 export const runtime = "nodejs";
 
@@ -62,15 +67,24 @@ function hasFullSystemWideAccess(auth: CallCenterRequestAuth): boolean {
  * call center only displays the newest N rows in the inbox, so we cap every
  * fetch to a recent window + a row ceiling, then merge in memory.
  *
- * Tune via env / query string if a tenant genuinely needs deeper history:
+ * Defaults are deliberately tight (50 rows / 14 days). When polled at ~1 req/min
+ * the old defaults (300 rows / 60 days) read ≥ 1500 docs per call across the
+ * various underlying queries — easily ~1M reads/day in Firestore billing for a
+ * single agent. The live inbox only ever surfaces the newest ~50 rows.
+ *
+ * Tune via query string if a tenant genuinely needs deeper history:
  * `?limit=<n>` (≤ MAX_HARD_CAP) and `?sinceDays=<n>` (≤ MAX_LOOKBACK_DAYS).
  */
-const DEFAULT_INBOX_LIMIT = 300;
+const DEFAULT_INBOX_LIMIT = 50;
 const MAX_HARD_CAP = 1000;
 const MAX_LOOKBACK_DAYS = 365;
-const DEFAULT_LOOKBACK_DAYS = 60;
-const MAX_OPS_PER_TYPE = 300;
-const MAX_PER_WORKSHOP_CHUNK = 300;
+const DEFAULT_LOOKBACK_DAYS = 14;
+const MAX_OPS_PER_TYPE = 100;
+const MAX_PER_WORKSHOP_CHUNK = 100;
+
+// In-memory response cache lives in `lib/callCenterNotificationsResponseCache.ts`
+// so mutation endpoints (`notification-reviewed`, `called-customer`) can flush
+// it after writes — see `invalidateCallCenterNotificationsCache()`.
 
 function clampLimit(raw: string | null, fallback: number): number {
   const n = Number(raw);
@@ -870,6 +884,21 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const cacheKey = buildCallCenterNotificationsCacheKey(gate.auth, {
+      customerOnly,
+      includeAdminPanel,
+      unreadOnly,
+      inboxLimit,
+      sinceDays,
+    });
+    const cached = readCallCenterNotificationsCache(cacheKey);
+    if (cached) {
+      return NextResponse.json(
+        { ...cached, cached: true },
+        { headers: CORS_HEADERS }
+      );
+    }
+
     try {
       const db = adminDb();
       const fullAccess = hasFullSystemWideAccess(gate.auth);
@@ -1052,32 +1081,33 @@ export async function GET(req: NextRequest) {
       const unreadCount = merged.filter((r) => !r.read).length;
       const customerFacingNotificationCount = merged.filter((r) => r.source === "customer_panel").length;
 
-      return NextResponse.json(
-        {
-          scope: "all",
-          fullSystemAccess: fullAccess,
-          scopedToWorkshops,
-          customerOnly,
-          includeAdminPanel,
-          /** Rows from book-now customer inbox after workshop scope (if any). */
-          customerFacingNotificationCount,
-          notifications: out,
-          totalMerged: merged.length,
-          unreadCount,
-          /** Caps applied to each underlying fetch (callers can detect saturation). */
-          limit: inboxLimit,
-          sinceDays,
-          counts: {
-            bookingEngineCustomerInbox: customerFacingNotificationCount,
-            customerNotificationsDocs: custDocs.length,
-            legacyNotificationsMerged: legacyDocs.length,
-            adminStaffApp: adminDocs.length,
-            callCenterOpsNotifications: opsDocsDedicated.length,
-            estimates: estimateRows.length,
-          },
+      const responseBody = {
+        scope: "all" as const,
+        fullSystemAccess: fullAccess,
+        scopedToWorkshops,
+        customerOnly,
+        includeAdminPanel,
+        /** Rows from book-now customer inbox after workshop scope (if any). */
+        customerFacingNotificationCount,
+        notifications: out,
+        totalMerged: merged.length,
+        unreadCount,
+        /** Caps applied to each underlying fetch (callers can detect saturation). */
+        limit: inboxLimit,
+        sinceDays,
+        counts: {
+          bookingEngineCustomerInbox: customerFacingNotificationCount,
+          customerNotificationsDocs: custDocs.length,
+          legacyNotificationsMerged: legacyDocs.length,
+          adminStaffApp: adminDocs.length,
+          callCenterOpsNotifications: opsDocsDedicated.length,
+          estimates: estimateRows.length,
         },
-        { headers: CORS_HEADERS }
-      );
+      };
+
+      writeCallCenterNotificationsCache(cacheKey, responseBody);
+
+      return NextResponse.json(responseBody, { headers: CORS_HEADERS });
     } catch (error: any) {
       console.error("[call-center/customer-notifications GET system]", error);
       return NextResponse.json(

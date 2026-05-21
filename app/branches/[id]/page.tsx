@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { subscribeServicesForOwner } from "@/lib/services";
 import { subscribeSalonStaffForOwner } from "@/lib/salonStaff";
 import BranchQRDownload from "@/components/branches/BranchQRDownload";
@@ -882,10 +882,26 @@ export default function BranchDetailsPage() {
     return () => unsub();
   }, [ownerUid, branchId, userRole, currentUserUid, router]);
 
-  // subscribe to bookings for this branch
+  // subscribe to bookings for this branch. Bounded to the last 12 months and
+  // capped at 500 docs so a mature branch doesn't re-deliver its entire
+  // historical booking set on every snapshot tick.
   useEffect(() => {
     if (!ownerUid || !branchId) return;
-    const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid), where("branchId", "==", branchId));
+    const lookback = new Date();
+    lookback.setMonth(lookback.getMonth() - 12);
+    lookback.setHours(0, 0, 0, 0);
+    const yyyy = lookback.getFullYear();
+    const mm = String(lookback.getMonth() + 1).padStart(2, "0");
+    const dd = String(lookback.getDate()).padStart(2, "0");
+    const lookbackStr = `${yyyy}-${mm}-${dd}`;
+    const q = query(
+      collection(db, "bookings"),
+      where("ownerUid", "==", ownerUid),
+      where("branchId", "==", branchId),
+      where("date", ">=", lookbackStr),
+      orderBy("date", "desc"),
+      limit(500)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {

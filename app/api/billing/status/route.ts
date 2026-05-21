@@ -110,22 +110,63 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Fetch branch and staff counts for downgrade eligibility
+    // Fetch branch and staff counts for downgrade eligibility. Previously
+    // this loaded **every** branch doc and **every** user doc for the
+    // workshop on every subscription-page open — for tenants with large
+    // catalogs this single endpoint accounted for a noticeable share of
+    // reads. Use Firestore's aggregation `.count()` (admin SDK) which is
+    // billed at a tiny fraction of a normal read regardless of result size.
     let branchCount = 0;
     let staffCount = 0;
     const role = (userData_db.role || "").toString();
     if (role === "workshop_owner") {
       try {
-        const [branchSnap, staffSnap] = await Promise.all([
-          db.collection("branches").where("ownerUid", "==", userId).get(),
-          db.collection("users").where("ownerUid", "==", userId).get(),
+        const [branchAgg, staffAgg] = await Promise.all([
+          db
+            .collection("branches")
+            .where("ownerUid", "==", userId)
+            .count()
+            .get(),
+          // Count only billable staff roles directly in Firestore. Previously
+          // this read every owner-scoped user row and filtered client-side.
+          db
+            .collection("users")
+            .where("ownerUid", "==", userId)
+            .where("role", "in", ["workshop_staff", "branch_admin"])
+            .count()
+            .get(),
         ]);
-        branchCount = branchSnap.size;
-        staffCount = staffSnap.docs.filter(
-          (d) => ["workshop_staff", "branch_admin"].includes((d.data().role || "").toString())
-        ).length;
+        branchCount = branchAgg.data().count;
+        staffCount = staffAgg.data().count;
       } catch (usageErr: any) {
-        console.error("[BILLING STATUS] Error fetching usage counts:", usageErr.message);
+        // If aggregation isn't supported (very old SDKs) or the composite
+        // index is missing, fall back to the previous full-collection read.
+        console.warn(
+          "[BILLING STATUS] Count aggregation failed, falling back:",
+          usageErr.message
+        );
+        try {
+          const [branchSnap, staffSnap] = await Promise.all([
+            db
+              .collection("branches")
+              .where("ownerUid", "==", userId)
+              .limit(500)
+              .get(),
+            db
+              .collection("users")
+              .where("ownerUid", "==", userId)
+              .limit(500)
+              .get(),
+          ]);
+          branchCount = branchSnap.size;
+          staffCount = staffSnap.docs.filter((d) =>
+            ["workshop_staff", "branch_admin"].includes(
+              (d.data().role || "").toString()
+            )
+          ).length;
+        } catch (e: any) {
+          console.error("[BILLING STATUS] Error fetching usage counts:", e.message);
+        }
       }
     }
 

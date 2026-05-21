@@ -96,16 +96,11 @@ async function hasAlternativeStaffAvailable(
     const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const dayName = daysOfWeek[date.getDay()];
     
-    // Get all active staff for this owner
-    const staffQuery = db.collection("users")
-      .where("ownerUid", "==", ownerUid)
-      .where("status", "==", "Active");
-    
-    const staffSnapshot = await staffQuery.get();
-    
-    if (staffSnapshot.empty) return false;
-    
-    // Get service definition to check staffIds restriction
+    // Resolve the service's permitted-staff list **before** loading users so
+    // we can narrow the user query to just those rows. Previously this
+    // pulled every "Active" user on the tenant on every staff accept/reject
+    // — for tenants with large rosters that's the most expensive read in
+    // the response flow.
     let serviceStaffIds: string[] = [];
     if (service.id) {
       try {
@@ -115,13 +110,48 @@ async function hasAlternativeStaffAvailable(
           serviceStaffIds = serviceData.staffIds.map(String);
         }
       } catch (e) {
-        // Service might not exist or be accessible, continue without restriction
         console.warn("Could not fetch service definition:", e);
       }
     }
+
+    // Build the cheapest possible query for the candidate staff roster.
+    let staffDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    if (serviceStaffIds.length > 0) {
+      // Service restricts to a specific roster — fetch only those user docs
+      // in chunks of 30 (Firestore `in` cap).
+      const chunkSize = 30;
+      for (let i = 0; i < serviceStaffIds.length; i += chunkSize) {
+        const ids = serviceStaffIds.slice(i, i + chunkSize);
+        if (ids.length === 0) continue;
+        const snap = await db
+          .collection("users")
+          .where("__name__", "in", ids)
+          .get();
+        staffDocs = staffDocs.concat(snap.docs);
+      }
+      // Apply ownerUid + status filter in memory (these are guaranteed cheap
+      // on the small result set).
+      staffDocs = staffDocs.filter((d) => {
+        const data = d.data();
+        return data.ownerUid === ownerUid && data.status === "Active";
+      });
+    } else {
+      // No service restriction — query owner-scoped active staff/branch_admin
+      // rows only (not the owner doc, not legacy roles), capped at 500.
+      const staffSnapshot = await db
+        .collection("users")
+        .where("ownerUid", "==", ownerUid)
+        .where("status", "==", "Active")
+        .where("role", "in", ["staff", "workshop_staff", "branch_admin"])
+        .limit(500)
+        .get();
+      staffDocs = staffSnapshot.docs;
+    }
+
+    if (staffDocs.length === 0) return false;
     
     // Filter staff members
-    const availableStaff = staffSnapshot.docs.filter(doc => {
+    const availableStaff = staffDocs.filter(doc => {
       const staffData = doc.data();
       const staffUid = doc.id;
       

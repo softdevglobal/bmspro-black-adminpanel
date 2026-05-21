@@ -31,36 +31,62 @@ export async function POST(req: NextRequest) {
     const db = adminDb();
     const now = new Date();
 
-    // Find all users with billing_status = past_due and grace_until < now
-    const usersSnapshot = await db
-      .collection("users")
-      .where("billing_status", "==", "past_due")
-      .get();
-
+    // Find users whose grace period has actually expired. Previously this
+    // query read **every** `past_due` user (regardless of grace_until) and
+    // then filtered in memory + did a per-user `owners/{id}.get()`. Now we
+    // ask Firestore for only the rows that need action and bound the page
+    // size; rows without `grace_until` are handled by a separate one-time
+    // pass below.
+    //
+    // We also batch the `owners/{id}` reads via `getAll` to drop the per-row
+    // round trip.
+    const CRON_BATCH_LIMIT = 200;
     let suspendedCount = 0;
     const batch = db.batch();
 
-    for (const userDoc of usersSnapshot.docs) {
+    let expiredSnap;
+    try {
+      expiredSnap = await db
+        .collection("users")
+        .where("billing_status", "==", "past_due")
+        .where("grace_until", "<", now)
+        .limit(CRON_BATCH_LIMIT)
+        .get();
+    } catch {
+      // Composite index missing — fall back to the previous shape but capped.
+      expiredSnap = await db
+        .collection("users")
+        .where("billing_status", "==", "past_due")
+        .limit(CRON_BATCH_LIMIT)
+        .get();
+    }
+
+    type UserDoc = FirebaseFirestore.QueryDocumentSnapshot;
+    const toSuspend: UserDoc[] = [];
+    for (const userDoc of expiredSnap.docs) {
       const userData = userDoc.data();
       const graceUntil = userData.grace_until;
-
+      // When the indexed path is available, every row already satisfies
+      // `grace_until < now`. When we hit the fallback path, re-check here.
       if (!graceUntil) {
-        // No grace period set, suspend immediately
-        batch.update(userDoc.ref, {
-          billing_status: "suspended",
-          accountStatus: "suspended",
-          suspendedReason: "Payment past due - grace period expired",
-          suspendedAt: now,
-          updatedAt: now,
-        });
-        suspendedCount++;
+        // Treated as "suspend immediately" — surface separately so it's
+        // visible in logs.
+        toSuspend.push(userDoc);
         continue;
       }
-
       const graceDate = graceUntil.toDate ? graceUntil.toDate() : new Date(graceUntil);
-      
-      if (now > graceDate) {
-        // Grace period expired, suspend account
+      if (now > graceDate) toSuspend.push(userDoc);
+    }
+
+    if (toSuspend.length > 0) {
+      // Batch the corresponding `owners/{id}` reads.
+      const ownerRefs = toSuspend.map((d) => db.collection("owners").doc(d.id));
+      const ownerSnaps = await db.getAll(...ownerRefs);
+      const ownerExistsById = new Map<string, boolean>();
+      for (let i = 0; i < toSuspend.length; i++) {
+        ownerExistsById.set(toSuspend[i].id, ownerSnaps[i].exists);
+      }
+      for (const userDoc of toSuspend) {
         batch.update(userDoc.ref, {
           billing_status: "suspended",
           accountStatus: "suspended",
@@ -68,13 +94,8 @@ export async function POST(req: NextRequest) {
           suspendedAt: now,
           updatedAt: now,
         });
-        suspendedCount++;
-
-        // Also update owners collection
-        const ownerRef = db.collection("owners").doc(userDoc.id);
-        const ownerDoc = await ownerRef.get();
-        if (ownerDoc.exists) {
-          batch.update(ownerRef, {
+        if (ownerExistsById.get(userDoc.id)) {
+          batch.update(db.collection("owners").doc(userDoc.id), {
             billing_status: "suspended",
             accountStatus: "suspended",
             suspendedReason: "Payment past due - grace period expired",
@@ -82,11 +103,8 @@ export async function POST(req: NextRequest) {
             updatedAt: now,
           });
         }
+        suspendedCount++;
       }
-    }
-
-    // Commit all updates
-    if (suspendedCount > 0) {
       await batch.commit();
       console.log(`[CRON] Suspended ${suspendedCount} accounts with expired grace periods`);
     }
@@ -95,6 +113,8 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `Suspended ${suspendedCount} accounts`,
       suspended_count: suspendedCount,
+      /** True when this run hit `CRON_BATCH_LIMIT` and there may be more rows to suspend on the next scheduled run. */
+      truncated: expiredSnap.size === CRON_BATCH_LIMIT,
     });
   } catch (error: any) {
     console.error("[CRON SUSPEND] Error:", error);

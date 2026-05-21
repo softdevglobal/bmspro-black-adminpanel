@@ -23,7 +23,15 @@ export async function queryActiveWorkshopOwnerDocs(
   let workshopDocs: QueryDocumentSnapshot[];
 
   if (scope.mode === "all") {
-    const snap = await db.collection("users").where("role", "==", "workshop_owner").get();
+    // Cap platform-wide workshop list at 1000 entries. The call center UI
+    // paginates client-side and we filter `suspended`/`inactive` after the
+    // read; without this cap a single GET could read every workshop_owner
+    // doc on the platform.
+    const snap = await db
+      .collection("users")
+      .where("role", "==", "workshop_owner")
+      .limit(1000)
+      .get();
     workshopDocs = snap.docs;
   } else {
     if (scope.ids.length === 0) return [];

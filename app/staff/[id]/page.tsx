@@ -443,56 +443,80 @@ export default function StaffPreviewPage() {
     return () => unsub();
   }, [staffId]);
 
-  // Subscribe to bookings for this staff member
+  // Subscribe to bookings for this staff member. Previously this listened to
+  // **every** booking for the workshop (no date or limit), then client-filtered
+  // by staffId — every booking write re-delivered the full collection. We now
+  // bound the listener to the last 12 months and a hard `limit`. Bookings can
+  // also assign staff inside the `services[]` array, which Firestore can't
+  // query directly, so the client filter is still required.
   useEffect(() => {
     if (!ownerUid || !staffId || !staff) return;
-    
-    // Query bookings where this staff is assigned
-    const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const allBookings: any[] = [];
-        snap.forEach((d) => {
-          const b = d.data() as any;
-          allBookings.push({ id: d.id, ...b });
-        });
-        
-        // Filter bookings where this staff member is assigned
-        const filtered = allBookings.filter((b) => {
-          // Check staffId field
-          if (b.staffId === staffId) return true;
-          
-          // Check staffName field (match by name)
-          if (b.staffName && staff.name && b.staffName.toLowerCase() === staff.name.toLowerCase()) return true;
-          
-          // Check services array for multi-service bookings
-          if (Array.isArray(b.services)) {
-            return b.services.some((s: any) => 
-              s.staffId === staffId || 
-              (s.staffName && staff.name && s.staffName.toLowerCase() === staff.name.toLowerCase())
-            );
-          }
-          
-          return false;
-        });
-        
-        // Sort by date (most recent first)
-        filtered.sort((a, b) => {
-          const aDate = a.date || "";
-          const bDate = b.date || "";
-          return bDate.localeCompare(aDate);
-        });
-        
-        setStaffBookings(filtered);
-      },
-      (error) => {
-        console.error("Error fetching staff bookings:", error);
-        setStaffBookings([]);
-      }
-    );
-    
-    return () => unsub();
+
+    let mounted = true;
+    let unsub: (() => void) | undefined;
+
+    (async () => {
+      const { limit, orderBy } = await import("firebase/firestore");
+      const lookback = new Date();
+      lookback.setMonth(lookback.getMonth() - 12);
+      lookback.setHours(0, 0, 0, 0);
+      const yyyy = lookback.getFullYear();
+      const mm = String(lookback.getMonth() + 1).padStart(2, "0");
+      const dd = String(lookback.getDate()).padStart(2, "0");
+      const lookbackStr = `${yyyy}-${mm}-${dd}`;
+
+      const q = query(
+        collection(db, "bookings"),
+        where("ownerUid", "==", ownerUid),
+        where("date", ">=", lookbackStr),
+        orderBy("date", "desc"),
+        limit(500)
+      );
+      if (!mounted) return;
+      unsub = onSnapshot(
+        q,
+        (snap) => {
+          const allBookings: any[] = [];
+          snap.forEach((d) => {
+            const b = d.data() as any;
+            allBookings.push({ id: d.id, ...b });
+          });
+
+          const filtered = allBookings.filter((b) => {
+            if (b.staffId === staffId) return true;
+            if (
+              b.staffName &&
+              staff.name &&
+              b.staffName.toLowerCase() === staff.name.toLowerCase()
+            ) {
+              return true;
+            }
+            if (Array.isArray(b.services)) {
+              return b.services.some(
+                (s: any) =>
+                  s.staffId === staffId ||
+                  (s.staffName &&
+                    staff.name &&
+                    s.staffName.toLowerCase() === staff.name.toLowerCase())
+              );
+            }
+            return false;
+          });
+
+          filtered.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+          setStaffBookings(filtered);
+        },
+        (error) => {
+          console.error("Error fetching staff bookings:", error);
+          setStaffBookings([]);
+        }
+      );
+    })();
+
+    return () => {
+      mounted = false;
+      unsub?.();
+    };
   }, [ownerUid, staffId, staff]);
 
   const headerTitle = useMemo(() => (staff ? staff.name : "Staff"), [staff]);

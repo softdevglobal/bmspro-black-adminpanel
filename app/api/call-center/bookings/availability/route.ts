@@ -85,14 +85,39 @@ export async function GET(req: NextRequest) {
     const db = adminDb();
     const dayOfWeek = getDayOfWeekFromYmd(date);
 
-    const [branchDoc, bookingsSnapshot] = await Promise.all([
-      db.collection("branches").doc(branchId).get(),
-      db
-        .collection("bookings")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", "==", date)
-        .get(),
-    ]);
+    // Filter by branchId in the query (used to be filtered client-side after
+    // reading every booking that day across ALL branches) and cap at 200 docs
+    // as defense-in-depth for branches with high daily limits.
+    let branchDoc: FirebaseFirestore.DocumentSnapshot;
+    let bookingsSnapshot: { docs: FirebaseFirestore.QueryDocumentSnapshot[] };
+    try {
+      const [bd, bs] = await Promise.all([
+        db.collection("branches").doc(branchId).get(),
+        db
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .where("branchId", "==", branchId)
+          .where("date", "==", date)
+          .limit(200)
+          .get(),
+      ]);
+      branchDoc = bd;
+      bookingsSnapshot = { docs: bs.docs };
+    } catch {
+      // Composite index missing — fall back without `branchId` in the query
+      // but still cap to 200.
+      const [bd, bs] = await Promise.all([
+        db.collection("branches").doc(branchId).get(),
+        db
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .where("date", "==", date)
+          .limit(200)
+          .get(),
+      ]);
+      branchDoc = bd;
+      bookingsSnapshot = { docs: bs.docs };
+    }
 
     const branchData = branchDoc.exists ? branchDoc.data() : null;
     if (

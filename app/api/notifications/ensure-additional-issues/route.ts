@@ -26,15 +26,17 @@ export async function POST(req: NextRequest) {
 
     const db = adminDb();
 
-    // Bound the backfill scan to bookings from the last 180 days. This route
+    // Bound the backfill scan to bookings from the last 30 days. This route
     // is called on every session start by NotificationProvider, and previously
     // it read EVERY booking ever created for the owner on each call (often
     // thousands), only to find pending additional issues that are practically
     // always on recent bookings. The pre-existing client-side bookings
     // listeners that re-triggered this API have been removed alongside this
-    // change, so this is now a once-per-session scan capped at ~6 months.
+    // change, so this is now a once-per-session scan capped at 30 days
+    // (additional issues are reported during the current/recent service —
+    // they don't sit pending for months).
     const lookback = new Date();
-    lookback.setDate(lookback.getDate() - 180);
+    lookback.setDate(lookback.getDate() - 30);
     lookback.setHours(0, 0, 0, 0);
     const yyyy = lookback.getFullYear();
     const mm = String(lookback.getMonth() + 1).padStart(2, "0");

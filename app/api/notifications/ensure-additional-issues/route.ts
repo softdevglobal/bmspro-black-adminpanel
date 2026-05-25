@@ -43,22 +43,38 @@ export async function POST(req: NextRequest) {
     const dd = String(lookback.getDate()).padStart(2, "0");
     const lookbackStr = `${yyyy}-${mm}-${dd}`;
 
-    const [snap1, snap2] = await Promise.all([
-      db
-        .collection("bookings")
-        .where("ownerUid", "==", ownerUid)
-        .where("date", ">=", lookbackStr)
-        .get(),
-      db
-        .collection("bookings")
-        .where("ownerId", "==", ownerUid)
-        .where("date", ">=", lookbackStr)
-        .get(),
-    ]);
-    const allDocs = [...snap1.docs];
-    for (const d of snap2.docs) {
-      if (!allDocs.some((x) => x.id === d.id)) allDocs.push(d);
+  const ownerUidSnap = await db
+    .collection("bookings")
+    .where("ownerUid", "==", ownerUid)
+    .where("date", ">=", lookbackStr)
+    .get();
+
+  // Legacy bookings may use ownerId instead of ownerUid. Index: ownerId + date.
+  let legacyOwnerIdDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+  try {
+    const legacySnap = await db
+      .collection("bookings")
+      .where("ownerId", "==", ownerUid)
+      .where("date", ">=", lookbackStr)
+      .get();
+    legacyOwnerIdDocs = legacySnap.docs;
+  } catch (legacyErr: any) {
+    const needsIndex =
+      legacyErr?.code === 9 ||
+      String(legacyErr?.message || "").includes("requires an index");
+    if (needsIndex) {
+      console.warn(
+        "ensure-additional-issues: ownerId+date index missing; skipping legacy ownerId bookings. Deploy firestore.indexes.json or create the index from Firebase console."
+      );
+    } else {
+      throw legacyErr;
     }
+  }
+
+  const allDocs = [...ownerUidSnap.docs];
+  for (const d of legacyOwnerIdDocs) {
+    if (!allDocs.some((x) => x.id === d.id)) allDocs.push(d);
+  }
 
     let created = 0;
     const seen = new Set<string>(); // bookingId:issueId to avoid duplicates

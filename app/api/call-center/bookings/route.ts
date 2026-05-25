@@ -27,6 +27,7 @@ import {
   resolveCustomerForStaffBooking,
   resolveBookingEngineUrl,
   getCanonicalCustomerContact,
+  isPlaceholderCustomerEmail,
 } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import {
@@ -785,6 +786,15 @@ export async function POST(req: NextRequest) {
     const accountCreatedThisBooking = ensureResult?.created === true;
     let clientForBooking = (client as string).trim();
     let emailForBooking = (typeof clientEmail === "string" ? clientEmail : "").trim();
+    // Drop placeholder addresses (e.g. `unknown@email.com`) so they aren't persisted on
+    // the booking — agents type these when no real email exists, and storing them sends
+    // future workflow emails / welcome emails to a black hole.
+    if (emailForBooking && isPlaceholderCustomerEmail(emailForBooking)) {
+      console.log(
+        `[call-center/bookings] Dropping placeholder client email "${emailForBooking}" for workshop ${ownerUid} — booking will be saved without an email.`
+      );
+      emailForBooking = "";
+    }
     let phoneForBooking = (typeof clientPhone === "string" ? clientPhone : "").trim();
 
     let canonicalCustomerForResponse:

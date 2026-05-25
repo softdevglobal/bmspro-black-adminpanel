@@ -15,6 +15,67 @@ export function normalizePhoneDigits(phone: string | null | undefined): string {
 }
 
 /**
+ * Local-parts of obviously fake "I had to type something" emails that call-center
+ * agents enter when the customer has no real address (e.g. `unknown@email.com`,
+ * `none@example.com`, `noemail@*`). We treat these as "no email": skip account
+ * creation, skip welcome emails, and never link a customer record to them.
+ *
+ * Domains commonly used as placeholders are also treated as fake regardless of
+ * the local part, so `unknown@email.com` and `john@email.com` are both ignored
+ * (real customers never use a one-word domain like `email.com` for their inbox).
+ */
+const PLACEHOLDER_EMAIL_LOCAL_PARTS = new Set([
+  "unknown",
+  "none",
+  "no",
+  "noemail",
+  "no-email",
+  "n/a",
+  "na",
+  "nil",
+  "nomail",
+  "no-mail",
+  "test",
+  "dummy",
+  "fake",
+  "placeholder",
+  "tbd",
+  "tba",
+  "x",
+]);
+
+const PLACEHOLDER_EMAIL_DOMAINS = new Set([
+  "email.com",
+  "noemail.com",
+  "no-email.com",
+  "none.com",
+  "test.com",
+  "example.com",
+  "example.org",
+  "test.test",
+  "dummy.com",
+  "fake.com",
+  "placeholder.com",
+]);
+
+/**
+ * True when `email` looks like a placeholder/dummy address rather than a real
+ * customer inbox. Comparison is lower-case, trim-only — punctuation is preserved
+ * so `n/a@email.com` correctly hits the local-part list above.
+ */
+export function isPlaceholderCustomerEmail(email: string | null | undefined): boolean {
+  const raw = String(email ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  const at = raw.lastIndexOf("@");
+  if (at <= 0 || at === raw.length - 1) return false;
+  const local = raw.slice(0, at);
+  const domain = raw.slice(at + 1);
+  if (PLACEHOLDER_EMAIL_DOMAINS.has(domain)) return true;
+  if (PLACEHOLDER_EMAIL_LOCAL_PARTS.has(local)) return true;
+  return false;
+}
+
+/**
  * Hash a plain-text password using PBKDF2 (SHA-512, 100k iterations, 64-byte digest).
  * Matches the scheme used by `app/api/book-now/customer-auth/route.ts` so that
  * auto-created accounts can log in via the existing booking-engine login flow.
@@ -75,6 +136,11 @@ export async function ensureCustomerAccount(
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(rawEmail)) return null;
+
+  // Refuse to provision an account against an obvious placeholder ("unknown@email.com",
+  // "none@example.com", etc.) — there is no real customer inbox to send the welcome
+  // email to and the auto-created row would pollute the workshop's customer list.
+  if (isPlaceholderCustomerEmail(rawEmail)) return null;
 
   if (!input.ownerUid) return null;
 
@@ -162,7 +228,11 @@ export async function resolveCustomerForStaffBooking(
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const phoneDigits = normalizePhoneDigits(input.phone);
 
-  if (rawEmail && emailRegex.test(rawEmail)) {
+  // Real, non-placeholder email → create or link the customer record on it.
+  // Placeholder addresses (see `isPlaceholderCustomerEmail`) fall through to the
+  // phone-match branch below so we still link to an existing customer when the
+  // agent typed `unknown@email.com` for someone we already have on file.
+  if (rawEmail && emailRegex.test(rawEmail) && !isPlaceholderCustomerEmail(rawEmail)) {
     return ensureCustomerAccount(db, {
       ownerUid: input.ownerUid,
       email: rawEmail,

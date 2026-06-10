@@ -12,10 +12,25 @@ export async function GET(req: NextRequest) {
     }
 
     const db = adminDb();
-    const snap = await db
-      .collection("estimates")
-      .where("customerId", "==", customerId)
-      .get();
+    // Cap to 50 most recent estimates per customer. The customer UI only shows
+    // a recent list — unbounded reads are unnecessary and an attacker passing
+    // a customerId with thousands of estimates could otherwise drive up reads.
+    let snap;
+    try {
+      snap = await db
+        .collection("estimates")
+        .where("customerId", "==", customerId)
+        .orderBy("createdAt", "desc")
+        .limit(50)
+        .get();
+    } catch {
+      // Fallback if composite index not yet created
+      snap = await db
+        .collection("estimates")
+        .where("customerId", "==", customerId)
+        .limit(50)
+        .get();
+    }
 
     const estimates = snap.docs
       .map((doc) => {

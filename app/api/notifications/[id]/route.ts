@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth, verifyTenantAccess } from "@/lib/authHelpers";
+import { invalidateCallCenterNotificationsCache } from "@/lib/callCenterNotificationsResponseCache";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,7 @@ export async function DELETE(
     }
 
     await ref.delete();
+    invalidateCallCenterNotificationsCache();
 
     return NextResponse.json({ ok: true, message: "Notification deleted successfully" });
   } catch (error: any) {

@@ -148,6 +148,7 @@ export default function TenantsPage() {
     image?: string;
     icon?: string;
     active?: boolean;
+    hidden?: boolean;
     stripePriceId?: string;
     trialDays?: number;
     plan_key?: string;
@@ -181,7 +182,7 @@ export default function TenantsPage() {
   const [editState, setEditState] = useState("");
   const [editPlan, setEditPlan] = useState("");
   const [editPrice, setEditPrice] = useState("");
-  const [editStatus, setEditStatus] = useState("");
+  const [editSelectedPlanId, setEditSelectedPlanId] = useState<string | null>(null);
   const [editLocation, setEditLocation] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editTimezone, setEditTimezone] = useState("Australia/Sydney");
@@ -210,6 +211,13 @@ export default function TenantsPage() {
     if (currentStep > step) return "flex-1 h-0.5 bg-emerald-500 transition-all duration-300";
     return "flex-1 h-0.5 bg-neutral-200 transition-all duration-300";
   };
+
+  // Public packages for onboarding (active and not hidden). The edit modal uses
+  // the full `packages` list so admins can see/assign hidden or legacy plans.
+  const activePackages = useMemo(
+    () => packages.filter((p) => p.active !== false && p.hidden !== true),
+    [packages]
+  );
 
   const { totalTenants, activeProCount, suspendedCount, churnRate } = useMemo(() => {
     const total = tenants.length;
@@ -503,10 +511,12 @@ export default function TenantsPage() {
         const data = await response.json();
         console.log("Packages response:", data);
         if (data.success && data.plans) {
-          // Filter only active packages
-          const activePackages = data.plans.filter((p: any) => p.active !== false);
-          console.log("Active packages found:", activePackages.length, activePackages);
-          setPackages(activePackages);
+          // Keep ALL packages (active + hidden) in state.
+          // Onboarding step 3 filters out hidden ones for new tenants,
+          // but the edit modal needs to display hidden packages so admins
+          // can see/keep a tenant on a legacy/hidden plan.
+          console.log("Packages found:", data.plans.length, data.plans);
+          setPackages(data.plans);
         } else {
           console.error("API returned success=false or no plans:", data);
           setPackages([]);
@@ -546,6 +556,38 @@ export default function TenantsPage() {
       }
     }
   }, [isModalOpen, currentStep, packages.length, packagesLoading, fetchPackages]);
+
+  // Fetch packages when the edit modal opens (always refresh so the list is current)
+  useEffect(() => {
+    if (editOpen && !packagesLoading) {
+      fetchPackages();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editOpen]);
+
+  // Once packages load, re-resolve the selected package id for the tenant being edited
+  // (handles the case where the edit modal opened before packages finished loading).
+  useEffect(() => {
+    if (!editOpen || !editTenantId || packages.length === 0) return;
+    if (editSelectedPlanId && packages.some((p) => p.id === editSelectedPlanId)) return;
+
+    const tenantData = tenants.find((t) => t.id === editTenantId)?.data as any;
+    if (!tenantData) return;
+
+    const matched =
+      (tenantData.planId && packages.find((p) => p.id === tenantData.planId)) ||
+      (tenantData.plan_key && packages.find((p) => p.plan_key === tenantData.plan_key)) ||
+      (tenantData.plan &&
+        packages.find(
+          (p) => (p.name || "").trim().toLowerCase() === String(tenantData.plan).trim().toLowerCase()
+        ));
+
+    if (matched) {
+      setEditSelectedPlanId(matched.id);
+      if (!editPlan) setEditPlan(matched.name);
+      if (!editPrice) setEditPrice(matched.priceLabel);
+    }
+  }, [editOpen, editTenantId, packages, tenants, editSelectedPlanId, editPlan, editPrice]);
 
   useEffect(() => {
     // Auth listener prevents early redirect flicker on reload
@@ -968,10 +1010,18 @@ export default function TenantsPage() {
                                 setEditState(data.state || "");
                                 setEditPlan(data.plan || "");
                                 setEditPrice(data.price || "");
-                                setEditStatus(data.status || "");
                                 setEditLocation(data.locationText || "");
                                 setEditPhone(data.contactPhone || "");
                                 setEditTimezone(data.timezone || "Australia/Sydney");
+                                const tenantData = data as any;
+                                const matched =
+                                  (tenantData.planId && packages.find((p) => p.id === tenantData.planId)) ||
+                                  (tenantData.plan_key && packages.find((p) => p.plan_key === tenantData.plan_key)) ||
+                                  (data.plan &&
+                                    packages.find(
+                                      (p) => (p.name || "").trim().toLowerCase() === String(data.plan).trim().toLowerCase()
+                                    ));
+                                setEditSelectedPlanId(matched?.id || null);
                                 setEditOpen(true);
                               }}
                               title="Edit"
@@ -1289,10 +1339,18 @@ export default function TenantsPage() {
                         setEditState(d.state || "");
                         setEditPlan(d.plan || "");
                         setEditPrice(d.price || "");
-                        setEditStatus(d.status || "");
                         setEditLocation(d.locationText || "");
                         setEditPhone(d.contactPhone || "");
                         setEditTimezone(d.timezone || "Australia/Sydney");
+                        const td = d as any;
+                        const matched =
+                          (td.planId && packages.find((p) => p.id === td.planId)) ||
+                          (td.plan_key && packages.find((p) => p.plan_key === td.plan_key)) ||
+                          (d.plan &&
+                            packages.find(
+                              (p) => (p.name || "").trim().toLowerCase() === String(d.plan).trim().toLowerCase()
+                            ));
+                        setEditSelectedPlanId(matched?.id || null);
                         setEditOpen(true);
                       }}
                     >
@@ -1489,60 +1547,204 @@ export default function TenantsPage() {
                   </div>
                 </div>
 
-                {/* Plan & Status Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
+                {/* Plan (full width with real package cards) */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-semibold text-neutral-700 flex items-center gap-2">
                       <i className="fas fa-crown text-amber-500" />
-                      Plan
+                      Subscription Plan
                     </label>
-                    <div className="relative">
-                      <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
-                        value={editPlan}
-                        onChange={(e) => {
-                          setEditPlan(e.target.value);
-                          // Auto-set price based on plan
-                          const prices: Record<string, string> = {
-                            "Starter": "AU$99/mo",
-                            "Pro": "AU$149/mo",
-                            "Enterprise": "AU$299/mo"
+                    {editPlan && (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-neutral-500">
+                        <i className="fas fa-circle-info text-neutral-400" />
+                        Current: <span className="text-neutral-900">{editPlan}</span>
+                        {editPrice ? <span className="text-neutral-400">· {editPrice}</span> : null}
+                      </span>
+                    )}
+                  </div>
+
+                  {packagesLoading ? (
+                    <div className="flex items-center justify-center py-6 border border-dashed border-neutral-200 rounded-xl">
+                      <div className="flex items-center gap-2 text-neutral-400">
+                        <i className="fas fa-circle-notch fa-spin text-sm" />
+                        <span className="text-xs font-medium">Loading packages…</span>
+                      </div>
+                    </div>
+                  ) : packages.length === 0 ? (
+                    <div className="text-center py-6 border border-dashed border-neutral-200 rounded-xl">
+                      <i className="fas fa-box-open text-lg text-neutral-300" />
+                      <p className="text-sm text-neutral-500 font-medium mt-1.5">No packages available</p>
+                      <p className="text-[10px] text-neutral-400 mt-0.5">
+                        Create a package first in the Packages section
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-stretch">
+                      {[...packages]
+                        .sort((a, b) => {
+                          // Public first, then hidden, then inactive.
+                          const rank = (p: (typeof packages)[number]) => {
+                            if (p.active === false) return 2;
+                            if (p.hidden === true) return 1;
+                            return 0;
                           };
-                          setEditPrice(prices[e.target.value] || "");
-                        }}
-                      >
-                        <option value="">Select plan</option>
-                        <option value="Starter">Starter</option>
-                        <option value="Pro">Pro</option>
-                        <option value="Enterprise">Enterprise</option>
-                      </select>
-                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-neutral-500">
-                        <i className="fas fa-chevron-down" />
-                      </span>
+                          return rank(a) - rank(b);
+                        })
+                        .map((pkg) => {
+                          const isSelected = editSelectedPlanId === pkg.id;
+                          const isHidden = pkg.hidden === true;
+                          const isInactive = pkg.active === false;
+                          const tenantData = tenants.find((t) => t.id === editTenantId)?.data as any;
+                          const isCurrent =
+                            (tenantData?.planId && tenantData.planId === pkg.id) ||
+                            (tenantData?.plan_key && tenantData.plan_key === pkg.plan_key) ||
+                            (!tenantData?.planId &&
+                              !tenantData?.plan_key &&
+                              tenantData?.plan &&
+                              (pkg.name || "").trim().toLowerCase() ===
+                                String(tenantData.plan).trim().toLowerCase());
+
+                          const gradientClass =
+                            pkg.color === "blue"
+                              ? "from-blue-500 to-indigo-600"
+                              : pkg.color === "pink"
+                              ? "from-neutral-600 to-neutral-800"
+                              : pkg.color === "purple"
+                              ? "from-purple-500 to-violet-600"
+                              : pkg.color === "green"
+                              ? "from-emerald-500 to-teal-600"
+                              : pkg.color === "orange"
+                              ? "from-orange-500 to-amber-600"
+                              : pkg.color === "teal"
+                              ? "from-teal-500 to-cyan-600"
+                              : "from-neutral-500 to-neutral-600";
+
+                          const borderClass = isSelected
+                            ? isCurrent
+                              ? "border-emerald-500 bg-emerald-50/40 shadow-md ring-2 ring-emerald-500/15"
+                              : "border-neutral-900 bg-neutral-50 shadow-md"
+                            : isCurrent
+                            ? "border-emerald-400 bg-emerald-50/30 hover:border-emerald-500 hover:shadow-sm"
+                            : isHidden
+                            ? "border-amber-400 bg-amber-50/40 hover:border-amber-500 hover:shadow-sm"
+                            : "border-neutral-200 bg-white hover:border-neutral-300 hover:shadow-sm";
+
+                          // Show only the most important badge to keep card height consistent.
+                          const statusBadge = isCurrent
+                            ? { label: "Current", icon: "fa-check-circle", cls: "bg-emerald-500 text-white" }
+                            : isInactive
+                            ? { label: "Inactive", icon: "fa-ban", cls: "bg-neutral-300 text-neutral-700" }
+                            : isHidden
+                            ? { label: "Hidden", icon: "fa-eye-slash", cls: "bg-amber-500 text-white" }
+                            : pkg.popular
+                            ? { label: "Popular", icon: "fa-crown", cls: "bg-amber-100 text-amber-700" }
+                            : null;
+
+                          return (
+                            <button
+                              key={pkg.id}
+                              type="button"
+                              onClick={() => {
+                                setEditSelectedPlanId(pkg.id);
+                                setEditPlan(pkg.name);
+                                setEditPrice(pkg.priceLabel);
+                              }}
+                              className={`relative w-full h-[116px] p-2.5 rounded-xl border-2 text-left transition-all duration-200 flex flex-col ${borderClass} ${
+                                isInactive ? "opacity-60" : ""
+                              }`}
+                            >
+                              {/* Row 1: icon + name + badge + selector */}
+                              <div className="flex items-center gap-2.5">
+                                <div
+                                  className={`relative w-8 h-8 rounded-lg bg-gradient-to-br ${gradientClass} flex items-center justify-center overflow-hidden flex-shrink-0 shadow-sm ${
+                                    isHidden || isInactive ? "grayscale-[30%]" : ""
+                                  }`}
+                                >
+                                  {pkg.image ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={pkg.image} alt={pkg.name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <i className="fas fa-wrench text-white text-[10px]" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                                  <h4
+                                    className={`font-bold text-[13px] leading-tight truncate ${
+                                      isHidden || isInactive ? "text-neutral-500" : "text-neutral-900"
+                                    }`}
+                                  >
+                                    {pkg.name}
+                                  </h4>
+                                  {statusBadge && (
+                                    <span
+                                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 flex-shrink-0 ${statusBadge.cls}`}
+                                    >
+                                      <i className={`fas ${statusBadge.icon} text-[7px]`} />
+                                      {statusBadge.label}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex-shrink-0">
+                                  {isSelected ? (
+                                    <div
+                                      className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                                        isCurrent ? "bg-emerald-500" : "bg-neutral-900"
+                                      }`}
+                                    >
+                                      <i className="fas fa-check text-white text-[8px]" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-5 h-5 rounded-full border-2 border-neutral-300" />
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Row 2: price on its own line so it never wraps */}
+                              <div className="mt-2 flex items-baseline gap-2">
+                                <span
+                                  className={`text-[14px] font-extrabold leading-none whitespace-nowrap ${
+                                    isHidden || isInactive ? "text-neutral-600" : "text-neutral-900"
+                                  }`}
+                                >
+                                  {pkg.priceLabel}
+                                </span>
+                                <span className="text-[10px] font-medium text-neutral-400 truncate">
+                                  {billingCycleCardLabel(pkg)}
+                                </span>
+                              </div>
+
+                              {/* Row 3: labelled limits + trial */}
+                              <div className="mt-auto pt-1.5 flex items-center gap-2.5 text-[10px] text-neutral-600 border-t border-neutral-100">
+                                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                                  <i className="fas fa-code-branch text-neutral-400 text-[9px]" />
+                                  <span className="font-semibold text-neutral-700">{pkg.branches}</span>
+                                  <span className="text-neutral-500">{pkg.branches === 1 ? "branch" : "branches"}</span>
+                                </span>
+                                <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                                  <i className="fas fa-users text-neutral-400 text-[9px]" />
+                                  <span className="font-semibold text-neutral-700">{pkg.staff}</span>
+                                  <span className="text-neutral-500">staff</span>
+                                </span>
+                                {pkg.trialDays ? (
+                                  <span className="inline-flex items-center gap-1 text-emerald-600 font-bold whitespace-nowrap ml-auto">
+                                    <i className="fas fa-gift text-[9px]" />
+                                    {pkg.trialDays}d trial
+                                  </span>
+                                ) : null}
+                              </div>
+                            </button>
+                          );
+                        })}
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-neutral-700 mb-1.5 flex items-center gap-2">
-                      <i className="fas fa-circle-check text-blue-500" />
-                      Status
-                    </label>
-                    <div className="relative">
-                      <select
-                        className="w-full appearance-none pr-10 px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
-                        value={editStatus}
-                        onChange={(e) => setEditStatus(e.target.value)}
-                      >
-                        <option value="">Select status</option>
-                        <option value="Active">Active</option>
-                        <option value="Pending ABN">Pending ABN</option>
-                        <option value="Provisioning">Provisioning</option>
-                        <option value="Suspended">Suspended</option>
-                      </select>
-                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-neutral-500">
-                        <i className="fas fa-chevron-down" />
-                      </span>
-                    </div>
-                  </div>
+                  )}
+
+                  {packages.some((p) => p.hidden === true) && (
+                    <p className="mt-2 text-[10px] text-neutral-400 flex items-center gap-1.5">
+                      <i className="fas fa-eye-slash text-amber-400" />
+                      Hidden packages are budget or custom plans not shown on the public subscription
+                      page. They appear here so you can assign or keep tenants on them.
+                    </p>
+                  )}
                 </div>
 
                 {/* Location */}
@@ -1617,14 +1819,33 @@ onClick={async () => {
                                     try {
                                       setSavingEdit(true);
                                       const tenantData = tenants.find(t => t.id === editTenantId)?.data;
+                                      const selectedPkg = editSelectedPlanId
+                                        ? packages.find((p) => p.id === editSelectedPlanId)
+                                        : null;
+
+                                      // Build the plan-related update payload only if a package is selected
+                                      // so we don't accidentally wipe an existing tenant's plan if packages
+                                      // failed to load.
+                                      const planFields: Record<string, any> = selectedPkg
+                                        ? {
+                                            plan: selectedPkg.name,
+                                            price: selectedPkg.priceLabel,
+                                            planId: selectedPkg.id,
+                                            plan_key: selectedPkg.plan_key || null,
+                                            branchLimit: selectedPkg.branches,
+                                            staffLimit: selectedPkg.staff,
+                                          }
+                                        : {
+                                            plan: editPlan || null,
+                                            price: editPrice || null,
+                                          };
+
                                       await updateDoc(doc(db, "users", editTenantId), {
                                         name: editName.trim(),
                                         abn: editAbn.replace(/\s/g, '').trim() || null,
                                         state: editState || null,
                                         timezone: editTimezone || "Australia/Sydney",
-                                        plan: editPlan || null,
-                                        price: editPrice || null,
-                                        status: editStatus || null,
+                                        ...planFields,
                                         locationText: editLocation || null,
                                         contactPhone: editPhone || null,
                                         businessStructure: (tenantData as any)?.businessStructure || null,
@@ -2171,7 +2392,7 @@ onClick={async () => {
                           <p className="text-xs text-neutral-400 font-medium">Loading packages...</p>
                         </div>
                       </div>
-                    ) : packages.length === 0 ? (
+                    ) : activePackages.length === 0 ? (
                       <div className="text-center py-10">
                         <div className="w-14 h-14 rounded-xl bg-neutral-100 flex items-center justify-center mx-auto mb-3">
                           <i className="fas fa-box-open text-xl text-neutral-300" />
@@ -2181,7 +2402,7 @@ onClick={async () => {
                       </div>
                     ) : (
                       <div className="space-y-2.5">
-                        {packages.map((pkg) => {
+                        {activePackages.map((pkg) => {
                           const isSelected = selectedPlan === pkg.id;
                           const gradientClass = pkg.color === "blue" ? "from-blue-500 to-indigo-600" 
                             : pkg.color === "pink" ? "from-neutral-600 to-neutral-800" 

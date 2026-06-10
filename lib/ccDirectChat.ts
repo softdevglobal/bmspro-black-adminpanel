@@ -71,13 +71,13 @@ export async function assertCallCenterAgentForDirectChat(
 /** All non-suspended `call_center_agents` (Yeastar/legacy `agentType` rows included). */
 export async function listAgentsForWorkshopChat(_workshopOwnerUid: string): Promise<SerializedCallCenterAgent[]> {
   const db = adminDb();
-  const snap = await db.collection("call_center_agents").get();
+  // Cap the agents collection read. Suspended rows are filtered client-side
+  // because `suspended` may be unset on legacy rows (where(==false) would
+  // miss them). 500 is far above any realistic agent count.
+  const snap = await db.collection("call_center_agents").limit(500).get();
   return snap.docs
     .map((doc) => serializeCallCenterAgent(doc.id, doc.data()!))
-    .filter((a) => {
-      if (a.suspended) return false;
-      return true;
-    });
+    .filter((a) => !a.suspended);
 }
 
 function iso(ts: Timestamp | null | undefined): string | null {
@@ -914,7 +914,15 @@ export async function listCcChatsForAgent(
     mine = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
   } catch (e) {
     if (!isMissingCompositeIndexError(e)) throw e;
-    const snap = await db.collection(CC_DIRECT_CHATS).where("agentUid", "==", agentUid).get();
+    // Composite index missing — cap the fallback scan so the worst case is
+    // bounded. Without this cap an agent with thousands of historical chats
+    // would re-read the entire collection on every list call.
+    const scanCap = Math.min(500, Math.max(lim * 5, 200));
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("agentUid", "==", agentUid)
+      .limit(scanCap)
+      .get();
     mine = sortCcRoomsByLastMessageDesc(snap.docs, lim);
   }
 
@@ -969,7 +977,14 @@ export async function listCcChatsForWorkshop(workshopOwnerUid: string, limit: nu
     rows = snap.docs.map((d) => serializeCcRoom(d.id, d.data()!));
   } catch (e) {
     if (!isMissingCompositeIndexError(e)) throw e;
-    const snap = await db.collection(CC_DIRECT_CHATS).where("workshopOwnerUid", "==", w).get();
+    // Composite index missing — bound the scan so a workshop with a large
+    // chat history doesn't pull the full collection on every list.
+    const scanCap = Math.min(500, Math.max(lim * 5, 200));
+    const snap = await db
+      .collection(CC_DIRECT_CHATS)
+      .where("workshopOwnerUid", "==", w)
+      .limit(scanCap)
+      .get();
     rows = sortCcRoomsByLastMessageDesc(snap.docs, lim);
   }
   return attachDetailsToCcChats(rows, { includeWorkshopUser: true });

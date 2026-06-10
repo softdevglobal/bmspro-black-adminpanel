@@ -15,6 +15,67 @@ export function normalizePhoneDigits(phone: string | null | undefined): string {
 }
 
 /**
+ * Local-parts of obviously fake "I had to type something" emails that call-center
+ * agents enter when the customer has no real address (e.g. `unknown@email.com`,
+ * `none@example.com`, `noemail@*`). We treat these as "no email": skip account
+ * creation, skip welcome emails, and never link a customer record to them.
+ *
+ * Domains commonly used as placeholders are also treated as fake regardless of
+ * the local part, so `unknown@email.com` and `john@email.com` are both ignored
+ * (real customers never use a one-word domain like `email.com` for their inbox).
+ */
+const PLACEHOLDER_EMAIL_LOCAL_PARTS = new Set([
+  "unknown",
+  "none",
+  "no",
+  "noemail",
+  "no-email",
+  "n/a",
+  "na",
+  "nil",
+  "nomail",
+  "no-mail",
+  "test",
+  "dummy",
+  "fake",
+  "placeholder",
+  "tbd",
+  "tba",
+  "x",
+]);
+
+const PLACEHOLDER_EMAIL_DOMAINS = new Set([
+  "email.com",
+  "noemail.com",
+  "no-email.com",
+  "none.com",
+  "test.com",
+  "example.com",
+  "example.org",
+  "test.test",
+  "dummy.com",
+  "fake.com",
+  "placeholder.com",
+]);
+
+/**
+ * True when `email` looks like a placeholder/dummy address rather than a real
+ * customer inbox. Comparison is lower-case, trim-only — punctuation is preserved
+ * so `n/a@email.com` correctly hits the local-part list above.
+ */
+export function isPlaceholderCustomerEmail(email: string | null | undefined): boolean {
+  const raw = String(email ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  const at = raw.lastIndexOf("@");
+  if (at <= 0 || at === raw.length - 1) return false;
+  const local = raw.slice(0, at);
+  const domain = raw.slice(at + 1);
+  if (PLACEHOLDER_EMAIL_DOMAINS.has(domain)) return true;
+  if (PLACEHOLDER_EMAIL_LOCAL_PARTS.has(local)) return true;
+  return false;
+}
+
+/**
  * Hash a plain-text password using PBKDF2 (SHA-512, 100k iterations, 64-byte digest).
  * Matches the scheme used by `app/api/book-now/customer-auth/route.ts` so that
  * auto-created accounts can log in via the existing booking-engine login flow.
@@ -75,6 +136,11 @@ export async function ensureCustomerAccount(
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(rawEmail)) return null;
+
+  // Refuse to provision an account against an obvious placeholder ("unknown@email.com",
+  // "none@example.com", etc.) — there is no real customer inbox to send the welcome
+  // email to and the auto-created row would pollute the workshop's customer list.
+  if (isPlaceholderCustomerEmail(rawEmail)) return null;
 
   if (!input.ownerUid) return null;
 
@@ -162,7 +228,11 @@ export async function resolveCustomerForStaffBooking(
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const phoneDigits = normalizePhoneDigits(input.phone);
 
-  if (rawEmail && emailRegex.test(rawEmail)) {
+  // Real, non-placeholder email → create or link the customer record on it.
+  // Placeholder addresses (see `isPlaceholderCustomerEmail`) fall through to the
+  // phone-match branch below so we still link to an existing customer when the
+  // agent typed `unknown@email.com` for someone we already have on file.
+  if (rawEmail && emailRegex.test(rawEmail) && !isPlaceholderCustomerEmail(rawEmail)) {
     return ensureCustomerAccount(db, {
       ownerUid: input.ownerUid,
       email: rawEmail,
@@ -220,24 +290,107 @@ export async function getCanonicalCustomerContact(
 }
 
 /**
+ * Hard-coded production host for customer-facing links. We use this whenever
+ * the configured app/booking-engine base looks like a local dev host (localhost,
+ * 127.0.0.1, *.local, *.test, an IP, or empty), so that emails sent from a dev
+ * machine still point real customers at the live black portal instead of a URL
+ * they cannot reach (e.g. http://localhost:3000/book-now/...).
+ */
+const LIVE_BLACK_PORTAL_BASE = "https://black.bmspros.com.au";
+
+function isUsableProductionHost(value: string | null | undefined): boolean {
+  const v = (value || "").trim();
+  if (!v) return false;
+  try {
+    const href = v.includes("://") ? v : `https://${v}`;
+    const host = new URL(href).hostname.toLowerCase();
+    if (!host) return false;
+    if (host === "localhost") return false;
+    if (host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") return false;
+    if (host.endsWith(".local") || host.endsWith(".test") || host.endsWith(".localhost")) return false;
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the customer-facing booking-engine *base* URL (i.e. the host) used in
+ * outbound emails. Order of preference:
+ *   1. `NEXT_PUBLIC_BOOKING_ENGINE_URL`  (e.g. `https://black.bmspros.com.au/book-now`)
+ *   2. `NEXT_PUBLIC_APP_URL`             (e.g. `https://black.bmspros.com.au`)
+ *   3. Hard-coded live black portal     (`https://black.bmspros.com.au`)
+ *
+ * Localhost / dev hosts are skipped so dev-mode emails still point at the live
+ * black portal, never `http://localhost:3000`.
+ */
+function resolveCustomerFacingAppBase(): string {
+  const candidates = [
+    process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ];
+  for (const candidate of candidates) {
+    if (!isUsableProductionHost(candidate)) continue;
+    const trimmed = (candidate as string).trim().replace(/\/$/, "");
+    // `NEXT_PUBLIC_BOOKING_ENGINE_URL` is conventionally `<host>/book-now`;
+    // strip the trailing `/book-now` so callers can append it themselves.
+    return trimmed.replace(/\/book-now$/i, "");
+  }
+  return LIVE_BLACK_PORTAL_BASE;
+}
+
+/**
  * Build the public booking engine URL for a given workshop.
- * Prefers the owner's stored `bookingEngineUrl` field; falls back to
- * `${NEXT_PUBLIC_APP_URL}/book-now/${slug}` when a slug is available; finally
- * returns the plain app URL if nothing else is known.
+ *
+ * The customer-facing portal lives at `<app-base>/book-now/<slug>`. We always
+ * prefer the slug-based URL on the live host (see `resolveCustomerFacingAppBase`
+ * above for the precedence + localhost guard). We only fall back to the owner's
+ * stored `bookingEngineUrl` field when no slug is available; that stored value
+ * can be stale or pointing at the wrong portal.
  */
 export function resolveBookingEngineUrl(
   ownerData: Record<string, unknown> | null | undefined
 ): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+  const appUrl = resolveCustomerFacingAppBase();
   if (!ownerData) return appUrl;
-
-  const stored = typeof ownerData.bookingEngineUrl === "string"
-    ? ownerData.bookingEngineUrl.trim()
-    : "";
-  if (stored) return stored;
 
   const slug = typeof ownerData.slug === "string" ? ownerData.slug.trim() : "";
   if (slug) return `${appUrl}/book-now/${slug}`;
 
+  const stored = typeof ownerData.bookingEngineUrl === "string"
+    ? ownerData.bookingEngineUrl.trim()
+    : "";
+  if (stored && isUsableProductionHost(stored)) return stored;
+
   return appUrl;
+}
+
+/**
+ * Appends `view=my-bookings` so the book-now page opens the customer's portal tab,
+ * where they accept or decline additional-work quotes.
+ *
+ * If the input URL points at a local/dev host, we rewrite the host to the live
+ * black portal so emails generated from a dev machine still reach customers
+ * with a clickable production link.
+ */
+export function appendBookNowMyBookingsDeepLink(bookingEngineUrl: string): string {
+  const trimmed = (bookingEngineUrl || "").trim();
+  const fallbackBase = resolveCustomerFacingAppBase();
+  const base = trimmed || fallbackBase;
+  try {
+    const href = base.includes("://") ? base : `https://${base}`;
+    const u = new URL(href);
+    if (!isUsableProductionHost(u.origin)) {
+      const live = new URL(resolveCustomerFacingAppBase());
+      u.protocol = live.protocol;
+      u.hostname = live.hostname;
+      u.port = live.port;
+    }
+    u.searchParams.set("view", "my-bookings");
+    return u.toString();
+  } catch {
+    const sep = base.includes("?") ? "&" : "?";
+    return `${base}${sep}view=my-bookings`;
+  }
 }

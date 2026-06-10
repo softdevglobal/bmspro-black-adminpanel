@@ -27,6 +27,7 @@ import {
   resolveCustomerForStaffBooking,
   resolveBookingEngineUrl,
   getCanonicalCustomerContact,
+  isPlaceholderCustomerEmail,
 } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
 import {
@@ -46,6 +47,16 @@ export async function OPTIONS() {
 const BOOKINGS_LIST_BATCH_SIZE = 500;
 /** Optional cap when client passes limit=N (avoids accidental huge values). */
 const BOOKINGS_LIST_MAX_EXPLICIT_LIMIT = 50_000;
+/**
+ * Default cap when no `limit=` and no `all=1` is passed. Previously this route
+ * defaulted to **fetching every booking row** in the tenant's history (or
+ * across all tenants for super admins) — a single GET could read 50k+ docs and
+ * scaled linearly with platform size. The live call-center inbox only shows
+ * recent bookings, so 200 is a generous default; callers that genuinely need
+ * more can pass `?limit=N` (up to `BOOKINGS_LIST_MAX_EXPLICIT_LIMIT`) or
+ * `?all=1` for full pagination.
+ */
+const BOOKINGS_LIST_DEFAULT_LIMIT = 200;
 /** Firestore `in` clause max discrete values */
 const FIRESTORE_OWNER_IN_MAX = 30;
 
@@ -164,7 +175,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const fetchAll = forceAll || explicitLimit === null;
+  // Only fetch the entire history when the caller explicitly asks (`?all=1`
+  // or `?limit=all`). When no limit is passed apply a sane default cap so a
+  // routine GET doesn't sweep the whole `bookings` collection.
+  const fetchAll: boolean = Boolean(forceAll);
+  if (!fetchAll && explicitLimit === null) {
+    explicitLimit = BOOKINGS_LIST_DEFAULT_LIMIT;
+  }
 
   try {
     const db = adminDb();
@@ -192,9 +209,17 @@ export async function GET(req: NextRequest) {
     async function docsMergedWorkshops(ownerUids: string[]): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
       const chunks = chunkArray(ownerUids, FIRESTORE_OWNER_IN_MAX);
       const merged: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+      // Per-chunk cap when not paginating in full: fetch a bit more than the
+      // requested limit per chunk so the post-merge sort can still pick the
+      // globally newest rows. Without this cap a multi-workshop agent could
+      // read tens of thousands of rows per request.
+      const perChunkLimit =
+        !fetchAll && explicitLimit != null
+          ? Math.max(explicitLimit, BOOKINGS_LIST_DEFAULT_LIMIT)
+          : null;
       for (const ids of chunks) {
         const q = buildBookingsListBaseQuery(db, { ownerUidsIn: ids, ...filterOpts });
-        merged.push(...(await paginateBookingsQuery(q, true, null)));
+        merged.push(...(await paginateBookingsQuery(q, fetchAll, perChunkLimit)));
       }
       const byId = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
       for (const d of merged) {
@@ -761,6 +786,15 @@ export async function POST(req: NextRequest) {
     const accountCreatedThisBooking = ensureResult?.created === true;
     let clientForBooking = (client as string).trim();
     let emailForBooking = (typeof clientEmail === "string" ? clientEmail : "").trim();
+    // Drop placeholder addresses (e.g. `unknown@email.com`) so they aren't persisted on
+    // the booking — agents type these when no real email exists, and storing them sends
+    // future workflow emails / welcome emails to a black hole.
+    if (emailForBooking && isPlaceholderCustomerEmail(emailForBooking)) {
+      console.log(
+        `[call-center/bookings] Dropping placeholder client email "${emailForBooking}" for workshop ${ownerUid} — booking will be saved without an email.`
+      );
+      emailForBooking = "";
+    }
     let phoneForBooking = (typeof clientPhone === "string" ? clientPhone : "").trim();
 
     let canonicalCustomerForResponse:

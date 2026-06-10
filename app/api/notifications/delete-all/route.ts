@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
+import { invalidateCallCenterNotificationsCache } from "@/lib/callCenterNotificationsResponseCache";
 
 export const runtime = "nodejs";
 
@@ -80,6 +81,7 @@ export async function DELETE(req: NextRequest) {
         
         await batch.commit();
       }
+      invalidateCallCenterNotificationsCache();
     }
 
     return NextResponse.json({ 

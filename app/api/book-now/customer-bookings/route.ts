@@ -56,10 +56,27 @@ export async function GET(req: NextRequest) {
     }
 
     const db = adminDb();
-    const snap = await db
-      .collection("bookings")
-      .where("customerId", "==", customerId)
-      .get();
+    // Polled every ~30s from the customer-facing book-now page. Cap to the
+    // 50 most recent bookings — the UI only displays a recent list and
+    // slices to 50 anyway (see `bookings.slice(0, 50)` below). Without a
+    // limit, customers with long histories were re-reading their entire
+    // booking history on every poll.
+    let snap;
+    try {
+      snap = await db
+        .collection("bookings")
+        .where("customerId", "==", customerId)
+        .orderBy("createdAt", "desc")
+        .limit(50)
+        .get();
+    } catch {
+      // Composite index missing — fall back to unordered bounded read.
+      snap = await db
+        .collection("bookings")
+        .where("customerId", "==", customerId)
+        .limit(50)
+        .get();
+    }
 
     // Service IDs that need a live `areaOrder` (missing or empty on the booking snapshot)
     const idsToFetch = new Set<string>();

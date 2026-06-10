@@ -26,15 +26,55 @@ export async function POST(req: NextRequest) {
 
     const db = adminDb();
 
-    // Get all bookings for this owner (try ownerUid and ownerId)
-    const [snap1, snap2] = await Promise.all([
-      db.collection("bookings").where("ownerUid", "==", ownerUid).get(),
-      db.collection("bookings").where("ownerId", "==", ownerUid).get(),
-    ]);
-    const allDocs = [...snap1.docs];
-    for (const d of snap2.docs) {
-      if (!allDocs.some((x) => x.id === d.id)) allDocs.push(d);
+    // Bound the backfill scan to bookings from the last 30 days. This route
+    // is called on every session start by NotificationProvider, and previously
+    // it read EVERY booking ever created for the owner on each call (often
+    // thousands), only to find pending additional issues that are practically
+    // always on recent bookings. The pre-existing client-side bookings
+    // listeners that re-triggered this API have been removed alongside this
+    // change, so this is now a once-per-session scan capped at 30 days
+    // (additional issues are reported during the current/recent service —
+    // they don't sit pending for months).
+    const lookback = new Date();
+    lookback.setDate(lookback.getDate() - 30);
+    lookback.setHours(0, 0, 0, 0);
+    const yyyy = lookback.getFullYear();
+    const mm = String(lookback.getMonth() + 1).padStart(2, "0");
+    const dd = String(lookback.getDate()).padStart(2, "0");
+    const lookbackStr = `${yyyy}-${mm}-${dd}`;
+
+  const ownerUidSnap = await db
+    .collection("bookings")
+    .where("ownerUid", "==", ownerUid)
+    .where("date", ">=", lookbackStr)
+    .get();
+
+  // Legacy bookings may use ownerId instead of ownerUid. Index: ownerId + date.
+  let legacyOwnerIdDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+  try {
+    const legacySnap = await db
+      .collection("bookings")
+      .where("ownerId", "==", ownerUid)
+      .where("date", ">=", lookbackStr)
+      .get();
+    legacyOwnerIdDocs = legacySnap.docs;
+  } catch (legacyErr: any) {
+    const needsIndex =
+      legacyErr?.code === 9 ||
+      String(legacyErr?.message || "").includes("requires an index");
+    if (needsIndex) {
+      console.warn(
+        "ensure-additional-issues: ownerId+date index missing; skipping legacy ownerId bookings. Deploy firestore.indexes.json or create the index from Firebase console."
+      );
+    } else {
+      throw legacyErr;
     }
+  }
+
+  const allDocs = [...ownerUidSnap.docs];
+  for (const d of legacyOwnerIdDocs) {
+    if (!allDocs.some((x) => x.id === d.id)) allDocs.push(d);
+  }
 
     let created = 0;
     const seen = new Set<string>(); // bookingId:issueId to avoid duplicates

@@ -179,6 +179,16 @@ export type UnifiedWorkshopChatCallbacks = {
 
 const CONV_LIMIT = 40;
 const CC_LIMIT = 50;
+// Per-thread message limits used ONLY while the chat panel is open. Previously
+// these were 500 (support) and 800 (cc), and they were attached on every page
+// load — that meant a workshop owner with a few active threads could trigger
+// tens of thousands of Firestore reads on every navigation, before they even
+// touched the chat. Now we only attach message listeners while the panel is
+// open, and we cap the in-window history aggressively. The full history is
+// still reachable by scrolling/searching once the panel is open and we
+// re-fetch with `loadMore` if needed.
+const SUPPORT_MSG_LIMIT = 50;
+const CC_MSG_LIMIT = 50;
 
 /** CC room doc subset for unread + sorting. */
 type CcRoomMeta = {
@@ -216,11 +226,30 @@ async function ccMarkRead(chatId: string): Promise<void> {
   }).catch(() => {});
 }
 
+export type UnifiedWorkshopChatHandle = {
+  /** Unsubscribe from everything (list listeners + any open message listeners). */
+  unsubscribe: () => void;
+  /**
+   * Toggle whether per-thread message listeners are attached. Pass `true` when
+   * the chat panel becomes visible and `false` when it closes. While disabled,
+   * the FAB unread badge falls back to the per-thread `unreadForCustomer` /
+   * `unreadForTenant` counters stored on the parent docs (so the user still
+   * sees a "you have unread messages" indicator without us reading the entire
+   * message history of every thread).
+   */
+  setMessagesEnabled: (enabled: boolean) => void;
+};
+
 /**
  * Subscribe to support `conversations` + `cc_direct_chats` for this workshop user,
  * merge all messages chronologically into one timeline.
+ *
+ * Returns a handle whose `setMessagesEnabled(true)` should be called when the
+ * chat panel opens and `setMessagesEnabled(false)` when it closes. By default
+ * messages are NOT attached — only the parent-doc list listeners run, which is
+ * cheap and gives us enough info for the unread badge.
  */
-export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopChatCallbacks): () => void {
+export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopChatCallbacks): UnifiedWorkshopChatHandle {
   const supportMsgs = new Map<string, UnifiedChatBubble[]>();
   const ccMsgs = new Map<string, UnifiedChatBubble[]>();
   const convUnread = new Map<string, number>();
@@ -234,6 +263,11 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
   const ccInboundUnreadCount = new Map<string, number>();
   /** Newest conversation row (query is createdAt desc) — for header when no open CC thread. */
   let latestConvHead: { status: string; agentName: string } | null = null;
+  /** Latest snapshots for each list — kept so we can lazily attach message listeners later. */
+  const lastConvDocs = new Map<string, DocumentData>();
+  const lastCcDocs = new Map<string, { agentLabel: string }>();
+  /** Toggle: while false, no per-thread message listeners are attached. */
+  let messagesEnabled = false;
 
   const flushHeader = (): void => {
     const openRooms = [...ccMetaById.values()].filter((m) => !m.sessionClosed);
@@ -292,98 +326,74 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
     flushHeader();
   };
 
-  const unsubConvList = onSnapshot(
-    query(
-      collection(db, "conversations"),
-      where("userId", "==", uid),
-      orderBy("createdAt", "desc"),
-      limit(CONV_LIMIT),
-    ),
-    (snap) => {
-      latestConvHead = pickConvHeadForHeader(snap.docs);
-
-      const keep = new Set(snap.docs.map((d) => d.id));
-
-      for (const id of [...convMsgUnsubs.keys()]) {
-        if (!keep.has(id)) {
-          convMsgUnsubs.get(id)?.();
-          convMsgUnsubs.delete(id);
-          supportMsgs.delete(id);
-          convUnread.delete(id);
-        }
-      }
-
-      for (const docSnap of snap.docs) {
-        const id = docSnap.id;
-        const data = docSnap.data();
-        const unread =
-          typeof data.unreadForCustomer === "number" ? data.unreadForCustomer : 0;
-        convUnread.set(id, unread);
-
-        if (convMsgUnsubs.has(id)) continue;
-
-        const qm = query(
-          collection(db, "conversations", id, "messages"),
-          orderBy("timestamp", "asc"),
-          limit(500),
-        );
-        const u = onSnapshot(
-          qm,
-          (mSnap) => {
-            const list: UnifiedChatBubble[] = [];
-            mSnap.forEach((m) => {
-              const md = m.data();
-              const ts = md.timestamp instanceof Timestamp ? md.timestamp : null;
-              const sender = String(md.sender ?? "agent");
-              if (sender === "system") {
-                list.push({
-                  key: `s:${id}:${m.id}`,
-                  source: "support",
-                  threadId: id,
-                  senderLabel: "",
-                  isMine: false,
-                  isSystem: true,
-                  text: String(md.message ?? ""),
-                  at: ts,
-                });
-                return;
-              }
-              const mine = sender === "customer";
-              list.push({
-                key: `s:${id}:${m.id}`,
-                source: "support",
-                threadId: id,
-                senderLabel: mine ? "You" : String(md.senderName || "Agent").trim() || "Agent",
-                isMine: mine,
-                text: String(md.message ?? ""),
-                at: ts,
-              });
+  const attachConvMessages = (id: string): void => {
+    if (convMsgUnsubs.has(id)) return;
+    const qm = query(
+      collection(db, "conversations", id, "messages"),
+      orderBy("timestamp", "asc"),
+      limit(SUPPORT_MSG_LIMIT),
+    );
+    const u = onSnapshot(
+      qm,
+      (mSnap) => {
+        const list: UnifiedChatBubble[] = [];
+        mSnap.forEach((m) => {
+          const md = m.data();
+          const ts = md.timestamp instanceof Timestamp ? md.timestamp : null;
+          const sender = String(md.sender ?? "agent");
+          if (sender === "system") {
+            list.push({
+              key: `s:${id}:${m.id}`,
+              source: "support",
+              threadId: id,
+              senderLabel: "",
+              isMine: false,
+              isSystem: true,
+              text: String(md.message ?? ""),
+              at: ts,
             });
-            supportMsgs.set(id, list);
-            flush();
-          },
-          () => {
-            supportMsgs.set(id, []);
-            flush();
-          },
-        );
-        convMsgUnsubs.set(id, u);
-      }
+            return;
+          }
+          const mine = sender === "customer";
+          list.push({
+            key: `s:${id}:${m.id}`,
+            source: "support",
+            threadId: id,
+            senderLabel: mine ? "You" : String(md.senderName || "Agent").trim() || "Agent",
+            isMine: mine,
+            text: String(md.message ?? ""),
+            at: ts,
+          });
+        });
+        supportMsgs.set(id, list);
+        flush();
+      },
+      () => {
+        supportMsgs.set(id, []);
+        flush();
+      },
+    );
+    convMsgUnsubs.set(id, u);
+  };
 
-      flush();
-    },
-    () => {
-      cb.onBubbles([]);
-      cb.onUnreadBadge(0);
-    },
-  );
+  const detachConvMessages = (id?: string): void => {
+    if (id) {
+      convMsgUnsubs.get(id)?.();
+      convMsgUnsubs.delete(id);
+      supportMsgs.delete(id);
+      return;
+    }
+    for (const u of convMsgUnsubs.values()) u();
+    convMsgUnsubs.clear();
+    supportMsgs.clear();
+  };
 
   const attachCcMessages = (chatId: string, agentLabel: string): void => {
     if (ccMsgUnsubs.has(chatId)) return;
     const qm = query(
       collection(db, "cc_direct_chats", chatId, "messages"),
       orderBy("createdAt", "asc"),
-      limit(800),
+      limit(CC_MSG_LIMIT),
     );
     const u = onSnapshot(
       qm,
@@ -432,6 +442,57 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
     ccMsgUnsubs.set(chatId, u);
   };
 
+  const detachCcMessages = (chatId?: string): void => {
+    if (chatId) {
+      ccMsgUnsubs.get(chatId)?.();
+      ccMsgUnsubs.delete(chatId);
+      ccMsgs.delete(chatId);
+      ccInboundUnreadCount.delete(chatId);
+      return;
+    }
+    for (const u of ccMsgUnsubs.values()) u();
+    ccMsgUnsubs.clear();
+    ccMsgs.clear();
+    ccInboundUnreadCount.clear();
+  };
+
+  const unsubConvList = onSnapshot(
+    query(
+      collection(db, "conversations"),
+      where("userId", "==", uid),
+      orderBy("createdAt", "desc"),
+      limit(CONV_LIMIT),
+    ),
+    (snap) => {
+      latestConvHead = pickConvHeadForHeader(snap.docs);
+
+      const keep = new Set(snap.docs.map((d) => d.id));
+
+      for (const id of [...convMsgUnsubs.keys()]) {
+        if (!keep.has(id)) detachConvMessages(id);
+      }
+      for (const id of [...lastConvDocs.keys()]) {
+        if (!keep.has(id)) lastConvDocs.delete(id);
+      }
+
+      for (const docSnap of snap.docs) {
+        const id = docSnap.id;
+        const data = docSnap.data();
+        lastConvDocs.set(id, data);
+        const unread =
+          typeof data.unreadForCustomer === "number" ? data.unreadForCustomer : 0;
+        convUnread.set(id, unread);
+        if (messagesEnabled) attachConvMessages(id);
+      }
+
+      flush();
+    },
+    () => {
+      cb.onBubbles([]);
+      cb.onUnreadBadge(0);
+    },
+  );
+
   ccChatUnsub = onSnapshot(
     query(
       collection(db, "cc_direct_chats"),
@@ -459,16 +520,15 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
           agentLabel,
           sessionClosed,
         });
-        attachCcMessages(id, agentLabel);
+        lastCcDocs.set(id, { agentLabel });
+        if (messagesEnabled) attachCcMessages(id, agentLabel);
       }
 
       for (const oldId of [...ccMsgUnsubs.keys()]) {
-        if (!keep.has(oldId)) {
-          ccMsgUnsubs.get(oldId)?.();
-          ccMsgUnsubs.delete(oldId);
-          ccMsgs.delete(oldId);
-          ccInboundUnreadCount.delete(oldId);
-        }
+        if (!keep.has(oldId)) detachCcMessages(oldId);
+      }
+      for (const oldId of [...lastCcDocs.keys()]) {
+        if (!keep.has(oldId)) lastCcDocs.delete(oldId);
       }
 
       ccMetaById = nextMeta;
@@ -476,27 +536,36 @@ export function subscribeUnifiedWorkshopChat(uid: string, cb: UnifiedWorkshopCha
     },
     () => {
       ccMetaById = new Map();
-      for (const u of ccMsgUnsubs.values()) u();
-      ccMsgUnsubs.clear();
-      ccMsgs.clear();
-      ccInboundUnreadCount.clear();
+      detachCcMessages();
       flush();
     },
   );
 
-  return () => {
+  const setMessagesEnabled = (enabled: boolean): void => {
+    if (messagesEnabled === enabled) return;
+    messagesEnabled = enabled;
+    if (enabled) {
+      for (const id of lastConvDocs.keys()) attachConvMessages(id);
+      for (const [id, meta] of lastCcDocs.entries()) attachCcMessages(id, meta.agentLabel);
+    } else {
+      detachConvMessages();
+      detachCcMessages();
+      flush();
+    }
+  };
+
+  const unsubscribe = (): void => {
     unsubConvList();
     ccChatUnsub?.();
-    for (const u of convMsgUnsubs.values()) u();
-    convMsgUnsubs.clear();
-    for (const u of ccMsgUnsubs.values()) u();
-    ccMsgUnsubs.clear();
-    supportMsgs.clear();
-    ccMsgs.clear();
-    ccInboundUnreadCount.clear();
+    detachConvMessages();
+    detachCcMessages();
     convUnread.clear();
     ccMetaById = new Map();
+    lastConvDocs.clear();
+    lastCcDocs.clear();
   };
+
+  return { unsubscribe, setMessagesEnabled };
 }
 
 export async function sendUnifiedWorkshopChatMessage(text: string, preferredCcChatId: string | null): Promise<void> {

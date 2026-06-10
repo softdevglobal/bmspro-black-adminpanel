@@ -1445,7 +1445,7 @@ async function buildHTML(
       <header class="report-header">
         <div class="header-top-bar"></div>
         <div class="brand-block">
-          <div class="brand-name">${safeStr(booking.salonName || "BMS PRO BLACK")}</div>
+          <div class="brand-name">${safeStr(booking.salonName || "BMS PRO WORKSHOP")}</div>
           <div class="brand-sub">Job Task Report · BMS Pro</div>
         </div>
         <div class="header-meta">
@@ -2046,7 +2046,7 @@ async function buildHTML(
 
       <!-- ══ FOOTER ══ -->
       <footer class="report-footer">
-        <div class="footer-brand">${safeStr(booking.salonName || "BMS PRO BLACK")} · <span>Powered by BMS PRO</span></div>
+        <div class="footer-brand">${safeStr(booking.salonName || "BMS PRO WORKSHOP")} · <span>Powered by BMS PRO</span></div>
         <div class="footer-meta">Generated ${safeStr(booking.date)} · Branch: ${safeStr(booking.branchName || "N/A")}</div>
       </footer>
 
@@ -2171,7 +2171,7 @@ async function buildPDF(
           padding: 0 36px;
           text-align: center;
         ">
-          Generated ${generatedAt} • ${booking.salonName || "BMS PRO BLACK"} • Powered by BMS PRO
+          Generated ${generatedAt} • ${booking.salonName || "BMS PRO WORKSHOP"} • Powered by BMS PRO
         </div>
       `,
       margin: { top: "36px", right: "36px", bottom: "90px", left: "36px" },

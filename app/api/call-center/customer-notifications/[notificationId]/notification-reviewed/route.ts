@@ -6,6 +6,7 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { mergeAndReadNotificationTracking } from "@/lib/callCenterNotificationTrackingWrite";
+import { invalidateCallCenterNotificationsCache } from "@/lib/callCenterNotificationsResponseCache";
 import { parseOptionalBooleanFlag } from "@/lib/parseCallCenterNotificationFlagBody";
 import { resolveCustomerNotificationForCallCenter } from "@/lib/resolveCustomerNotificationForCallCenter";
 
@@ -114,6 +115,7 @@ export async function POST(
         { status: 500, headers: CORS_HEADERS }
       );
     }
+    invalidateCallCenterNotificationsCache();
     return NextResponse.json(
       {
         success: true,

@@ -105,10 +105,24 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = adminDb();
-    const snap = await db
-      .collection("users")
-      .where("ownerUid", "==", ownerUid)
-      .get();
+    // Filter on `role` server-side instead of reading every owner-scoped user
+    // and filtering in memory. Falls back to the previous read shape if the
+    // composite index isn't deployed yet.
+    let snap;
+    try {
+      snap = await db
+        .collection("users")
+        .where("ownerUid", "==", ownerUid)
+        .where("role", "in", ["staff", "branch_admin"])
+        .limit(500)
+        .get();
+    } catch {
+      snap = await db
+        .collection("users")
+        .where("ownerUid", "==", ownerUid)
+        .limit(500)
+        .get();
+    }
 
     const staff: StaffPayload[] = [];
     for (const doc of snap.docs) {

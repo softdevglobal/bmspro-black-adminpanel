@@ -4,7 +4,24 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import Script from "next/script";
-import { collection, query, where, onSnapshot, getDocs } from "firebase/firestore";
+import { collection, query, where, onSnapshot, getDocs, orderBy, limit } from "firebase/firestore";
+
+// Bound dashboard listeners to ~6 months of history. The dashboard only displays
+// monthly revenue, last-6-month trend, weekly counts, and a status breakdown —
+// reading every booking ever (often thousands per tenant, and re-delivered on
+// every change) was the dominant Firestore-read driver in the app. If a tenant
+// needs older history they can still see it on the bookings list pages.
+const DASHBOARD_LOOKBACK_DAYS = 180;
+const dashboardLookbackDateStr = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - DASHBOARD_LOOKBACK_DAYS);
+  d.setHours(0, 0, 0, 0);
+  // bookings.date is stored as ISO string YYYY-MM-DD; keep the same format.
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+})();
 import { useNotifications } from "@/components/NotificationProvider";
 import { subscribeBranchesForOwner } from "@/lib/branches";
 import { openSupportChatWidget } from "@/lib/supportChatEvents";
@@ -154,8 +171,15 @@ export default function DashboardPage() {
     (async () => {
       const { db } = await import("@/lib/firebase");
 
-      // Subscribe to bookings
-      const bookingsQuery = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+      // Subscribe to bookings — bounded to last DASHBOARD_LOOKBACK_DAYS so we
+      // don't re-read the entire owner history on every change. All metrics
+      // computed below (monthly revenue, weekly count, 6-month trend, status
+      // breakdown, pending-unassigned count) only need the recent window.
+      const bookingsQuery = query(
+        collection(db, "bookings"),
+        where("ownerUid", "==", ownerUid),
+        where("date", ">=", dashboardLookbackDateStr)
+      );
       unsubBookings = onSnapshot(
         bookingsQuery,
         (snapshot) => {
@@ -430,8 +454,17 @@ export default function DashboardPage() {
         }
       );
 
-      // Fetch all bookings across all tenants for aggregate revenue
-      const allBookingsQuery = query(collection(db, "bookings"));
+      // Fetch bookings across all tenants for aggregate revenue, bounded to the
+      // same dashboard lookback window used elsewhere. Previously this was an
+      // **unfiltered** snapshot listener on the entire platform `bookings`
+      // collection — every booking write anywhere in the platform re-delivered
+      // every historical booking to every open super-admin dashboard tab. With
+      // a few thousand historical bookings and even modest write traffic this
+      // could read tens of millions of docs/day from this listener alone.
+      const allBookingsQuery = query(
+        collection(db, "bookings"),
+        where("date", ">=", dashboardLookbackDateStr)
+      );
       unsubAllBookings = onSnapshot(
         allBookingsQuery,
         (snapshot) => {
@@ -651,7 +684,14 @@ export default function DashboardPage() {
 
     (async () => {
       const { db } = await import("@/lib/firebase");
-      const constraints: any[] = [where("ownerUid", "==", ownerUid)];
+      // Calendar listener is bounded to the same lookback window. The week-view
+      // user can only navigate inside this range without a refetch — but
+      // historically this query was unbounded and re-delivered every booking
+      // for the owner on every change, which was a major read driver.
+      const constraints: any[] = [
+        where("ownerUid", "==", ownerUid),
+        where("date", ">=", dashboardLookbackDateStr),
+      ];
 
       unsub = onSnapshot(
         query(collection(db, "bookings"), ...constraints),
@@ -796,13 +836,17 @@ export default function DashboardPage() {
         }
         );
       } else {
-        // For workshop owners, fetch recent booking activities
-        // Note: Using simple query without orderBy to avoid index requirement
-        // We'll sort client-side instead
+        // For workshop owners, fetch recent booking activities. The query is
+        // bounded server-side with orderBy(createdAt desc) + limit so we only
+        // read 50 docs per snapshot (UI shows 15). Previously this read the
+        // entire bookingActivities collection per owner on every change.
+        // Requires composite index: bookingActivities (ownerUid, createdAt DESC).
         console.log("Fetching booking activities for ownerUid:", ownerUid);
         const activitiesQuery = query(
           collection(db, "bookingActivities"),
-          where("ownerUid", "==", ownerUid)
+          where("ownerUid", "==", ownerUid),
+          orderBy("createdAt", "desc"),
+          limit(50)
         );
         unsubActivities = onSnapshot(
           activitiesQuery,
@@ -812,13 +856,6 @@ export default function DashboardPage() {
               id: doc.id,
               ...doc.data(),
             }));
-            // Sort by createdAt descending client-side
-            activities.sort((a: any, b: any) => {
-              const aTime = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
-              const bTime = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
-              return bTime - aTime;
-            });
-            // Take only 15 most recent
             setRecentActivities(activities.slice(0, 15));
           },
           (error) => {

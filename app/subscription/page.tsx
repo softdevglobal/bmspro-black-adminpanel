@@ -669,7 +669,7 @@ export default function SubscriptionPage() {
                             <>
                               <p className="text-amber-800 font-medium mb-1">
                                 <i className="fas fa-exclamation-circle mr-2" />
-                                Add payment details to continue using BMS PRO BLACK
+                                Add payment details to continue using BMS PRO WORKSHOP
                               </p>
                               <p className="text-neutral-600 text-sm">
                                 Your trial will expire soon. To avoid any interruption to your service, please add your payment details now. 

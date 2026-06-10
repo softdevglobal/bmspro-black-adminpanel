@@ -98,7 +98,7 @@ export default function SettingsPage() {
                       <div>
                         <label className="block text-sm font-medium text-neutral-700 mb-2">Product Name</label>
                         <input
-                          placeholder="BMS PRO BLACK"
+                          placeholder="BMS PRO WORKSHOP"
                           className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:ring-2 focus:ring-neutral-900 focus:border-transparent"
                         />
                       </div>

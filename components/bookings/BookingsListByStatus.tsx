@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, getDocs, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import type { BookingStatus } from "@/lib/bookingTypes";
 import { normalizeBookingStatus, getStatusLabel, getStatusColor } from "@/lib/bookingTypes";
 import {
@@ -259,16 +259,35 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
       const ownerUid = userRole === "workshop_owner" ? userId : (userData?.ownerUid || userId);
       const userBranchId = userData?.branchId;
       
-      // Build query constraints
+      // Build query constraints. We bound the listener to the last 12 months
+      // by `date` so we don't re-read every historical booking on every change.
+      // Status filtering still happens client-side because stored values can
+      // vary in casing/spacing (`normalizeBookingStatus` handles them) — but
+      // we also add a hard `limit()` on the listener so the worst case is
+      // bounded even for very large workshops.
+      const lookback = new Date();
+      lookback.setMonth(lookback.getMonth() - 12);
+      lookback.setHours(0, 0, 0, 0);
+      const yyyy = lookback.getFullYear();
+      const mm = String(lookback.getMonth() + 1).padStart(2, "0");
+      const dd = String(lookback.getDate()).padStart(2, "0");
+      const lookbackStr = `${yyyy}-${mm}-${dd}`;
+      // Equalities first, then the range on `date` (Firestore requires this order).
       const constraints = [where("ownerUid", "==", ownerUid)];
-      
-      // Branch admin should only see bookings for their branch
       if (userRole === "branch_admin" && userBranchId) {
         constraints.push(where("branchId", "==", userBranchId));
       }
-      
+      constraints.push(where("date", ">=", lookbackStr));
+      // Cap listener delivery. The pages display the newest matches and most
+      // workshops have far fewer than 500 bookings per status in 12 months.
+      const BOOKINGS_LIST_LISTENER_LIMIT = 500;
       // Query only "bookings" collection (booking engine now saves directly to bookings)
-      const q = query(collection(db, "bookings"), ...constraints);
+      const q = query(
+        collection(db, "bookings"),
+        ...constraints,
+        orderBy("date", "desc"),
+        limit(BOOKINGS_LIST_LISTENER_LIMIT)
+      );
       unsub = onSnapshot(q, (snap) => {
         if (cancelled) return;
         

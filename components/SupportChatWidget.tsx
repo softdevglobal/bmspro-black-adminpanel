@@ -88,9 +88,11 @@ export default function SupportChatWidget() {
     return () => unsub();
   }, []);
 
+  const chatHandleRef = useRef<ReturnType<typeof subscribeUnifiedWorkshopChat> | null>(null);
+
   useEffect(() => {
     if (!uid || !eligible) return;
-    const unsub = subscribeUnifiedWorkshopChat(uid, {
+    const handle = subscribeUnifiedWorkshopChat(uid, {
       onBubbles: setBubbles,
       onPreferredCcChatId: setPreferredCcChatId,
       onUnreadBadge: (n) => setFabUnread(openRef.current ? 0 : n),
@@ -99,8 +101,22 @@ export default function SupportChatWidget() {
         unreadTargetsRef.current = targets;
       },
     });
-    return unsub;
+    chatHandleRef.current = handle;
+    // If the panel was already open before this subscription was created
+    // (e.g. fast remount), enable messages right away.
+    if (openRef.current) handle.setMessagesEnabled(true);
+    return () => {
+      handle.unsubscribe();
+      chatHandleRef.current = null;
+    };
   }, [uid, eligible]);
+
+  // Only attach per-thread message listeners while the chat panel is open.
+  // Closed → list listeners only (badge from unreadForCustomer/unreadForTenant
+  // on parent docs). This avoids tens of thousands of reads per page load.
+  useEffect(() => {
+    chatHandleRef.current?.setMessagesEnabled(open);
+  }, [open]);
 
   /** Mark read across support + CC when sheet opens once per open gesture. */
   useEffect(() => {

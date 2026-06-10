@@ -130,12 +130,27 @@ export async function GET(
     const serviceProgress = getServiceCompletionProgress(services);
     const taskProgress = getTaskProgress(tasks);
 
-    // Recent activity: equality-only query (no orderBy) so no composite index is required;
-    // sort by timestamp in memory and take the latest 20.
-    const activitiesSnap = await db
-      .collection("bookingActivities")
-      .where("bookingId", "==", resolvedId)
-      .get();
+    // Recent activity: try the indexed `(bookingId, timestamp desc)` ordering
+    // first and cap to 20; fall back to an equality-only read with a 100-doc
+    // cap when the composite index is missing. The previous unbounded
+    // equality read scanned every activity for the booking (a single mature
+    // booking can accumulate hundreds of activity rows) on every detail page
+    // load.
+    let activitiesSnap;
+    try {
+      activitiesSnap = await db
+        .collection("bookingActivities")
+        .where("bookingId", "==", resolvedId)
+        .orderBy("timestamp", "desc")
+        .limit(20)
+        .get();
+    } catch {
+      activitiesSnap = await db
+        .collection("bookingActivities")
+        .where("bookingId", "==", resolvedId)
+        .limit(100)
+        .get();
+    }
 
     const activitiesRaw = activitiesSnap.docs.map((doc) => {
       const a = doc.data();

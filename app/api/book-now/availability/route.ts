@@ -59,11 +59,41 @@ export async function GET(req: NextRequest) {
     const ownerUid = usersQuery.docs[0].id;
     const dayOfWeek = getDayOfWeek(date);
 
-    // Fetch branch and existing bookings in parallel
-    const [branchDoc, bookingsSnapshot] = await Promise.all([
-      db.collection("branches").doc(branchId).get(),
-      db.collection("bookings").where("ownerUid", "==", ownerUid).where("date", "==", date).get(),
-    ]);
+    // Fetch branch and existing bookings in parallel. We filter by branchId
+    // in the query (used to be filtered in-memory after reading every booking
+    // for the day across ALL branches) and cap at 200 docs as defense-in-depth
+    // for branches with unreasonably high daily limits.
+    let bookingsForBranchAndDate: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    let branchDoc: FirebaseFirestore.DocumentSnapshot;
+    try {
+      const [bd, bs] = await Promise.all([
+        db.collection("branches").doc(branchId).get(),
+        db
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .where("branchId", "==", branchId)
+          .where("date", "==", date)
+          .limit(200)
+          .get(),
+      ]);
+      branchDoc = bd;
+      bookingsForBranchAndDate = bs.docs;
+    } catch (e) {
+      // Composite index missing — fall back to the previous shape (owner+date)
+      // but still cap to 200 to avoid runaway reads.
+      const [bd, bs] = await Promise.all([
+        db.collection("branches").doc(branchId).get(),
+        db
+          .collection("bookings")
+          .where("ownerUid", "==", ownerUid)
+          .where("date", "==", date)
+          .limit(200)
+          .get(),
+      ]);
+      branchDoc = bd;
+      bookingsForBranchAndDate = bs.docs;
+    }
+    const bookingsSnapshot = { docs: bookingsForBranchAndDate };
 
     // Get branch hours
     let branchHours: { open: string; close: string } | null = null;

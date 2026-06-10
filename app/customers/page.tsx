@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, where } from "firebase/firestore";
 import { toCsv, parseCsv, downloadFile } from "@/lib/csvUtils";
 import { dedupeVehiclesByIdentity } from "@/lib/callCenterCustomerVehicles";
 
@@ -105,10 +105,29 @@ export default function CustomersPage() {
 
   // Remove dummy/local storage seed; show only real customers from bookings
 
-  // Live customers derived from bookings for this owner
+  // Live customers derived from bookings for this owner. Bounded to the last
+  // 12 months of bookings so we don't re-read the entire bookings collection
+  // on every change. The `customers` collection (separate listener below) is
+  // the source of truth — this listener only adds visit counts / lastVisit
+  // for active customers and surfaces walk-ins who haven't been saved as a
+  // customer doc yet, which is fine to limit to recent activity.
   useEffect(() => {
     if (!ownerUid) return;
-    const q = query(collection(db, "bookings"), where("ownerUid", "==", ownerUid));
+    const lookback = new Date();
+    lookback.setMonth(lookback.getMonth() - 12);
+    lookback.setHours(0, 0, 0, 0);
+    const lookbackStr = `${lookback.getFullYear()}-${String(lookback.getMonth() + 1).padStart(2, "0")}-${String(lookback.getDate()).padStart(2, "0")}`;
+    // Cap to 1000 most-recent bookings — the customer list only needs visit
+    // counts / last-visit dates derived from recent activity. Workshops with
+    // very high booking volumes would otherwise re-read the full 12-month
+    // window on every booking mutation.
+    const q = query(
+      collection(db, "bookings"),
+      where("ownerUid", "==", ownerUid),
+      where("date", ">=", lookbackStr),
+      orderBy("date", "desc"),
+      limit(1000)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -153,10 +172,17 @@ export default function CustomersPage() {
     return () => unsub();
   }, [ownerUid]);
 
-  // Live customers saved in a dedicated "customers" collection (if your system writes them)
+  // Live customers saved in a dedicated "customers" collection (if your system
+  // writes them). Capped at 2000 — the UI is paginated client-side anyway, and
+  // CRMs with more than 2000 rows would otherwise re-read the entire collection
+  // on every customer create/update.
   useEffect(() => {
     if (!ownerUid) return;
-    const q = query(collection(db, "customers"), where("ownerUid", "==", ownerUid));
+    const q = query(
+      collection(db, "customers"),
+      where("ownerUid", "==", ownerUid),
+      limit(2000)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {
@@ -300,7 +326,19 @@ export default function CustomersPage() {
                 )
               )
             : Promise.resolve([]),
-          getDocs(query(collection(db, "bookings"), where("ownerUid", "==", ownerUid))).then((snap) => {
+          // Bound preview bookings to last 24 months (was: read every booking
+          // for the owner just to render the preview modal).
+          (() => {
+            const previewLookback = new Date();
+            previewLookback.setMonth(previewLookback.getMonth() - 24);
+            previewLookback.setHours(0, 0, 0, 0);
+            const previewLookbackStr = `${previewLookback.getFullYear()}-${String(previewLookback.getMonth() + 1).padStart(2, "0")}-${String(previewLookback.getDate()).padStart(2, "0")}`;
+            return getDocs(query(
+              collection(db, "bookings"),
+              where("ownerUid", "==", ownerUid),
+              where("date", ">=", previewLookbackStr)
+            ));
+          })().then((snap) => {
             const email = (previewCust.email || "").trim().toLowerCase();
             const phone = (previewCust.phone || "").trim();
             const name = (previewCust.name || "").trim().toLowerCase();

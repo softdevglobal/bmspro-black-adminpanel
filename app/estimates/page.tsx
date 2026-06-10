@@ -8,6 +8,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "fire
 import {
   collection,
   doc,
+  limit,
   onSnapshot,
   query,
   where,
@@ -96,10 +97,15 @@ export default function EstimatesPage() {
 
   useEffect(() => {
     if (!ownerUid) return;
+    // Cap to the 200 most-recent estimates. Workshops with long histories
+    // were re-reading the entire estimates collection on every status change
+    // / reply mutation.
+    const ESTIMATES_LISTENER_LIMIT = 200;
     const q = query(
       collection(db, "estimates"),
       where("ownerUid", "==", ownerUid),
-      orderBy("createdAt", "desc")
+      orderBy("createdAt", "desc"),
+      limit(ESTIMATES_LISTENER_LIMIT)
     );
     const unsub = onSnapshot(q, (snap) => {
       const data = snap.docs.map((d) => mapEstimateFromFirestore(d));
@@ -107,10 +113,12 @@ export default function EstimatesPage() {
       setLoading(false);
     }, (error) => {
       console.error("Estimates query error:", error);
-      // Fallback: try without orderBy (avoids composite index requirement)
+      // Fallback: try without orderBy (avoids composite index requirement).
+      // Still capped — see above.
       const fallbackQ = query(
         collection(db, "estimates"),
-        where("ownerUid", "==", ownerUid)
+        where("ownerUid", "==", ownerUid),
+        limit(ESTIMATES_LISTENER_LIMIT)
       );
       onSnapshot(fallbackQ, (snap) => {
         const data = snap.docs

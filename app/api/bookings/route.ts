@@ -907,6 +907,7 @@ export async function POST(req: NextRequest) {
             bookingId: ref.id,
             bookingCode: bookingCode || undefined,
             customerEmail: customerEmail,
+            customerPhone: phoneForBooking,
             customerName: clientForBooking,
             status: emailStatus,
             ownerUid,
@@ -993,6 +994,7 @@ export async function POST(req: NextRequest) {
 
           const welcomeResult = await sendCustomerWelcomeEmail({
             customerEmail: newCustomerWelcome.email,
+            customerPhone: phoneForBooking,
             password: newCustomerWelcome.password,
             customerName: newCustomerWelcome.name,
             workshopName,

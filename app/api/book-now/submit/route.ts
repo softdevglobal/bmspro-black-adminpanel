@@ -462,6 +462,7 @@ export async function POST(req: NextRequest) {
           branchName: branchName || null,
           bookingDate: date,
           bookingTime: `Drop-off: ${time} | Pick-up: ${pickupTime}`,
+          customerPhone,
           duration: totalDuration,
           price: totalPrice,
           serviceName: serviceDetails.map((s: any) => s.name).join(", "),

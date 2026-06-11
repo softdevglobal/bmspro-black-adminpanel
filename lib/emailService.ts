@@ -3,7 +3,8 @@ import { adminDb } from "./firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
-import { appendBookNowMyBookingsDeepLink } from "./customerAccount";
+import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "./customerAccount";
+import { sendSms } from "./smsService";
 
 // Initialize SendGrid
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
@@ -31,10 +32,29 @@ async function getWorkshopName(ownerUid: string): Promise<string> {
   return "Workshop";
 }
 
+async function getBookingPortalUrl(ownerUid?: string | null): Promise<string> {
+  try {
+    if (ownerUid) {
+      const ownerDoc = await adminDb().doc(`users/${ownerUid}`).get();
+      const ownerData = ownerDoc.exists ? ownerDoc.data() || null : null;
+      return appendBookNowMyBookingsDeepLink(resolveBookingEngineUrl(ownerData));
+    }
+  } catch (error) {
+    console.error("Error fetching booking portal URL:", error);
+  }
+
+  return appendBookNowMyBookingsDeepLink(
+    process.env.NEXT_PUBLIC_BOOKING_ENGINE_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      "https://black.bmspros.com.au",
+  );
+}
+
 interface BookingEmailData {
   bookingId: string;
   bookingCode?: string | null;
   customerEmail: string;
+  customerPhone?: string | null;
   customerName: string;
   status: BookingStatus;
   branchName?: string | null;
@@ -150,6 +170,44 @@ function formatDuration(duration?: number | null): string {
   const minutes = duration % 60;
   if (minutes === 0) return `${hours} hour${hours > 1 ? "s" : ""}`;
   return `${hours} hour${hours > 1 ? "s" : ""} ${minutes} minute${minutes > 1 ? "s" : ""}`;
+}
+
+async function sendCustomerSmsSafe(
+  to: string | null | undefined,
+  message: string,
+  context: string,
+): Promise<void> {
+  try {
+    const result = await sendSms({ to, message, context });
+    if (!result.success && !result.skipped) {
+      console.error(`[SMS] Failed to send ${context}:`, result.error);
+    }
+  } catch (error) {
+    console.error(`[SMS] Unexpected error sending ${context}:`, error);
+  }
+}
+
+function bookingCodeSuffix(bookingCode?: string | null): string {
+  return bookingCode ? ` (${bookingCode})` : "";
+}
+
+function buildBookingSmsMessage(data: BookingEmailData, workshopName: string, portalUrl: string): string {
+  const code = bookingCodeSuffix(data.bookingCode);
+  const when = data.bookingDate ? ` on ${formatBookingDateTime(data.bookingDate, data.bookingTime)}` : "";
+  const portal = portalUrl ? ` Portal: ${portalUrl}` : "";
+
+  switch (data.status) {
+    case "Pending":
+      return `${workshopName}: We received your booking request${code}${when}. We will contact you once it is confirmed.${portal}`;
+    case "Confirmed":
+      return `${workshopName}: Your booking${code}${when} is confirmed.${portal}`;
+    case "Completed":
+      return `${workshopName}: Your booking${code} is completed and ready to pick up. Your job report has been emailed to you.${portal}`;
+    case "Canceled":
+      return `${workshopName}: Your booking${code}${when} has been cancelled. Please contact us if you need help.${portal}`;
+    default:
+      return `${workshopName}: Your booking${code} status is now ${data.status}.${portal}`;
+  }
 }
 
 /**
@@ -599,6 +657,13 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
     
     // Log that email was sent
     await logEmailSent(data.bookingId, data.status, email);
+
+    const portalUrl = await getBookingPortalUrl(data.ownerUid);
+    await sendCustomerSmsSafe(
+      data.customerPhone,
+      buildBookingSmsMessage(data, workshopName, portalUrl),
+      `booking ${data.status} notification for ${data.bookingId}`,
+    );
     
     console.log(`[EMAIL] ✅ Booking email sent successfully: ${data.bookingId} - ${data.status} to ${email}`);
     return { success: true };
@@ -628,6 +693,7 @@ export async function sendBookingRequestReceivedEmail(
     branchName?: string | null;
     bookingDate?: string | null;
     bookingTime?: string | null;
+    customerPhone?: string | null;
     duration?: number | null;
     price?: number | null;
     serviceName?: string | null;
@@ -684,6 +750,7 @@ export async function sendBookingStatusChangeEmail(
     branchName?: string | null;
     bookingDate?: string | null;
     bookingTime?: string | null;
+    customerPhone?: string | null;
     duration?: number | null;
     price?: number | null;
     serviceName?: string | null;
@@ -1542,6 +1609,7 @@ function generateCustomerWelcomeEmailHTML(params: {
  */
 export async function sendCustomerWelcomeEmail(params: {
   customerEmail: string;
+  customerPhone?: string | null;
   password: string;
   customerName: string;
   workshopName?: string;
@@ -1605,6 +1673,13 @@ export async function sendCustomerWelcomeEmail(params: {
     });
 
     await sgMail.send(msg);
+
+    const portalUrl = appendBookNowMyBookingsDeepLink(bookingEngineUrl);
+    await sendCustomerSmsSafe(
+      params.customerPhone,
+      `${workshopName}: Your booking account is ready. Login: ${email}. Temporary password: ${password}. Portal: ${portalUrl}`,
+      `customer welcome notification for ${email}`,
+    );
 
     console.log(`[EMAIL] ✅ Customer welcome email sent successfully to ${email}`);
     return { success: true };
@@ -2095,6 +2170,7 @@ function generateAdminSignupNotificationEmailHTML(
  */
 export async function sendAdditionalIssuePriceSetEmail(data: {
   to: string;
+  customerPhone?: string | null;
   customerName: string;
   issueTitle: string;
   price: number;
@@ -2173,6 +2249,11 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
       },
     };
     await sgMail.send(msg);
+    await sendCustomerSmsSafe(
+      data.customerPhone,
+      `${data.workshopName || "Workshop"}: Additional work quote ready${bookingCodeSuffix(data.bookingCode)} - ${data.issueTitle} $${data.price.toFixed(2)}. Review/approve here: ${viewUrl}`,
+      `additional issue quote notification for ${email}`,
+    );
     console.log(`[EMAIL] ✅ Additional issue price-set email sent to ${email}`);
     return { success: true };
   } catch (error: any) {
@@ -2406,7 +2487,9 @@ export async function sendCustomerPasswordResetEmail(
   email: string,
   userName: string,
   resetCode: string,
-  workshopName: string
+  workshopName: string,
+  phone?: string | null,
+  portalUrl?: string | null,
 ): Promise<{ success: boolean; error?: string }> {
   if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
     return { success: false, error: "SendGrid not configured" };
@@ -2420,6 +2503,12 @@ export async function sendCustomerPasswordResetEmail(
       html,
     };
     await sgMail.send(msg);
+    const resetPortalUrl = portalUrl || (await getBookingPortalUrl());
+    await sendCustomerSmsSafe(
+      phone,
+      `${workshopName}: Your password reset code is ${resetCode}. It expires in 15 minutes. Portal: ${resetPortalUrl}`,
+      `customer password reset notification for ${email}`,
+    );
     return { success: true };
   } catch (error: any) {
     console.error("[EMAIL] Customer password reset send failed:", error);
@@ -2611,6 +2700,7 @@ export async function sendEstimateRequestEmail(
  */
 export async function sendEstimateReplyEmail(data: {
   customerEmail: string;
+  customerPhone?: string | null;
   customerName: string;
   workshopName?: string;
   salonName?: string;
@@ -2618,6 +2708,7 @@ export async function sendEstimateReplyEmail(data: {
   imageUrls?: string[];
   vehicleInfo?: string;
   rego?: string;
+  portalUrl?: string | null;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     if (!data.customerEmail?.trim()) {
@@ -2679,6 +2770,11 @@ export async function sendEstimateReplyEmail(data: {
 
     console.log(`[EMAIL] Sending estimate reply email to customer: ${data.customerEmail}`);
     await sgMail.send(msg);
+    await sendCustomerSmsSafe(
+      data.customerPhone,
+      `${businessName}: We replied to your estimate request. Please check your email for the full message.${data.portalUrl ? ` Portal: ${data.portalUrl}` : ""}`,
+      `estimate reply notification for ${data.customerEmail}`,
+    );
     console.log(`[EMAIL] ✅ Estimate reply email sent to ${data.customerEmail}`);
     return { success: true };
   } catch (error: any) {
@@ -2697,6 +2793,7 @@ export async function sendBookingRescheduledEmail(data: {
   bookingId: string;
   bookingCode?: string | null;
   customerEmail: string | null | undefined;
+  customerPhone?: string | null;
   customerName?: string | null;
   ownerUid: string;
   branchName?: string | null;
@@ -2835,6 +2932,12 @@ export async function sendBookingRescheduledEmail(data: {
       : `Booking rescheduled - ${workshopName}`;
 
     await sgMail.send({ to: email, from: FROM_EMAIL, subject, html });
+    const portalUrl = await getBookingPortalUrl(data.ownerUid);
+    await sendCustomerSmsSafe(
+      data.customerPhone,
+      `${workshopName}: Your booking${bookingCodeSuffix(data.bookingCode)} has been rescheduled to ${newLine}. Portal: ${portalUrl}`,
+      `booking reschedule notification for ${data.bookingId}`,
+    );
     console.log(`[EMAIL] ✅ Reschedule email sent to ${email} for booking ${data.bookingId}`);
     return { success: true };
   } catch (error: any) {

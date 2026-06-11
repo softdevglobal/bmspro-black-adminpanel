@@ -617,6 +617,7 @@ export async function handleCallCenterBookingStatusChange(
           branchName: data.branchName as string | undefined,
           bookingDate: data.date as string | undefined,
           bookingTime: data.time as string | undefined,
+          customerPhone: data.clientPhone as string | undefined,
           duration: data.duration as number | undefined,
           price: data.price as number | undefined,
           serviceName: data.serviceName as string | undefined,

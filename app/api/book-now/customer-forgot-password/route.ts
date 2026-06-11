@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { sendCustomerPasswordResetEmail } from "@/lib/emailService";
+import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "@/lib/customerAccount";
 
 export const runtime = "nodejs";
 
@@ -63,12 +64,14 @@ export async function POST(req: NextRequest) {
 
     try {
       const ownerDoc = await db.doc(`users/${ownerUid}`).get();
+      const customerPhone = data.phone || data.clientPhone || null;
       if (ownerDoc.exists) {
         const od = ownerDoc.data();
         const name = od?.workshopName || od?.salonName || od?.name || "Workshop";
-        await sendCustomerPasswordResetEmail(normalizedEmail, customerName, resetCode, name);
+        const portalUrl = appendBookNowMyBookingsDeepLink(resolveBookingEngineUrl(od));
+        await sendCustomerPasswordResetEmail(normalizedEmail, customerName, resetCode, name, customerPhone, portalUrl);
       } else {
-        await sendCustomerPasswordResetEmail(normalizedEmail, customerName, resetCode, "Workshop");
+        await sendCustomerPasswordResetEmail(normalizedEmail, customerName, resetCode, "Workshop", customerPhone);
       }
     } catch (emailErr) {
       console.error("[API] Customer forgot password - email send failed:", emailErr);

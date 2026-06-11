@@ -46,8 +46,8 @@ function generateCSP(isDev: boolean): string {
     // Form actions: Only allow forms to submit to self
     "form-action 'self'",
     
-    // Frame ancestors: Prevent clickjacking (equivalent to X-Frame-Options: DENY)
-    "frame-ancestors 'none'",
+    // Frame ancestors: allow same-origin previews and SoftDevGlobal portfolio embeds only.
+    "frame-ancestors 'self' https://softdev.global",
   ];
   
   // Only upgrade insecure requests in production (not on localhost)
@@ -64,7 +64,7 @@ function generateCSP(isDev: boolean): string {
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
   const pathname = request.nextUrl.pathname;
-  /** Skip full CSP on PDF route so `frame-ancestors 'none'` does not block same-origin preview iframe. */
+  /** Skip full CSP on PDF route so the handler can keep PDF previews same-origin only. */
   const isBookingPdf = /^\/api\/bookings\/[^/]+\/pdf$/.test(pathname);
 
   // Check if running in development (localhost)
@@ -73,7 +73,7 @@ export function middleware(request: NextRequest) {
 
   // === MODERN SECURITY HEADERS (2025 Production Standard) ===
 
-  // 1. CSP — skip for booking PDF so the handler can be framed (handler sets frame-ancestors 'self')
+  // 1. CSP — skip for booking PDF so the handler can enforce same-origin PDF previews.
   if (!isBookingPdf) {
     response.headers.set("Content-Security-Policy", generateCSP(isDev));
   }
@@ -81,7 +81,7 @@ export function middleware(request: NextRequest) {
   // 2. Prevent MIME type sniffing attacks
   response.headers.set("X-Content-Type-Options", "nosniff");
 
-  // 3. X-Frame-Options: set in next.config.ts (SAMEORIGIN) so same-origin PDF iframe works
+  // 3. X-Frame-Options is intentionally omitted; CSP frame-ancestors allows the portfolio embed.
 
   // 4. Control referrer information leakage
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");

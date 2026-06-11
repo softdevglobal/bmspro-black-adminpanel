@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
-import { normalizePhoneDigits } from "@/lib/customerAccount";
+import { appendBookNowMyBookingsDeepLink, normalizePhoneDigits, resolveBookingEngineUrl } from "@/lib/customerAccount";
+import { sendSms } from "@/lib/smsService";
 
 export const runtime = "nodejs";
 
@@ -125,6 +126,29 @@ export async function POST(req: NextRequest) {
         updatedAt: FieldValue.serverTimestamp(),
       });
 
+      try {
+        const ownerDoc = await db.collection("users").doc(ownerUid).get();
+        const ownerData = ownerDoc.exists ? ownerDoc.data() || {} : {};
+        const workshopName =
+          ownerData.workshopName ||
+          ownerData.salonName ||
+          ownerData.businessName ||
+          ownerData.name ||
+          ownerData.displayName ||
+          "Workshop";
+        const portalUrl = appendBookNowMyBookingsDeepLink(resolveBookingEngineUrl(ownerData));
+        const smsResult = await sendSms({
+          to: phone,
+          message: `${workshopName}: Welcome ${name.trim()}. Your booking portal account is ready. Login email: ${normalizedEmail}. Portal: ${portalUrl}`,
+          context: `customer portal registration welcome for ${normalizedEmail}`,
+        });
+        if (!smsResult.success && !smsResult.skipped) {
+          console.error("[CUSTOMER AUTH] Welcome SMS failed:", smsResult.error);
+        }
+      } catch (smsError) {
+        console.error("[CUSTOMER AUTH] Failed to send registration welcome SMS:", smsError);
+      }
+
       return NextResponse.json({
         customerId: ref.id,
         name: name.trim(),
@@ -134,7 +158,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Customer auth error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
@@ -169,7 +193,7 @@ export async function PATCH(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, name: name.trim(), phone: phone.trim() });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Customer profile update error:", error);
     return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
   }

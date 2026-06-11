@@ -10,6 +10,8 @@ import { sendSms } from "./smsService";
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
 const FROM_EMAIL = process.env.FROM_EMAIL || "booking@bmspros.com.au";
 const ADMIN_FROM_EMAIL = "noreply@bmspros.com.au"; // For admin/system emails
+const BMS_PRO_BLACK_LOGIN_URL = "https://black.bmspros.com.au/login";
+const BMS_PRO_BLACK_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=bmspro.black";
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
@@ -902,7 +904,7 @@ function generateWelcomeEmailHTML(
   trialDays?: number,
   bookingEngineUrl?: string
 ): string {
-  const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+  const loginUrl = BMS_PRO_BLACK_LOGIN_URL;
   const hasFreeTrial = trialDays && trialDays > 0;
   
   // Free trial section HTML - show if has free trial (card-free trial flow)
@@ -1108,7 +1110,7 @@ function generateWelcomeEmailHTML(
           <!-- Login Button -->
           <tr>
             <td style="padding: 0 40px 30px; text-align: center;">
-              <a href="${loginUrl}/" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+              <a href="${loginUrl}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
                 Log in to Dashboard
               </a>
             </td>
@@ -1157,7 +1159,8 @@ export async function sendSalonOwnerWelcomeEmail(
   planPrice?: string,
   paymentUrl?: string,
   trialDays?: number,
-  bookingEngineUrl?: string
+  bookingEngineUrl?: string,
+  ownerPhone?: string | null
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to workshop owner: ${workshopOwnerEmail}`);
   
@@ -1212,6 +1215,13 @@ export async function sendSalonOwnerWelcomeEmail(
     });
     
     await sgMail.send(msg);
+
+    const bookingLink = bookingEngineUrl ? ` Booking page: ${bookingEngineUrl}` : "";
+    await sendCustomerSmsSafe(
+      ownerPhone,
+      `Welcome to BMS PRO BLACK, ${businessName}. Your owner account is ready. Login: ${email}. Temporary password: ${password}. Login URL: ${BMS_PRO_BLACK_LOGIN_URL}. Download app: ${BMS_PRO_BLACK_PLAY_STORE_URL}.${bookingLink}`,
+      `workshop owner welcome notification for ${email}`,
+    );
     
     console.log(`[EMAIL] ✅ Welcome email sent successfully to ${email}`);
     return { success: true };
@@ -1241,7 +1251,7 @@ function generateStaffWelcomeEmailHTML(
 ): string {
   const isBranchAdmin = role === 'branch_admin';
   const roleDisplayName = isBranchAdmin ? 'Branch Administrator' : 'Staff Member';
-  const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
+  const loginUrl = BMS_PRO_BLACK_LOGIN_URL;
   
   return `
 <!DOCTYPE html>
@@ -1347,7 +1357,7 @@ function generateStaffWelcomeEmailHTML(
           <!-- Login Button -->
           <tr>
             <td style="padding: 0 40px 30px; text-align: center;">
-              <a href="${loginUrl}/login" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
+              <a href="${loginUrl}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(236, 72, 153, 0.3);">
                 Log in to System
               </a>
             </td>
@@ -1393,7 +1403,8 @@ export async function sendStaffWelcomeEmail(
   staffName: string,
   role: string, // 'staff' or 'branch_admin'
   workshopName?: string,
-  branchName?: string
+  branchName?: string,
+  staffPhone?: string | null
 ): Promise<{ success: boolean; error?: string }> {
   console.log(`[EMAIL] Attempting to send welcome email to staff: ${staffEmail}`);
   
@@ -1445,6 +1456,12 @@ export async function sendStaffWelcomeEmail(
     });
     
     await sgMail.send(msg);
+
+    await sendCustomerSmsSafe(
+      staffPhone,
+      `Welcome to BMS PRO BLACK, ${staffName}. Your ${roleDisplayName} account${workshopName ? ` for ${workshopName}` : ""} is ready. Login: ${email}. Temporary password: ${password}. Login URL: ${BMS_PRO_BLACK_LOGIN_URL}. Download app: ${BMS_PRO_BLACK_PLAY_STORE_URL}`,
+      `staff welcome notification for ${email}`,
+    );
     
     console.log(`[EMAIL] ✅ Staff welcome email sent successfully to ${email}`);
     return { success: true };

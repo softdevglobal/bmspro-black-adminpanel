@@ -312,6 +312,7 @@ export async function PATCH(
           );
           await sendAdditionalIssuePriceSetEmail({
             to: customerEmail,
+            customerPhone: bookingData.clientPhone || undefined,
             customerName: clientName,
             issueTitle,
             price: parsedPrice,

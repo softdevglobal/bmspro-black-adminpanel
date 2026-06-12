@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { email, password, staffName, role, workshopName, salonName, branchName } = body;
+    const { email, password, staffName, role, workshopName, salonName, branchName, staffPhone, phone, mobile } = body;
     const businessName = workshopName ?? salonName;
     
     if (!email || !password || !staffName || !role) {
@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
       staffName,
       role,
       businessName,
-      branchName
+      branchName,
+      staffPhone || phone || mobile || null
     );
     
     if (!result.success) {
@@ -46,12 +47,12 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `Welcome email sent successfully to ${email}`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[API] Error sending staff welcome email:", error);
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       },
       { status: 500 }
     );

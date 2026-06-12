@@ -287,6 +287,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             branchName: bookingData.branchName,
             bookingDate: bookingData.date,
             bookingTime: bookingData.time,
+            customerPhone: bookingData.clientPhone,
             duration: bookingData.duration,
             price: bookingData.price,
             serviceName: bookingData.serviceName,

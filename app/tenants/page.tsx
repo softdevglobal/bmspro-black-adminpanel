@@ -422,6 +422,7 @@ export default function TenantsPage() {
             paymentUrl: paymentUrl, // Link to subscription page for payment
             trialDays: trialDays,
             bookingEngineUrl: bookingEngineUrl, // Booking engine link for the email
+            phone: formPhone.trim() || undefined,
           }),
         });
 

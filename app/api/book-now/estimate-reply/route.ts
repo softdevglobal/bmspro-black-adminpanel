@@ -7,6 +7,7 @@ import {
   resolveCustomerNameForStorage,
   resolveCustomerPhoneForStorage,
 } from "@/lib/notifications";
+import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "@/lib/customerAccount";
 
 export const runtime = "nodejs";
 
@@ -94,15 +95,21 @@ export async function POST(req: NextRequest) {
       const ownerDoc = await db.collection("users").doc(ownerUid).get();
       const ownerData = ownerDoc.data();
       const workshopName = ownerData?.workshopName || ownerData?.displayName || "Workshop";
+      const portalUrl = appendBookNowMyBookingsDeepLink(resolveBookingEngineUrl(ownerData));
 
       await sendEstimateReplyEmail({
         customerEmail: estimateData.customerEmail,
+        customerPhone:
+          resolveCustomerPhoneForStorage(estimateData as Record<string, unknown>) ||
+          estimateData.customerPhone ||
+          null,
         customerName: estimateData.customerName,
         workshopName,
         message: message.trim(),
         imageUrls: imageUrls || [],
         vehicleInfo: [estimateData.vehicleYear, estimateData.vehicleMake, estimateData.vehicleModel].filter(Boolean).join(" "),
         rego: estimateData.rego || "",
+        portalUrl,
       });
     } catch (emailErr) {
       console.error("Failed to send estimate reply email:", emailErr);

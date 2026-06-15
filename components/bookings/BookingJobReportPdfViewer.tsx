@@ -25,7 +25,7 @@ function JobReportPdfLoader({ message = "Loading job report..." }: { message?: s
 /**
  * Same-origin PDF preview in an iframe. Blob/embed was unreliable in Chrome; this loads
  * `/api/bookings/.../pdf?inline=1&token=...` with `Content-Disposition: inline`.
- * Requires middleware to skip CSP `frame-ancestors 'none'` on that route and SAMEORIGIN XFO.
+ * Requires the PDF route to set its own CSP so nested previews stay same-origin only.
  */
 export default function BookingJobReportPdfViewer({ bookingId, filename, className }: Props) {
   const [src, setSrc] = useState<string | null>(null);

@@ -522,6 +522,7 @@ export default function SettingsPage() {
                   role: systemRole,
                   workshopName: workshopName,
                   branchName: branchRow?.name || "",
+                  staffPhone: mobile,
                 }),
               });
             } catch (emailError) {
@@ -730,6 +731,7 @@ export default function SettingsPage() {
                   role: systemRole,
                   workshopName: workshopName,
                   branchName: branchRow?.name || undefined,
+                  staffPhone: mobile,
                 }),
               });
             } catch (emailError) {

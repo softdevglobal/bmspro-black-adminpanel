@@ -1060,6 +1060,7 @@ export async function POST(req: NextRequest) {
 
         const welcomeResult = await sendCustomerWelcomeEmail({
           customerEmail: newCustomerWelcome.email,
+          customerPhone: phoneForBooking,
           password: newCustomerWelcome.password,
           customerName: newCustomerWelcome.name,
           workshopName,

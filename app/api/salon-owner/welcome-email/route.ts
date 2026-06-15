@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
       planPrice,
       paymentUrl,
       trialDays,
-      bookingEngineUrl
+      bookingEngineUrl,
+      phone
     );
     
     if (!result.success) {
@@ -73,12 +74,12 @@ export async function POST(req: NextRequest) {
       success: true,
       message: `Welcome email sent successfully to ${email}`,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[API] Error sending welcome email:", error);
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Unknown error occurred",
+        error: error instanceof Error ? error.message : "Unknown error occurred",
       },
       { status: 500 }
     );

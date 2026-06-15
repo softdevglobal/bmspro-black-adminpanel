@@ -729,6 +729,7 @@ export async function PATCH(
       bookingId,
       bookingCode: bookingCode || null,
       customerEmail: data.clientEmail,
+      customerPhone: data.clientPhone,
       customerName: clientName,
       ownerUid,
       branchName: branchName || null,

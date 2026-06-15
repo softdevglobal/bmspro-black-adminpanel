@@ -149,7 +149,6 @@ export function sanitizeObject<T>(obj: T): T {
  */
 export const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
-  "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Cache-Control": "no-store, no-cache, must-revalidate",
   "Pragma": "no-cache",

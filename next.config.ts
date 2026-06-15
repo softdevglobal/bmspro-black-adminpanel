@@ -52,6 +52,7 @@ const nextConfig: NextConfig = {
   turbopack: {},
   // Booking engine is built into this app at /book-now/[slug]
   // Security headers are now handled in middleware.ts with full CSP support
+  // Frame embedding is controlled by CSP `frame-ancestors` there.
   // This section provides fallback headers for static assets
   async headers() {
     return [
@@ -62,11 +63,6 @@ const nextConfig: NextConfig = {
           {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
-          },
-          // SAMEORIGIN: blocks third-party iframes; allows same-origin (e.g. PDF preview iframe)
-          {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN',
           },
           // Control referrer information
           {

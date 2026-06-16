@@ -13,12 +13,145 @@ import {
 } from "@/lib/agentActivitiesDummyData";
 import {
   fetchAgentActivitiesForOwner,
+  fetchAgentActivityRecordingBlob,
   getAgentActivityStats,
   mapApiRecordToRow,
   type AgentActivityRow,
 } from "@/lib/agentActivitiesApi";
 
 type TenantOption = { id: string; name: string; timezone: string };
+
+function CallRecordingPanel({
+  activity,
+  ownerId,
+}: {
+  activity: AgentActivityRow;
+  ownerId: string;
+}) {
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    if (!activity.recordingUrl || !ownerId) {
+      setAudioSrc(null);
+      setError(null);
+      return;
+    }
+
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    (async () => {
+      setLoading(true);
+      setError(null);
+      setAudioSrc(null);
+      try {
+        const user = auth.currentUser;
+        if (!user) throw new Error("Not signed in");
+        const token = await user.getIdToken();
+        const blob = await fetchAgentActivityRecordingBlob(activity.id, ownerId, token);
+        if (blob.size === 0) throw new Error("Recording file is empty");
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setAudioSrc(objectUrl);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load recording");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [activity.id, activity.recordingUrl, ownerId]);
+
+  const handleDownload = async () => {
+    if (!ownerId) return;
+    setDownloading(true);
+    setError(null);
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Not signed in");
+      const token = await user.getIdToken();
+      const blob = await fetchAgentActivityRecordingBlob(activity.id, ownerId, token, true);
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = activity.recordingFileName || `recording-${activity.callId || activity.id}.wav`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to download recording");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (!activity.recordingUrl) {
+    return (
+      <div className="rounded-xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-5 text-sm text-neutral-500">
+        No call recording attached to this activity.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-neutral-900 flex items-center gap-2">
+          <i className="fas fa-microphone text-violet-600" />
+          Call recording
+        </h3>
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={downloading || loading}
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+        >
+          <i className={`fas ${downloading ? "fa-spinner fa-spin" : "fa-download"}`} />
+          Download
+        </button>
+      </div>
+
+      {activity.recordingFileName && (
+        <p className="text-xs text-neutral-500 font-mono truncate">{activity.recordingFileName}</p>
+      )}
+
+      {loading && (
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-5 text-sm text-neutral-500">
+          <i className="fas fa-spinner fa-spin mr-2" />
+          Loading recording…
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {audioSrc && !loading && (
+        <audio
+          controls
+          preload="metadata"
+          className="w-full rounded-lg"
+          src={audioSrc}
+          onError={() => setError("This recording file could not be decoded by the browser. Try downloading it, or check the source audio format.")}
+        >
+          Your browser does not support audio playback.
+        </audio>
+      )}
+    </div>
+  );
+}
 
 export default function AgentActivitiesPage() {
   const router = useRouter();
@@ -267,8 +400,8 @@ export default function AgentActivitiesPage() {
                 { label: "Total activities", value: stats.totalActivities, icon: "fa-list-check", color: "text-neutral-700", bg: "bg-neutral-100" },
                 { label: "Calls logged", value: stats.totalCalls, icon: "fa-phone", color: "text-blue-700", bg: "bg-blue-100" },
                 { label: "With agent note", value: stats.answered, icon: "fa-phone-volume", color: "text-emerald-700", bg: "bg-emerald-100" },
-                { label: "No note", value: stats.missed, icon: "fa-phone-slash", color: "text-red-700", bg: "bg-red-100" },
-                { label: "Agents", value: stats.activeAgents, icon: "fa-clock", color: "text-violet-700", bg: "bg-violet-100" },
+                { label: "With recording", value: stats.withRecording, icon: "fa-microphone", color: "text-violet-700", bg: "bg-violet-100" },
+                { label: "Agents", value: stats.activeAgents, icon: "fa-clock", color: "text-amber-700", bg: "bg-amber-100" },
               ].map((card) => (
                 <div key={card.label} className="bg-white rounded-xl border border-neutral-200 p-4 shadow-sm">
                   <div className={`w-9 h-9 rounded-lg ${card.bg} flex items-center justify-center mb-3`}>
@@ -306,7 +439,7 @@ export default function AgentActivitiesPage() {
               </div>
 
               <div className="overflow-x-auto -mx-4 sm:mx-0">
-                <table className="w-full min-w-[900px] text-sm">
+                <table className="w-full min-w-[980px] text-sm">
                   <thead>
                     <tr className="border-b border-neutral-200 text-left text-xs font-semibold uppercase tracking-wide text-neutral-500">
                       <th className="px-4 py-3">Call</th>
@@ -314,6 +447,7 @@ export default function AgentActivitiesPage() {
                       <th className="px-4 py-3">Caller</th>
                       <th className="px-4 py-3">Branch</th>
                       <th className="px-4 py-3">Queue / DID</th>
+                      <th className="px-4 py-3">Recording</th>
                       <th className="px-4 py-3">Time</th>
                       <th className="px-4 py-3 w-10" />
                     </tr>
@@ -321,14 +455,14 @@ export default function AgentActivitiesPage() {
                   <tbody className="divide-y divide-neutral-100">
                     {loading ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center text-neutral-500">
+                        <td colSpan={8} className="px-4 py-12 text-center text-neutral-500">
                           <i className="fas fa-spinner fa-spin mr-2" />
                           Loading activities…
                         </td>
                       </tr>
                     ) : filteredActivities.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-12 text-center text-neutral-500">
+                        <td colSpan={8} className="px-4 py-12 text-center text-neutral-500">
                           {activeOwnerId
                             ? "No agent activities for this workshop yet."
                             : "Select a workshop to view activities."}
@@ -372,6 +506,16 @@ export default function AgentActivitiesPage() {
                             <td className="px-4 py-3 text-neutral-600 text-xs max-w-[140px]">
                               <p className="truncate">{activity.queueName || "—"}</p>
                               <p className="text-neutral-400 truncate">{activity.didNumber || ""}</p>
+                            </td>
+                            <td className="px-4 py-3">
+                              {activity.recordingUrl ? (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700">
+                                  <i className="fas fa-circle-play" />
+                                  Available
+                                </span>
+                              ) : (
+                                <span className="text-neutral-400">—</span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-neutral-500 text-xs whitespace-nowrap">
                               {formatInTimezone(activity.timestamp.toISOString(), ownerTimezone, "d MMM yyyy, h:mm a")}
@@ -473,6 +617,10 @@ export default function AgentActivitiesPage() {
                   <p className="font-medium text-neutral-900">{previewActivity.didNumber || "—"}</p>
                 </div>
               </div>
+
+              {previewActivity && activeOwnerId && (
+                <CallRecordingPanel activity={previewActivity} ownerId={activeOwnerId} />
+              )}
 
               {previewActivity.agentNote && (
                 <div>

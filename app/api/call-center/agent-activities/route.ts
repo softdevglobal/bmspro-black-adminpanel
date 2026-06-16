@@ -6,6 +6,7 @@ import {
   CORS_HEADERS,
 } from "@/lib/callCenterAuth";
 import { resolveAgentActivityActor } from "@/lib/callCenterActorFromAuth";
+import { resolveRecordingFields } from "@/lib/agentActivityRecording";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,8 @@ export type AgentActivityRecord = {
   branchName: string;
   queueId: string;
   queueName: string;
+  recordingUrl: string;
+  recordingFileName: string;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -51,6 +54,8 @@ function serializeAgentActivity(id: string, d: FirebaseFirestore.DocumentData): 
     return null;
   };
 
+  const recording = resolveRecordingFields(d, String(d.callId ?? ""));
+
   return {
     id,
     callId: String(d.callId ?? ""),
@@ -71,6 +76,8 @@ function serializeAgentActivity(id: string, d: FirebaseFirestore.DocumentData): 
     branchName: String(d.branchName ?? ""),
     queueId: String(d.queueId ?? ""),
     queueName: String(d.queueName ?? ""),
+    recordingUrl: recording.recordingUrl,
+    recordingFileName: recording.recordingFileName,
     createdAt: toIso(d.createdAt),
     updatedAt: toIso(d.updatedAt),
   };
@@ -216,7 +223,9 @@ export async function OPTIONS() {
  *   "branchId": "branch-id",
  *   "branchName": "Branch Name",
  *   "queueId": "queue-id",
- *   "queueName": "Black Queue"
+ *   "queueName": "Black Queue",
+ *   "recordingUrl": "https://…/call.wav",
+ *   "recordingFileName": "call-123.wav"
  * }
  *
  * Stored agent fields (from token + Firestore profile, not body): `agentUserId`, `agentName`,
@@ -270,6 +279,45 @@ export async function POST(req: NextRequest) {
 
     const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
+    const resolvePostRecording = () => {
+      const isRecordingReference = (value: string) => {
+        if (!value) return false;
+        if (value.startsWith("http") || value.startsWith("gs://")) return true;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
+        return value.includes("/") || /\.[a-z0-9]{2,5}($|[?#])/i.test(value);
+      };
+      const urlCandidates = [
+        body.recordingUrl,
+        body.recordingFileUrl,
+        body.recording_file_url,
+        body.recordingPath,
+        body.recording_path,
+        body.recordingFile,
+        body.recording_file,
+      ];
+      for (const candidate of urlCandidates) {
+        const value = str(candidate);
+        if (isRecordingReference(value)) {
+          return {
+            recordingUrl: value,
+            recordingFileName:
+              str(body.recordingFileName) ||
+              str(body.recording_file_name) ||
+              "",
+          };
+        }
+      }
+      const fileOnly = str(body.recordingFile);
+      return {
+        recordingUrl: "",
+        recordingFileName:
+          str(body.recordingFileName) ||
+          str(body.recording_file_name) ||
+          (!isRecordingReference(fileOnly) ? fileOnly : ""),
+      };
+    };
+    const postRecording = resolvePostRecording();
+
     const db = adminDb();
     const actor = await resolveAgentActivityActor(gate.auth);
 
@@ -305,6 +353,8 @@ export async function POST(req: NextRequest) {
       branchName: str(body.branchName),
       queueId: str(body.queueId),
       queueName: str(body.queueName),
+      recordingUrl: postRecording.recordingUrl,
+      recordingFileName: postRecording.recordingFileName,
       createdAt: now,
       updatedAt: now,
     };

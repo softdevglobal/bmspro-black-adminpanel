@@ -26,7 +26,19 @@ export type NotificationActorSnapshot = {
   /** Prefer `displayName` from `call_center_agents` / `users` for call-center UI. */
   displayName: string;
   email: string;
+  role: string;
+  recordedByKind: "agent" | "tenant_admin";
 };
+
+function roleFromAgentDoc(d: FirebaseFirestore.DocumentData | undefined, fallback: string): string {
+  const r = String(d?.role || fallback || "agent").trim().toLowerCase();
+  return r || "agent";
+}
+
+function roleFromUserDoc(d: FirebaseFirestore.DocumentData | undefined, fallback: string): string {
+  const r = String(d?.role || d?.systemRole || fallback || "").trim().toLowerCase();
+  return r || fallback || "staff";
+}
 
 function labelFromEmail(email: string, fallback: string): string {
   const e = email.trim();
@@ -53,16 +65,23 @@ export async function resolveNotificationActorSnapshot(
         uid: auth.user.uid,
         email,
         displayName: displayName || labelFromEmail(email, "Agent"),
+        role: roleFromAgentDoc(d, auth.user.role),
+        recordedByKind: "agent",
       };
     }
     const doc = await db.doc(`users/${auth.uid}`).get();
     const d = doc.data();
     const email = String(d?.email || auth.email || "").trim();
     const displayName = String(d?.displayName || d?.name || auth.name || "").trim();
+    const role = auth.isSuperAdmin
+      ? "super_admin"
+      : roleFromUserDoc(d, auth.role);
     return {
       uid: auth.uid,
       email,
       displayName: displayName || labelFromEmail(email, "Staff"),
+      role,
+      recordedByKind: "tenant_admin",
     };
   } catch (e) {
     console.warn("[resolveNotificationActorSnapshot] fallback to token claims", e);
@@ -71,6 +90,15 @@ export async function resolveNotificationActorSnapshot(
       uid: a.uid,
       email: a.email,
       displayName: a.name,
+      role: auth.kind === "agent" ? auth.user.role : auth.role,
+      recordedByKind: auth.kind === "agent" ? "agent" : "tenant_admin",
     };
   }
+}
+
+/** Actor fields stored on `agent_activities` — always derived from the Bearer token (+ Firestore profile). */
+export async function resolveAgentActivityActor(
+  auth: CallCenterRequestAuth
+): Promise<NotificationActorSnapshot> {
+  return resolveNotificationActorSnapshot(auth);
 }

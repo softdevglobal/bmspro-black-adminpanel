@@ -97,6 +97,8 @@ Paths are relative to the base URL above.
 | PATCH | `/bookings/{id}/additional-issues/{issueId}` | Body: `{ "customerResponse": "accept" \| "reject" }` (issue must be `approved` with price). |
 | POST | `/call-logs` | Body: `ownerUid`, `callerPhone`, `direction` (`inbound` \| `outbound`), `purpose`, optional `branchId`, `customerId`, `bookingId`, `duration`, `notes`, `outcome`, `callCenterCallId`. |
 | GET | `/call-logs` | Query: `ownerUid`, optional `customerId`, `bookingId`, `limit`. |
+| POST | `/agent-activities` | Body: `callId`, `callerNumber`, `ownerId`, optional call/workshop fields. Agent `agentUserId`, `agentName`, `agentEmail`, `agentRole` saved from Bearer token. |
+| GET | `/agent-activities` | Query: `ownerId` (or `ownerUid`), optional `agentUserId`, `agentEmail`, `branchId`, `callId`, `limit`. |
 | GET | `/webhooks` | **CC admin.** |
 | POST | `/webhooks` | **CC admin.** Body: `url` (https), `events[]`, optional `secret`, `description`. |
 | DELETE | `/webhooks?id=` | **CC admin.** |
@@ -150,7 +152,7 @@ Import: `postman/BMS_Call_Center_API.postman_collection.json` (folder **0. Publi
 
 ## Firestore (reference)
 
-Used by the API: `call_center_agents`, `did_mappings`, `cc_webhooks`, `call_logs`, plus existing `users`, `branches`, `services`, `customers`, `bookings`, `bookingActivities`, `notifications`.
+Used by the API: `call_center_agents`, `did_mappings`, `cc_webhooks`, `call_logs`, `agent_activities`, plus existing `users`, `branches`, `services`, `customers`, `bookings`, `bookingActivities`, `notifications`.
 
 ---
 

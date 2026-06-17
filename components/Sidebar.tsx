@@ -39,6 +39,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isSubscription = pathname?.startsWith("/subscription");
   const isPackages = pathname?.startsWith("/packages");
   const isSuperAdminAuditLogs = pathname?.startsWith("/super-admin-audit-logs");
+  const isAgentActivities = pathname?.startsWith("/agent-activities");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
@@ -299,6 +300,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "super_admin" && (
+          <Link href="/agent-activities" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAgentActivities ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-headset w-5" />
+            <span>Agent Activities</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
           <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-shield-halved w-5" />
             <span>Audit Logs</span>
@@ -496,6 +503,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             <span>Billing & Invoices</span>
           </Link>
         )} */}
+        {mounted && role === "workshop_owner" && (
+          <Link href="/agent-activities" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAgentActivities ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-headset w-5" />
+            <span>Agent Activities</span>
+          </Link>
+        )}
         {mounted && role === "workshop_owner" && (
           <Link href="/audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-clipboard-list w-5" />

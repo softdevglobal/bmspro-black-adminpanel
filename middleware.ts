@@ -37,6 +37,9 @@ function generateCSP(isDev: boolean): string {
     // Frames: blob: for PDF iframe fallbacks; Firebase Auth / reCAPTCHA
     "frame-src 'self' blob: https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",
     
+    // Media: allow same-origin audio/video and in-memory blob URLs used by recording playback
+    "media-src 'self' blob:",
+    
     // `<embed type="application/pdf">` job-report preview (blob URLs only, not arbitrary plugins)
     "object-src 'self' blob:",
     

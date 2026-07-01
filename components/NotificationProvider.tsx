@@ -1,11 +1,21 @@
 "use client";
-import React, { createContext, useContext, useEffect, useRef, useState, ReactNode, useMemo } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState, ReactNode, useMemo, useCallback } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
 
 const NOTIFICATION_QUERY_LIMIT = 50;
 import ToastNotification from "./ToastNotification";
 import { SUPPORT_CHAT_PANEL_STATE_EVENT } from "@/lib/supportChatEvents";
+import {
+  broadcastIdFromNotificationId,
+  dismissAllBroadcastsApi,
+  dismissBroadcastApi,
+  fetchBroadcastNotifications,
+  isBroadcastNotificationId,
+  markAllBroadcastsReadApi,
+  markBroadcastReadApi,
+  type BroadcastNotification,
+} from "@/lib/broadcasts/api-client";
 
 interface Notification {
   id: string;
@@ -27,6 +37,18 @@ interface Notification {
   issueId?: string;
 }
 
+function broadcastToPanelNotification(note: BroadcastNotification): Notification {
+  return {
+    id: note.id,
+    bookingId: note.bookingId,
+    type: note.type,
+    title: note.title,
+    message: note.message,
+    createdAt: note.createdAt,
+    read: note.read,
+  };
+}
+
 interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
@@ -39,6 +61,16 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 /** Firestore notification types that should always surface in the admin bell + toasts (one row per doc). */
+/** Roles that receive platform broadcast messages in the admin bell. */
+const BROADCAST_RECIPIENT_ROLES = new Set([
+  "workshop_owner",
+  "branch_admin",
+  "staff",
+  "owner",
+  "admin",
+  "business_owner",
+]);
+
 const WORKSHOP_ALERT_TYPES = new Set([
   "owner_booking_completed",
   "booking_rescheduled",
@@ -64,6 +96,7 @@ interface NotificationProviderProps {
 
 export default function NotificationProvider({ children }: NotificationProviderProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [broadcastNotes, setBroadcastNotes] = useState<Notification[]>([]);
   const [pendingBookings, setPendingBookings] = useState<any[]>([]);
   const [readPendingBookings, setReadPendingBookings] = useState<Set<string>>(new Set());
   const [dismissedPendingBookings, setDismissedPendingBookings] = useState<Set<string>>(new Set()); // Track deleted/dismissed pending booking notifications
@@ -74,6 +107,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const [isBranchAdmin, setIsBranchAdmin] = useState<boolean>(false);
   const [isStaffUser, setIsStaffUser] = useState<boolean>(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   /** While the floating reception chat is open, suppress CC message toasts/sounds and bell unread for `cc_chat_inbound`. */
   const [supportChatPanelOpen, setSupportChatPanelOpen] = useState(false);
   const supportChatPanelOpenRef = useRef(false);
@@ -82,6 +117,47 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const isInitialLoadRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioInitializedRef = useRef(false);
+  const reloadBroadcastsRef = useRef<() => Promise<void>>(async () => {});
+
+  const canReceiveBroadcasts =
+    authReady &&
+    Boolean(userRole) &&
+    !isSuperAdmin &&
+    BROADCAST_RECIPIENT_ROLES.has(userRole!);
+
+  const reloadBroadcasts = useCallback(async () => {
+    if (!canReceiveBroadcasts || !currentUserUid) return;
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const broadcasts = await fetchBroadcastNotifications(token).catch(() => []);
+      setBroadcastNotes(broadcasts.map(broadcastToPanelNotification));
+    } catch {
+      /* keep previous list */
+    }
+  }, [canReceiveBroadcasts, currentUserUid]);
+
+  reloadBroadcastsRef.current = reloadBroadcasts;
+
+  useEffect(() => {
+    if (!canReceiveBroadcasts || !currentUserUid) {
+      setBroadcastNotes([]);
+      return;
+    }
+
+    void reloadBroadcasts();
+
+    const onFocus = () => void reloadBroadcastsRef.current();
+    window.addEventListener("focus", onFocus);
+    const interval = window.setInterval(() => void reloadBroadcastsRef.current(), 120_000);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(interval);
+    };
+  }, [canReceiveBroadcasts, currentUserUid, reloadBroadcasts]);
 
   // Load dismissed notifications from localStorage on mount
   useEffect(() => {
@@ -268,12 +344,16 @@ export default function NotificationProvider({ children }: NotificationProviderP
       const unsub = onAuthStateChanged(auth, async (user) => {
         if (!user) {
           setOwnerUid(null);
+          setCurrentUserUid(null);
           setIsSuperAdmin(false);
+          setUserRole(null);
+          setAuthReady(false);
           return;
         }
         try {
           setCurrentUserUid(user.uid);
           setOwnerUid(user.uid);
+          setAuthReady(false);
 
           // Check if user is super admin or branch admin
           // Check super_admins collection first
@@ -287,10 +367,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
           } else {
             const userDoc = await getDoc(doc(db, "users", user.uid));
             userData = userDoc.data();
-            role = userData?.role || "";
+            role = String(userData?.role || "").toLowerCase();
           }
 
           setIsSuperAdmin(role === "super_admin");
+          setUserRole(role || null);
           setIsBranchAdmin(role === "branch_admin");
           setIsStaffUser(role === "staff");
 
@@ -300,6 +381,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
           }
         } catch (error) {
           console.error("Error fetching user data:", error);
+          setUserRole(null);
+        } finally {
+          setAuthReady(true);
         }
       });
 
@@ -807,6 +891,24 @@ export default function NotificationProvider({ children }: NotificationProviderP
       return;
     }
 
+    if (isBroadcastNotificationId(notifId)) {
+      const previousBroadcast = broadcastNotes;
+      setBroadcastNotes((prev) =>
+        prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)),
+      );
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const user = auth.currentUser;
+        if (!user) throw new Error("Not authenticated");
+        const token = await user.getIdToken();
+        await markBroadcastReadApi(token, broadcastIdFromNotificationId(notifId));
+      } catch (error) {
+        console.error("Error marking broadcast as read:", error);
+        setBroadcastNotes(previousBroadcast);
+      }
+      return;
+    }
+
     // For Firestore notifications, update both UI and Firestore
     // Optimistically update UI
     setNotifications((prev) =>
@@ -834,10 +936,24 @@ export default function NotificationProvider({ children }: NotificationProviderP
     const unreadNotifications = combinedNotifications.filter((n) => !n.read);
     if (unreadNotifications.length === 0) return;
 
+    const previousBroadcast = broadcastNotes;
+
     // Optimistically update UI
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    setBroadcastNotes((prev) => prev.map((n) => ({ ...n, read: true })));
     // Mark all pending bookings as read
     setReadPendingBookings(new Set(pendingBookings.map((b) => b.id)));
+
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (user) {
+        const token = await user.getIdToken();
+        await markAllBroadcastsReadApi(token).catch(() => {});
+      }
+    } catch {
+      setBroadcastNotes(previousBroadcast);
+    }
 
     // Update Firestore notifications
     const firestoreNotifications = unreadNotifications.filter((n) => !n.id.startsWith("pending-"));
@@ -874,6 +990,22 @@ export default function NotificationProvider({ children }: NotificationProviderP
       // We can't delete pending bookings from Firestore, but we hide them from the notification panel
       setDismissedPendingBookings((prev) => new Set([...prev, bookingId]));
       console.log("Pending booking notification dismissed:", bookingId);
+      return;
+    }
+
+    if (isBroadcastNotificationId(notifId)) {
+      const previousBroadcast = broadcastNotes;
+      setBroadcastNotes((prev) => prev.filter((n) => n.id !== notifId));
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const user = auth.currentUser;
+        if (!user) throw new Error("Not authenticated");
+        const token = await user.getIdToken();
+        await dismissBroadcastApi(token, broadcastIdFromNotificationId(notifId));
+      } catch (error) {
+        console.error("Error dismissing broadcast:", error);
+        setBroadcastNotes(previousBroadcast);
+      }
       return;
     }
 
@@ -918,8 +1050,12 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const deleteAllNotifications = async () => {
     if (combinedNotifications.length === 0) return;
 
-    // Get all Firestore notification IDs (not pending bookings)
-    const firestoreNotifications = combinedNotifications.filter((n) => !n.id.startsWith("pending-"));
+    const previousBroadcast = broadcastNotes;
+
+    // Get all Firestore notification IDs (not pending bookings or broadcasts)
+    const firestoreNotifications = combinedNotifications.filter(
+      (n) => !n.id.startsWith("pending-") && !isBroadcastNotificationId(n.id),
+    );
     
     // Add all Firestore notification IDs to dismissed set (persisted)
     setDismissedNotificationIds((prev) => {
@@ -930,12 +1066,24 @@ export default function NotificationProvider({ children }: NotificationProviderP
     
     // Optimistically update UI
     setNotifications([]);
+    setBroadcastNotes([]);
     // Dismiss all pending booking notifications (so they don't reappear)
     setDismissedPendingBookings((prev) => {
       const newSet = new Set([...prev]);
       pendingBookings.forEach((b) => newSet.add(b.id));
       return newSet;
     });
+
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (user) {
+        const token = await user.getIdToken();
+        await dismissAllBroadcastsApi(token).catch(() => {});
+      }
+    } catch {
+      setBroadcastNotes(previousBroadcast);
+    }
 
     // Delete from Firestore via API route (server-side for proper permissions)
     if (firestoreNotifications.length > 0) {
@@ -1012,6 +1160,10 @@ export default function NotificationProvider({ children }: NotificationProviderP
       if (dismissedNotificationIds.has(notif.id)) {
         return false;
       }
+
+      if (notif.type === "system_message") {
+        return true;
+      }
       
       const isNewBookingNotification = 
         notif.type === "booking_engine_new_booking" ||
@@ -1064,8 +1216,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
     });
 
     // Combine and deduplicate: one row per booking for booking alerts; one row per doc for attendance / owner completion
-    const allNotifications = [...pendingNotifications, ...validNotifications];
+    const allNotifications = [...pendingNotifications, ...validNotifications, ...broadcastNotes];
     const dedupeKey = (n: Notification) => {
+      if (n.type === "system_message") return n.id;
       if (n.id.startsWith("pending-")) return `pending:${n.bookingId}`;
       if (WORKSHOP_ALERT_TYPES.has(n.type)) return n.id;
       if (n.type === "additional_issue_found" && n.bookingId && n.issueId) {
@@ -1078,7 +1231,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
     ).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
     return unique.slice(0, 50);
-  }, [notifications, pendingBookings, readPendingBookings, dismissedPendingBookings, dismissedNotificationIds]);
+  }, [notifications, broadcastNotes, pendingBookings, readPendingBookings, dismissedPendingBookings, dismissedNotificationIds]);
 
   // Calculate unread count from combined notifications
   const combinedUnreadCount = useMemo(() => {

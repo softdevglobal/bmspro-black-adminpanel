@@ -1,21 +1,15 @@
-import sgMail from "@sendgrid/mail";
 import { adminDb } from "./firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import type { BookingStatus } from "./bookingTypes";
 import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
 import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "./customerAccount";
 import { sendSms } from "./smsService";
+import { dispatchMail, isZeptoMailConfigured } from "./email";
 
-// Initialize SendGrid
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-const FROM_EMAIL = process.env.FROM_EMAIL || "booking@bmspros.com.au";
-const ADMIN_FROM_EMAIL = "noreply@bmspros.com.au"; // For admin/system emails
+const FROM_EMAIL = process.env.FROM_EMAIL || "request@bmspros.com.au";
+const ADMIN_FROM_EMAIL = "noreply@bmspros.com.au";
 const BMS_PRO_BLACK_LOGIN_URL = "https://black.bmspros.com.au/login";
 const BMS_PRO_BLACK_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=bmspro.black";
-
-if (SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY);
-}
 
 /**
  * Get workshop name from ownerUid
@@ -587,10 +581,10 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
   
   console.log(`[EMAIL] ✅ No duplicate found - proceeding to send email for booking ${data.bookingId}, status: ${data.status}`);
   
-  // Verify SendGrid is configured
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  // Verify ZeptoMail is configured
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   
   try {
@@ -646,7 +640,7 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
       }
     }
     
-    console.log(`[EMAIL] Sending email via SendGrid:`, {
+    console.log(`[EMAIL] Sending email via ZeptoMail:`, {
       to: email,
       from: FROM_EMAIL,
       subject: subject,
@@ -655,7 +649,7 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
       workshopName: workshopName,
     });
     
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     
     // Log that email was sent
     await logEmailSent(data.bookingId, data.status, email);
@@ -1177,10 +1171,10 @@ export async function sendSalonOwnerWelcomeEmail(
     return { success: false, error: "Invalid email address" };
   }
   
-  // Verify SendGrid is configured
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  // Verify ZeptoMail is configured
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   
   try {
@@ -1204,7 +1198,7 @@ export async function sendSalonOwnerWelcomeEmail(
       },
     };
     
-    console.log(`[EMAIL] Sending welcome email via SendGrid:`, {
+    console.log(`[EMAIL] Sending welcome email via ZeptoMail:`, {
       to: email,
       from: ADMIN_FROM_EMAIL,
       subject: subject,
@@ -1214,7 +1208,7 @@ export async function sendSalonOwnerWelcomeEmail(
       clickTracking: false,
     });
     
-    await sgMail.send(msg);
+    await dispatchMail(msg);
 
     const bookingLink = bookingEngineUrl ? ` Booking page: ${bookingEngineUrl}` : "";
     await sendCustomerSmsSafe(
@@ -1421,10 +1415,10 @@ export async function sendStaffWelcomeEmail(
     return { success: false, error: "Invalid email address" };
   }
   
-  // Verify SendGrid is configured
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  // Verify ZeptoMail is configured
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   
   try {
@@ -1444,7 +1438,7 @@ export async function sendStaffWelcomeEmail(
       },
     };
     
-    console.log(`[EMAIL] Sending staff welcome email via SendGrid:`, {
+    console.log(`[EMAIL] Sending staff welcome email via ZeptoMail:`, {
       to: email,
       from: ADMIN_FROM_EMAIL,
       subject: subject,
@@ -1455,7 +1449,7 @@ export async function sendStaffWelcomeEmail(
       clickTracking: false,
     });
     
-    await sgMail.send(msg);
+    await dispatchMail(msg);
 
     await sendCustomerSmsSafe(
       staffPhone,
@@ -1652,9 +1646,9 @@ export async function sendCustomerWelcomeEmail(params: {
     return { success: false, error: "Invalid email address" };
   }
 
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured — cannot send customer welcome email`);
-    return { success: false, error: "SendGrid API key not configured" };
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured — cannot send customer welcome email`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
 
   try {
@@ -1680,7 +1674,7 @@ export async function sendCustomerWelcomeEmail(params: {
       },
     };
 
-    console.log(`[EMAIL] Sending customer welcome email via SendGrid:`, {
+    console.log(`[EMAIL] Sending customer welcome email via ZeptoMail:`, {
       to: email,
       from: FROM_EMAIL,
       subject,
@@ -1689,7 +1683,7 @@ export async function sendCustomerWelcomeEmail(params: {
       clickTracking: false,
     });
 
-    await sgMail.send(msg);
+    await dispatchMail(msg);
 
     const portalUrl = appendBookNowMyBookingsDeepLink(bookingEngineUrl);
     await sendCustomerSmsSafe(
@@ -1840,10 +1834,10 @@ export async function sendBranchAdminAssignmentEmail(
     return { success: false, error: "Invalid email address" };
   }
   
-  // Verify SendGrid is configured
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  // Verify ZeptoMail is configured
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   
   try {
@@ -1862,7 +1856,7 @@ export async function sendBranchAdminAssignmentEmail(
       },
     };
     
-    console.log(`[EMAIL] Sending branch admin assignment email via SendGrid:`, {
+    console.log(`[EMAIL] Sending branch admin assignment email via ZeptoMail:`, {
       to: email,
       from: ADMIN_FROM_EMAIL,
       subject: subject,
@@ -1872,7 +1866,7 @@ export async function sendBranchAdminAssignmentEmail(
       clickTracking: false,
     });
     
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     
     console.log(`[EMAIL] ✅ Branch admin assignment email sent successfully to ${email}`);
     return { success: true };
@@ -2200,9 +2194,9 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { success: false, error: "Invalid email address" };
   }
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   try {
     const viewUrl = appendBookNowMyBookingsDeepLink(
@@ -2259,13 +2253,13 @@ export async function sendAdditionalIssuePriceSetEmail(data: {
       from: ADMIN_FROM_EMAIL,
       subject: `Additional Work Quote: ${data.issueTitle} - $${data.price.toFixed(2)}`,
       html,
-      // Avoid SendGrid link branding (url5514.bmspros.com.au/ls/click?...) so the
+      // Avoid third-party link branding on reset URLs so the
       // customer sees and lands on the real booking-engine URL (black portal).
       trackingSettings: {
         clickTracking: { enable: false, enableText: false },
       },
     };
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     await sendCustomerSmsSafe(
       data.customerPhone,
       `${data.workshopName || "Workshop"}: Additional work quote ready${bookingCodeSuffix(data.bookingCode)} - ${data.issueTitle} $${data.price.toFixed(2)}. Review/approve here: ${viewUrl}`,
@@ -2301,9 +2295,9 @@ export async function sendAdditionalIssueNotificationEmail(data: {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { success: false, error: "Invalid email address" };
   }
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   try {
     const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "https://black.bmspros.com.au";
@@ -2347,7 +2341,7 @@ export async function sendAdditionalIssueNotificationEmail(data: {
 </body>
 </html>`;
     const msg = { to: email, from: ADMIN_FROM_EMAIL, subject: `⚠️ Additional Issue: ${data.issueTitle} (${data.clientName})`, html };
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     console.log(`[EMAIL] ✅ Additional issue notification sent to ${email}`);
     return { success: true };
   } catch (error: any) {
@@ -2374,10 +2368,10 @@ export async function sendAdminSignupNotificationEmail(
   
   console.log(`[EMAIL] Sending admin signup notification for: ${businessName}`);
   
-  // Verify SendGrid is configured
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  // Verify ZeptoMail is configured
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   
   try {
@@ -2403,7 +2397,7 @@ export async function sendAdminSignupNotificationEmail(
       html: html,
     };
     
-    console.log(`[EMAIL] Sending admin notification email via SendGrid:`, {
+    console.log(`[EMAIL] Sending admin notification email via ZeptoMail:`, {
       to: ADMIN_NOTIFICATION_EMAIL,
       from: ADMIN_FROM_EMAIL,
       subject: subject,
@@ -2411,7 +2405,7 @@ export async function sendAdminSignupNotificationEmail(
       ownerEmail: ownerEmail,
     });
     
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     
     console.log(`[EMAIL] ✅ Admin signup notification sent successfully for ${businessName}`);
     return { success: true };
@@ -2508,8 +2502,8 @@ export async function sendCustomerPasswordResetEmail(
   phone?: string | null,
   portalUrl?: string | null,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    return { success: false, error: "SendGrid not configured" };
+  if (!isZeptoMailConfigured()) {
+    return { success: false, error: "ZeptoMail not configured" };
   }
   try {
     const html = generateCustomerPasswordResetEmailHTML(userName, resetCode, workshopName);
@@ -2519,7 +2513,7 @@ export async function sendCustomerPasswordResetEmail(
       subject: `Reset Your Password - ${workshopName}`,
       html,
     };
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     const resetPortalUrl = portalUrl || (await getBookingPortalUrl());
     await sendCustomerSmsSafe(
       phone,
@@ -2556,10 +2550,10 @@ export async function sendPasswordResetEmail(
     return { success: false, error: "Invalid email address" };
   }
   
-  // Verify SendGrid is configured
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  // Verify ZeptoMail is configured
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
   
   try {
@@ -2578,13 +2572,13 @@ export async function sendPasswordResetEmail(
       },
     };
     
-    console.log(`[EMAIL] Sending password reset email via SendGrid:`, {
+    console.log(`[EMAIL] Sending password reset email via ZeptoMail:`, {
       to: emailAddress,
       from: ADMIN_FROM_EMAIL,
       subject: subject,
     });
     
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     
     console.log(`[EMAIL] ✅ Password reset email sent successfully to ${emailAddress}`);
     return { success: true };
@@ -2635,8 +2629,8 @@ export async function sendEstimateRequestEmail(
       return { success: false, error: "Owner email not found" };
     }
 
-    if (!SENDGRID_API_KEY) {
-      return { success: false, error: "SendGrid API key not configured" };
+    if (!isZeptoMailConfigured()) {
+      return { success: false, error: "ZeptoMail not configured" };
     }
 
     const vehicleInfo = [estimateData.vehicleYear, estimateData.vehicleMake, estimateData.vehicleModel]
@@ -2703,7 +2697,7 @@ export async function sendEstimateRequestEmail(
     };
 
     console.log(`[EMAIL] Sending estimate request email to owner: ${ownerEmail}`);
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     console.log(`[EMAIL] ✅ Estimate request email sent to ${ownerEmail}`);
     return { success: true };
   } catch (error: any) {
@@ -2732,8 +2726,8 @@ export async function sendEstimateReplyEmail(data: {
       return { success: false, error: "No customer email" };
     }
 
-    if (!SENDGRID_API_KEY) {
-      return { success: false, error: "SendGrid API key not configured" };
+    if (!isZeptoMailConfigured()) {
+      return { success: false, error: "ZeptoMail not configured" };
     }
 
     const businessName = data.workshopName ?? data.salonName ?? "Workshop";
@@ -2786,7 +2780,7 @@ export async function sendEstimateReplyEmail(data: {
     };
 
     console.log(`[EMAIL] Sending estimate reply email to customer: ${data.customerEmail}`);
-    await sgMail.send(msg);
+    await dispatchMail(msg);
     await sendCustomerSmsSafe(
       data.customerPhone,
       `${businessName}: We replied to your estimate request. Please check your email for the full message.${data.portalUrl ? ` Portal: ${data.portalUrl}` : ""}`,
@@ -2838,9 +2832,9 @@ export async function sendBookingRescheduledEmail(data: {
     console.log(`[EMAIL] sendBookingRescheduledEmail: invalid/missing email for booking ${data.bookingId}`);
     return { success: false, error: "Invalid or missing customer email" };
   }
-  if (!SENDGRID_API_KEY || SENDGRID_API_KEY === "") {
-    console.error(`[EMAIL] SendGrid API key not configured!`);
-    return { success: false, error: "SendGrid API key not configured" };
+  if (!isZeptoMailConfigured()) {
+    console.error(`[EMAIL] ZeptoMail not configured!`);
+    return { success: false, error: "ZeptoMail not configured" };
   }
 
   try {
@@ -2948,7 +2942,7 @@ export async function sendBookingRescheduledEmail(data: {
       ? `Booking rescheduled - ${workshopName} (${data.bookingCode})`
       : `Booking rescheduled - ${workshopName}`;
 
-    await sgMail.send({ to: email, from: FROM_EMAIL, subject, html });
+    await dispatchMail({ to: email, from: FROM_EMAIL, subject, html });
     const portalUrl = await getBookingPortalUrl(data.ownerUid);
     await sendCustomerSmsSafe(
       data.customerPhone,

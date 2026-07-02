@@ -9,7 +9,9 @@ export type CustomerNotificationType =
   | "booking_confirmed" 
   | "booking_completed" 
   | "booking_canceled" 
-  | "booking_status_changed";
+  | "booking_status_changed"
+  | "service_reminder"
+  | "service_reminder_advance";
 
 // Staff-facing notification types
 export type StaffNotificationType = 

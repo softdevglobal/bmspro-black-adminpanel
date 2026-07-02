@@ -25,7 +25,10 @@ import {
 } from "@/lib/leaveBookingAssignment";
 import BookingsExportModal from "./BookingsExportModal";
 import BookingJobReportPdfViewer from "./BookingJobReportPdfViewer";
+import ServiceReminderSettingsPanel from "./ServiceReminderSettingsPanel";
+import CompletedBookingReminderCard from "./CompletedBookingReminderCard";
 import { bookingJobReportPdfFilename } from "@/lib/bookingPdfFilename";
+import type { BookingServiceReminderSnapshot } from "@/lib/serviceReminders/types";
 import {
   type TaskCondition,
   isTaskCondition,
@@ -171,6 +174,7 @@ type Row = {
   } | null;
   // Additional issues (technician-reported, owner/admin sets price)
   additionalIssues?: AdditionalIssueRow[] | null;
+  serviceReminder?: BookingServiceReminderSnapshot | null;
 };
 
 type AdditionalIssueRow = {
@@ -406,6 +410,29 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 completionNote: i.completionNote || null,
                 completedByStaffName: i.completedByStaffName || null,
               })) : null,
+              serviceReminder: (() => {
+                const r = d.serviceReminder;
+                if (!r || typeof r !== "object") return null;
+                const status = r.status;
+                if (status !== "pending" && status !== "sent" && status !== "cancelled") return null;
+                if (typeof r.dueAt !== "string") return null;
+                return {
+                  enabled: !!r.enabled,
+                  intervalDays: typeof r.intervalDays === "number" ? r.intervalDays : 90,
+                  dueAt: r.dueAt,
+                  status,
+                  sentAt: typeof r.sentAt === "string" ? r.sentAt : null,
+                  advanceDueAt: typeof r.advanceDueAt === "string" ? r.advanceDueAt : null,
+                  advanceStatus:
+                    r.advanceStatus === "pending" ||
+                    r.advanceStatus === "sent" ||
+                    r.advanceStatus === "skipped" ||
+                    r.advanceStatus === "cancelled"
+                      ? r.advanceStatus
+                      : undefined,
+                  advanceSentAt: typeof r.advanceSentAt === "string" ? r.advanceSentAt : null,
+                } satisfies BookingServiceReminderSnapshot;
+              })(),
             });
           }
         });
@@ -457,7 +484,7 @@ function formatLabourMinutes(hours: number | null | undefined): string | null {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-export default function BookingsListByStatus({ status, title, showStaffColumn = true, showExportButton = false, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; showExportButton?: boolean; openBookingId?: string }) {
+export default function BookingsListByStatus({ status, title, showStaffColumn = true, showExportButton = false, showServiceReminderSettings = false, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; showExportButton?: boolean; showServiceReminderSettings?: boolean; openBookingId?: string }) {
   const searchParams = useSearchParams();
   const openFromUrl = searchParams.get("open") || searchParams.get("highlight");
   const openBookingId = openBookingIdProp ?? openFromUrl ?? undefined;
@@ -2147,6 +2174,10 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               </div>
             </div>
 
+            {showServiceReminderSettings && (
+              <ServiceReminderSettingsPanel />
+            )}
+
             <BookingsExportModal open={exportModalOpen} onClose={() => setExportModalOpen(false)} />
 
             {/* Right-side preview slide-over */}
@@ -3251,6 +3282,12 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                           <p className="text-neutral-400">Notes</p>
                           <p className="text-neutral-700 whitespace-pre-wrap">{previewRow.notes}</p>
                         </div>
+                      )}
+                      {previewRow.status === "Completed" && (
+                        <CompletedBookingReminderCard
+                          clientName={previewRow.client}
+                          serviceReminder={previewRow.serviceReminder ?? null}
+                        />
                       )}
                       {previewRow.status === "Confirmed" && (
                         <div className="pt-2 border-t border-neutral-100">

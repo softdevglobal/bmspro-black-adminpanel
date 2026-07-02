@@ -1862,6 +1862,9 @@ export default function BookingEnginePage() {
                     // additional-work notifications all feel at home in the
                     // same inbox.
                     const isReschedule = n.type === "booking_status_changed" && (n.title || "").toLowerCase().includes("reschedul");
+                    const isServiceReminder = n.type === "service_reminder";
+                    const isServiceReminderAdvance = n.type === "service_reminder_advance";
+                    const isServiceReminderNotif = isServiceReminder || isServiceReminderAdvance;
                     const accentColor = isReschedule ? "#3b82f6" : "#f59e0b";
                     const iconBg = isReschedule ? "bg-blue-100" : "bg-amber-100";
                     const iconFg = isReschedule ? "text-blue-600" : "text-amber-600";
@@ -1869,12 +1872,20 @@ export default function BookingEnginePage() {
                       ? "fa-calendar-days"
                       : isAdditionalQuote
                         ? "fa-file-invoice-dollar"
-                        : "fa-file-invoice-dollar";
+                        : isServiceReminderNotif
+                          ? "fa-bell"
+                          : "fa-file-invoice-dollar";
                     const titleText = isReschedule
                       ? n.title || "Booking Rescheduled"
                       : isAdditionalQuote
                         ? "Additional Work Quote Ready"
-                        : "Estimate Reply";
+                        : isServiceReminderAdvance
+                          ? n.title || "Service Due in 1 Week"
+                          : isServiceReminder
+                            ? n.title || "Service Reminder"
+                            : n.type === "estimate_reply"
+                              ? "Estimate Reply"
+                              : n.title || "Notification";
                     return (
                       <div
                         key={n.id}
@@ -1885,7 +1896,7 @@ export default function BookingEnginePage() {
                             setActiveView("myBookings");
                             fetchCustomerBookings();
                             setExpandedBookingId(n.bookingId || null);
-                          } else if (isAdditionalQuote) {
+                          } else if (isAdditionalQuote || isServiceReminderNotif) {
                             setActiveView("myBookings");
                             fetchCustomerBookings();
                             setExpandedBookingId(n.bookingId || null);
@@ -1916,7 +1927,12 @@ export default function BookingEnginePage() {
                                 </button>
                               </div>
                               <p className="text-[10px] text-neutral-500 leading-relaxed mt-0.5">
-                                {n.message || (isAdditionalQuote ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.` : "You have a new reply to your estimate request.")}
+                                {n.message ||
+                                  (isAdditionalQuote
+                                    ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.`
+                                    : isServiceReminderNotif
+                                      ? "Time to book your next service."
+                                      : "You have a new reply to your estimate request.")}
                               </p>
                               {n.bookingCode && (
                                 <p className="text-[9px] text-neutral-400 mt-1 font-mono">{n.bookingCode}</p>

@@ -157,11 +157,6 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
 
   await updateDoc(staffRef, updatePayload);
 
-  // Check if role is being changed TO branch admin (support both old and new role names)
-  const wasBranchAdmin = currentData?.role === "branch_admin" || currentData?.systemRole === "branch_admin";
-  const isNowBranchAdmin = data.systemRole === "branch_admin" || updatePayload.role === "branch_admin";
-  const roleChangedToBranchAdmin = !wasBranchAdmin && isNowBranchAdmin;
-
   // Audit log for staff update
   try {
     const performer = await getCurrentUserForAudit();
@@ -189,42 +184,6 @@ export async function updateSalonStaff(staffId: string, data: Partial<SalonStaff
     }
   } catch (e) {
     console.error("Failed to create audit log for staff update:", e);
-  }
-
-  // Send branch admin assignment email if role changed to branch admin
-  if (roleChangedToBranchAdmin) {
-    const staffEmail = currentData?.email || "";
-    const staffName = data.name || currentData?.name || currentData?.displayName || "Unknown Staff";
-    const branchName = data.branchName || currentData?.branchName || "";
-    const staffOwnerUid = ownerUid || currentData?.ownerUid || "";
-
-    if (staffEmail && branchName) {
-      try {
-        // Get salon name
-        let salonName: string | undefined;
-        if (staffOwnerUid) {
-          try {
-            const ownerDoc = await getDoc(doc(db, "users", staffOwnerUid));
-            if (ownerDoc.exists()) {
-              const ownerData = ownerDoc.data();
-              salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
-            }
-          } catch (e) {
-            console.error("Failed to fetch salon name for branch admin email:", e);
-          }
-        }
-
-        // Only import emailService on the server side
-        if (typeof window === "undefined") {
-          // Import server wrapper - webpack will handle client-side replacement
-          const emailService = await import("@/lib/emailService.server");
-          await emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, branchName, salonName);
-        }
-      } catch (emailError) {
-        console.error("Failed to send branch admin assignment email:", emailError);
-        // Don't block staff update if email fails
-      }
-    }
   }
 }
 
@@ -389,7 +348,6 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
   const staffSnap = await getDoc(userRef);
   const staffData = staffSnap.data();
   const staffName = staffData?.name || staffData?.displayName || "Unknown Staff";
-  const staffEmail = staffData?.email || "";
   const staffOwnerUid = staffData?.ownerUid || "";
   
   // Build the weekly schedule based on branch hours (work all days the branch is open)
@@ -457,64 +415,8 @@ export async function promoteStaffToBranchAdmin(staffId: string, options?: Promo
     console.error("Failed to create audit log for staff promotion:", e);
   }
   
-  // Send branch admin assignment email if staff has email
-  // Try to get branch name from options or from branchId if not provided
-  let finalBranchName = branchName;
-  if (!finalBranchName && options?.branchId) {
-    try {
-      const branchDoc = await getDoc(doc(db, "branches", options.branchId));
-      if (branchDoc.exists()) {
-        const branchData = branchDoc.data();
-        finalBranchName = branchData?.name || "Branch";
-      }
-    } catch (e) {
-      console.error("Failed to fetch branch name for email:", e);
-    }
-  }
+  // Branch admin assignment emails are sent server-side via POST /api/branches/assign-admin.
 
-  if (staffEmail && finalBranchName) {
-    // Only send email on server side
-    if (typeof window === "undefined") {
-      try {
-        console.log(`[PROMOTE STAFF] Sending branch admin assignment email to ${staffEmail} for branch ${finalBranchName}`);
-        // Get salon name
-        let salonName: string | undefined;
-        if (staffOwnerUid) {
-          try {
-            const ownerDoc = await getDoc(doc(db, "users", staffOwnerUid));
-            if (ownerDoc.exists()) {
-              const ownerData = ownerDoc.data();
-              salonName = ownerData?.salonName || ownerData?.name || ownerData?.businessName || ownerData?.displayName;
-            }
-          } catch (e) {
-            console.error("Failed to fetch salon name for branch admin email:", e);
-          }
-        }
-        
-        // Import server wrapper - only works on server side
-        const emailService = await import("@/lib/emailService.server");
-        const emailResult = await emailService.sendBranchAdminAssignmentEmail(staffEmail, staffName, finalBranchName, salonName);
-        if (emailResult.success) {
-          console.log(`[PROMOTE STAFF] ✅ Branch admin assignment email sent successfully to ${staffEmail}`);
-        } else {
-          console.error(`[PROMOTE STAFF] ❌ Failed to send email: ${emailResult.error}`);
-        }
-      } catch (emailError) {
-        console.error("Failed to send branch admin assignment email:", emailError);
-        // Don't block promotion if email fails
-      }
-    } else {
-      console.log(`[PROMOTE STAFF] Skipping email send (client-side). Email will be sent via API route if needed.`);
-    }
-  } else {
-    if (!staffEmail) {
-      console.warn(`[PROMOTE STAFF] ⚠️ Cannot send email: Staff ${staffId} has no email address`);
-    }
-    if (!finalBranchName) {
-      console.warn(`[PROMOTE STAFF] ⚠️ Cannot send email: Branch name not provided for staff ${staffId}`);
-    }
-  }
-  
   return { weeklySchedule };
 }
 

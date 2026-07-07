@@ -18,6 +18,7 @@ import {
 } from "@/lib/auditLogServer";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { sendBookingStatusChangeEmail } from "@/lib/emailService";
+import { scheduleServiceReminderOnCompletion } from "@/lib/serviceReminders/server";
 
 // Helper to get activity type from status
 function getActivityType(status: string): string {
@@ -768,6 +769,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           bookingDate: finalBookingDate,
           bookingTime: finalBookingTime,
         });
+        void scheduleServiceReminderOnCompletion(id);
       }
       
       // Send email when status changes to Completed (regardless of transition path)

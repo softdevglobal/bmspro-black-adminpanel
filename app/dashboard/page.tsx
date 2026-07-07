@@ -3166,6 +3166,9 @@ export default function DashboardPage() {
                         <div
                           onClick={() => {
                             markAsRead(notif.id);
+                            if (notif.type === "system_message") {
+                              return;
+                            }
                             if (notif.type === "cc_chat_inbound" && notif.chatId) {
                               openSupportChatWidget();
                               setNotificationPanelOpen(false);
@@ -3191,7 +3194,9 @@ export default function DashboardPage() {
                                   ? "bg-gradient-to-br from-amber-400 to-orange-500 text-white"
                                   : notif.type === "cc_chat_inbound"
                                     ? "bg-gradient-to-br from-sky-500 to-indigo-600 text-white"
-                                    : "bg-neutral-900 text-white"
+                                    : notif.type === "system_message"
+                                      ? "bg-gradient-to-br from-violet-500 to-purple-600 text-white"
+                                      : "bg-neutral-900 text-white"
                               }`}
                             >
                               <i
@@ -3200,7 +3205,9 @@ export default function DashboardPage() {
                                     ? "fa-calendar-plus"
                                     : notif.type === "cc_chat_inbound"
                                       ? "fa-headset"
-                                      : "fa-bell"
+                                      : notif.type === "system_message"
+                                        ? "fa-bullhorn"
+                                        : "fa-bell"
                                 } text-lg`}
                               />
                             </div>
@@ -3217,7 +3224,7 @@ export default function DashboardPage() {
                                 <span className="text-xs text-neutral-400 flex-shrink-0">{timeAgo}</span>
                               </div>
                               <p className="text-sm text-neutral-600 mt-1">{notif.message}</p>
-                              {(notif.serviceName || notif.branchName || (notif.date && notif.time) || notif.price) && (
+                              {notif.type !== "system_message" && (notif.serviceName || notif.branchName || (notif.date && notif.time) || notif.price) && (
                                 <div className="flex items-center flex-wrap gap-2 mt-3">
                                   {notif.serviceName && (
                                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-neutral-100 rounded-lg text-xs text-neutral-600">

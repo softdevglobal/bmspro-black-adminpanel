@@ -21,6 +21,7 @@ import {
   notifyOwnerBookingCompletedOnce,
 } from "@/lib/notifications";
 import { sendBookingStatusChangeEmail } from "@/lib/emailService";
+import { scheduleServiceReminderOnCompletion } from "@/lib/serviceReminders/server";
 
 /** Action verbs exposed to the call-center API. */
 export type CallCenterBookingAction = "confirm" | "cancel" | "complete";
@@ -603,6 +604,7 @@ export async function handleCallCenterBookingStatusChange(
         bookingDate: data.date as string | undefined,
         bookingTime: data.time as string | undefined,
       });
+      void scheduleServiceReminderOnCompletion(bookingId);
     }
 
     try {

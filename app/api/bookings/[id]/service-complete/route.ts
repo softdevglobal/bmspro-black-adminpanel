@@ -6,6 +6,7 @@ import { createNotification, getNotificationContent, notifyOwnerBookingCompleted
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { logBookingServiceCompletedServer } from "@/lib/auditLogServer";
 import { sendBookingStatusChangeEmail } from "@/lib/emailService";
+import { scheduleServiceReminderOnCompletion } from "@/lib/serviceReminders/server";
 
 export const runtime = "nodejs";
 
@@ -197,6 +198,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           bookingDate: finalBookingDate,
           bookingTime: finalBookingTime,
         });
+        void scheduleServiceReminderOnCompletion(id);
       } catch (e) {
         console.error("Failed to send notification for already-completed booking:", e);
       }
@@ -517,6 +519,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             bookingDate: finalBookingDate,
             bookingTime: finalBookingTime,
           });
+          void scheduleServiceReminderOnCompletion(id);
         } catch (e) {
           console.error("Failed owner completion notification:", e);
         }
@@ -739,6 +742,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
           bookingDate: finalBookingDate,
           bookingTime: finalBookingTime,
         });
+        void scheduleServiceReminderOnCompletion(id);
       } catch (e) {
         console.error("Failed owner completion notification:", e);
       }

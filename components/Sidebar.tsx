@@ -28,6 +28,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isServices = pathname?.startsWith("/services");
   const isBranches = pathname?.startsWith("/branches");
   const isCustomers = pathname?.startsWith("/customers");
+  const isOwnerCustomMessages = pathname?.startsWith("/owner-custom-messages") || pathname?.startsWith("/greeting-messages");
   const isEstimates = pathname?.startsWith("/estimates");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
@@ -39,6 +40,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isSubscription = pathname?.startsWith("/subscription");
   const isPackages = pathname?.startsWith("/packages");
   const isSuperAdminAuditLogs = pathname?.startsWith("/super-admin-audit-logs");
+  const isCustomMessages = pathname?.startsWith("/custom-messages");
   const isAgentActivities = pathname?.startsWith("/agent-activities");
   const [role, setRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
@@ -306,6 +308,12 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "super_admin" && (
+          <Link href="/custom-messages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isCustomMessages ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-bullhorn w-5" />
+            <span>Custom notification</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
           <Link href="/super-admin-audit-logs" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSuperAdminAuditLogs ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-shield-halved w-5" />
             <span>Audit Logs</span>
@@ -417,6 +425,17 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         >
           <i className="fas fa-user-group w-5" />
           <span>Customers</span>
+        </Link>
+      )}
+      {mounted && role === "workshop_owner" && (
+        <Link
+          href="/owner-custom-messages"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isOwnerCustomMessages ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-comment-sms w-5" />
+          <span>Custom Messages</span>
         </Link>
       )}
       {mounted && (role === "workshop_owner" || role === "branch_admin") && (

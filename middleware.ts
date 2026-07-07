@@ -32,7 +32,7 @@ function generateCSP(isDev: boolean): string {
     
     // Connect: API endpoints, Firebase, WebSocket connections, OpenStreetMap, and Leaflet CDN
     // Added *.firebaseapp.com for Firebase Auth popup/redirect
-    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com https://ka-f.fontawesome.com",
+    "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com https://*.firebaseapp.com wss://*.firebaseio.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com https://*.cloudfunctions.net https://www.google.com https://www.recaptcha.net https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://cdn.jsdelivr.net https://unpkg.com https://ka-f.fontawesome.com",
     
     // Frames: blob: for PDF iframe fallbacks; Firebase Auth / reCAPTCHA
     "frame-src 'self' blob: https://*.firebaseapp.com https://www.google.com https://www.recaptcha.net",

@@ -3,7 +3,7 @@ import { FieldValue, Timestamp, type Firestore, type QueryDocumentSnapshot } fro
 import { createNotification } from "@/lib/notifications";
 import { sendSms, isSmsConfigured } from "@/lib/smsService";
 import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "@/lib/customerAccount";
-import sgMail from "@sendgrid/mail";
+import { sendEmail, isZeptoMailConfigured } from "@/lib/email";
 import {
   DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS,
   SERVICE_REMINDER_COLLECTION,
@@ -14,13 +14,6 @@ import {
   type ServiceReminderStatus,
   type ServiceReminderAdvanceStatus,
 } from "@/lib/serviceReminders/types";
-
-const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-const FROM_EMAIL = process.env.FROM_EMAIL || "booking@bmspros.com.au";
-
-if (SENDGRID_API_KEY) {
-  sgMail.setApiKey(SENDGRID_API_KEY);
-}
 
 const CRON_BATCH_LIMIT = 100;
 
@@ -521,21 +514,20 @@ async function sendServiceReminderChannels(
     }
   }
 
-  if (reminder.customerEmail && SENDGRID_API_KEY) {
-    try {
-      await sgMail.send({
-        to: reminder.customerEmail,
-        from: FROM_EMAIL,
-        subject: `${content.title} - ${workshopName}`,
-        text: `${content.message}\n\n${portalUrl ? `Book your next service: ${portalUrl}` : ""}`.trim(),
-        html: `<p>${content.message.replace(/\n/g, "<br>")}</p>${
-          portalUrl
-            ? `<p><a href="${portalUrl}">Book your next service</a></p>`
-            : ""
-        }`,
-      });
-    } catch (error) {
-      console.error(`[serviceReminders] Email failed for ${reminder.bookingId} (${phase}):`, error);
+  if (reminder.customerEmail && isZeptoMailConfigured()) {
+    const emailResult = await sendEmail({
+      sender: "request",
+      to: reminder.customerEmail,
+      toName: reminder.clientName,
+      subject: `${content.title} - ${workshopName}`,
+      htmlBody: `<p>${content.message.replace(/\n/g, "<br>")}</p>${
+        portalUrl
+          ? `<p><a href="${portalUrl}">Book your next service</a></p>`
+          : ""
+      }`,
+    });
+    if (!emailResult.ok) {
+      console.error(`[serviceReminders] Email failed for ${reminder.bookingId} (${phase}):`, emailResult.message);
     }
   }
 }

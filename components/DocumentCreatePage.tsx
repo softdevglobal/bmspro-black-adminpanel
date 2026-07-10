@@ -32,6 +32,14 @@ type DraftLineItem = {
   applyGst: boolean;
 };
 
+type CatalogItem = {
+  id: string;
+  name: string;
+  code: string | null;
+  description: string | null;
+  priceAud: number;
+};
+
 type Address = {
   street: string;
   suburb: string;
@@ -90,6 +98,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const INPUT_CLASS =
   "w-full px-4 py-2.5 border border-neutral-300 rounded-lg text-sm text-neutral-900 placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none";
+const NUMBER_INPUT_CLASS = `${INPUT_CLASS} [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
 const LABEL_CLASS = "block text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-1.5";
 
 function todayIso(): string {
@@ -145,6 +154,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [itemDraft, setItemDraft] = useState<DraftLineItem | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [catalogField, setCatalogField] = useState<"code" | "name" | null>(null);
+
   const [attachments, setAttachments] = useState<{ name: string; url: string; isPdf: boolean }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -164,8 +176,22 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     let unsub: (() => void) | undefined;
     (async () => {
       const { auth } = await import("@/lib/firebase");
-      unsub = onAuthStateChanged(auth, (user) => {
-        if (!user) router.replace("/login");
+      unsub = onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          router.replace("/login");
+          return;
+        }
+        try {
+          const token = await user.getIdToken();
+          const res = await fetch("/api/items", {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          });
+          const data = (await res.json()) as { ok?: boolean; items?: CatalogItem[] };
+          if (res.ok && data.ok && data.items) setCatalog(data.items);
+        } catch {
+          /* catalog is optional */
+        }
       });
     })();
     return () => {
@@ -231,6 +257,52 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     setEditingItemId(item.id);
   }
 
+  function applyCatalogItem(item: CatalogItem) {
+    setItemDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            code: item.code ?? "",
+            name: item.name,
+            description: item.description ?? "",
+            rate: String(item.priceAud),
+          }
+        : prev,
+    );
+    setCatalogField(null);
+  }
+
+  async function saveItemToCatalog(item: {
+    name: string;
+    priceAud: number;
+    code: string | null;
+    description: string | null;
+  }) {
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) return;
+      const token = await user.getIdToken();
+      const res = await fetch("/api/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(item),
+      });
+      const data = (await res.json()) as { ok?: boolean; item?: CatalogItem };
+      if (res.ok && data.ok && data.item) {
+        setCatalog((prev) => {
+          const rest = prev.filter((existing) => existing.id !== data.item!.id);
+          return [...rest, data.item!].sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+    } catch {
+      /* catalog save is best-effort */
+    }
+  }
+
   function commitItemDraft() {
     if (!itemDraft) return;
     const name = itemDraft.name.trim();
@@ -239,11 +311,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       setError("Enter an item name and rate.");
       return;
     }
+    const code = itemDraft.code.trim();
+    const description = itemDraft.description.trim();
     const saved: LineItem = {
       id: editingItemId ?? (crypto.randomUUID?.() ?? String(Date.now())),
-      code: itemDraft.code.trim(),
+      code,
       name,
-      description: itemDraft.description.trim(),
+      description,
       quantity: parseNum(itemDraft.quantity) || 1,
       rate,
       discountPercent: Math.min(100, parseNum(itemDraft.discountPercent)),
@@ -254,7 +328,15 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     );
     setItemDraft(null);
     setEditingItemId(null);
+    setCatalogField(null);
     setError(null);
+
+    void saveItemToCatalog({
+      name,
+      priceAud: rate,
+      code: code || null,
+      description: description || null,
+    });
   }
 
   function uploadAttachment(event: React.ChangeEvent<HTMLInputElement>) {
@@ -267,11 +349,35 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   }
 
   function validate(): string | null {
-    if (customer.fullName.trim().length < 2) return "Add a client name.";
+    // Client
+    if (!clientOpen || customer.fullName.trim().length < 2) return "Add a client name.";
     if (!EMAIL_REGEX.test(customer.email.trim())) return "Enter a valid client email.";
     if (customer.phone.replace(/\D/g, "").length < 6) return "Enter a valid client mobile number.";
+    if (address.postcode && address.postcode.length !== 4) {
+      return "Enter a valid 4-digit postcode, or clear it.";
+    }
+
+    // Job details
     if (jobTitle.trim().length < 3) return "Add a job title (at least 3 characters).";
+    if (jobDescription.trim().length < 10) {
+      return "Describe the work (at least 10 characters).";
+    }
+
+    // Items
+    if (itemDraft) return "Finish adding the current item, or cancel it.";
     if (lineItems.length === 0) return "Add at least one line item.";
+    for (const item of lineItems) {
+      if (!item.name.trim()) return "Every item needs a name.";
+      if (item.rate <= 0) return `Enter a rate for "${item.name}".`;
+      if (item.quantity <= 0) return `Enter a quantity for "${item.name}".`;
+    }
+
+    // Totals
+    if (!documentDate) return `Choose a ${config.dateLabel.toLowerCase()}.`;
+    if (discountAud < 0) return "Discount cannot be negative.";
+    if (discountAud > subtotal) return "Discount cannot exceed the subtotal.";
+    if (total <= 0) return "The total must be greater than zero.";
+
     return null;
   }
 
@@ -304,6 +410,62 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     });
     return net;
   }, [itemDraft]);
+
+  const catalogSuggestions = useMemo(() => {
+    if (!itemDraft || !catalogField || catalog.length === 0) return [];
+    const query =
+      catalogField === "code"
+        ? itemDraft.code.trim().toLowerCase()
+        : itemDraft.name.trim().toLowerCase();
+    const matches = query
+      ? catalog.filter((item) => {
+          const name = item.name.toLowerCase();
+          const code = (item.code ?? "").toLowerCase();
+          const description = (item.description ?? "").toLowerCase();
+          return (
+            name.includes(query) || code.includes(query) || description.includes(query)
+          );
+        })
+      : catalog;
+    return matches.slice(0, 8);
+  }, [catalog, itemDraft, catalogField]);
+
+  function renderCatalogSuggestions(field: "code" | "name") {
+    if (catalogField !== field || catalogSuggestions.length === 0) return null;
+    const query =
+      field === "code" ? (itemDraft?.code ?? "").trim() : (itemDraft?.name ?? "").trim();
+    return (
+      <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white py-1 shadow-lg">
+        {!query && (
+          <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-neutral-400">
+            Saved items
+          </li>
+        )}
+        {catalogSuggestions.map((item) => (
+          <li key={item.id}>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => applyCatalogItem(item)}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-neutral-50"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-neutral-900">
+                  {item.name}
+                </span>
+                {item.code && (
+                  <span className="text-xs text-neutral-500">{item.code}</span>
+                )}
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-neutral-900">
+                {formatAud(item.priceAud)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
@@ -608,23 +770,51 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           <div className="grid gap-3 sm:grid-cols-2">
                             <label className="block">
                               <span className={LABEL_CLASS}>Item code</span>
-                              <input
-                                type="text"
-                                value={itemDraft.code}
-                                onChange={(e) => setItemDraft((p) => (p ? { ...p, code: e.target.value } : p))}
-                                placeholder="e.g. TAP-001"
-                                className={INPUT_CLASS}
-                              />
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  value={itemDraft.code}
+                                  onChange={(e) =>
+                                    setItemDraft((p) => (p ? { ...p, code: e.target.value } : p))
+                                  }
+                                  onFocus={() => setCatalogField("code")}
+                                  onBlur={() =>
+                                    window.setTimeout(
+                                      () =>
+                                        setCatalogField((f) => (f === "code" ? null : f)),
+                                      150,
+                                    )
+                                  }
+                                  placeholder="e.g. TAP-001"
+                                  className={INPUT_CLASS}
+                                  autoComplete="off"
+                                />
+                                {renderCatalogSuggestions("code")}
+                              </div>
                             </label>
                             <label className="block">
                               <span className={LABEL_CLASS}>Item name</span>
-                              <input
-                                type="text"
-                                value={itemDraft.name}
-                                onChange={(e) => setItemDraft((p) => (p ? { ...p, name: e.target.value } : p))}
-                                className={INPUT_CLASS}
-                                autoFocus
-                              />
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  value={itemDraft.name}
+                                  onChange={(e) =>
+                                    setItemDraft((p) => (p ? { ...p, name: e.target.value } : p))
+                                  }
+                                  onFocus={() => setCatalogField("name")}
+                                  onBlur={() =>
+                                    window.setTimeout(
+                                      () =>
+                                        setCatalogField((f) => (f === "name" ? null : f)),
+                                      150,
+                                    )
+                                  }
+                                  className={INPUT_CLASS}
+                                  autoComplete="off"
+                                  autoFocus
+                                />
+                                {renderCatalogSuggestions("name")}
+                              </div>
                             </label>
                           </div>
                           <label className="mt-3 block">
@@ -649,7 +839,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 onChange={(e) =>
                                   setItemDraft((p) => (p ? { ...p, quantity: e.target.value } : p))
                                 }
-                                className={INPUT_CLASS}
+                                className={NUMBER_INPUT_CLASS}
                               />
                             </label>
                             <label className="block">
@@ -660,7 +850,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 step="0.01"
                                 value={itemDraft.rate}
                                 onChange={(e) => setItemDraft((p) => (p ? { ...p, rate: e.target.value } : p))}
-                                className={INPUT_CLASS}
+                                className={NUMBER_INPUT_CLASS}
                               />
                             </label>
                             <label className="block">
@@ -674,7 +864,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 onChange={(e) =>
                                   setItemDraft((p) => (p ? { ...p, discountPercent: e.target.value } : p))
                                 }
-                                className={INPUT_CLASS}
+                                className={NUMBER_INPUT_CLASS}
                               />
                             </label>
                           </div>
@@ -1009,17 +1199,20 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                       </label>
                       <label className="block">
                         <span className={LABEL_CLASS}>Payment terms</span>
-                        <select
-                          value={paymentTerms}
-                          onChange={(e) => setPaymentTerms(e.target.value as TermsId)}
-                          className={INPUT_CLASS}
-                        >
-                          {TERMS_OPTIONS.map((opt) => (
-                            <option key={opt.id} value={opt.id}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <select
+                            value={paymentTerms}
+                            onChange={(e) => setPaymentTerms(e.target.value as TermsId)}
+                            className={`${INPUT_CLASS} appearance-none pr-10`}
+                          >
+                            {TERMS_OPTIONS.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          <i className="fas fa-chevron-down pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-neutral-500" />
+                        </div>
                       </label>
                       <div className="flex items-center justify-between rounded-lg bg-neutral-100 px-3 py-2">
                         <span className="text-xs font-semibold text-neutral-500">{config.dueLabel}</span>
@@ -1037,9 +1230,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                       <label className="flex items-center justify-between gap-2 text-neutral-600">
                         <span>Discount (AU$)</span>
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={discountAud || ""}
                           onChange={(e) => setDiscountAud(parseNum(e.target.value))}
                           placeholder="0.00"

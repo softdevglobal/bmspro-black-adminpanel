@@ -22,11 +22,51 @@ export type SmsLogRow = {
 };
 
 const PAGE_SIZE = 15;
+const PREVIEW_LENGTH = 90;
 
 function statusClass(status: SmsLogRow["status"]): string {
   if (status === "sent") return "bg-emerald-50 text-emerald-700";
   if (status === "failed") return "bg-red-50 text-red-700";
   return "bg-amber-50 text-amber-700";
+}
+
+function formatWhen(value: string | null): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function MessageCell({ message }: { message: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const needsTruncate = message.length > PREVIEW_LENGTH;
+  const shown =
+    !needsTruncate || expanded ? message : `${message.slice(0, PREVIEW_LENGTH).trim()}…`;
+
+  return (
+    <div className="max-w-[28rem]">
+      <p
+        className={`text-sm leading-snug text-neutral-700 ${expanded ? "whitespace-pre-wrap break-words" : "line-clamp-2"}`}
+        title={!expanded ? message : undefined}
+      >
+        {shown}
+      </p>
+      {needsTruncate && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+        >
+          {expanded ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function SmsDeliveryLog({
@@ -68,95 +108,116 @@ export function SmsDeliveryLog({
   const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
       <div className="border-b border-neutral-200 p-4">
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Search sender, phone, message, status, source…"
-          className="w-full rounded-lg border border-neutral-300 px-3.5 py-2.5 text-sm focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
-        />
+        <div className="relative max-w-lg">
+          <i className="fas fa-search pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search sender, phone, message, status, source…"
+            className="w-full rounded-xl border border-neutral-300 py-2.5 pl-10 pr-3.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+          />
+        </div>
       </div>
+
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-sm">
-          <thead className="bg-neutral-50 text-xs uppercase tracking-wide text-neutral-500">
+          <thead className="sticky top-0 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-500">
             <tr>
-              <th className="px-4 py-3">When</th>
-              {showBusinessId && <th className="px-4 py-3">Tenant</th>}
-              <th className="px-4 py-3">Sender</th>
-              <th className="px-4 py-3">Recipient</th>
-              <th className="px-4 py-3">Message</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Source</th>
+              <th className="whitespace-nowrap px-4 py-3 font-semibold">When</th>
+              {showBusinessId && (
+                <th className="whitespace-nowrap px-4 py-3 font-semibold">Tenant</th>
+              )}
+              <th className="whitespace-nowrap px-4 py-3 font-semibold">Sender</th>
+              <th className="whitespace-nowrap px-4 py-3 font-semibold">Recipient</th>
+              <th className="px-4 py-3 font-semibold">Message</th>
+              <th className="whitespace-nowrap px-4 py-3 font-semibold">Status</th>
+              <th className="whitespace-nowrap px-4 py-3 font-semibold">Source</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-neutral-100">
             {pageRows.length === 0 ? (
               <tr>
-                <td colSpan={showBusinessId ? 7 : 6} className="px-4 py-10 text-center text-neutral-500">
+                <td
+                  colSpan={showBusinessId ? 7 : 6}
+                  className="px-4 py-12 text-center text-neutral-500"
+                >
                   No SMS log entries found.
                 </td>
               </tr>
             ) : (
-              pageRows.map((row) => (
-                <tr key={row.id} className="border-t border-neutral-100 align-top">
-                  <td className="px-4 py-3 whitespace-nowrap text-neutral-600">
-                    {row.createdAt ? new Date(row.createdAt).toLocaleString() : "—"}
-                  </td>
-                  {showBusinessId && (
-                    <td className="px-4 py-3">
-                      {row.tenantName ? (
-                        <div>
-                          <div className="font-medium text-neutral-900">{row.tenantName}</div>
-                          {row.tenantEmail && (
-                            <div className="text-xs text-neutral-500">{row.tenantEmail}</div>
-                          )}
-                        </div>
-                      ) : row.senderName && row.senderName !== "System" ? (
-                        <div className="font-medium text-neutral-900">{row.senderName}</div>
-                      ) : (
-                        <span className="text-neutral-400">—</span>
+              pageRows.map((row) => {
+                const source = row.sourceLabel || formatSmsLogSource(row.source);
+                const detail = row.statusLabel || formatSmsStatusDetail(row.statusDetail);
+
+                return (
+                  <tr key={row.id} className="align-middle hover:bg-neutral-50/70">
+                    <td className="whitespace-nowrap px-4 py-3.5 text-neutral-600">
+                      {formatWhen(row.createdAt)}
+                    </td>
+                    {showBusinessId && (
+                      <td className="px-4 py-3.5">
+                        {row.tenantName ? (
+                          <div>
+                            <div className="font-medium text-neutral-900">{row.tenantName}</div>
+                            {row.tenantEmail && (
+                              <div className="max-w-[10rem] truncate text-xs text-neutral-500">
+                                {row.tenantEmail}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="whitespace-nowrap px-4 py-3.5 font-medium text-neutral-900">
+                      {row.senderName || "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3.5">
+                      <div className="font-medium text-neutral-900">{row.receiverPhone}</div>
+                      {row.receiverName && (
+                        <div className="text-xs text-neutral-500">{row.receiverName}</div>
                       )}
                     </td>
-                  )}
-                  <td className="px-4 py-3">{row.senderName}</td>
-                  <td className="px-4 py-3">
-                    <div>{row.receiverPhone}</div>
-                    {row.receiverName && (
-                      <div className="text-xs text-neutral-500">{row.receiverName}</div>
-                    )}
-                  </td>
-                  <td className="max-w-md px-4 py-3 text-neutral-700">
-                    <p className="whitespace-pre-wrap break-words">{row.message}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusClass(row.status)}`}>
-                      {row.status}
-                    </span>
-                    {(row.statusLabel || row.statusDetail) && (
-                      <div className="mt-1 text-xs text-neutral-500">
-                        {row.statusLabel || formatSmsStatusDetail(row.statusDetail)}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-neutral-600">
-                    {row.sourceLabel || formatSmsLogSource(row.source)}
-                  </td>
-                </tr>
-              ))
+                    <td className="px-4 py-3.5">
+                      <MessageCell message={row.message} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3.5">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(row.status)}`}
+                      >
+                        {row.status}
+                      </span>
+                      {detail && (
+                        <div className="mt-1 max-w-[8rem] truncate text-xs text-neutral-400" title={detail}>
+                          {detail}
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3.5">
+                      <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-700">
+                        {source}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between border-t border-neutral-200 px-4 py-3 text-sm text-neutral-600">
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 px-4 py-3 text-sm text-neutral-600">
         <span>
-          Showing {(currentPage - 1) * PAGE_SIZE + 1}–
-          {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entr
-          {filtered.length === 1 ? "y" : "ies"}
+          {filtered.length === 0
+            ? "0 entries"
+            : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filtered.length)} of ${filtered.length} entr${filtered.length === 1 ? "y" : "ies"}`}
         </span>
         <div className="flex items-center gap-2">
           <button

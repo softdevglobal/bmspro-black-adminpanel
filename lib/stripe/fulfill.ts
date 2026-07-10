@@ -96,6 +96,7 @@ export async function fulfillSmsTopUpSession(
     type: "sms_topup",
     smsPackageId,
     smsPackageName: pkg.name,
+    messageQuota: pkg.messageQuota,
     amountTotal: session.amount_total ?? null,
     currency: session.currency ?? "aud",
     fulfilledAt: new Date(),

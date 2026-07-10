@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/broadcasts/auth";
-import { listTenantSmsUsage } from "@/lib/sms-packages/server";
+import { listSmsPackages, listTenantSmsUsage } from "@/lib/sms-packages/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 export const runtime = "nodejs";
@@ -12,7 +12,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const tenants = await listTenantSmsUsage();
+    const [tenants, packages] = await Promise.all([
+      listTenantSmsUsage(),
+      listSmsPackages({ includeInactive: true }),
+    ]);
     let purchases: Array<Record<string, unknown>> = [];
 
     try {
@@ -61,14 +64,24 @@ export async function GET(req: NextRequest) {
       ]),
     );
 
+    const packageById = new Map(packages.map((pkg) => [pkg.id, pkg]));
+
     purchases = purchases.map((purchase) => {
       const ownerUid = String(purchase.ownerUid ?? purchase.businessId ?? "");
       const tenant = tenantByUid.get(ownerUid);
+      const packageId = String(purchase.smsPackageId ?? "");
+      const pkg = packageId ? packageById.get(packageId) : null;
+      const storedQuota =
+        typeof purchase.messageQuota === "number" ? purchase.messageQuota : null;
+      const messageQuota = storedQuota ?? pkg?.messageQuota ?? null;
+
       return {
         ...purchase,
         ownerUid: ownerUid || null,
         tenantName: tenant?.name ?? null,
         tenantEmail: tenant?.email ?? null,
+        smsPackageName: purchase.smsPackageName ?? pkg?.name ?? null,
+        messageQuota,
       };
     });
 

@@ -30,6 +30,7 @@ type Purchase = {
   tenantName?: string | null;
   tenantEmail?: string | null;
   smsPackageName?: string;
+  messageQuota?: number | null;
   amountTotal?: number | null;
   currency?: string;
   fulfilledAt?: string | null;
@@ -42,17 +43,28 @@ export function AdminSmsUsageBoard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tenantPage, setTenantPage] = useState(1);
+  const [workshopSearch, setWorkshopSearch] = useState("");
 
-  const tenantTotalPages = Math.max(1, Math.ceil(tenants.length / PAGE_SIZE));
+  const filteredTenants = useMemo(() => {
+    const q = workshopSearch.trim().toLowerCase();
+    if (!q) return tenants;
+    return tenants.filter(
+      (tenant) =>
+        tenant.name.toLowerCase().includes(q) ||
+        tenant.email.toLowerCase().includes(q),
+    );
+  }, [tenants, workshopSearch]);
+
+  const tenantTotalPages = Math.max(1, Math.ceil(filteredTenants.length / PAGE_SIZE));
   const tenantCurrentPage = Math.min(tenantPage, tenantTotalPages);
 
   const pagedTenants = useMemo(
     () =>
-      tenants.slice(
+      filteredTenants.slice(
         (tenantCurrentPage - 1) * PAGE_SIZE,
         tenantCurrentPage * PAGE_SIZE,
       ),
-    [tenants, tenantCurrentPage],
+    [filteredTenants, tenantCurrentPage],
   );
 
   const load = useCallback(async () => {
@@ -94,7 +106,23 @@ export function AdminSmsUsageBoard() {
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="border-b border-neutral-200 p-4">
+              <div className="relative max-w-md">
+                <i className="fas fa-search pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400" />
+                <input
+                  type="search"
+                  value={workshopSearch}
+                  onChange={(e) => {
+                    setWorkshopSearch(e.target.value);
+                    setTenantPage(1);
+                  }}
+                  placeholder="Search workshop name…"
+                  className="w-full rounded-xl border border-neutral-300 py-2.5 pl-10 pr-3.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+                />
+              </div>
+            </div>
+            <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-neutral-50 text-xs uppercase tracking-wide text-neutral-500">
                 <tr>
@@ -106,10 +134,12 @@ export function AdminSmsUsageBoard() {
                 </tr>
               </thead>
               <tbody>
-                {tenants.length === 0 ? (
+                {filteredTenants.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-8 text-center text-neutral-500">
-                      No workshop tenants found.
+                      {workshopSearch.trim()
+                        ? "No workshops match your search."
+                        : "No workshop tenants found."}
                     </td>
                   </tr>
                 ) : (
@@ -149,12 +179,14 @@ export function AdminSmsUsageBoard() {
                 )}
               </tbody>
             </table>
-            {tenants.length > 0 && (
+            </div>
+            {filteredTenants.length > 0 && (
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-200 px-4 py-3 text-sm text-neutral-600">
                 <span>
                   Showing {(tenantCurrentPage - 1) * PAGE_SIZE + 1}–
-                  {Math.min(tenantCurrentPage * PAGE_SIZE, tenants.length)} of {tenants.length}{" "}
-                  workshop{tenants.length === 1 ? "" : "s"}
+                  {Math.min(tenantCurrentPage * PAGE_SIZE, filteredTenants.length)} of{" "}
+                  {filteredTenants.length} workshop{filteredTenants.length === 1 ? "" : "s"}
+                  {workshopSearch.trim() ? ` (filtered from ${tenants.length})` : ""}
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -222,7 +254,24 @@ export function AdminSmsUsageBoard() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3">{purchase.smsPackageName ?? "—"}</td>
+                        <td className="px-4 py-3">
+                          {purchase.smsPackageName ? (
+                            <div>
+                              <div className="font-medium text-neutral-900">
+                                {purchase.smsPackageName}
+                              </div>
+                              {purchase.messageQuota != null && (
+                                <div className="text-xs text-neutral-500">
+                                  {purchase.messageQuota < 0
+                                    ? "Unlimited messages"
+                                    : `${purchase.messageQuota.toLocaleString()} messages`}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-neutral-400">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           {purchase.amountTotal != null
                             ? `${(purchase.amountTotal / 100).toFixed(2)} ${(purchase.currency ?? "aud").toUpperCase()}`

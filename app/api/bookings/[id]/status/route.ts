@@ -776,8 +776,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       // Use effectivePreviousStatus to handle cases where mobile app updates Firestore first
       if (actualNextStatus === "Completed" && effectivePreviousStatus !== "Completed") {
         try {
-          console.log(`[EMAIL] Sending completion email for booking ${id}`);
-          await sendBookingStatusChangeEmail(
+          console.log(`[EMAIL] Sending completion email/SMS for booking ${id}`);
+          const notifyResult = await sendBookingStatusChangeEmail(
             id,
             actualNextStatus,
             data.clientEmail,
@@ -803,7 +803,18 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
               additionalIssues: data.additionalIssues || null,
             }
           );
-          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          if (notifyResult.emailSent) {
+            console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          } else if (notifyResult.smsSentIndependently) {
+            console.log(
+              `[SMS] ✅ Completion SMS sent (email failed: ${notifyResult.error ?? "n/a"}) for booking ${id}`,
+            );
+          } else {
+            console.warn(
+              `[EMAIL] Completion notify finished without email/SMS for booking ${id}:`,
+              notifyResult.error,
+            );
+          }
         } catch (emailError) {
           console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
           // Don't fail the request if email sending fails

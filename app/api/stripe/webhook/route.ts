@@ -176,6 +176,12 @@ async function handleCheckoutCompleted(
 ) {
   console.log("[WEBHOOK] Checkout completed:", session.id);
 
+  if (session.metadata?.type === "sms_topup") {
+    const { fulfillSmsTopUpSession } = await import("@/lib/stripe/fulfill");
+    await fulfillSmsTopUpSession(session);
+    return;
+  }
+
   const firebaseUid = session.metadata?.firebaseUid;
   if (!firebaseUid) {
     console.error("[WEBHOOK] Missing firebaseUid in session metadata");

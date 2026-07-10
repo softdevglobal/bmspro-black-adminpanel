@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import DocumentCreatePage from "@/components/DocumentCreatePage";
 
 export default function CreateQuotationPage() {
-  return <DocumentCreatePage variant="quotation" />;
+  return (
+    <Suspense>
+      <DocumentCreatePage variant="quotation" />
+    </Suspense>
+  );
 }

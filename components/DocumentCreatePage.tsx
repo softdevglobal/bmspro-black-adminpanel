@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
@@ -57,6 +57,7 @@ type VariantConfig = {
   saveDraftLabel: string;
   sendLabel: string;
   listHref: string;
+  apiBase: string;
   emailSubject: (business: string) => string;
 };
 
@@ -71,6 +72,7 @@ const VARIANT_CONFIG: Record<Variant, VariantConfig> = {
     saveDraftLabel: "Save draft",
     sendLabel: "Save & send quotation",
     listHref: "/quotations",
+    apiBase: "/api/quotations",
     emailSubject: (business) => `Quotation from ${business}`,
   },
   invoice: {
@@ -83,8 +85,37 @@ const VARIANT_CONFIG: Record<Variant, VariantConfig> = {
     saveDraftLabel: "Save draft",
     sendLabel: "Save & send invoice",
     listHref: "/invoices",
+    apiBase: "/api/invoices",
     emailSubject: (business) => `Invoice from ${business}`,
   },
+};
+
+type SavedLineItem = {
+  code?: string;
+  name?: string;
+  description?: string;
+  quantity?: number;
+  rate?: number;
+  discountPercent?: number;
+  applyGst?: boolean;
+};
+
+type SavedDocument = {
+  id: string;
+  code: string;
+  status: string;
+  customer?: { fullName?: string; email?: string; phone?: string };
+  address?: { street?: string; suburb?: string; state?: string; postcode?: string };
+  jobTitle?: string;
+  jobDescription?: string;
+  lineItems?: SavedLineItem[];
+  discountAud?: number;
+  gstEnabled?: boolean;
+  gstPricing?: string;
+  documentDate?: string;
+  paymentTermsId?: string;
+  terms?: string;
+  comment?: string;
 };
 
 const TERMS_OPTIONS: { id: TermsId; days: number; label: string }[] = [
@@ -129,6 +160,21 @@ function parseNum(value: string): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/** Local AU digits for the +61 input (strips country code / leading zeros). */
+function toAuLocalPhone(value: string): string {
+  let digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("0061")) digits = digits.slice(4);
+  else if (digits.startsWith("61") && digits.length >= 10) digits = digits.slice(2);
+  while (digits.startsWith("0")) digits = digits.slice(1);
+  return digits;
+}
+
+function toAuE164Phone(localOrFull: string): string {
+  const local = toAuLocalPhone(localOrFull);
+  return local ? `+61${local}` : "";
+}
+
 function computeLineNet(item: Pick<LineItem, "quantity" | "rate" | "discountPercent">): number {
   const base = item.quantity * item.rate * (1 - item.discountPercent / 100);
   return Math.round(base * 100) / 100;
@@ -137,11 +183,22 @@ function computeLineNet(item: Pick<LineItem, "quantity" | "rate" | "discountPerc
 export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const config = VARIANT_CONFIG[variant];
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editingDocId = searchParams.get("id");
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("create");
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState<false | "draft" | "send">(false);
+  const [docCode, setDocCode] = useState<string | null>(null);
+  const [docStatus, setDocStatus] = useState<string>("draft");
+  const [docId, setDocId] = useState<string | null>(editingDocId);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
   const [clientOpen, setClientOpen] = useState(false);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
@@ -170,7 +227,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [gstPercentage] = useState(10);
   const [gstPricing, setGstPricing] = useState<GstPricing>("exclusive");
 
-  const businessName = "Your business";
+  const [businessName, setBusinessName] = useState("Your business");
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -181,23 +238,102 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
           router.replace("/login");
           return;
         }
+        const token = await user.getIdToken();
+        const authHeaders = { Authorization: `Bearer ${token}` };
+
         try {
-          const token = await user.getIdToken();
-          const res = await fetch("/api/items", {
-            headers: { Authorization: `Bearer ${token}` },
-            cache: "no-store",
-          });
+          const res = await fetch("/api/items", { headers: authHeaders, cache: "no-store" });
           const data = (await res.json()) as { ok?: boolean; items?: CatalogItem[] };
           if (res.ok && data.ok && data.items) setCatalog(data.items);
         } catch {
           /* catalog is optional */
+        }
+
+        try {
+          const res = await fetch("/api/business-profile", {
+            headers: authHeaders,
+            cache: "no-store",
+          });
+          const data = (await res.json()) as { ok?: boolean; businessName?: string };
+          if (res.ok && data.ok && data.businessName) setBusinessName(data.businessName);
+        } catch {
+          /* profile is cosmetic on this page */
+        }
+
+        // Editing an existing draft: prefill the form from the saved document.
+        if (editingDocId) {
+          try {
+            const res = await fetch(`${config.apiBase}/${editingDocId}`, {
+              headers: authHeaders,
+              cache: "no-store",
+            });
+            const data = (await res.json()) as { ok?: boolean; document?: SavedDocument };
+            if (res.ok && data.ok && data.document) {
+              const doc = data.document;
+              setDocCode(doc.code || null);
+              setDocStatus(doc.status || "draft");
+              setCustomer({
+                fullName: doc.customer?.fullName ?? "",
+                email: doc.customer?.email ?? "",
+                phone: toAuLocalPhone(doc.customer?.phone ?? ""),
+              });
+              setAddress({
+                street: doc.address?.street ?? "",
+                suburb: doc.address?.suburb ?? "",
+                state: doc.address?.state ?? "",
+                postcode: doc.address?.postcode ?? "",
+              });
+              setClientOpen(true);
+              setJobTitle(doc.jobTitle ?? "");
+              setJobDescription(doc.jobDescription ?? "");
+              setLineItems(
+                (doc.lineItems ?? []).map((item) => ({
+                  id: crypto.randomUUID?.() ?? `${Math.random()}`,
+                  code: item.code ?? "",
+                  name: item.name ?? "",
+                  description: item.description ?? "",
+                  quantity: item.quantity ?? 1,
+                  rate: item.rate ?? 0,
+                  discountPercent: item.discountPercent ?? 0,
+                  applyGst: item.applyGst !== false,
+                })),
+              );
+              setDiscountAud(doc.discountAud ?? 0);
+              setGstEnabled(doc.gstEnabled === true);
+              setGstPricing(doc.gstPricing === "inclusive" ? "inclusive" : "exclusive");
+              if (doc.documentDate) setDocumentDate(doc.documentDate);
+              const termsId = TERMS_OPTIONS.find((t) => t.id === doc.paymentTermsId)?.id;
+              if (termsId) setPaymentTerms(termsId);
+              setTerms(doc.terms ?? "");
+              setComment(doc.comment ?? "");
+            } else {
+              setError(`Could not load the ${config.docLabel.toLowerCase()} for editing.`);
+            }
+          } catch {
+            setError(`Could not load the ${config.docLabel.toLowerCase()} for editing.`);
+          }
         }
       });
     })();
     return () => {
       if (unsub) unsub();
     };
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, editingDocId, config.apiBase]);
+
+  // Render the live creative PDF whenever the Preview tab is opened, so the
+  // preview always matches the PDF that will be attached to the email.
+  useEffect(() => {
+    if (tab !== "preview") return;
+    void loadPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    };
+  }, []);
 
   const dueDate = useMemo(() => {
     const opt = TERMS_OPTIONS.find((t) => t.id === paymentTerms);
@@ -352,7 +488,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     // Client
     if (!clientOpen || customer.fullName.trim().length < 2) return "Add a client name.";
     if (!EMAIL_REGEX.test(customer.email.trim())) return "Enter a valid client email.";
-    if (customer.phone.replace(/\D/g, "").length < 6) return "Enter a valid client mobile number.";
+    if (toAuLocalPhone(customer.phone).length < 6) return "Enter a valid client mobile number.";
     if (address.postcode && address.postcode.length !== 4) {
       return "Enter a valid 4-digit postcode, or clear it.";
     }
@@ -381,7 +517,73 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     return null;
   }
 
-  function save(send: boolean) {
+  function collectPayload() {
+    return {
+      customer: {
+        fullName: customer.fullName.trim(),
+        email: customer.email.trim(),
+        phone: toAuE164Phone(customer.phone),
+      },
+      address,
+      jobTitle: jobTitle.trim(),
+      jobDescription: jobDescription.trim(),
+      lineItems: lineItems.map((item) => ({
+        code: item.code,
+        name: item.name,
+        description: item.description,
+        quantity: item.quantity,
+        rate: item.rate,
+        discountPercent: item.discountPercent,
+        applyGst: item.applyGst,
+      })),
+      discountAud: cappedDiscount,
+      gstEnabled,
+      gstPercentage,
+      gstPricing,
+      documentDate,
+      paymentTermsId: paymentTerms,
+      terms: terms.trim(),
+      comment: comment.trim(),
+    };
+  }
+
+  async function loadPreview() {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`${config.apiBase}/preview-pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(collectPayload()),
+      });
+      if (!res.ok) {
+        setPreviewError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = url;
+      setPreviewUrl(url);
+    } catch {
+      setPreviewError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function save(send: boolean) {
+    if (saving) return;
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -393,12 +595,104 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       setTab("send");
       return;
     }
+    if (send && !gstEnabled) {
+      setError("Apply GST before sending. Tick “Apply GST” in the summary to continue.");
+      setTab("create");
+      return;
+    }
     setError(null);
-    setSavedNotice(
-      send
-        ? `${config.docLabel} sent to ${customer.email.trim()}. (Front-end demo — no data was saved.)`
-        : `${config.docLabel} draft saved. (Front-end demo — no data was saved.)`,
-    );
+    setSavedNotice(null);
+    setSaving(send ? "send" : "draft");
+
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const token = await user.getIdToken();
+
+      const payload = { ...collectPayload(), send };
+
+      const url = editingDocId ? `${config.apiBase}/${editingDocId}` : config.apiBase;
+      const res = await fetch(url, {
+        method: editingDocId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        document?: SavedDocument;
+        emailSent?: boolean;
+        customerAccountCreated?: boolean;
+      };
+
+      if (!res.ok || !data.ok) {
+        setError(data.error || `Could not save the ${config.docLabel.toLowerCase()}.`);
+        return;
+      }
+
+      if (data.document) {
+        setDocCode(data.document.code || null);
+        setDocStatus(data.document.status || "draft");
+        if (data.document.id) setDocId(data.document.id);
+      }
+
+      if (send) {
+        const accountNote = data.customerAccountCreated
+          ? " A booking engine account was created for this customer and their login details were emailed to them."
+          : "";
+        setSavedNotice(
+          `${config.docLabel} ${data.document?.code ?? ""} sent to ${customer.email.trim()}.${accountNote}`,
+        );
+        window.setTimeout(() => router.push(config.listHref), 1800);
+      } else {
+        setSavedNotice(`${config.docLabel} ${data.document?.code ?? ""} saved as a draft.`);
+        if (!editingDocId && data.document?.id) {
+          router.replace(`${config.listHref}/create?id=${data.document.id}`);
+        }
+      }
+    } catch {
+      setError(`Could not save the ${config.docLabel.toLowerCase()}. Check your connection and try again.`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function downloadPdf() {
+    if (!docId || downloadingPdf) return;
+    setDownloadingPdf(true);
+    setError(null);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`${config.apiBase}/${docId}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setError(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setError(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`);
+    } finally {
+      setDownloadingPdf(false);
+    }
   }
 
   const lineDraftPreview = useMemo(() => {
@@ -501,7 +795,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                   <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
                     <i className={`fas ${config.heroIcon} text-amber-400`} />
                   </div>
-                  <h1 className="text-2xl font-bold">{config.pageTitle}</h1>
+                  <h1 className="text-2xl font-bold">
+                    {docCode ? `${config.docLabel} ${docCode}` : config.pageTitle}
+                  </h1>
                 </div>
                 <p className="text-sm text-neutral-400 mt-2">{config.heroSubtitle}</p>
               </div>
@@ -527,12 +823,31 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                 >
                   Close
                 </Link>
+                {docId && (
+                  <button
+                    type="button"
+                    onClick={downloadPdf}
+                    disabled={downloadingPdf}
+                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
+                  >
+                    <i className={`fas ${downloadingPdf ? "fa-spinner fa-spin" : "fa-file-pdf"}`} />
+                    PDF
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => save(false)}
-                  className="rounded-lg bg-neutral-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                  disabled={!!saving}
+                  className="rounded-lg bg-neutral-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:opacity-60"
                 >
-                  {config.saveDraftLabel}
+                  {saving === "draft" ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin mr-2" />
+                      Saving…
+                    </>
+                  ) : (
+                    config.saveDraftLabel
+                  )}
                 </button>
               </div>
             </div>
@@ -618,13 +933,24 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           </label>
                           <label className="block">
                             <span className={LABEL_CLASS}>Mobile</span>
-                            <input
-                              type="tel"
-                              value={customer.phone}
-                              onChange={(e) => setCustomer((p) => ({ ...p, phone: e.target.value }))}
-                              placeholder="04xx xxx xxx"
-                              className={INPUT_CLASS}
-                            />
+                            <div className="flex">
+                              <span className="inline-flex items-center rounded-l-lg border border-r-0 border-neutral-300 bg-neutral-100 px-3.5 text-sm font-mono text-neutral-500">
+                                +61
+                              </span>
+                              <input
+                                type="tel"
+                                inputMode="numeric"
+                                value={customer.phone}
+                                onChange={(e) =>
+                                  setCustomer((p) => ({
+                                    ...p,
+                                    phone: toAuLocalPhone(e.target.value),
+                                  }))
+                                }
+                                placeholder="412 345 678"
+                                className={`${INPUT_CLASS} rounded-l-none`}
+                              />
+                            </div>
                           </label>
                           <label className="block">
                             <span className={LABEL_CLASS}>Email</span>
@@ -1004,126 +1330,56 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                 )}
 
                 {tab === "preview" && (
-                  <div className="rounded-xl border border-neutral-200 bg-white p-6 sm:p-8">
-                    <div className="flex items-start justify-between gap-4 border-b border-neutral-200 pb-6">
-                      <div>
-                        <p className="text-lg font-bold text-neutral-900">{businessName}</p>
-                        <p className="text-xs text-neutral-500">BMS PRO Workshop</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-                          {config.docLabel}
-                        </p>
-                        <p className="text-sm font-bold text-neutral-900">Draft</p>
-                        <p className="mt-1 text-xs text-neutral-500">
-                          {config.dateLabel}: {formatDate(documentDate)}
-                        </p>
-                        <p className="text-xs text-neutral-500">
-                          {config.dueLabel}: {formatDate(dueDate)}
-                        </p>
-                      </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-neutral-500">
+                        This is the exact PDF that will be attached to the customer&apos;s email.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => loadPreview()}
+                        disabled={previewLoading}
+                        className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
+                      >
+                        <i className={`fas ${previewLoading ? "fa-spinner fa-spin" : "fa-rotate-right"}`} />
+                        Refresh
+                      </button>
                     </div>
 
-                    <div className="grid gap-4 py-6 sm:grid-cols-2">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Bill to</p>
-                        <p className="mt-1 text-sm font-semibold text-neutral-900">
-                          {customer.fullName || "—"}
-                        </p>
-                        {customer.email && <p className="text-xs text-neutral-500">{customer.email}</p>}
-                        {customer.phone && <p className="text-xs text-neutral-500">{customer.phone}</p>}
-                        {(address.street || address.suburb || address.state || address.postcode) && (
-                          <p className="mt-1 text-xs text-neutral-500">
-                            {[address.street, address.suburb, address.state, address.postcode]
-                              .filter(Boolean)
-                              .join(", ")}
-                          </p>
-                        )}
-                      </div>
-                      {jobTitle && (
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Job</p>
-                          <p className="mt-1 text-sm font-semibold text-neutral-900">{jobTitle}</p>
-                          {jobDescription && (
-                            <p className="mt-1 text-xs text-neutral-500">{jobDescription}</p>
-                          )}
+                    <div className="relative overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
+                      {previewLoading && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/80 text-sm text-neutral-500">
+                          <i className="fas fa-spinner fa-spin text-xl" />
+                          Building your {config.docLabel.toLowerCase()} PDF…
                         </div>
+                      )}
+                      {previewError ? (
+                        <div className="flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
+                          <i className="fas fa-triangle-exclamation text-2xl text-amber-500" />
+                          <p className="text-sm text-neutral-600">{previewError}</p>
+                          <button
+                            type="button"
+                            onClick={() => loadPreview()}
+                            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      ) : previewUrl ? (
+                        <iframe
+                          src={previewUrl}
+                          title={`${config.docLabel} preview`}
+                          className="w-full block"
+                          style={{ height: "calc(100vh - 220px)", minHeight: 640 }}
+                        />
+                      ) : (
+                        !previewLoading && (
+                          <div className="px-6 py-20 text-center text-sm text-neutral-400">
+                            Preparing preview…
+                          </div>
+                        )
                       )}
                     </div>
-
-                    <table className="w-full text-left text-sm">
-                      <thead className="border-y border-neutral-200 bg-neutral-50 text-xs uppercase tracking-wider text-neutral-500">
-                        <tr>
-                          <th className="py-2.5 pl-3 font-semibold">Item</th>
-                          <th className="py-2.5 text-right font-semibold">Qty</th>
-                          <th className="py-2.5 text-right font-semibold">Rate</th>
-                          <th className="py-2.5 pr-3 text-right font-semibold">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100">
-                        {lineItems.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="py-6 text-center text-sm text-neutral-400">
-                              No items added yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          lineItems.map((item) => (
-                            <tr key={item.id}>
-                              <td className="py-3 pl-3">
-                                <p className="font-medium text-neutral-900">{item.name}</p>
-                                {item.description && (
-                                  <p className="text-xs text-neutral-500">{item.description}</p>
-                                )}
-                              </td>
-                              <td className="py-3 text-right text-neutral-700">{item.quantity}</td>
-                              <td className="py-3 text-right text-neutral-700">{formatAud(item.rate)}</td>
-                              <td className="py-3 pr-3 text-right font-medium text-neutral-900">
-                                {formatAud(computeLineNet(item))}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-
-                    <div className="mt-6 ml-auto max-w-xs space-y-1.5 text-sm">
-                      <div className="flex justify-between text-neutral-600">
-                        <span>Subtotal</span>
-                        <span className="text-neutral-900">{formatAud(subtotal)}</span>
-                      </div>
-                      {cappedDiscount > 0 && (
-                        <div className="flex justify-between text-neutral-600">
-                          <span>Discount</span>
-                          <span className="text-neutral-900">−{formatAud(cappedDiscount)}</span>
-                        </div>
-                      )}
-                      {gstEnabled && (
-                        <div className="flex justify-between text-neutral-600">
-                          <span>GST ({gstPercentage}%)</span>
-                          <span className="text-neutral-900">{formatAud(gstAmount)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between border-t border-neutral-200 pt-2 text-base font-bold text-neutral-900">
-                        <span>Total</span>
-                        <span>{formatAud(total)}</span>
-                      </div>
-                    </div>
-
-                    {comment && (
-                      <div className="mt-6 border-t border-neutral-200 pt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Notes</p>
-                        <p className="mt-1 whitespace-pre-line text-sm text-neutral-600">{comment}</p>
-                      </div>
-                    )}
-                    {terms && (
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-                          Terms and conditions
-                        </p>
-                        <p className="mt-1 whitespace-pre-line text-xs text-neutral-500">{terms}</p>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -1160,17 +1416,28 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                       </label>
                     </div>
                     <p className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3 text-xs leading-relaxed text-neutral-500">
-                      Use <strong>{config.saveDraftLabel}</strong> to keep a draft. The {config.docLabel.toLowerCase()} is
-                      emailed to the client only when you click <strong>{config.sendLabel}</strong> below.
+                      Use <strong>{config.saveDraftLabel}</strong> to keep a draft. When you click{" "}
+                      <strong>{config.sendLabel}</strong>, the {config.docLabel.toLowerCase()} is emailed to the
+                      client with a PDF attached. GST must be applied before sending. New customers also get a
+                      booking engine account.
                     </p>
                     <button
                       type="button"
                       onClick={() => save(true)}
-                      disabled={!customer.email.trim()}
+                      disabled={!customer.email.trim() || !!saving}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-neutral-800 disabled:opacity-50 sm:max-w-xs"
                     >
-                      <i className="fas fa-paper-plane" />
-                      {config.sendLabel}
+                      {saving === "send" ? (
+                        <>
+                          <i className="fas fa-spinner fa-spin" />
+                          Sending…
+                        </>
+                      ) : (
+                        <>
+                          <i className="fas fa-paper-plane" />
+                          {config.sendLabel}
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -1181,11 +1448,20 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                 <div className="space-y-4">
                   <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                     <div className="mb-3 flex items-center justify-between">
-                      <p className="text-sm font-bold text-neutral-900">Draft {config.docLabel.toLowerCase()}</p>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
-                        <span className="h-1 w-1 rounded-full bg-amber-500" />
-                        Unsent
-                      </span>
+                      <p className="text-sm font-bold text-neutral-900">
+                        {docCode ?? `Draft ${config.docLabel.toLowerCase()}`}
+                      </p>
+                      {docStatus === "sent" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                          <span className="h-1 w-1 rounded-full bg-emerald-500" />
+                          Sent
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                          <span className="h-1 w-1 rounded-full bg-amber-500" />
+                          Unsent
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-3">
                       <label className="block">

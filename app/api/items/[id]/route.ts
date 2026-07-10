@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
-import { parseItemInput } from "../route";
+import { parseItemInput } from "@/lib/itemsCatalog";
 
 export const runtime = "nodejs";
 

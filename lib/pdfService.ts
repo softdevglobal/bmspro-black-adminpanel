@@ -2141,6 +2141,47 @@ async function launchBrowserForPdf() {
   });
 }
 
+/**
+ * Render an arbitrary HTML document to an A4 PDF buffer using the same Chromium
+ * launch strategy as the booking job report. Shared by quotations / invoices so
+ * their PDFs match the platform's booking PDF rendering.
+ */
+export async function renderHtmlToPdfBuffer(
+  html: string,
+  options?: { footerText?: string }
+): Promise<Buffer> {
+  const browser = await launchBrowserForPdf();
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+
+    const footerText = options?.footerText ?? "Powered by BMS PRO";
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: `<div></div>`,
+      footerTemplate: `
+        <div style="
+          font-family: 'Fira Code', monospace;
+          font-size: 12px;
+          color: #7d7d7d;
+          width: 100%;
+          padding: 0 36px;
+          text-align: center;
+        ">
+          ${footerText}
+        </div>
+      `,
+      margin: { top: "36px", right: "36px", bottom: "72px", left: "36px" },
+    });
+
+    return Buffer.from(pdfBuffer);
+  } finally {
+    await browser.close();
+  }
+}
+
 async function buildPDF(
   booking: BookingPDFData,
   getImageBuffer: (url: string) => Buffer | undefined

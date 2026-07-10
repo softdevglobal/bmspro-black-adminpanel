@@ -917,17 +917,17 @@ export default function ServicesPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-fr">
               {services.map((s) => {
                 const staffCount = s.staffIds?.length || 0;
                 const branchCount = s.branches?.length || 0;
                 const branchLabel = branchCount === totalBranches ? "All Branches" : `${branchCount} Branch${branchCount !== 1 ? "es" : ""}`;
                 return (
-                  <div key={s.id} className="group relative">
+                  <div key={s.id} className="group relative h-full">
                     {/* Card */}
-                    <div className="relative bg-neutral-900 rounded-2xl overflow-hidden transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/[0.08] hover:-translate-y-1">
+                    <div className="relative flex h-full flex-col bg-neutral-900 rounded-2xl overflow-hidden transition-all duration-500 hover:shadow-2xl hover:shadow-amber-500/[0.08] hover:-translate-y-1">
                       {/* ─── Top: Image with overlay ─── */}
-                      <div className="relative h-56 overflow-hidden">
+                      <div className="relative h-56 shrink-0 overflow-hidden">
                         {s.imageUrl ? (
                           <img 
                             src={s.imageUrl} 
@@ -987,7 +987,7 @@ export default function ServicesPage() {
                       </div>
 
                       {/* ─── Bottom: Dark info section ─── */}
-                      <div className="p-5 relative">
+                      <div className="p-5 relative flex flex-1 flex-col">
                         {/* Diagonal hazard stripe accent */}
                         <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-amber-500/0 via-amber-500/30 to-amber-500/0" />
 
@@ -1094,7 +1094,7 @@ export default function ServicesPage() {
                         )}
 
                         {/* Footer */}
-                        <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+                        <div className="mt-auto flex items-center justify-between pt-3 border-t border-white/[0.06]">
                           <div className="flex items-center gap-1.5">
                             <i className="fas fa-star text-amber-400 text-xs" />
                             <span className="text-xs text-neutral-500 font-medium">{s.reviews || 0} reviews</span>

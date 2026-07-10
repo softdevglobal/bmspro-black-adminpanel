@@ -48,6 +48,7 @@ type VariantConfig = {
   docLabel: string;
   saveDraftLabel: string;
   sendLabel: string;
+  listHref: string;
   emailSubject: (business: string) => string;
 };
 
@@ -61,6 +62,7 @@ const VARIANT_CONFIG: Record<Variant, VariantConfig> = {
     docLabel: "Quotation",
     saveDraftLabel: "Save draft",
     sendLabel: "Save & send quotation",
+    listHref: "/quotations",
     emailSubject: (business) => `Quotation from ${business}`,
   },
   invoice: {
@@ -72,6 +74,7 @@ const VARIANT_CONFIG: Record<Variant, VariantConfig> = {
     docLabel: "Invoice",
     saveDraftLabel: "Save draft",
     sendLabel: "Save & send invoice",
+    listHref: "/invoices",
     emailSubject: (business) => `Invoice from ${business}`,
   },
 };
@@ -331,38 +334,47 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
             <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
               <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
-              <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                      <i className={`fas ${config.heroIcon} text-amber-400`} />
-                    </div>
-                    <h1 className="text-2xl font-bold">{config.pageTitle}</h1>
+              <div className="relative">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+                    <i className={`fas ${config.heroIcon} text-amber-400`} />
                   </div>
-                  <p className="text-sm text-neutral-400 mt-2">{config.heroSubtitle}</p>
+                  <h1 className="text-2xl font-bold">{config.pageTitle}</h1>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Link
-                    href="/dashboard"
-                    className="px-4 py-2.5 rounded-lg text-sm font-semibold text-neutral-300 hover:bg-white/10 transition"
-                  >
-                    Close
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => save(false)}
-                    className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-white text-neutral-900 hover:bg-neutral-200 transition shadow-sm"
-                  >
-                    {config.saveDraftLabel}
-                  </button>
-                </div>
+                <p className="text-sm text-neutral-400 mt-2">{config.heroSubtitle}</p>
               </div>
             </div>
           </div>
 
-          {/* Tabs */}
+          {/* Header + tabs */}
           <div className="mb-6 bg-white rounded-2xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center gap-6 px-6 border-b border-neutral-200">
+            <div className="flex items-center justify-between gap-3 px-6 py-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <Link
+                  href={config.listHref}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
+                  aria-label={`Back to ${config.docLabel.toLowerCase()}s`}
+                >
+                  <i className="fas fa-arrow-left" />
+                </Link>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Link
+                  href={config.listHref}
+                  className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-neutral-600 transition hover:bg-neutral-100 sm:inline"
+                >
+                  Close
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => save(false)}
+                  className="rounded-lg bg-neutral-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                >
+                  {config.saveDraftLabel}
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-6 px-6 border-b border-t border-neutral-200">
               {(
                 [
                   { id: "create" as const, label: "Create", icon: "fa-pen-to-square" },

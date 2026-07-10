@@ -409,24 +409,24 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
         {mounted && role === "workshop_owner" && (
           <Link
-            href="/quotations/create"
+            href="/quotations"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
               isQuotations ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
             }`}
           >
             <i className="fas fa-file-lines w-5" />
-            <span>Create Quotation</span>
+            <span>Quotations</span>
           </Link>
         )}
         {mounted && role === "workshop_owner" && (
           <Link
-            href="/invoices/create"
+            href="/invoices"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
               isInvoices ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
             }`}
           >
             <i className="fas fa-file-invoice-dollar w-5" />
-            <span>Create Invoice</span>
+            <span>Invoices</span>
           </Link>
         )}
         {mounted && role === "workshop_owner" && (

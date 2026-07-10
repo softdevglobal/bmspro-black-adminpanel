@@ -30,6 +30,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isCustomers = pathname?.startsWith("/customers");
   const isOwnerCustomMessages = pathname?.startsWith("/owner-custom-messages") || pathname?.startsWith("/greeting-messages");
   const isEstimates = pathname?.startsWith("/estimates");
+  const isQuotations = pathname?.startsWith("/quotations");
+  const isInvoices = pathname?.startsWith("/invoices");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
   const isLeaveRequests = pathname?.startsWith("/staff/leave-requests");
@@ -403,6 +405,28 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           >
             <i className="fas fa-file-invoice w-5" />
             <span>Estimates</span>
+          </Link>
+        )}
+        {mounted && role === "workshop_owner" && (
+          <Link
+            href="/quotations/create"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isQuotations ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-file-lines w-5" />
+            <span>Create Quotation</span>
+          </Link>
+        )}
+        {mounted && role === "workshop_owner" && (
+          <Link
+            href="/invoices/create"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isInvoices ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-file-invoice-dollar w-5" />
+            <span>Create Invoice</span>
           </Link>
         )}
         {mounted && role === "workshop_owner" && (

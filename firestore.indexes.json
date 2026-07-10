@@ -253,7 +253,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "ownerId", "order": "ASCENDING" },
-        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "callId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
@@ -262,10 +262,26 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "ownerId", "order": "ASCENDING" },
-        { "fieldPath": "callId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
-    }
+    },
+    {
+      "collectionGroup": "sms_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerUid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "stripe_fulfilled_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "fulfilledAt", "order": "DESCENDING" }
+      ]
+    },
   ],
   "fieldOverrides": []
 }

@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { fetchCurrentUser } from "@/lib/authClient";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
+import { useSmsBalance } from "@/lib/sms/sms-balance-context";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -29,6 +30,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isBranches = pathname?.startsWith("/branches");
   const isCustomers = pathname?.startsWith("/customers");
   const isOwnerCustomMessages = pathname?.startsWith("/owner-custom-messages") || pathname?.startsWith("/greeting-messages");
+  const isOwnerSms = pathname?.startsWith("/sms");
+  const isSmsPackages = pathname?.startsWith("/sms-packages");
   const isEstimates = pathname?.startsWith("/estimates");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
@@ -50,6 +53,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [signingOut, setSigningOut] = useState(false); // Loading state for sign out
   const [openBookings, setOpenBookings] = useState(pathname?.startsWith("/bookings") || false);
   const [openStaff, setOpenStaff] = useState(pathname?.startsWith("/staff") || false); // Staff Toggle State
+  const smsBalance = useSmsBalance();
   // Do not auto-open based on route; keep user preference until manually changed
 
   useEffect(() => {
@@ -296,6 +300,24 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           </Link>
         )}
         {mounted && role === "super_admin" && (
+          <Link href="/sms-packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSmsPackages && pathname === "/sms-packages" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-comment-sms w-5" />
+            <span>SMS Packages</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/sms-packages/usage" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname === "/sms-packages/usage" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-chart-column w-5" />
+            <span>SMS Usage</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/sms-packages/log" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname === "/sms-packages/log" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-list w-5" />
+            <span>SMS Log</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
           <Link href="/admin-services" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname?.startsWith("/admin-services") ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-layer-group w-5" />
             <span>Services</span>
@@ -425,6 +447,37 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         >
           <i className="fas fa-user-group w-5" />
           <span>Customers</span>
+        </Link>
+      )}
+      {mounted && role === "workshop_owner" && (
+        <Link
+          href="/sms"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            isOwnerSms && pathname === "/sms" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-coins w-5" />
+          <span className="flex-1">SMS Credits</span>
+          {mounted && role === "workshop_owner" && !smsBalance.loading && (
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                smsBalance.isLow ? "bg-amber-500 text-white" : "bg-white/15 text-white"
+              }`}
+            >
+              {smsBalance.unlimited ? "∞" : (smsBalance.remaining ?? 0)}
+            </span>
+          )}
+        </Link>
+      )}
+      {mounted && role === "workshop_owner" && (
+        <Link
+          href="/sms/log"
+          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+            pathname === "/sms/log" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+          }`}
+        >
+          <i className="fas fa-list w-5" />
+          <span>SMS Log</span>
         </Link>
       )}
       {mounted && role === "workshop_owner" && (

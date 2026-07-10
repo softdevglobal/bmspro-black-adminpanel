@@ -4,6 +4,7 @@ import type { BookingStatus } from "./bookingTypes";
 import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
 import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "./customerAccount";
 import { sendSms } from "./smsService";
+import { normalizeSmsRecipient } from "./sms/textbee";
 import { dispatchMail, isZeptoMailConfigured } from "./email";
 
 const FROM_EMAIL = process.env.FROM_EMAIL || "request@bmspros.com.au";
@@ -172,14 +173,35 @@ async function sendCustomerSmsSafe(
   to: string | null | undefined,
   message: string,
   context: string,
+  ownerUid?: string,
 ): Promise<void> {
+  const normalized = normalizeSmsRecipient(to);
   try {
-    const result = await sendSms({ to, message, context });
-    if (!result.success && !result.skipped) {
-      console.error(`[SMS] Failed to send ${context}:`, result.error);
+    const result = await sendSms({ to, message, context, source: context, ownerUid });
+    if (result.success) {
+      console.log(`[SMS] Customer notification queued (${context})`, {
+        to: normalized ?? to ?? null,
+        note: "TextBee queues on your Android device — check the textbee dashboard if SMS does not arrive",
+      });
+      return;
     }
+    if (result.skipped) {
+      console.warn(`[SMS] Customer notification skipped (${context})`, {
+        to: to ?? null,
+        normalized: normalized ?? null,
+        reason: result.statusDetail ?? result.error ?? "unknown",
+      });
+      return;
+    }
+    console.error(`[SMS] Failed to send ${context}:`, result.error, {
+      to: to ?? null,
+      normalized: normalized ?? null,
+    });
   } catch (error) {
-    console.error(`[SMS] Unexpected error sending ${context}:`, error);
+    console.error(`[SMS] Unexpected error sending ${context}:`, error, {
+      to: to ?? null,
+      normalized: normalized ?? null,
+    });
   }
 }
 
@@ -659,6 +681,7 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
       data.customerPhone,
       buildBookingSmsMessage(data, workshopName, portalUrl),
       `booking ${data.status} notification for ${data.bookingId}`,
+      data.ownerUid,
     );
     
     console.log(`[EMAIL] ✅ Booking email sent successfully: ${data.bookingId} - ${data.status} to ${email}`);
@@ -1625,6 +1648,7 @@ export async function sendCustomerWelcomeEmail(params: {
   customerName: string;
   workshopName?: string;
   bookingEngineUrl: string;
+  ownerUid?: string;
 }): Promise<{ success: boolean; error?: string }> {
   const { customerEmail, password, customerName } = params;
   const workshopName = params.workshopName?.trim() || "Workshop";
@@ -1690,6 +1714,7 @@ export async function sendCustomerWelcomeEmail(params: {
       params.customerPhone,
       `${workshopName}: Your booking account is ready. Login: ${email}. Temporary password: ${password}. Portal: ${portalUrl}`,
       `customer welcome notification for ${email}`,
+      params.ownerUid,
     );
 
     console.log(`[EMAIL] ✅ Customer welcome email sent successfully to ${email}`);
@@ -2948,6 +2973,7 @@ export async function sendBookingRescheduledEmail(data: {
       data.customerPhone,
       `${workshopName}: Your booking${bookingCodeSuffix(data.bookingCode)} has been rescheduled to ${newLine}. Portal: ${portalUrl}`,
       `booking reschedule notification for ${data.bookingId}`,
+      data.ownerUid,
     );
     console.log(`[EMAIL] ✅ Reschedule email sent to ${email} for booking ${data.bookingId}`);
     return { success: true };

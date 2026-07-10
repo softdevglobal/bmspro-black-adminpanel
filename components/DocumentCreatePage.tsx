@@ -199,6 +199,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const previewSignatureRef = useRef<string | null>(null);
 
   const [clientOpen, setClientOpen] = useState(true);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
@@ -547,7 +548,14 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     };
   }
 
-  async function loadPreview() {
+  async function loadPreview(options?: { force?: boolean }) {
+    const payload = collectPayload();
+    const signature = JSON.stringify(payload);
+    // Skip re-rendering when nothing changed since the last preview (e.g. just
+    // toggling tabs). The manual Refresh button passes force to override this.
+    if (!options?.force && previewUrlRef.current && previewSignatureRef.current === signature) {
+      return;
+    }
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -564,7 +572,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(collectPayload()),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         setPreviewError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`);
@@ -574,6 +582,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       const url = URL.createObjectURL(blob);
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = url;
+      previewSignatureRef.current = signature;
       setPreviewUrl(url);
     } catch {
       setPreviewError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`);
@@ -1334,7 +1343,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                       </p>
                       <button
                         type="button"
-                        onClick={() => loadPreview()}
+                        onClick={() => loadPreview({ force: true })}
                         disabled={previewLoading}
                         className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
                       >
@@ -1356,7 +1365,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           <p className="text-sm text-neutral-600">{previewError}</p>
                           <button
                             type="button"
-                            onClick={() => loadPreview()}
+                            onClick={() => loadPreview({ force: true })}
                             className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800"
                           >
                             Try again

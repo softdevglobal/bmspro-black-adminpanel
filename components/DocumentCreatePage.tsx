@@ -200,7 +200,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const previewUrlRef = useRef<string | null>(null);
 
-  const [clientOpen, setClientOpen] = useState(false);
+  const [clientOpen, setClientOpen] = useState(true);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
   const [address, setAddress] = useState<Address>({ street: "", suburb: "", state: "", postcode: "" });
 
@@ -223,7 +223,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [documentDate, setDocumentDate] = useState(todayIso());
   const [paymentTerms, setPaymentTerms] = useState<TermsId>("same_day");
   const [discountAud, setDiscountAud] = useState(0);
-  const [gstEnabled, setGstEnabled] = useState(false);
+  const [gstEnabled, setGstEnabled] = useState(true);
   const [gstPercentage] = useState(10);
   const [gstPricing, setGstPricing] = useState<GstPricing>("exclusive");
 
@@ -486,7 +486,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
 
   function validate(): string | null {
     // Client
-    if (!clientOpen || customer.fullName.trim().length < 2) return "Add a client name.";
+    if (customer.fullName.trim().length < 2) return "Add a client name.";
     if (!EMAIL_REGEX.test(customer.email.trim())) return "Enter a valid client email.";
     if (toAuLocalPhone(customer.phone).length < 6) return "Enter a valid client mobile number.";
     if (address.postcode && address.postcode.length !== 4) {
@@ -910,14 +910,11 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           <h2 className="text-sm font-bold text-neutral-900">Client</h2>
                           <button
                             type="button"
-                            onClick={() => {
-                              setCustomer({ fullName: "", email: "", phone: "" });
-                              setAddress({ street: "", suburb: "", state: "", postcode: "" });
-                              setClientOpen(false);
-                            }}
-                            className="text-xs font-semibold text-neutral-500 hover:text-rose-600"
+                            onClick={() => setClientOpen(false)}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-900"
                           >
-                            Remove
+                            <i className="fas fa-xmark" />
+                            Close
                           </button>
                         </div>
                         <div className="grid gap-4 sm:grid-cols-2">
@@ -933,7 +930,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           </label>
                           <label className="block">
                             <span className={LABEL_CLASS}>Mobile</span>
-                            <div className="flex">
+                            <div className="flex items-stretch">
                               <span className="inline-flex items-center rounded-l-lg border border-r-0 border-neutral-300 bg-neutral-100 px-3.5 text-sm font-mono text-neutral-500">
                                 +61
                               </span>
@@ -948,7 +945,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                   }))
                                 }
                                 placeholder="412 345 678"
-                                className={`${INPUT_CLASS} rounded-l-none`}
+                                className="w-full min-w-0 rounded-r-lg border border-neutral-300 px-4 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:z-10 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
                               />
                             </div>
                           </label>

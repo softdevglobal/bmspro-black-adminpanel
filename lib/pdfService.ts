@@ -2141,6 +2141,84 @@ async function launchBrowserForPdf() {
   });
 }
 
+/**
+ * A single warm Chromium instance reused across lightweight HTML→PDF renders
+ * (quotations / invoices / previews). Launching Chromium is by far the slowest
+ * part of PDF generation (~1-2s), so keeping one browser alive makes repeated
+ * renders (e.g. hitting "Refresh" on the preview) near-instant. The instance is
+ * transparently relaunched if it disconnects/crashes.
+ */
+let sharedPdfBrowserPromise: Promise<import("puppeteer-core").Browser> | null = null;
+
+async function getSharedPdfBrowser(): Promise<import("puppeteer-core").Browser> {
+  if (sharedPdfBrowserPromise) {
+    try {
+      const existing = await sharedPdfBrowserPromise;
+      if (existing.connected) return existing;
+    } catch {
+      /* fall through and relaunch */
+    }
+    sharedPdfBrowserPromise = null;
+  }
+
+  const launchPromise = launchBrowserForPdf();
+  sharedPdfBrowserPromise = launchPromise;
+  const browser = await launchPromise;
+  browser.on("disconnected", () => {
+    if (sharedPdfBrowserPromise === launchPromise) sharedPdfBrowserPromise = null;
+  });
+  return browser;
+}
+
+/**
+ * Render an arbitrary HTML document to an A4 PDF buffer using the same Chromium
+ * launch strategy as the booking job report. Shared by quotations / invoices so
+ * their PDFs match the platform's booking PDF rendering. Reuses a warm browser
+ * and only recycles the page per render for speed.
+ */
+export async function renderHtmlToPdfBuffer(
+  html: string,
+  options?: { footerText?: string }
+): Promise<Buffer> {
+  const browser = await getSharedPdfBrowser();
+  const page = await browser.newPage();
+  try {
+    // `load` (not `networkidle0`) avoids waiting on the 500ms network-idle
+    // window; we still give web fonts a brief, bounded chance to load so the
+    // PDF keeps its typography without hanging when a font CDN is slow.
+    await page.setContent(html, { waitUntil: "load" });
+    await Promise.race([
+      page.evaluate(() => (document as unknown as { fonts: { ready: Promise<unknown> } }).fonts.ready),
+      new Promise((resolve) => setTimeout(resolve, 700)),
+    ]);
+
+    const footerText = options?.footerText ?? "Powered by BMS PRO";
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      displayHeaderFooter: true,
+      headerTemplate: `<div></div>`,
+      footerTemplate: `
+        <div style="
+          font-family: 'Fira Code', monospace;
+          font-size: 12px;
+          color: #7d7d7d;
+          width: 100%;
+          padding: 0 36px;
+          text-align: center;
+        ">
+          ${footerText}
+        </div>
+      `,
+      margin: { top: "36px", right: "36px", bottom: "72px", left: "36px" },
+    });
+
+    return Buffer.from(pdfBuffer);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 async function buildPDF(
   booking: BookingPDFData,
   getImageBuffer: (url: string) => Buffer | undefined

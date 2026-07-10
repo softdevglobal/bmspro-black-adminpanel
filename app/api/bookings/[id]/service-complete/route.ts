@@ -205,7 +205,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
 
       // Send completion email
       try {
-        await sendBookingStatusChangeEmail(
+        const notifyResult = await sendBookingStatusChangeEmail(
           id,
           "Completed",
           bookingData.clientEmail,
@@ -231,7 +231,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             additionalIssues: bookingData.additionalIssues || null,
           }
         );
-        console.log(`[EMAIL] Completion email sent for already-completed booking ${id}`);
+        if (notifyResult.emailSent) {
+          console.log(`[EMAIL] Completion email sent for already-completed booking ${id}`);
+        } else if (notifyResult.smsSentIndependently) {
+          console.log(`[SMS] Completion SMS sent after email failure for already-completed booking ${id}`);
+        }
       } catch (emailError) {
         console.error(`[EMAIL] Failed to send completion email for already-completed booking ${id}:`, emailError);
       }
@@ -529,7 +533,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         try {
           console.log(`[EMAIL] Status changed to Completed for booking ${id} (service-complete multi-service)`);
           console.log(`[EMAIL] Previous status: ${currentStatus}, New status: Completed`);
-          await sendBookingStatusChangeEmail(
+          const notifyResult = await sendBookingStatusChangeEmail(
             id,
             "Completed",
             bookingData.clientEmail,
@@ -555,7 +559,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
               additionalIssues: bookingData.additionalIssues || null,
             }
           );
-          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          if (notifyResult.emailSent) {
+            console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+          } else if (notifyResult.smsSentIndependently) {
+            console.log(`[SMS] ✅ Completion SMS sent (email failed: ${notifyResult.error ?? "n/a"}) for booking ${id}`);
+          }
         } catch (emailError) {
           console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
           console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');
@@ -752,7 +760,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       try {
         console.log(`[EMAIL] Status changed to Completed for booking ${id} (service-complete single service)`);
         console.log(`[EMAIL] Previous status: ${currentStatus}, New status: Completed`);
-        await sendBookingStatusChangeEmail(
+        const notifyResult = await sendBookingStatusChangeEmail(
           id,
           "Completed",
           bookingData.clientEmail,
@@ -778,7 +786,11 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
             additionalIssues: bookingData.additionalIssues || null,
           }
         );
-        console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+        if (notifyResult.emailSent) {
+          console.log(`[EMAIL] ✅ Completion email sent successfully for booking ${id}`);
+        } else if (notifyResult.smsSentIndependently) {
+          console.log(`[SMS] ✅ Completion SMS sent (email failed: ${notifyResult.error ?? "n/a"}) for booking ${id}`);
+        }
       } catch (emailError) {
         console.error(`[EMAIL] ❌ Failed to send booking completion email for ${id}:`, emailError);
         console.error(`[EMAIL] Error stack:`, emailError instanceof Error ? emailError.stack : 'No stack trace');

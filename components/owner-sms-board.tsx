@@ -4,8 +4,6 @@
 
 import { authFetch, useAuthUser } from "@/lib/sms/client-auth";
 import { useSmsBalance } from "@/lib/sms/sms-balance-context";
-
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -414,172 +412,76 @@ export function OwnerSmsBoard() {
 
 
   return (
-
-    <div className="space-y-8">
-
-      <div className="rounded-2xl bg-gradient-to-r from-neutral-900 to-neutral-700 p-6 text-white">
-
-        <div className="flex flex-wrap items-start justify-between gap-4">
-
-          <div>
-
-            <h1 className="text-2xl font-bold">SMS Credits</h1>
-
-            <p className="mt-1 text-sm text-neutral-300">
-
-              Top up credits and monitor usage for outbound TextBee messages.
-
-            </p>
-
-          </div>
-
-          <div className="flex gap-2">
-
-            <Link
-
-              href="/sms/log"
-
-              className="rounded-lg bg-white/15 px-4 py-2 text-sm font-medium hover:bg-white/25"
-
-            >
-
-              Delivery log
-
-            </Link>
-
-            <Link
-
-              href="/owner-custom-messages"
-
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
-
-            >
-
-              Custom messages
-
-            </Link>
-
-          </div>
-
-        </div>
-
-      </div>
-
-
-
+    <div className="space-y-6">
       {loading ? (
-
-        <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center text-neutral-500">
-
+        <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center text-neutral-500 shadow-sm">
           <i className="fas fa-spinner fa-spin mr-2" />
-
           Loading SMS balance…
-
         </div>
-
       ) : (
-
         <>
-
-          <div className="grid gap-4 md:grid-cols-3">
-
-            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-
-              <p className="text-sm text-neutral-500">Remaining</p>
-
-              <p className="mt-2 text-3xl font-bold text-neutral-900">
-
-                {balance?.unlimited ? "Unlimited" : (balance?.remaining ?? 0).toLocaleString()}
-
-              </p>
-
-              {balance?.isLow && !balance.unlimited && (
-
-                <p className="mt-2 text-sm text-amber-700">Low balance — consider topping up.</p>
-
-              )}
-
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
+            <h2 className="text-base font-semibold text-neutral-900">Balance overview</h2>
+            <p className="mt-1 text-sm text-neutral-500">
+              Current SMS usage and remaining credits on your account.
+            </p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">Remaining</p>
+                <p className="mt-2 text-3xl font-bold text-neutral-900">
+                  {balance?.unlimited ? "Unlimited" : (balance?.remaining ?? 0).toLocaleString()}
+                </p>
+                {balance?.isLow && !balance.unlimited && (
+                  <p className="mt-2 text-sm text-amber-700">Low balance — consider topping up.</p>
+                )}
+              </div>
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">Used</p>
+                <p className="mt-2 text-3xl font-bold text-neutral-900">
+                  {(balance?.used ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">Limit</p>
+                <p className="mt-2 text-3xl font-bold text-neutral-900">
+                  {balance?.unlimited ? "Unlimited" : (balance?.limit ?? 0).toLocaleString()}
+                </p>
+              </div>
             </div>
-
-            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-
-              <p className="text-sm text-neutral-500">Used</p>
-
-              <p className="mt-2 text-3xl font-bold text-neutral-900">
-
-                {(balance?.used ?? 0).toLocaleString()}
-
-              </p>
-
-            </div>
-
-            <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-
-              <p className="text-sm text-neutral-500">Limit</p>
-
-              <p className="mt-2 text-3xl font-bold text-neutral-900">
-
-                {balance?.unlimited ? "Unlimited" : (balance?.limit ?? 0).toLocaleString()}
-
-              </p>
-
-            </div>
-
-          </div>
-
-
+          </section>
 
           {confirmingCheckout && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-800">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
               <i className="fas fa-spinner fa-spin mr-2" />
               Applying your SMS credits…
             </div>
           )}
 
           {message && (
-
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800">
-
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               {message}
-
             </div>
-
           )}
 
           {error && (
-
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-700">{error}</div>
-
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
           )}
 
-
-
-          <section>
-
+          <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="mb-6">
-
-              <h2 className="font-serif text-3xl font-bold text-neutral-900">Top up SMS</h2>
-
-              <p className="mt-2 max-w-2xl text-sm text-neutral-500">
-
+              <h2 className="text-base font-semibold text-neutral-900">Top up SMS</h2>
+              <p className="mt-1 text-sm text-neutral-500">
                 Add more messages to your balance. Top-ups stay on your account across subscription
-
                 renewals.
-
               </p>
-
             </div>
 
-
-
             {packages.length === 0 ? (
-
               <p className="text-sm text-neutral-500">No SMS packages are available right now.</p>
-
             ) : (
-
               <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-
                 {packages.map((pkg) => {
 
                   const styles = packageStyles(pkg.color);
@@ -731,13 +633,9 @@ export function OwnerSmsBoard() {
                 })}
 
               </div>
-
             )}
-
           </section>
-
         </>
-
       )}
 
 

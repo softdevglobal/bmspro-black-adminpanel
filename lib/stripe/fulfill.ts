@@ -150,6 +150,17 @@ export async function createSmsCheckoutSession(args: {
   const userData = userDoc.data();
   let customerId = userData?.stripeCustomerId as string | undefined;
 
+  if (customerId) {
+    try {
+      const existing = await stripe.customers.retrieve(customerId);
+      if ((existing as Stripe.DeletedCustomer).deleted) {
+        customerId = undefined;
+      }
+    } catch {
+      customerId = undefined;
+    }
+  }
+
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: args.customerEmail || userData?.email || undefined,

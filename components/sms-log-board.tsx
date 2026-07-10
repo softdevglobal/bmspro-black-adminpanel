@@ -41,22 +41,22 @@ export function SmsLogBoard({ variant }: { variant: "admin" | "tenant" }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-neutral-900 to-neutral-700 p-6 text-white">
-        <h1 className="text-2xl font-bold">SMS Delivery Log</h1>
-        <p className="mt-1 text-sm text-neutral-300">
-          {variant === "admin"
-            ? "All outbound SMS attempts across tenants."
-            : "Outbound SMS attempts for your workshop."}
-        </p>
-      </div>
+      {variant === "admin" && (
+        <div className="rounded-2xl bg-gradient-to-r from-neutral-900 to-neutral-700 p-6 text-white">
+          <h1 className="text-2xl font-bold">SMS Delivery Log</h1>
+          <p className="mt-1 text-sm text-neutral-300">All outbound SMS attempts across tenants.</p>
+        </div>
+      )}
 
       {loading ? (
-        <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center text-neutral-500">
+        <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center text-neutral-500 shadow-sm">
           <i className="fas fa-spinner fa-spin mr-2" />
           Loading SMS logs…
         </div>
       ) : error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">{error}</div>
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 shadow-sm">
+          {error}
+        </div>
       ) : (
         <SmsDeliveryLog logs={logs} showBusinessId={variant === "admin"} />
       )}

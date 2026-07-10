@@ -1,4 +1,4 @@
-export const SMS_LOW_BALANCE_THRESHOLD = 10;
+export const SMS_LOW_BALANCE_THRESHOLD = 20;
 
 /** Tenant SMS fields live on users/{ownerUid} (mirrored to owners/{ownerUid}). */
 export type BusinessSmsBalance = {

@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, url: session.url, sessionId: session.sessionId });
   } catch (error: unknown) {
+    console.error("[STRIPE SMS CHECKOUT] Failed to create session:", error);
     const message = error instanceof Error ? error.message : "Failed to start SMS checkout";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }

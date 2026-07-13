@@ -206,6 +206,13 @@ type MappedNotification = {
   issueId: string | null;
   issueTitle: string | null;
   price: number | null;
+  documentId: string | null;
+  documentKind: string | null;
+  documentCode: string | null;
+  jobTitle: string | null;
+  totalAud: number | null;
+  dueDate: string | null;
+  pdfUrl: string | null;
   /** Filled from `bookings` when enriching additional-issue rows */
   issueStatus: string | null;
   issueDescription: string | null;
@@ -308,6 +315,13 @@ function mapCustomerDoc(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    documentId: (d.documentId as string) || null,
+    documentKind: (d.documentKind as string) || null,
+    documentCode: (d.documentCode as string) || null,
+    jobTitle: (d.jobTitle as string) || null,
+    totalAud: typeof d.totalAud === "number" ? d.totalAud : null,
+    dueDate: (d.dueDate as string) || null,
+    pdfUrl: typeof d.pdfUrl === "string" ? d.pdfUrl : null,
     issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
     issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     title: (d.title as string) || "Notification",
@@ -331,6 +345,7 @@ function dedupeKeyCustomerInbox(m: MappedNotification): string {
     m.type,
     m.estimateId ?? "",
     m.issueId ?? "",
+    m.documentId ?? "",
   ].join("|");
 }
 
@@ -395,6 +410,13 @@ function mapNotificationsDocToCustomerPanel(
     issueId: (d.issueId as string) || null,
     issueTitle: (d.issueTitle as string) || null,
     price: typeof d.price === "number" ? d.price : null,
+    documentId: (d.documentId as string) || null,
+    documentKind: (d.documentKind as string) || null,
+    documentCode: (d.documentCode as string) || null,
+    jobTitle: (d.jobTitle as string) || null,
+    totalAud: typeof d.totalAud === "number" ? d.totalAud : null,
+    dueDate: (d.dueDate as string) || null,
+    pdfUrl: typeof d.pdfUrl === "string" ? d.pdfUrl : null,
     issueStatus: strOrNull((d as Record<string, unknown>).issueStatus) ?? null,
     issueDescription: strOrNull((d as Record<string, unknown>).issueDescription) ?? null,
     title: (d.title as string) || "Notification",

@@ -192,7 +192,7 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
     .report-header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      padding: 34px 52px 26px;
+      padding: 26px 52px 20px;
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
@@ -231,10 +231,10 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
     .status-dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
     .report-body {
       max-width: 1080px; margin: 0 auto;
-      padding: 34px 52px 56px;
-      display: flex; flex-direction: column; gap: 26px;
+      padding: 24px 52px 36px;
+      display: flex; flex-direction: column; gap: 18px;
     }
-    .section-label { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .section-label { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .section-label-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex-shrink: 0; }
     .section-label h2 {
       font-size: 11px; font-weight: 700; letter-spacing: 0.2em;
@@ -307,6 +307,23 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
     }
     .note-block .nbody { font-size: 12.5px; color: var(--text-mid); }
     .terms .nbody { font-family: 'Lora', serif; }
+
+    /* ─── PAGE BREAK RULES ─── */
+    /* Keep the totals/summary block intact and never let it orphan onto its
+       own page — glue it to the items table above it. */
+    .summary,
+    .summary-inner,
+    .grand-total { page-break-inside: avoid; break-inside: avoid; }
+    /* Keep the whole totals section together on one page. */
+    .summary-section { page-break-inside: avoid; break-inside: avoid; }
+    /* Individual line rows never split across a page boundary. */
+    table.items tr { page-break-inside: avoid; break-inside: avoid; }
+    /* Keep each section heading attached to the content that follows it. */
+    .section-label { page-break-after: avoid; break-after: avoid; }
+
+    @media print {
+      body { background: #fff; }
+    }
   </style>
 </head>
 <body>
@@ -394,7 +411,7 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
       </div>
     </section>
 
-    <section>
+    <section class="summary-section">
       <div class="summary">
         <div class="summary-inner">
           ${totalsRows}

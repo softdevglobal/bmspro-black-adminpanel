@@ -293,7 +293,7 @@ export default function BookingEnginePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeView, setActiveView] = useState<"booking" | "myBookings" | "myVehicles" | "estimate" | "myEstimates">("booking");
+  const [activeView, setActiveView] = useState<"booking" | "myBookings" | "myVehicles" | "estimate" | "myEstimates" | "myDocuments">("booking");
   /** Avoid re-opening sign-in when `view=my-bookings` is present but session restores async. */
   const myBookingsQuoteLinkAuthOpenedRef = useRef(false);
   const [bookingsFilter, setBookingsFilter] = useState("All");
@@ -322,6 +322,20 @@ export default function BookingEnginePage() {
   const [estimateImages, setEstimateImages] = useState<File[]>([]);
   const [estimateImagePreviews, setEstimateImagePreviews] = useState<string[]>([]);
   const [customerEstimateNotifications, setCustomerEstimateNotifications] = useState<any[]>([]);
+  const [customerSalesDocuments, setCustomerSalesDocuments] = useState<
+    {
+      id: string;
+      kind: "quotation" | "invoice";
+      code: string;
+      jobTitle?: string;
+      totalAud?: number;
+      status?: string;
+      sentAt?: number | null;
+      documentDate?: string;
+      dueDate?: string;
+    }[]
+  >([]);
+  const [customerSalesDocumentsLoading, setCustomerSalesDocumentsLoading] = useState(false);
 
   const [step, setStep] = useState(1);
   const [prevStep, setPrevStep] = useState(1);
@@ -415,6 +429,13 @@ export default function BookingEnginePage() {
   const [downloadingBookingId, setDownloadingBookingId] = useState<string | null>(null);
   const [pdfConfirmBooking, setPdfConfirmBooking] = useState<CustomerBooking | null>(null);
   const [additionalIssueResponding, setAdditionalIssueResponding] = useState<Record<string, boolean>>({});
+  const [salesDocPdfViewer, setSalesDocPdfViewer] = useState<{
+    title: string;
+    sourceUrl: string;
+    blobUrl: string | null;
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
 
   const getSelectedVehicleStorageKey = useCallback(() => {
     if (!customer?.customerId || !slug) return null;
@@ -916,6 +937,91 @@ export default function BookingEnginePage() {
     }
   }, [customer?.customerId]);
 
+  const fetchCustomerSalesDocuments = useCallback(async () => {
+    if (!customer?.customerId) return;
+    setCustomerSalesDocumentsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/book-now/sales-documents?customerId=${encodeURIComponent(customer.customerId)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCustomerSalesDocuments(Array.isArray(data.documents) ? data.documents : []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch customer sales documents:", err);
+    } finally {
+      setCustomerSalesDocumentsLoading(false);
+    }
+  }, [customer?.customerId]);
+
+  const closeSalesDocPdfViewer = useCallback(() => {
+    setSalesDocPdfViewer((prev) => {
+      if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+      return null;
+    });
+  }, []);
+
+  const openSalesDocumentPdf = useCallback(
+    async (params: {
+      documentId: string;
+      kind: "quotation" | "invoice";
+      title: string;
+    }) => {
+      if (!customer?.customerId || !params.documentId) return;
+      const sourceUrl = `/api/book-now/sales-documents/${encodeURIComponent(
+        params.documentId
+      )}/pdf?customerId=${encodeURIComponent(customer.customerId)}&kind=${params.kind}`;
+
+      setSalesDocPdfViewer((prev) => {
+        if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+        return {
+          title: params.title,
+          sourceUrl,
+          blobUrl: null,
+          loading: true,
+          error: null,
+        };
+      });
+      setShowNotifications(false);
+
+      try {
+        const res = await fetch(sourceUrl);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(
+            (data as { error?: string }).error ||
+              `Could not load the ${params.kind} PDF.`
+          );
+        }
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        setSalesDocPdfViewer((prev) => {
+          if (!prev || prev.sourceUrl !== sourceUrl) {
+            URL.revokeObjectURL(blobUrl);
+            return prev;
+          }
+          return {
+            ...prev,
+            blobUrl,
+            loading: false,
+            error: null,
+          };
+        });
+      } catch (err) {
+        setSalesDocPdfViewer((prev) => {
+          if (!prev || prev.sourceUrl !== sourceUrl) return prev;
+          return {
+            ...prev,
+            loading: false,
+            error: err instanceof Error ? err.message : "Could not load the PDF.",
+          };
+        });
+      }
+    },
+    [customer?.customerId]
+  );
+
   const markAllAsRead = useCallback(async () => {
     const ids = visibleBookings.map((b) => b.id);
     setReadIds((prev) => {
@@ -944,12 +1050,14 @@ export default function BookingEnginePage() {
   useEffect(() => {
     if (!customer?.customerId) {
       setCustomerEstimateNotifications([]);
+      setCustomerSalesDocuments([]);
       return;
     }
     fetchCustomerNotifications();
+    fetchCustomerSalesDocuments();
     const interval = setInterval(fetchCustomerNotifications, 30000);
     return () => clearInterval(interval);
-  }, [customer?.customerId, fetchCustomerNotifications]);
+  }, [customer?.customerId, fetchCustomerNotifications, fetchCustomerSalesDocuments]);
 
   const markEstimateNotificationsAsRead = useCallback(async (estimateId: string) => {
     const toMark = customerEstimateNotifications
@@ -1773,6 +1881,38 @@ export default function BookingEnginePage() {
             )}
             {customer && (
               <button
+                onClick={() => {
+                  setActiveView("myDocuments");
+                  fetchCustomerSalesDocuments();
+                }}
+                className={`h-8 shrink-0 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-[11px] font-bold transition-all ${
+                  activeView === "myDocuments"
+                    ? "bg-white text-neutral-900 shadow-sm border border-neutral-200"
+                    : "text-neutral-500 hover:bg-white/80 hover:text-neutral-700"
+                }`}
+              >
+                <i className="fas fa-file-pdf text-[9px]" />
+                Quotes & Invoices
+                {customerSalesDocuments.length > 0 && (
+                  <span
+                    className={`min-w-[18px] h-[18px] inline-flex items-center justify-center text-[9px] font-extrabold rounded-full px-1 ${
+                      customerEstimateNotifications.some(
+                        (n) =>
+                          (n.type === "quotation_sent" || n.type === "invoice_sent") && !n.read
+                      )
+                        ? "bg-amber-500 text-white"
+                        : activeView === "myDocuments"
+                          ? "bg-neutral-900 text-white"
+                          : "bg-neutral-200 text-neutral-700"
+                    }`}
+                  >
+                    {customerSalesDocuments.length}
+                  </span>
+                )}
+              </button>
+            )}
+            {customer && (
+              <button
                 onClick={() => { setActiveView("myVehicles"); fetchCustomerVehicles(); }}
                 className={`h-8 shrink-0 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-[11px] font-bold transition-all ${
                   activeView === "myVehicles"
@@ -1845,6 +1985,9 @@ export default function BookingEnginePage() {
                   {/* Additional work quote & estimate reply notifications */}
                   {customerEstimateNotifications.map((n) => {
                     const isAdditionalQuote = n.type === "additional_issue_quote";
+                    const isQuotationSent = n.type === "quotation_sent";
+                    const isInvoiceSent = n.type === "invoice_sent";
+                    const isSalesDocument = isQuotationSent || isInvoiceSent;
                     const timeAgo = (() => {
                       const raw = n.createdAt;
                       if (!raw) return "";
@@ -1865,32 +2008,59 @@ export default function BookingEnginePage() {
                     const isServiceReminder = n.type === "service_reminder";
                     const isServiceReminderAdvance = n.type === "service_reminder_advance";
                     const isServiceReminderNotif = isServiceReminder || isServiceReminderAdvance;
-                    const accentColor = isReschedule ? "#3b82f6" : "#f59e0b";
-                    const iconBg = isReschedule ? "bg-blue-100" : "bg-amber-100";
-                    const iconFg = isReschedule ? "text-blue-600" : "text-amber-600";
-                    const iconName = isReschedule
-                      ? "fa-calendar-days"
-                      : isAdditionalQuote
-                        ? "fa-file-invoice-dollar"
-                        : isServiceReminderNotif
-                          ? "fa-bell"
-                          : "fa-file-invoice-dollar";
-                    const titleText = isReschedule
-                      ? n.title || "Booking Rescheduled"
-                      : isAdditionalQuote
-                        ? "Additional Work Quote Ready"
-                        : isServiceReminderAdvance
-                          ? n.title || "Service Due in 1 Week"
-                          : isServiceReminder
-                            ? n.title || "Service Reminder"
-                            : n.type === "estimate_reply"
-                              ? "Estimate Reply"
-                              : n.title || "Notification";
+                    const accentColor = isInvoiceSent
+                      ? "#059669"
+                      : isQuotationSent
+                        ? "#0f766e"
+                        : isReschedule
+                          ? "#3b82f6"
+                          : "#f59e0b";
+                    const iconBg = isInvoiceSent
+                      ? "bg-emerald-100"
+                      : isQuotationSent
+                        ? "bg-teal-100"
+                        : isReschedule
+                          ? "bg-blue-100"
+                          : "bg-amber-100";
+                    const iconFg = isInvoiceSent
+                      ? "text-emerald-700"
+                      : isQuotationSent
+                        ? "text-teal-700"
+                        : isReschedule
+                          ? "text-blue-600"
+                          : "text-amber-600";
+                    const iconName = isInvoiceSent
+                      ? "fa-file-invoice-dollar"
+                      : isQuotationSent
+                        ? "fa-file-lines"
+                        : isReschedule
+                          ? "fa-calendar-days"
+                          : isAdditionalQuote
+                            ? "fa-file-invoice-dollar"
+                            : isServiceReminderNotif
+                              ? "fa-bell"
+                              : "fa-file-invoice-dollar";
+                    const titleText = isQuotationSent
+                      ? n.title || `Quotation ${n.documentCode || ""}`.trim()
+                      : isInvoiceSent
+                        ? n.title || `Invoice ${n.documentCode || ""}`.trim()
+                        : isReschedule
+                          ? n.title || "Booking Rescheduled"
+                          : isAdditionalQuote
+                            ? "Additional Work Quote Ready"
+                            : isServiceReminderAdvance
+                              ? n.title || "Service Due in 1 Week"
+                              : isServiceReminder
+                                ? n.title || "Service Reminder"
+                                : n.type === "estimate_reply"
+                                  ? "Estimate Reply"
+                                  : n.title || "Notification";
                     return (
                       <div
                         key={n.id}
                         className="bg-white rounded-xl border border-neutral-200/80 shadow-sm hover:shadow-md transition-all overflow-hidden cursor-pointer group"
                         onClick={() => {
+                          if (isSalesDocument) return;
                           setShowNotifications(false);
                           if (isReschedule) {
                             setActiveView("myBookings");
@@ -1928,12 +2098,61 @@ export default function BookingEnginePage() {
                               </div>
                               <p className="text-[10px] text-neutral-500 leading-relaxed mt-0.5">
                                 {n.message ||
-                                  (isAdditionalQuote
-                                    ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.`
-                                    : isServiceReminderNotif
-                                      ? "Time to book your next service."
-                                      : "You have a new reply to your estimate request.")}
+                                  (isSalesDocument
+                                    ? `${isQuotationSent ? "Quotation" : "Invoice"} ${n.documentCode || ""} is ready to view.`
+                                    : isAdditionalQuote
+                                      ? `${n.issueTitle || "Additional work"}: $${typeof n.price === "number" ? n.price.toFixed(2) : "—"} - Please review.`
+                                      : isServiceReminderNotif
+                                        ? "Time to book your next service."
+                                        : "You have a new reply to your estimate request.")}
                               </p>
+                              {isSalesDocument && (
+                                <div className="mt-2 space-y-1.5">
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    {n.documentCode && (
+                                      <span className="text-[9px] text-neutral-400 font-mono">{n.documentCode}</span>
+                                    )}
+                                    {typeof n.totalAud === "number" && (
+                                      <span className="text-[9px] font-semibold text-neutral-700">
+                                        AU$ {n.totalAud.toFixed(2)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {n.documentId && customer?.customerId && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const kind =
+                                          n.documentKind === "invoice" || n.type === "invoice_sent"
+                                            ? "invoice"
+                                            : "quotation";
+                                        void openSalesDocumentPdf({
+                                          documentId: n.documentId,
+                                          kind,
+                                          title: titleText,
+                                        });
+                                        if (!n.read) {
+                                          fetch("/api/book-now/customer-notifications", {
+                                            method: "PATCH",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({
+                                              customerId: customer.customerId,
+                                              notificationIds: [n.id],
+                                            }),
+                                          })
+                                            .then(() => fetchCustomerNotifications())
+                                            .catch(() => {});
+                                        }
+                                      }}
+                                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-2 text-[10px] font-bold text-white transition hover:bg-neutral-800"
+                                    >
+                                      <i className="fas fa-file-pdf text-[9px]" />
+                                      View {isQuotationSent ? "quotation" : "invoice"} PDF
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                               {n.bookingCode && (
                                 <p className="text-[9px] text-neutral-400 mt-1 font-mono">{n.bookingCode}</p>
                               )}
@@ -2200,7 +2419,7 @@ export default function BookingEnginePage() {
       )}
 
       {/* ═══════════════════ NOTIFICATION BANNER (estimates + additional work) ═══════════════════ */}
-      {customer && customerNotifUnreadCount > 0 && activeView !== "myEstimates" && activeView !== "myBookings" && (
+      {customer && customerNotifUnreadCount > 0 && activeView !== "myEstimates" && activeView !== "myBookings" && activeView !== "myDocuments" && (
         <div className="relative z-20 bg-amber-50 border-b border-amber-200/80">
           <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
@@ -2210,9 +2429,14 @@ export default function BookingEnginePage() {
                   ? "You have an additional work quote to review."
                   : hasUnreadRescheduleNotification
                     ? "Your booking was rescheduled. Please review the new details."
-                    : estimateReplyUnreadCount > 0
-                      ? `You have ${estimateReplyUnreadCount} new reply${estimateReplyUnreadCount > 1 ? "s" : ""} to your estimate request${estimateReplyUnreadCount > 1 ? "s" : ""}.`
-                      : `You have ${customerNotifUnreadCount} unread notification${customerNotifUnreadCount > 1 ? "s" : ""}.`}
+                    : customerEstimateNotifications.some(
+                          (n) =>
+                            (n.type === "quotation_sent" || n.type === "invoice_sent") && !n.read
+                        )
+                      ? "You have a new quotation or invoice to view."
+                      : estimateReplyUnreadCount > 0
+                        ? `You have ${estimateReplyUnreadCount} new reply${estimateReplyUnreadCount > 1 ? "s" : ""} to your estimate request${estimateReplyUnreadCount > 1 ? "s" : ""}.`
+                        : `You have ${customerNotifUnreadCount} unread notification${customerNotifUnreadCount > 1 ? "s" : ""}.`}
               </span>
             </div>
             <button
@@ -2220,6 +2444,14 @@ export default function BookingEnginePage() {
                 if (hasUnreadAdditionalQuoteNotification || hasUnreadRescheduleNotification) {
                   setActiveView("myBookings");
                   fetchCustomerBookings();
+                } else if (
+                  customerEstimateNotifications.some(
+                    (n) =>
+                      (n.type === "quotation_sent" || n.type === "invoice_sent") && !n.read
+                  )
+                ) {
+                  setActiveView("myDocuments");
+                  fetchCustomerSalesDocuments();
                 } else if (estimateReplyUnreadCount > 0) {
                   setActiveView("myEstimates");
                   fetchCustomerEstimates();
@@ -2232,9 +2464,14 @@ export default function BookingEnginePage() {
             >
               {hasUnreadAdditionalQuoteNotification || hasUnreadRescheduleNotification
                 ? "View My Bookings"
-                : estimateReplyUnreadCount > 0
-                  ? "View My Estimates"
-                  : "View notifications"}
+                : customerEstimateNotifications.some(
+                      (n) =>
+                        (n.type === "quotation_sent" || n.type === "invoice_sent") && !n.read
+                    )
+                  ? "View Quotes & Invoices"
+                  : estimateReplyUnreadCount > 0
+                    ? "View My Estimates"
+                    : "View notifications"}
             </button>
           </div>
         </div>
@@ -4127,6 +4364,96 @@ export default function BookingEnginePage() {
         </main>
       )}
 
+      {/* ═══════════════════ QUOTATION / INVOICE PDF VIEWER ═══════════════════ */}
+      {salesDocPdfViewer && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-3 sm:p-6 animate-[fadeIn_0.15s_ease-out]"
+          onClick={closeSalesDocPdfViewer}
+        >
+          <div
+            className="relative flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl animate-[modalPop_0.22s_ease-out]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-100 bg-neutral-50 px-4 py-3">
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-extrabold text-neutral-900">
+                  {salesDocPdfViewer.title}
+                </h3>
+                <p className="text-[10px] text-neutral-500">
+                  {salesDocPdfViewer.loading
+                    ? "Preparing PDF…"
+                    : "View and download your document"}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {salesDocPdfViewer.blobUrl && (
+                  <>
+                    <a
+                      href={salesDocPdfViewer.blobUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[10px] font-bold text-neutral-700 hover:bg-neutral-50"
+                    >
+                      <i className="fas fa-up-right-from-square text-[9px]" />
+                      Open
+                    </a>
+                    <a
+                      href={salesDocPdfViewer.blobUrl}
+                      download={`${salesDocPdfViewer.title.replace(/[^\w.-]+/g, "_") || "document"}.pdf`}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-2 text-[10px] font-bold text-white hover:bg-neutral-800"
+                    >
+                      <i className="fas fa-download text-[9px]" />
+                      Download
+                    </a>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={closeSalesDocPdfViewer}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900"
+                  aria-label="Close PDF"
+                >
+                  <i className="fas fa-times text-sm" />
+                </button>
+              </div>
+            </div>
+            <div className="relative flex-1 bg-neutral-100">
+              {salesDocPdfViewer.loading && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-neutral-50">
+                  <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-neutral-200 border-t-neutral-900" />
+                  <p className="text-xs font-semibold text-neutral-600">Loading PDF…</p>
+                  <p className="text-[10px] text-neutral-400">This can take a few seconds</p>
+                </div>
+              )}
+              {salesDocPdfViewer.error && !salesDocPdfViewer.loading && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
+                    <i className="fas fa-triangle-exclamation" />
+                  </div>
+                  <p className="text-sm font-bold text-neutral-900">Could not open PDF</p>
+                  <p className="text-xs text-neutral-500">{salesDocPdfViewer.error}</p>
+                  <a
+                    href={salesDocPdfViewer.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-4 py-2 text-[11px] font-bold text-white"
+                  >
+                    Try opening in a new tab
+                  </a>
+                </div>
+              )}
+              {salesDocPdfViewer.blobUrl && (
+                <iframe
+                  title={salesDocPdfViewer.title}
+                  src={salesDocPdfViewer.blobUrl}
+                  className="h-full w-full"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════════ IMAGE LIGHTBOX ═══════════════════ */}
       {lightboxUrl && (
         <div
@@ -4721,6 +5048,107 @@ export default function BookingEnginePage() {
             </>,
             document.body
           )}
+
+      {/* ═══════════════════ QUOTES & INVOICES VIEW ═══════════════════ */}
+      {activeView === "myDocuments" && customer && (
+        <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 w-full relative z-10">
+          <div className="animate-[fadeSlideUp_0.4s_ease-out]">
+            <h3 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight mb-1">
+              Quotes & Invoices
+            </h3>
+            <p className="text-neutral-500 text-sm mb-6">
+              Open PDFs for quotations and invoices sent to you by the workshop.
+            </p>
+
+            {customerSalesDocumentsLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <svg className="animate-spin h-6 w-6 text-neutral-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </div>
+            ) : customerSalesDocuments.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-3xl border border-neutral-200/80 shadow-sm">
+                <div className="w-16 h-16 mx-auto mb-4 bg-neutral-100 rounded-2xl flex items-center justify-center">
+                  <i className="fas fa-file-pdf text-2xl text-neutral-300" />
+                </div>
+                <p className="text-neutral-500 font-medium mb-1">No quotes or invoices yet</p>
+                <p className="text-neutral-400 text-xs">
+                  When the workshop sends you a quotation or invoice, it will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {customerSalesDocuments.map((doc) => {
+                  const isInvoice = doc.kind === "invoice";
+                  const dateStr = doc.sentAt
+                    ? new Date(doc.sentAt).toLocaleDateString("en-AU", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })
+                    : doc.documentDate || "-";
+                  return (
+                    <div
+                      key={`${doc.kind}-${doc.id}`}
+                      className="bg-white rounded-2xl border border-neutral-200/80 shadow-sm overflow-hidden"
+                    >
+                      <div className={`h-1 ${isInvoice ? "bg-emerald-500" : "bg-teal-600"}`} />
+                      <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                        <div
+                          className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                            isInvoice ? "bg-emerald-50 text-emerald-700" : "bg-teal-50 text-teal-700"
+                          }`}
+                        >
+                          <i className={`fas ${isInvoice ? "fa-file-invoice-dollar" : "fa-file-lines"}`} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm font-extrabold text-neutral-900">
+                              {isInvoice ? "Invoice" : "Quotation"} {doc.code}
+                            </h4>
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">
+                              Sent
+                            </span>
+                          </div>
+                          {doc.jobTitle && (
+                            <p className="text-xs text-neutral-600 mt-0.5 truncate">{doc.jobTitle}</p>
+                          )}
+                          <p className="text-[11px] text-neutral-400 mt-1">
+                            {dateStr}
+                            {typeof doc.totalAud === "number" && (
+                              <>
+                                {" · "}
+                                <span className="font-semibold text-neutral-700">
+                                  AU$ {doc.totalAud.toFixed(2)}
+                                </span>
+                              </>
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void openSalesDocumentPdf({
+                              documentId: doc.id,
+                              kind: doc.kind,
+                              title: `${isInvoice ? "Invoice" : "Quotation"} ${doc.code}`,
+                            })
+                          }
+                          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2.5 text-xs font-bold text-white hover:bg-neutral-800 transition-colors shrink-0"
+                        >
+                          <i className="fas fa-file-pdf text-[10px]" />
+                          View PDF
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </main>
+      )}
 
       {/* ═══════════════════ MY ESTIMATES VIEW ═══════════════════ */}
       {activeView === "myEstimates" && (

@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminDb, adminStorage } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
 import { sendEmail } from "@/lib/email";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
@@ -14,6 +14,7 @@ import {
   generateSalesDocumentPdf,
   type SalesDocPdfInput,
 } from "@/lib/salesDocumentPdf";
+import { CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS } from "@/lib/notifications";
 
 /**
  * Quotations & invoices ("sales documents") are a standalone feature: they live
@@ -386,6 +387,7 @@ export function mapSalesDocument(id: string, data: FirebaseFirestore.DocumentDat
     comment: (data.comment as string) ?? "",
     customerId: (data.customerId as string | null) ?? null,
     customerAccountCreated: data.customerAccountCreated === true,
+    pdfUrl: typeof data.pdfUrl === "string" ? data.pdfUrl : null,
     sentAt: toMillis(data.sentAt),
     createdAt: toMillis(data.createdAt),
     updatedAt: toMillis(data.updatedAt),
@@ -572,18 +574,126 @@ type SendOutcome = {
   customerAccountCreated: boolean;
   emailSent: boolean;
   emailError: string | null;
+  pdfUrl: string | null;
 };
+
+async function uploadSalesDocumentPdf(params: {
+  ownerUid: string;
+  kind: SalesDocKind;
+  documentId: string;
+  code: string;
+  buffer: Buffer;
+  filename: string;
+}): Promise<string | null> {
+  const { ownerUid, kind, documentId, code, buffer, filename } = params;
+  try {
+    const storage = adminStorage();
+    const bucketName =
+      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ||
+      process.env.FIREBASE_STORAGE_BUCKET;
+    const bucket = bucketName ? storage.bucket(bucketName) : storage.bucket();
+    const safeCode = code.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const filePath = `sales-documents/${ownerUid}/${kind}/${documentId}/${safeCode}.pdf`;
+    const fileRef = bucket.file(filePath);
+
+    await fileRef.save(buffer, {
+      metadata: {
+        contentType: "application/pdf",
+        cacheControl: "public, max-age=31536000",
+        metadata: {
+          originalFilename: filename,
+          documentKind: kind,
+          documentCode: code,
+        },
+      },
+    });
+
+    try {
+      await fileRef.makePublic();
+      return `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+    } catch {
+      // Uniform bucket-level access often blocks makePublic — fall back to a long-lived signed URL.
+      const [signedUrl] = await fileRef.getSignedUrl({
+        action: "read",
+        expires: Date.now() + 1000 * 60 * 60 * 24 * 365,
+      });
+      return signedUrl;
+    }
+  } catch (error) {
+    console.error(`[${kind}] PDF upload failed for ${code}:`, error);
+    return null;
+  }
+}
+
+async function createSalesDocumentCustomerNotification(params: {
+  db: FirebaseFirestore.Firestore;
+  ownerUid: string;
+  customerId: string;
+  kind: SalesDocKind;
+  documentId: string;
+  code: string;
+  input: SalesDocumentInput;
+  totals: Totals;
+  dueDate: string;
+  workshopName: string;
+  pdfUrl: string | null;
+}): Promise<void> {
+  const {
+    db,
+    ownerUid,
+    customerId,
+    kind,
+    documentId,
+    code,
+    input,
+    totals,
+    dueDate,
+    workshopName,
+    pdfUrl,
+  } = params;
+  const config = KIND_CONFIG[kind];
+  const type = kind === "quotation" ? "quotation_sent" : "invoice_sent";
+  const docLabel = config.docLabel;
+  const title =
+    kind === "quotation" ? `New Quotation ${code}` : `New Invoice ${code}`;
+  const message = input.jobTitle
+    ? `Your ${docLabel.toLowerCase()} ${code} for ${input.jobTitle} — ${formatAud(totals.totalAud)}.`
+    : `Your ${docLabel.toLowerCase()} ${code} for ${formatAud(totals.totalAud)} is ready.`;
+
+  await db.collection("customer_notifications").add({
+    customerId,
+    ownerUid,
+    type,
+    title,
+    message,
+    read: false,
+    documentId,
+    documentKind: kind,
+    documentCode: code,
+    jobTitle: input.jobTitle || null,
+    totalAud: totals.totalAud,
+    dueDate: dueDate || null,
+    pdfUrl: pdfUrl || null,
+    customerPhone: input.customer.phone || null,
+    customerName: input.customer.fullName || null,
+    customerEmail: input.customer.email || null,
+    ...CUSTOMER_NOTIFICATION_AGENT_TRACKING_DEFAULTS,
+    workshopName,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
 
 async function sendDocumentToCustomer(params: {
   db: FirebaseFirestore.Firestore;
   ownerUid: string;
   kind: SalesDocKind;
+  documentId: string;
   code: string;
   input: SalesDocumentInput;
   totals: Totals;
   dueDate: string;
 }): Promise<SendOutcome> {
-  const { db, ownerUid, kind, code, input, totals, dueDate } = params;
+  const { db, ownerUid, kind, documentId, code, input, totals, dueDate } = params;
   const config = KIND_CONFIG[kind];
 
   let workshopName = "Workshop";
@@ -669,6 +779,7 @@ async function sendDocumentToCustomer(params: {
   };
 
   let attachments: { content: string; mimeType: string; name: string }[] | undefined;
+  let pdfUrl: string | null = null;
   try {
     const pdf = await generateSalesDocumentPdf(pdfInput);
     attachments = [
@@ -678,6 +789,14 @@ async function sendDocumentToCustomer(params: {
         name: pdf.filename,
       },
     ];
+    pdfUrl = await uploadSalesDocumentPdf({
+      ownerUid,
+      kind,
+      documentId,
+      code,
+      buffer: pdf.buffer,
+      filename: pdf.filename,
+    });
   } catch (error) {
     // Non-fatal: still send the HTML email even if the PDF could not be rendered
     // (e.g. Chromium missing in this environment).
@@ -696,11 +815,36 @@ async function sendDocumentToCustomer(params: {
     attachments,
   });
 
+  // 4. Notify the customer portal inbox with document details + PDF link.
+  if (emailResult.ok && customerId) {
+    try {
+      await createSalesDocumentCustomerNotification({
+        db,
+        ownerUid,
+        customerId,
+        kind,
+        documentId,
+        code,
+        input,
+        totals,
+        dueDate,
+        workshopName,
+        pdfUrl,
+      });
+    } catch (error) {
+      console.error(
+        `[${config.collection}] Customer portal notification failed for ${code}:`,
+        error
+      );
+    }
+  }
+
   return {
     customerId,
     customerAccountCreated,
     emailSent: emailResult.ok,
     emailError: emailResult.ok ? null : emailResult.message,
+    pdfUrl,
   };
 }
 
@@ -805,6 +949,7 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
         db,
         ownerUid,
         kind,
+        documentId: ref.id,
         code,
         input,
         totals,
@@ -817,6 +962,7 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
           customerId: outcome.customerId,
           customerAccountCreated: outcome.customerAccountCreated,
           lastEmailError: outcome.emailError,
+          ...(outcome.pdfUrl ? { pdfUrl: outcome.pdfUrl } : {}),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -892,6 +1038,7 @@ export async function handleUpdateSalesDocument(
         db,
         ownerUid,
         kind,
+        documentId: ref.id,
         code,
         input,
         totals,
@@ -905,6 +1052,7 @@ export async function handleUpdateSalesDocument(
           customerAccountCreated:
             outcome.customerAccountCreated || snap.data()?.customerAccountCreated === true,
           lastEmailError: outcome.emailError,
+          ...(outcome.pdfUrl ? { pdfUrl: outcome.pdfUrl } : {}),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -1035,55 +1183,7 @@ export async function handleSalesDocumentPdf(
       return jsonError(`${config.docLabel} not found.`, 404);
     }
 
-    const doc = mapSalesDocument(snap.id, snap.data()!);
-    const business = await loadBusinessInfo(db, auth.userData.ownerUid);
-
-    const pdfInput: SalesDocPdfInput = {
-      kind,
-      code: doc.code,
-      status: doc.status,
-      business,
-      customer: {
-        fullName: doc.customer?.fullName ?? "",
-        email: doc.customer?.email ?? "",
-        phone: doc.customer?.phone ?? "",
-      },
-      address: {
-        street: doc.address?.street ?? "",
-        suburb: doc.address?.suburb ?? "",
-        state: doc.address?.state ?? "",
-        postcode: doc.address?.postcode ?? "",
-      },
-      jobTitle: doc.jobTitle,
-      jobDescription: doc.jobDescription,
-      lineItems: (doc.lineItems as SalesDocPdfInput["lineItems"]).map((item) => ({
-        code: item.code ?? "",
-        name: item.name ?? "",
-        description: item.description ?? "",
-        quantity: Number(item.quantity) || 0,
-        rate: Number(item.rate) || 0,
-        discountPercent: Number(item.discountPercent) || 0,
-        applyGst: item.applyGst !== false,
-      })),
-      discountAud: doc.discountAud,
-      gstEnabled: doc.gstEnabled,
-      gstPercentage: doc.gstPercentage,
-      gstPricing: doc.gstPricing === "inclusive" ? "inclusive" : "exclusive",
-      subtotalAud: doc.subtotalAud,
-      gstAud: doc.gstAud,
-      totalAud: doc.totalAud,
-      documentDate: doc.documentDate,
-      dueDate: doc.dueDate,
-      paymentTermsLabel:
-        (snap.data()?.paymentTermsLabel as string) ||
-        TERMS_OPTIONS[doc.paymentTermsId]?.label ||
-        "Same day",
-      terms: doc.terms,
-      comment: doc.comment,
-    };
-
-    const pdf = await generateSalesDocumentPdf(pdfInput);
-
+    const pdf = await buildPdfFromStoredDocument(db, kind, id, snap.data()!);
     return new NextResponse(new Uint8Array(pdf.buffer), {
       status: 200,
       headers: {
@@ -1096,6 +1196,105 @@ export async function handleSalesDocumentPdf(
     console.error(`[${config.collection} PDF] Error:`, error);
     return jsonError(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`, 500);
   }
+}
+
+/**
+ * Customer portal PDF download. Auth is the booking-engine `customerId` matching
+ * the document's linked customer (set when the quote/invoice was sent).
+ */
+export async function handleCustomerSalesDocumentPdf(
+  req: NextRequest,
+  kind: SalesDocKind,
+  id: string
+) {
+  const config = KIND_CONFIG[kind];
+  const customerId = (req.nextUrl.searchParams.get("customerId") || "").trim();
+  if (!customerId) {
+    return jsonError("Missing customerId.", 400);
+  }
+
+  try {
+    const db = adminDb();
+    const snap = await db.collection(config.collection).doc(id).get();
+    if (!snap.exists) {
+      return jsonError(`${config.docLabel} not found.`, 404);
+    }
+
+    const data = snap.data()!;
+    const docCustomerId = typeof data.customerId === "string" ? data.customerId.trim() : "";
+    if (!docCustomerId || docCustomerId !== customerId) {
+      return jsonError("You do not have access to this document.", 403);
+    }
+
+    const pdf = await buildPdfFromStoredDocument(db, kind, id, data);
+    return new NextResponse(new Uint8Array(pdf.buffer), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${pdf.filename}"`,
+        "Cache-Control": "private, max-age=30",
+      },
+    });
+  } catch (error) {
+    console.error(`[${config.collection} customer PDF] Error:`, error);
+    return jsonError(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`, 500);
+  }
+}
+
+async function buildPdfFromStoredDocument(
+  db: FirebaseFirestore.Firestore,
+  kind: SalesDocKind,
+  id: string,
+  data: FirebaseFirestore.DocumentData
+) {
+  const doc = mapSalesDocument(id, data);
+  const business = await loadBusinessInfo(db, String(data.ownerUid || ""));
+
+  const pdfInput: SalesDocPdfInput = {
+    kind,
+    code: doc.code,
+    status: doc.status,
+    business,
+    customer: {
+      fullName: doc.customer?.fullName ?? "",
+      email: doc.customer?.email ?? "",
+      phone: doc.customer?.phone ?? "",
+    },
+    address: {
+      street: doc.address?.street ?? "",
+      suburb: doc.address?.suburb ?? "",
+      state: doc.address?.state ?? "",
+      postcode: doc.address?.postcode ?? "",
+    },
+    jobTitle: doc.jobTitle,
+    jobDescription: doc.jobDescription,
+    lineItems: (doc.lineItems as SalesDocPdfInput["lineItems"]).map((item) => ({
+      code: item.code ?? "",
+      name: item.name ?? "",
+      description: item.description ?? "",
+      quantity: Number(item.quantity) || 0,
+      rate: Number(item.rate) || 0,
+      discountPercent: Number(item.discountPercent) || 0,
+      applyGst: item.applyGst !== false,
+    })),
+    discountAud: doc.discountAud,
+    gstEnabled: doc.gstEnabled,
+    gstPercentage: doc.gstPercentage,
+    gstPricing: doc.gstPricing === "inclusive" ? "inclusive" : "exclusive",
+    subtotalAud: doc.subtotalAud,
+    gstAud: doc.gstAud,
+    totalAud: doc.totalAud,
+    documentDate: doc.documentDate,
+    dueDate: doc.dueDate,
+    paymentTermsLabel:
+      (data.paymentTermsLabel as string) ||
+      TERMS_OPTIONS[doc.paymentTermsId]?.label ||
+      "Same day",
+    terms: doc.terms,
+    comment: doc.comment,
+  };
+
+  return generateSalesDocumentPdf(pdfInput);
 }
 
 export async function handleDeleteSalesDocument(

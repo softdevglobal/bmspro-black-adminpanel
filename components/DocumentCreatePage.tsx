@@ -40,6 +40,19 @@ type CatalogItem = {
   priceAud: number;
 };
 
+type CustomerOption = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: {
+    street: string;
+    suburb: string;
+    state: string;
+    postcode: string;
+  } | null;
+};
+
 type Address = {
   street: string;
   suburb: string;
@@ -204,6 +217,12 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [clientOpen, setClientOpen] = useState(true);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
   const [address, setAddress] = useState<Address>({ street: "", suburb: "", state: "", postcode: "" });
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>([]);
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const customerSearchRef = useRef<HTMLDivElement>(null);
 
   const [jobTitle, setJobTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
@@ -224,6 +243,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [documentDate, setDocumentDate] = useState(todayIso());
   const [paymentTerms, setPaymentTerms] = useState<TermsId>("same_day");
   const [discountAud, setDiscountAud] = useState(0);
+  const [discountMode, setDiscountMode] = useState<"value" | "percent">("value");
+  const [discountPercentBill, setDiscountPercentBill] = useState(0);
   const [gstEnabled, setGstEnabled] = useState(true);
   const [gstPercentage] = useState(10);
   const [gstPricing, setGstPricing] = useState<GstPricing>("exclusive");
@@ -336,6 +357,57 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     };
   }, []);
 
+  // Search existing customers for autofill (debounced).
+  useEffect(() => {
+    if (!clientOpen || !customerSearchOpen) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setCustomerSearchLoading(true);
+      try {
+        const { auth } = await import("@/lib/firebase");
+        const user = auth.currentUser;
+        if (!user) return;
+        const token = await user.getIdToken();
+        const q = customerSearch.trim();
+        const url = q
+          ? `/api/customers?q=${encodeURIComponent(q)}`
+          : "/api/customers";
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          customers?: CustomerOption[];
+        };
+        if (!cancelled && res.ok && data.ok && data.customers) {
+          setCustomerOptions(data.customers);
+        }
+      } catch {
+        if (!cancelled) setCustomerOptions([]);
+      } finally {
+        if (!cancelled) setCustomerSearchLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [clientOpen, customerSearch, customerSearchOpen]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!customerSearchRef.current) return;
+      if (!customerSearchRef.current.contains(event.target as Node)) {
+        setCustomerSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
+
   const dueDate = useMemo(() => {
     const opt = TERMS_OPTIONS.find((t) => t.id === paymentTerms);
     return addDaysIso(documentDate, opt?.days ?? 0);
@@ -346,7 +418,18 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     [lineItems],
   );
 
-  const cappedDiscount = useMemo(() => Math.min(discountAud, subtotal), [discountAud, subtotal]);
+  const discountAmount = useMemo(() => {
+    if (discountMode === "percent") {
+      const pct = Math.min(100, Math.max(0, discountPercentBill));
+      return Math.round(subtotal * (pct / 100) * 100) / 100;
+    }
+    return discountAud;
+  }, [discountMode, discountPercentBill, discountAud, subtotal]);
+
+  const cappedDiscount = useMemo(
+    () => Math.min(discountAmount, subtotal),
+    [discountAmount, subtotal],
+  );
 
   const gstAmount = useMemo(() => {
     if (!gstEnabled) return 0;
@@ -407,6 +490,33 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
         : prev,
     );
     setCatalogField(null);
+  }
+
+  function applyExistingCustomer(option: CustomerOption) {
+    setSelectedCustomerId(option.id);
+    setCustomer({
+      fullName: option.name,
+      email: option.email,
+      phone: toAuLocalPhone(option.phone),
+    });
+    if (option.address) {
+      setAddress({
+        street: option.address.street,
+        suburb: option.address.suburb,
+        state: option.address.state,
+        postcode: option.address.postcode,
+      });
+    }
+    setCustomerSearch(option.name);
+    setCustomerSearchOpen(false);
+    setError(null);
+  }
+
+  function clearSelectedCustomer() {
+    setSelectedCustomerId(null);
+    setCustomerSearch("");
+    setCustomer({ fullName: "", email: "", phone: "" });
+    setAddress({ street: "", suburb: "", state: "", postcode: "" });
   }
 
   async function saveItemToCatalog(item: {
@@ -511,8 +621,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
 
     // Totals
     if (!documentDate) return `Choose a ${config.dateLabel.toLowerCase()}.`;
-    if (discountAud < 0) return "Discount cannot be negative.";
-    if (discountAud > subtotal) return "Discount cannot exceed the subtotal.";
+    if (discountMode === "percent") {
+      if (discountPercentBill < 0) return "Discount cannot be negative.";
+      if (discountPercentBill > 100) return "Discount cannot exceed 100%.";
+    } else {
+      if (discountAud < 0) return "Discount cannot be negative.";
+      if (discountAud > subtotal) return "Discount cannot exceed the subtotal.";
+    }
     if (total <= 0) return "The total must be greater than zero.";
 
     return null;
@@ -926,14 +1041,94 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                             Close
                           </button>
                         </div>
+
+                        <div ref={customerSearchRef} className="relative mb-4">
+                          <label className="block">
+                            <span className={LABEL_CLASS}>Find existing customer</span>
+                            <div className="relative">
+                              <i className="fas fa-magnifying-glass pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400" />
+                              <input
+                                type="text"
+                                value={customerSearch}
+                                onChange={(e) => {
+                                  setCustomerSearch(e.target.value);
+                                  setSelectedCustomerId(null);
+                                  setCustomerSearchOpen(true);
+                                }}
+                                onFocus={() => setCustomerSearchOpen(true)}
+                                placeholder="Search by name, email, or mobile"
+                                className={`${INPUT_CLASS} pl-10`}
+                                autoComplete="off"
+                              />
+                            </div>
+                          </label>
+                          {customerSearchOpen && (
+                            <ul className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-neutral-200 bg-white py-1 shadow-lg">
+                              {customerSearchLoading ? (
+                                <li className="px-3 py-2.5 text-sm text-neutral-500">Searching…</li>
+                              ) : customerOptions.length === 0 ? (
+                                <li className="px-3 py-2.5 text-sm text-neutral-500">
+                                  {customerSearch.trim()
+                                    ? "No matching customers. Enter details below."
+                                    : "No saved customers yet. Enter details below."}
+                                </li>
+                              ) : (
+                                <>
+                                  {!customerSearch.trim() && (
+                                    <li className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-neutral-400">
+                                      Existing customers
+                                    </li>
+                                  )}
+                                  {customerOptions.map((option) => (
+                                    <li key={option.id}>
+                                      <button
+                                        type="button"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={() => applyExistingCustomer(option)}
+                                        className="flex w-full flex-col gap-0.5 px-3 py-2.5 text-left transition hover:bg-neutral-50"
+                                      >
+                                        <span className="truncate text-sm font-semibold text-neutral-900">
+                                          {option.name || "Unnamed customer"}
+                                        </span>
+                                        <span className="truncate text-xs text-neutral-500">
+                                          {[option.email, option.phone].filter(Boolean).join(" · ") ||
+                                            "No contact details"}
+                                        </span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </>
+                              )}
+                            </ul>
+                          )}
+                          {selectedCustomerId && (
+                            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+                              <p className="min-w-0 truncate text-xs text-neutral-600">
+                                <i className="fas fa-check text-neutral-900 mr-1.5" />
+                                Filled from existing customer
+                              </p>
+                              <button
+                                type="button"
+                                onClick={clearSelectedCustomer}
+                                className="shrink-0 text-xs font-semibold text-neutral-500 hover:text-neutral-900"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
                         <div className="grid gap-4 sm:grid-cols-2">
                           <label className="block sm:col-span-2">
                             <span className={LABEL_CLASS}>Client name</span>
                             <input
                               type="text"
                               value={customer.fullName}
-                              onChange={(e) => setCustomer((p) => ({ ...p, fullName: e.target.value }))}
-                              placeholder="e.g. John Smith"
+                              onChange={(e) => {
+                                setSelectedCustomerId(null);
+                                setCustomer((p) => ({ ...p, fullName: e.target.value }));
+                              }}
+                              placeholder="e.g. Sam Wilson"
                               className={INPUT_CLASS}
                             />
                           </label>
@@ -947,12 +1142,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 type="tel"
                                 inputMode="numeric"
                                 value={customer.phone}
-                                onChange={(e) =>
+                                onChange={(e) => {
+                                  setSelectedCustomerId(null);
                                   setCustomer((p) => ({
                                     ...p,
                                     phone: toAuLocalPhone(e.target.value),
-                                  }))
-                                }
+                                  }));
+                                }}
                                 placeholder="412 345 678"
                                 className="w-full min-w-0 rounded-r-lg border border-neutral-300 px-4 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:z-10 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
                               />
@@ -963,8 +1159,11 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                             <input
                               type="email"
                               value={customer.email}
-                              onChange={(e) => setCustomer((p) => ({ ...p, email: e.target.value }))}
-                              placeholder="name@email.com"
+                              onChange={(e) => {
+                                setSelectedCustomerId(null);
+                                setCustomer((p) => ({ ...p, email: e.target.value }));
+                              }}
+                              placeholder="sam@email.com"
                               className={INPUT_CLASS}
                             />
                           </label>
@@ -978,6 +1177,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 type="text"
                                 value={address.street}
                                 onChange={(e) => setAddress((p) => ({ ...p, street: e.target.value }))}
+                                placeholder="e.g. 12 Mechanic Lane"
                                 className={INPUT_CLASS}
                               />
                             </label>
@@ -987,6 +1187,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 type="text"
                                 value={address.suburb}
                                 onChange={(e) => setAddress((p) => ({ ...p, suburb: e.target.value }))}
+                                placeholder="e.g. Preston"
                                 className={INPUT_CLASS}
                               />
                             </label>
@@ -996,6 +1197,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 type="text"
                                 value={address.state}
                                 onChange={(e) => setAddress((p) => ({ ...p, state: e.target.value }))}
+                                placeholder="e.g. VIC"
                                 className={INPUT_CLASS}
                               />
                             </label>
@@ -1011,6 +1213,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                     postcode: e.target.value.replace(/\D/g, "").slice(0, 4),
                                   }))
                                 }
+                                placeholder="3072"
                                 className={INPUT_CLASS}
                               />
                             </label>
@@ -1023,7 +1226,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     <section className="rounded-xl border border-neutral-200 bg-white p-5">
                       <h2 className="text-sm font-bold text-neutral-900">Job details</h2>
                       <p className="mt-1 text-xs text-neutral-500">
-                        Describe the work for this {config.docLabel.toLowerCase()}.
+                        Describe the vehicle work for this {config.docLabel.toLowerCase()}.
                       </p>
                       <div className="mt-4 grid gap-4">
                         <label className="block">
@@ -1035,7 +1238,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                               setJobTitle(e.target.value);
                               setError(null);
                             }}
-                            placeholder="e.g. Replace kitchen tap and check leak"
+                            placeholder="e.g. Brake pad replacement – Toyota Hilux"
                             className={INPUT_CLASS}
                             maxLength={120}
                           />
@@ -1046,7 +1249,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                             value={jobDescription}
                             onChange={(e) => setJobDescription(e.target.value)}
                             rows={4}
-                            placeholder="Tell us the scope, materials involved, urgency, etc."
+                            placeholder="e.g. Front pads and rotors, rego ABC123. Customer reports grinding noise. Parts + labour."
                             className={`${INPUT_CLASS} resize-y`}
                             maxLength={1500}
                           />
@@ -1117,7 +1320,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                       150,
                                     )
                                   }
-                                  placeholder="e.g. TAP-001"
+                                  placeholder="e.g. BRK-001"
                                   className={INPUT_CLASS}
                                   autoComplete="off"
                                 />
@@ -1141,6 +1344,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                       150,
                                     )
                                   }
+                                  placeholder="e.g. Front brake pads"
                                   className={INPUT_CLASS}
                                   autoComplete="off"
                                   autoFocus
@@ -1157,6 +1361,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                               onChange={(e) =>
                                 setItemDraft((p) => (p ? { ...p, description: e.target.value } : p))
                               }
+                              placeholder="e.g. OEM-style pads, includes fitting"
                               className={INPUT_CLASS}
                             />
                           </label>
@@ -1305,14 +1510,14 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     <section className="rounded-xl border border-neutral-200 bg-white p-5">
                       <h2 className="text-sm font-bold text-neutral-900">Terms and conditions</h2>
                       <p className="mt-1 text-xs text-neutral-500">
-                        Payment terms, warranty, cancellation policy, etc.
+                        Payment terms, parts warranty, storage fees, etc.
                       </p>
                       <textarea
                         value={terms}
                         onChange={(e) => setTerms(e.target.value)}
                         rows={5}
                         maxLength={5000}
-                        placeholder="Add your terms and conditions…"
+                        placeholder="e.g. Parts warranty 12 months / 20,000 km. Labour warranty 3 months. Payment due on collection."
                         className={`${INPUT_CLASS} mt-3 resize-y leading-relaxed`}
                       />
                     </section>
@@ -1328,7 +1533,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                         onChange={(e) => setComment(e.target.value)}
                         rows={4}
                         maxLength={2000}
-                        placeholder={`Add a comment for this ${config.docLabel.toLowerCase()}…`}
+                        placeholder="e.g. Vehicle ready for collection after 3pm. Old parts available on request."
                         className={`${INPUT_CLASS} mt-3 resize-y leading-relaxed`}
                       />
                     </section>
@@ -1509,17 +1714,69 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                         <span>Subtotal</span>
                         <span className="font-medium text-neutral-900">{formatAud(subtotal)}</span>
                       </div>
-                      <label className="flex items-center justify-between gap-2 text-neutral-600">
-                        <span>Discount (AU$)</span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={discountAud || ""}
-                          onChange={(e) => setDiscountAud(parseNum(e.target.value))}
-                          placeholder="0.00"
-                          className="w-24 rounded-lg border border-neutral-300 px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
-                        />
-                      </label>
+                      <div className="flex items-center justify-between gap-2 text-neutral-600">
+                        <span>Discount</span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex rounded-lg border border-neutral-300 p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setDiscountMode("value")}
+                              aria-pressed={discountMode === "value"}
+                              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                                discountMode === "value"
+                                  ? "bg-neutral-900 text-white"
+                                  : "text-neutral-500 hover:text-neutral-900"
+                              }`}
+                            >
+                              AU$
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDiscountMode("percent")}
+                              aria-pressed={discountMode === "percent"}
+                              className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                                discountMode === "percent"
+                                  ? "bg-neutral-900 text-white"
+                                  : "text-neutral-500 hover:text-neutral-900"
+                              }`}
+                            >
+                              %
+                            </button>
+                          </div>
+                          {discountMode === "percent" ? (
+                            <div className="relative w-24">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={discountPercentBill || ""}
+                                onChange={(e) =>
+                                  setDiscountPercentBill(Math.min(100, parseNum(e.target.value)))
+                                }
+                                placeholder="0"
+                                className="w-full rounded-lg border border-neutral-300 px-2 py-1 pr-6 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400">
+                                %
+                              </span>
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={discountAud || ""}
+                              onChange={(e) => setDiscountAud(parseNum(e.target.value))}
+                              placeholder="0.00"
+                              className="w-24 rounded-lg border border-neutral-300 px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                            />
+                          )}
+                        </div>
+                      </div>
+                      {discountMode === "percent" && cappedDiscount > 0 ? (
+                        <div className="flex justify-between text-xs text-neutral-500">
+                          <span>Discount ({Math.min(100, discountPercentBill)}%)</span>
+                          <span>−{formatAud(cappedDiscount)}</span>
+                        </div>
+                      ) : null}
 
                       <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
                         <button

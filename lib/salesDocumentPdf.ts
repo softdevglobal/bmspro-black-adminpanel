@@ -141,6 +141,15 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
     })
     .join("");
 
+  // GST is charged on the discounted, GST-eligible portion of the subtotal.
+  // Surface that taxable base in the GST label when a document discount applies
+  // so the figure is transparent (matches the on-screen totals).
+  const gstItemsNet = input.lineItems
+    .filter((item) => item.applyGst)
+    .reduce((sum, item) => sum + lineNet(item), 0);
+  const discountRatio = input.subtotalAud > 0 ? input.discountAud / input.subtotalAud : 0;
+  const gstTaxableBase = Math.round(gstItemsNet * (1 - discountRatio) * 100) / 100;
+
   const totalsRows = [
     `<div class="tot-row"><span>Subtotal</span><span>${formatAud(input.subtotalAud)}</span></div>`,
     input.discountAud > 0
@@ -149,6 +158,8 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
     input.gstEnabled
       ? `<div class="tot-row"><span>GST (${input.gstPercentage}%)${
           input.gstPricing === "inclusive" ? " · incl." : ""
+        }${
+          input.discountAud > 0 ? ` on ${formatAud(gstTaxableBase)}` : ""
         }</span><span>${formatAud(input.gstAud)}</span></div>`
       : "",
   ]

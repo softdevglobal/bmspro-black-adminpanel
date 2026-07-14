@@ -1161,7 +1161,13 @@ export async function handleSalesDocumentPreviewPdf(req: NextRequest, kind: Sale
     });
   } catch (error) {
     console.error(`[${config.collection} preview PDF] Error:`, error);
-    return jsonError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`, 500);
+    // Surface the real cause to the client so PDF/Chromium failures are
+    // diagnosable from the app instead of hiding behind a generic message.
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    return jsonError(
+      `Could not generate the ${config.docLabel.toLowerCase()} preview. (${detail})`,
+      500
+    );
   }
 }
 

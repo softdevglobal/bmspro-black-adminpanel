@@ -2191,8 +2191,14 @@ async function renderPdfOnBrowser(
     // window; we still give web fonts a brief, bounded chance to load so the
     // PDF keeps its typography without hanging when a font CDN is slow.
     await page.setContent(html, { waitUntil: "load" });
+    // Best-effort: give web fonts a brief, bounded chance to settle. This must
+    // never fail the render — `page.evaluate` can reject in the serverless
+    // `headless: "shell"` runtime, so swallow any error and fall back to the
+    // timeout. (Booking PDFs render fine without this step.)
     await Promise.race([
-      page.evaluate(() => (document as unknown as { fonts: { ready: Promise<unknown> } }).fonts.ready),
+      page
+        .evaluate(() => (document as unknown as { fonts: { ready: Promise<unknown> } }).fonts.ready)
+        .catch(() => {}),
       new Promise((resolve) => setTimeout(resolve, 700)),
     ]);
 

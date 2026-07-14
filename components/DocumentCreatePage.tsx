@@ -431,18 +431,26 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     [discountAmount, subtotal],
   );
 
-  const gstAmount = useMemo(() => {
+  // The GST-eligible portion of the subtotal after the document discount has
+  // been allocated proportionally. This is the base GST is charged on, so we
+  // surface it in the UI to make it clear why GST changes when a discount is
+  // applied (GST is always calculated on the discounted amount).
+  const gstTaxableBase = useMemo(() => {
     if (!gstEnabled) return 0;
     const gstItemsNet = lineItems
       .filter((item) => item.applyGst)
       .reduce((sum, item) => sum + computeLineNet(item), 0);
     const discountRatio = subtotal > 0 ? cappedDiscount / subtotal : 0;
-    const taxable = gstItemsNet * (1 - discountRatio);
+    return Math.round(gstItemsNet * (1 - discountRatio) * 100) / 100;
+  }, [gstEnabled, lineItems, subtotal, cappedDiscount]);
+
+  const gstAmount = useMemo(() => {
+    if (!gstEnabled) return 0;
     if (gstPricing === "inclusive") {
-      return Math.round((taxable - taxable / (1 + gstPercentage / 100)) * 100) / 100;
+      return Math.round((gstTaxableBase - gstTaxableBase / (1 + gstPercentage / 100)) * 100) / 100;
     }
-    return Math.round(taxable * (gstPercentage / 100) * 100) / 100;
-  }, [gstEnabled, lineItems, subtotal, cappedDiscount, gstPricing, gstPercentage]);
+    return Math.round(gstTaxableBase * (gstPercentage / 100) * 100) / 100;
+  }, [gstEnabled, gstTaxableBase, gstPricing, gstPercentage]);
 
   const total = useMemo(() => {
     const net = subtotal - cappedDiscount;
@@ -1838,7 +1846,12 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
 
                       {gstEnabled && (
                         <div className="flex justify-between text-neutral-600">
-                          <span>GST ({gstPercentage}%)</span>
+                          <span>
+                            GST ({gstPercentage}%)
+                            {cappedDiscount > 0 ? (
+                              <span className="text-neutral-400"> on {formatAud(gstTaxableBase)}</span>
+                            ) : null}
+                          </span>
                           <span className="font-medium text-neutral-900">{formatAud(gstAmount)}</span>
                         </div>
                       )}

@@ -24,13 +24,15 @@ type ItemDraft = {
   priceAud: string;
 };
 
+const PAGE_SIZE = 15;
+
 const INPUT_CLASS =
-  "w-full px-4 py-2.5 border border-neutral-300 rounded-lg text-sm text-neutral-900 placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none";
+  "w-full px-4 py-2.5 border border-neutral-300 rounded-xl text-sm text-neutral-900 placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none";
 const NUMBER_INPUT_CLASS = `${INPUT_CLASS} [appearance:textfield] [-moz-appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
 const LABEL_CLASS = "block text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-1.5";
 
 function formatAud(value: number): string {
-  return `AU$ ${value.toFixed(2)}`;
+  return `Aus $${value.toFixed(2)}`;
 }
 
 function emptyDraft(): ItemDraft {
@@ -76,6 +78,7 @@ export default function ItemsBoard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CatalogItem | null>(null);
@@ -120,6 +123,13 @@ export default function ItemsBoard() {
         (item.description?.toLowerCase().includes(query) ?? false),
     );
   }, [items, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE),
+    [filtered, currentPage],
+  );
 
   function openCreate() {
     setEditTarget(null);
@@ -199,11 +209,10 @@ export default function ItemsBoard() {
     <div id="app" className="flex h-screen overflow-hidden bg-white">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <main className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 bg-neutral-50">
-          {/* Mobile menu */}
+        <main className="flex-1 overflow-auto bg-neutral-50 p-4 sm:p-6 lg:p-8">
           <div className="md:hidden mb-4">
             <button
-              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50 bg-white"
+              className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-neutral-700 shadow-sm hover:bg-neutral-50"
               onClick={() => setMobileOpen(true)}
             >
               <i className="fas fa-bars" />
@@ -219,170 +228,197 @@ export default function ItemsBoard() {
             </div>
           )}
 
-          {/* Hero header */}
-          <div className="mb-6">
-            <div className="relative rounded-2xl bg-neutral-900 text-white p-6 shadow-sm overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-              <div className="absolute bottom-0 left-1/3 w-20 h-20 bg-white/5 rounded-full translate-y-1/2" />
-              <div className="relative">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-                    <i className="fas fa-boxes-stacked text-amber-400" />
-                  </div>
-                  <h1 className="text-2xl font-bold">Items</h1>
-                </div>
-                <p className="text-sm text-neutral-400 mt-2">
-                  Manage your reusable items. They appear as suggestions when adding lines to
-                  quotations and invoices.
+          <div className="mb-6 rounded-2xl bg-neutral-900 p-6 text-white shadow-sm">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10">
+                <i className="fas fa-box text-lg text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold">Item list</h1>
+                <p className="mt-0.5 text-sm text-neutral-400">
+                  Reusable line items and prices for your quotations.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Toolbar */}
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative w-full sm:max-w-xs">
-              <i className="fas fa-magnifying-glass pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search items"
-                className={`${INPUT_CLASS} pl-9`}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={openCreate}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-neutral-900 text-white hover:bg-neutral-800 transition shadow-sm"
-            >
-              <i className="fas fa-plus" />
-              New Item
-            </button>
-          </div>
-
           {error && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
               <i className="fas fa-exclamation-circle mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
-          {/* List card */}
-          <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-neutral-50 border-b border-neutral-200 text-xs font-semibold uppercase tracking-wider text-neutral-600">
-                  <tr>
-                    <th className="px-6 py-4">Item</th>
-                    <th className="px-6 py-4">Code</th>
-                    <th className="px-6 py-4 text-right">Price</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100">
-                  {loading ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-16 text-center text-sm text-neutral-400">
-                        <i className="fas fa-spinner fa-spin mr-2" />
-                        Loading items…
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={4}>
-                        <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100">
-                            <i className="fas fa-boxes-stacked text-xl text-neutral-400" />
-                          </div>
-                          <div>
-                            <p className="text-base font-semibold text-neutral-900">
-                              {items.length === 0 ? "No items yet" : "No matching items"}
-                            </p>
-                            <p className="mt-1 text-sm text-neutral-500">
-                              {items.length === 0
-                                ? "Add your first item to reuse it across quotations and invoices."
-                                : "Try a different search term."}
-                            </p>
-                          </div>
-                          {items.length === 0 && (
-                            <button
-                              type="button"
-                              onClick={openCreate}
-                              className="inline-flex items-center gap-2 rounded-lg bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-800"
-                            >
-                              <i className="fas fa-plus" />
-                              New Item
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((item) => (
-                      <tr key={item.id} className="hover:bg-neutral-50 transition">
-                        <td className="px-6 py-4">
-                          <p className="font-semibold text-neutral-900">{item.name}</p>
-                          {item.description && (
-                            <p className="mt-0.5 text-xs text-neutral-500">{item.description}</p>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-neutral-600">
-                          {item.code || <span className="text-neutral-300">—</span>}
-                        </td>
-                        <td className="px-6 py-4 text-right font-semibold text-neutral-900">
-                          {formatAud(item.priceAud)}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openEdit(item)}
-                              className="p-2 text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 rounded-lg transition"
-                              title="Edit"
-                            >
-                              <i className="fas fa-pen text-sm" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(item)}
-                              className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                              title="Delete"
-                            >
-                              <i className="fas fa-trash text-sm" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full sm:max-w-md">
+              <i className="fas fa-search pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-neutral-400" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search items..."
+                className="w-full rounded-xl border border-neutral-300 bg-white py-2.5 pl-10 pr-3.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10"
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void load()}
+                disabled={loading}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
+              >
+                <i className={`fas fa-sync-alt ${loading ? "fa-spin" : ""}`} />
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-800"
+              >
+                <i className="fas fa-plus" />
+                Add item
+              </button>
             </div>
           </div>
+
+          {loading ? (
+            <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-16 text-center text-neutral-400">
+              <i className="fas fa-spinner fa-spin mr-2" />
+              Loading items…
+            </div>
+          ) : paged.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-neutral-300 bg-white px-4 py-16 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100">
+                <i className="fas fa-tag text-xl text-neutral-500" />
+              </div>
+              <div>
+                <p className="font-semibold text-neutral-900">
+                  {items.length === 0 ? "No items yet" : "No matching items"}
+                </p>
+                <p className="mt-1 text-sm text-neutral-500">
+                  {items.length === 0
+                    ? "Add your first item to reuse it on quotations and invoices."
+                    : "Try a different search term."}
+                </p>
+              </div>
+              {items.length === 0 && (
+                <button
+                  type="button"
+                  onClick={openCreate}
+                  className="mt-1 inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-800"
+                >
+                  <i className="fas fa-plus" />
+                  Add item
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {paged.map((item) => (
+                  <article
+                    key={item.id}
+                    className="group flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_12px_32px_rgba(15,23,42,0.1)]"
+                  >
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white transition-transform duration-300 group-hover:scale-110">
+                      <i className="fas fa-tag text-sm" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium uppercase tracking-wide text-neutral-400">
+                        {item.code || "No code"}
+                      </p>
+                      <h3 className="mt-0.5 truncate text-base font-bold text-neutral-900">
+                        {item.name}
+                      </h3>
+                      <p className="mt-1 text-sm font-semibold text-neutral-800">
+                        {formatAud(item.priceAud)}
+                      </p>
+                      {item.description && (
+                        <p className="mt-1.5 line-clamp-2 text-xs text-neutral-500">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(item)}
+                        className="rounded-lg p-2 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+                        title="Edit"
+                      >
+                        <i className="fas fa-pen text-sm" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(item)}
+                        className="rounded-lg p-2 text-neutral-400 transition hover:bg-rose-50 hover:text-rose-600"
+                        title="Delete"
+                      >
+                        <i className="fas fa-trash text-sm" />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              {filtered.length > PAGE_SIZE && (
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-600">
+                  <span>
+                    Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                    {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} item
+                    {filtered.length === 1 ? "" : "s"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={currentPage <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 disabled:opacity-40"
+                    >
+                      Previous
+                    </button>
+                    <span>
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 disabled:opacity-40"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </main>
       </div>
 
-      {/* Editor modal */}
       {editorOpen && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" onClick={() => setEditorOpen(false)} />
-          <div className="relative flex items-start md:items-center justify-center min-h-screen p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
-              <div className="px-6 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div className="relative flex min-h-screen items-start justify-center overflow-y-auto p-4 md:items-center">
+            <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-neutral-200 px-6 py-4">
                 <h3 className="text-lg font-bold text-neutral-900">
-                  {editTarget ? "Edit item" : "New item"}
+                  {editTarget ? "Edit item" : "Add item"}
                 </h3>
                 <button
+                  type="button"
                   onClick={() => setEditorOpen(false)}
-                  className="p-2 hover:bg-neutral-100 rounded-lg transition"
+                  className="rounded-lg p-2 transition hover:bg-neutral-100"
                 >
                   <i className="fas fa-times text-neutral-400" />
                 </button>
               </div>
-              <div className="p-6 space-y-4 flex-1 overflow-y-auto">
+              <div className="flex-1 space-y-4 overflow-y-auto p-6">
                 {formError && (
-                  <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                     <i className="fas fa-exclamation-circle mt-0.5" />
                     <span>{formError}</span>
                   </div>
@@ -435,17 +471,19 @@ export default function ItemsBoard() {
                   </label>
                 </div>
               </div>
-              <div className="px-6 py-4 border-t border-neutral-200 flex items-center justify-end gap-3">
+              <div className="flex items-center justify-end gap-3 border-t border-neutral-200 px-6 py-4">
                 <button
+                  type="button"
                   onClick={() => setEditorOpen(false)}
-                  className="px-5 py-2.5 text-neutral-700 font-semibold hover:bg-neutral-100 rounded-lg transition"
+                  className="rounded-xl px-5 py-2.5 font-semibold text-neutral-700 transition hover:bg-neutral-100"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={saveDraft}
+                  type="button"
+                  onClick={() => void saveDraft()}
                   disabled={saving}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-neutral-900 text-white font-semibold rounded-lg hover:bg-neutral-800 transition disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-2.5 font-semibold text-white transition hover:bg-neutral-800 disabled:opacity-60"
                 >
                   {saving && <i className="fas fa-spinner fa-spin" />}
                   {editTarget ? "Save changes" : "Create item"}

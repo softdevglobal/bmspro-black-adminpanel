@@ -491,7 +491,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
             }`}
           >
             <i className="fas fa-boxes-stacked w-5" />
-            <span>Items</span>
+            <span>Item list</span>
           </Link>
         )}
         {mounted && role === "workshop_owner" && (

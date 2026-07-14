@@ -2170,17 +2170,21 @@ async function getSharedPdfBrowser(): Promise<import("puppeteer-core").Browser> 
   return browser;
 }
 
-/**
- * Render an arbitrary HTML document to an A4 PDF buffer using the same Chromium
- * launch strategy as the booking job report. Shared by quotations / invoices so
- * their PDFs match the platform's booking PDF rendering. Reuses a warm browser
- * and only recycles the page per render for speed.
- */
-export async function renderHtmlToPdfBuffer(
+/** Drop the cached warm browser and close it in the background. */
+function resetSharedPdfBrowser(): void {
+  const pending = sharedPdfBrowserPromise;
+  sharedPdfBrowserPromise = null;
+  if (pending) {
+    pending.then((b) => b.close().catch(() => {})).catch(() => {});
+  }
+}
+
+/** Render `html` to an A4 PDF on a throwaway page of `browser`. */
+async function renderPdfOnBrowser(
+  browser: import("puppeteer-core").Browser,
   html: string,
   options?: { footerText?: string }
 ): Promise<Buffer> {
-  const browser = await getSharedPdfBrowser();
   const page = await browser.newPage();
   try {
     // `load` (not `networkidle0`) avoids waiting on the 500ms network-idle
@@ -2216,6 +2220,38 @@ export async function renderHtmlToPdfBuffer(
     return Buffer.from(pdfBuffer);
   } finally {
     await page.close().catch(() => {});
+  }
+}
+
+/**
+ * Render an arbitrary HTML document to an A4 PDF buffer using the same Chromium
+ * launch strategy as the booking job report. Shared by quotations / invoices so
+ * their PDFs match the platform's booking PDF rendering. Reuses a warm browser
+ * and only recycles the page per render for speed.
+ */
+export async function renderHtmlToPdfBuffer(
+  html: string,
+  options?: { footerText?: string }
+): Promise<Buffer> {
+  try {
+    const browser = await getSharedPdfBrowser();
+    return await renderPdfOnBrowser(browser, html, options);
+  } catch (error) {
+    // The warm browser can be frozen or killed by the serverless platform
+    // between invocations — its `connected` flag may still read stale-true, so
+    // `newPage()` throws. Drop it and retry once with a guaranteed-fresh
+    // instance (the same launch strategy the booking PDF uses).
+    console.warn(
+      "[pdf] Shared browser render failed; retrying with a fresh browser:",
+      error
+    );
+    resetSharedPdfBrowser();
+    const browser = await launchBrowserForPdf();
+    try {
+      return await renderPdfOnBrowser(browser, html, options);
+    } finally {
+      await browser.close().catch(() => {});
+    }
   }
 }
 

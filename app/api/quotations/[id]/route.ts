@@ -6,6 +6,8 @@ import {
 } from "@/lib/salesDocuments";
 
 export const runtime = "nodejs";
+/** Sending generates a PDF (Chromium) before emailing — give it room on Vercel. */
+export const maxDuration = 60;
 
 export async function GET(
   req: NextRequest,

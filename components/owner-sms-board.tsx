@@ -333,6 +333,19 @@ export function OwnerSmsBoard() {
 
 
 
+  useEffect(() => {
+    const resetStuckRedirect = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      setPurchasingId(null);
+      setConfirmPackage(null);
+    };
+
+    window.addEventListener("pageshow", resetStuckRedirect);
+    return () => window.removeEventListener("pageshow", resetStuckRedirect);
+  }, []);
+
+
+
   const purchase = async (pkg: SmsPackage) => {
 
     setPurchasingId(pkg.id);

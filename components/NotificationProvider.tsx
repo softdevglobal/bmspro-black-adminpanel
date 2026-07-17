@@ -4,6 +4,8 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
 
 const NOTIFICATION_QUERY_LIMIT = 50;
+/** Cap the on-screen toast stack so a login / burst can't cover the viewport. */
+const MAX_VISIBLE_TOASTS = 3;
 import ToastNotification from "./ToastNotification";
 import { SUPPORT_CHAT_PANEL_STATE_EVENT } from "@/lib/supportChatEvents";
 import {
@@ -114,7 +116,6 @@ export default function NotificationProvider({ children }: NotificationProviderP
   const supportChatPanelOpenRef = useRef(false);
   const previousNotificationIdsRef = useRef<Set<string>>(new Set());
   const previousPendingIdsRef = useRef<Set<string>>(new Set());
-  const isInitialLoadRef = useRef(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioInitializedRef = useRef(false);
   const reloadBroadcastsRef = useRef<() => Promise<void>>(async () => {});
@@ -328,7 +329,9 @@ export default function NotificationProvider({ children }: NotificationProviderP
     };
     
     console.log("🔔 Showing toast notification:", toast);
-    setToastNotifications((prev) => [...prev, toast]);
+    // Never stack more than a few toasts at once — a burst (or a login that
+    // surfaces several unread items) should not flood the whole screen.
+    setToastNotifications((prev) => [...prev, toast].slice(-MAX_VISIBLE_TOASTS));
 
     // Auto remove after 8 seconds (increased for better visibility)
     setTimeout(() => {
@@ -425,6 +428,15 @@ export default function NotificationProvider({ children }: NotificationProviderP
         return;
       }
 
+      // Per-subscription initial-load guards. These live inside the effect
+      // closure (not a ref) so that EVERY (re)subscription — including the
+      // several re-runs triggered while auth/role state settles on login —
+      // treats its first delivered batch as a baseline instead of firing a
+      // toast for every pre-existing notification. Genuinely new notifications
+      // that arrive afterwards, while the page stays mounted, still toast.
+      let notifInitialLoad = true;
+      let pendingInitialLoad = true;
+
       // Subscribe to notifications collection for this owner
       // We need to listen for multiple notification types:
       // 1. ownerUid - general owner notifications
@@ -516,7 +528,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
         // Only play sound and show toast after initial load
         // Filter to only relevant notification types before showing toast
-        if (!isInitialLoadRef.current && newNotifications.length > 0) {
+        if (!notifInitialLoad && newNotifications.length > 0) {
           // Only show toast for relevant notifications:
           // 1. New booking notifications (if still pending)
           // 2. Staff rejected notifications
@@ -587,8 +599,8 @@ export default function NotificationProvider({ children }: NotificationProviderP
         previousNotificationIdsRef.current = currentNotificationIds;
 
         // Mark initial load as complete
-        if (isInitialLoadRef.current) {
-          isInitialLoadRef.current = false;
+        if (notifInitialLoad) {
+          notifInitialLoad = false;
         }
       };
 
@@ -847,7 +859,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
 
           // Only trigger for genuinely new pending bookings after initial load
           // This represents "New Booking Created" scenario
-          if (!isInitialLoadRef.current && newBookings.length > 0) {
+          if (!pendingInitialLoad && newBookings.length > 0) {
             console.log("🔔 New pending bookings detected:", newBookings.length);
             
             // Play notification sound
@@ -862,6 +874,11 @@ export default function NotificationProvider({ children }: NotificationProviderP
           // Update pending bookings state
           setPendingBookings(bookings);
           previousPendingIdsRef.current = currentPendingIds;
+
+          // Baseline captured — subsequent snapshots may toast genuinely new ones.
+          if (pendingInitialLoad) {
+            pendingInitialLoad = false;
+          }
         },
         (error) => {
           // Suppress permission-denied errors to prevent uncaught error logs
@@ -1255,7 +1272,7 @@ export default function NotificationProvider({ children }: NotificationProviderP
     <NotificationContext.Provider value={value}>
       {children}
       {/* Toast Notifications Container - Bottom Right */}
-      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-3 max-w-md pointer-events-none">
+      <div className="fixed bottom-4 right-4 z-[9999] flex max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-hidden max-w-md pointer-events-none">
         {toastNotifications.map((toast) => (
           <div key={toast.id} className="pointer-events-auto">
             <ToastNotification

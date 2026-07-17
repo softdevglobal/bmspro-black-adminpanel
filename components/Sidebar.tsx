@@ -7,6 +7,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { fetchCurrentUser } from "@/lib/authClient";
 import { logUserLogout, logSuperAdminLogout, createSuperAdminAuditLog } from "@/lib/auditLog";
+import { useSmsBalance } from "@/lib/sms/sms-balance-context";
 
 type SidebarProps = {
   mobile?: boolean;
@@ -29,7 +30,15 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isBranches = pathname?.startsWith("/branches");
   const isCustomers = pathname?.startsWith("/customers");
   const isOwnerCustomMessages = pathname?.startsWith("/owner-custom-messages") || pathname?.startsWith("/greeting-messages");
+  const isOwnerSmsCredits = pathname === "/sms";
+  const isOwnerSmsLog = pathname === "/sms/log";
+  const isSms =
+    isOwnerCustomMessages || isOwnerSmsCredits || isOwnerSmsLog || pathname?.startsWith("/sms");
+  const isSmsPackages = pathname?.startsWith("/sms-packages");
   const isEstimates = pathname?.startsWith("/estimates");
+  const isQuotations = pathname?.startsWith("/quotations");
+  const isInvoices = pathname?.startsWith("/invoices");
+  const isItems = pathname?.startsWith("/items");
   const isTenants = pathname?.startsWith("/tenants");
   const isStaff = pathname?.startsWith("/staff");
   const isLeaveRequests = pathname?.startsWith("/staff/leave-requests");
@@ -50,6 +59,13 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const [signingOut, setSigningOut] = useState(false); // Loading state for sign out
   const [openBookings, setOpenBookings] = useState(pathname?.startsWith("/bookings") || false);
   const [openStaff, setOpenStaff] = useState(pathname?.startsWith("/staff") || false); // Staff Toggle State
+  const [openSms, setOpenSms] = useState(
+    pathname?.startsWith("/sms") ||
+      pathname?.startsWith("/owner-custom-messages") ||
+      pathname?.startsWith("/greeting-messages") ||
+      false,
+  );
+  const smsBalance = useSmsBalance();
   // Do not auto-open based on route; keep user preference until manually changed
 
   useEffect(() => {
@@ -105,6 +121,8 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         if (ob === "1" || ob === "0") setOpenBookings(ob === "1");
         const os = localStorage.getItem("sidebarOpenStaff"); // Staff Toggle Hydration
         if (os === "1" || os === "0") setOpenStaff(os === "1");
+        const oSms = localStorage.getItem("sidebarOpenSms");
+        if (oSms === "1" || oSms === "0") setOpenSms(oSms === "1");
         
         // Restore sidebar scroll position after mount
         const savedScrollTop = sessionStorage.getItem("sidebarScrollTop");
@@ -186,6 +204,26 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         }
       } catch {}
       // Restore scroll position after state update
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollTop;
+        }
+      });
+      return nv;
+    });
+  };
+
+  const toggleSms = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const scrollTop = scrollContainerRef.current?.scrollTop || 0;
+    setOpenSms((v) => {
+      const nv = !v;
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("sidebarOpenSms", nv ? "1" : "0");
+        }
+      } catch {}
       requestAnimationFrame(() => {
         if (scrollContainerRef.current) {
           scrollContainerRef.current.scrollTop = scrollTop;
@@ -293,6 +331,24 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
           <Link href="/packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isPackages ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
             <i className="fas fa-box w-5" />
             <span>Packages</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/sms-packages" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${isSmsPackages && pathname === "/sms-packages" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-comment-sms w-5" />
+            <span>SMS Packages</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/sms-packages/usage" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname === "/sms-packages/usage" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-chart-column w-5" />
+            <span>SMS Usage</span>
+          </Link>
+        )}
+        {mounted && role === "super_admin" && (
+          <Link href="/sms-packages/log" className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${pathname === "/sms-packages/log" ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"}`}>
+            <i className="fas fa-list w-5" />
+            <span>SMS Log</span>
           </Link>
         )}
         {mounted && role === "super_admin" && (
@@ -407,6 +463,39 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         )}
         {mounted && role === "workshop_owner" && (
           <Link
+            href="/quotations"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isQuotations ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-file-lines w-5" />
+            <span>Quotations</span>
+          </Link>
+        )}
+        {mounted && role === "workshop_owner" && (
+          <Link
+            href="/invoices"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isInvoices ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-file-invoice-dollar w-5" />
+            <span>Invoices</span>
+          </Link>
+        )}
+        {mounted && role === "workshop_owner" && (
+          <Link
+            href="/items"
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
+              isItems ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-boxes-stacked w-5" />
+            <span>Item list</span>
+          </Link>
+        )}
+        {mounted && role === "workshop_owner" && (
+          <Link
             href="/services"
             className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
               isServices ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
@@ -428,15 +517,64 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
         </Link>
       )}
       {mounted && role === "workshop_owner" && (
-        <Link
-          href="/owner-custom-messages"
-          className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition ${
-            isOwnerCustomMessages ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
-          }`}
-        >
-          <i className="fas fa-comment-sms w-5" />
-          <span>Custom Messages</span>
-        </Link>
+        <>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={(e) => toggleSms(e)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") toggleSms(e as unknown as React.MouseEvent); }}
+            className={`flex items-center space-x-3 px-4 py-3 rounded-xl text-sm transition cursor-pointer select-none ${
+              isSms ? "bg-white/10 text-white font-semibold" : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            <i className="fas fa-comment-sms w-5" />
+            <span className="flex-1">SMS</span>
+            {!smsBalance.loading && smsBalance.isLow && (
+              <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white">
+                {smsBalance.remaining ?? 0}
+              </span>
+            )}
+            <span className="opacity-70">
+              <i className={`fas fa-chevron-${openSms ? "down" : "right"}`} />
+            </span>
+          </div>
+          {openSms && (
+            <>
+              <Link
+                href="/owner-custom-messages"
+                className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  isOwnerCustomMessages ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                }`}
+              >
+                <i className="fas fa-bullhorn w-4" />
+                <span>Custom Messages</span>
+              </Link>
+              <Link
+                href="/sms"
+                className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  isOwnerSmsCredits ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                }`}
+              >
+                <i className="fas fa-coins w-4" />
+                <span className="flex-1">SMS Credits</span>
+                {!smsBalance.loading && smsBalance.isLow && (
+                  <span className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white">
+                    {smsBalance.remaining ?? 0}
+                  </span>
+                )}
+              </Link>
+              <Link
+                href="/sms/log"
+                className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  isOwnerSmsLog ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                }`}
+              >
+                <i className="fas fa-list w-4" />
+                <span>SMS Log</span>
+              </Link>
+            </>
+          )}
+        </>
       )}
       {mounted && (role === "workshop_owner" || role === "branch_admin") && (
         <Link

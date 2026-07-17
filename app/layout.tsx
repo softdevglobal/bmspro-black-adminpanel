@@ -4,6 +4,7 @@ import "./globals.css";
 import React from "react";
 import NotificationProvider from "@/components/NotificationProvider";
 import AuthWrapper from "@/components/AuthWrapper";
+import { SmsBalanceProvider } from "@/lib/sms/sms-balance-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -50,9 +51,11 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <NotificationProvider>
-          <AuthWrapper>
-            {children}
-          </AuthWrapper>
+          <SmsBalanceProvider>
+            <AuthWrapper>
+              {children}
+            </AuthWrapper>
+          </SmsBalanceProvider>
         </NotificationProvider>
       </body>
     </html>

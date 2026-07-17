@@ -25,6 +25,8 @@ export const LEGACY_BOOKING_TYPES_FOR_FULL_SCAN = [
 export const LEGACY_CUSTOMER_EXTRA_TYPES_FOR_FULL_SCAN = [
   "estimate_reply",
   "additional_issue_quote",
+  "quotation_sent",
+  "invoice_sent",
 ] as const;
 
 export const BOOKING_CUSTOMER_NOTIFICATION_TYPES = new Set<string>(LEGACY_BOOKING_TYPES_FOR_FULL_SCAN);
@@ -33,6 +35,8 @@ export const BOOKING_CUSTOMER_NOTIFICATION_TYPES = new Set<string>(LEGACY_BOOKIN
 export const CUSTOMER_INBOX_TYPES_EMAIL_OK = new Set([
   "estimate_reply",
   "additional_issue_quote",
+  "quotation_sent",
+  "invoice_sent",
 ]);
 
 export function isCustomerFacingNotificationsDoc(d: DocumentData): boolean {

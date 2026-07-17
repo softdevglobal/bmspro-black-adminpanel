@@ -141,6 +141,8 @@ export async function POST(req: NextRequest) {
           to: phone,
           message: `${workshopName}: Welcome ${name.trim()}. Your booking portal account is ready. Login email: ${normalizedEmail}. Portal: ${portalUrl}`,
           context: `customer portal registration welcome for ${normalizedEmail}`,
+          ownerUid,
+          source: "customer_welcome",
         });
         if (!smsResult.success && !smsResult.skipped) {
           console.error("[CUSTOMER AUTH] Welcome SMS failed:", smsResult.error);

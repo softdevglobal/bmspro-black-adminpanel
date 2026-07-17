@@ -4,6 +4,7 @@ import type { BookingStatus } from "./bookingTypes";
 import { VEHICLE_TYPE_LABELS, isVehicleType, type VehicleType } from "./services";
 import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "./customerAccount";
 import { sendSms } from "./smsService";
+import { normalizeSmsRecipient } from "./sms/textbee";
 import { dispatchMail, isZeptoMailConfigured } from "./email";
 
 const FROM_EMAIL = process.env.FROM_EMAIL || "request@bmspros.com.au";
@@ -172,14 +173,35 @@ async function sendCustomerSmsSafe(
   to: string | null | undefined,
   message: string,
   context: string,
+  ownerUid?: string,
 ): Promise<void> {
+  const normalized = normalizeSmsRecipient(to);
   try {
-    const result = await sendSms({ to, message, context });
-    if (!result.success && !result.skipped) {
-      console.error(`[SMS] Failed to send ${context}:`, result.error);
+    const result = await sendSms({ to, message, context, source: context, ownerUid });
+    if (result.success) {
+      console.log(`[SMS] Customer notification queued (${context})`, {
+        to: normalized ?? to ?? null,
+        note: "TextBee queues on your Android device — check the textbee dashboard if SMS does not arrive",
+      });
+      return;
     }
+    if (result.skipped) {
+      console.warn(`[SMS] Customer notification skipped (${context})`, {
+        to: to ?? null,
+        normalized: normalized ?? null,
+        reason: result.statusDetail ?? result.error ?? "unknown",
+      });
+      return;
+    }
+    console.error(`[SMS] Failed to send ${context}:`, result.error, {
+      to: to ?? null,
+      normalized: normalized ?? null,
+    });
   } catch (error) {
-    console.error(`[SMS] Unexpected error sending ${context}:`, error);
+    console.error(`[SMS] Unexpected error sending ${context}:`, error, {
+      to: to ?? null,
+      normalized: normalized ?? null,
+    });
   }
 }
 
@@ -204,6 +226,45 @@ function buildBookingSmsMessage(data: BookingEmailData, workshopName: string, po
     default:
       return `${workshopName}: Your booking${code} status is now ${data.status}.${portal}`;
   }
+}
+
+/** SMS for booking status — independent of email/PDF success. */
+async function sendBookingStatusSms(args: {
+  bookingId: string;
+  status: BookingStatus;
+  ownerUid: string;
+  workshopName: string;
+  customerPhone?: string | null;
+  bookingCode?: string | null;
+  bookingDate?: string | null;
+  bookingTime?: string | null;
+}): Promise<void> {
+  if (!args.customerPhone?.trim()) {
+    console.warn(`[SMS] No customer phone for booking ${args.bookingId} (${args.status}) — skipping SMS`);
+    return;
+  }
+
+  const portalUrl = await getBookingPortalUrl(args.ownerUid);
+  await sendCustomerSmsSafe(
+    args.customerPhone,
+    buildBookingSmsMessage(
+      {
+        bookingId: args.bookingId,
+        customerEmail: "",
+        customerName: "",
+        status: args.status,
+        ownerUid: args.ownerUid,
+        bookingCode: args.bookingCode,
+        bookingDate: args.bookingDate,
+        bookingTime: args.bookingTime,
+        customerPhone: args.customerPhone,
+      },
+      args.workshopName,
+      portalUrl,
+    ),
+    `booking ${args.status} notification for ${args.bookingId}`,
+    args.ownerUid,
+  );
 }
 
 /**
@@ -659,6 +720,7 @@ export async function sendBookingEmail(data: BookingEmailData): Promise<{ succes
       data.customerPhone,
       buildBookingSmsMessage(data, workshopName, portalUrl),
       `booking ${data.status} notification for ${data.bookingId}`,
+      data.ownerUid,
     );
     
     console.log(`[EMAIL] ✅ Booking email sent successfully: ${data.bookingId} - ${data.status} to ${email}`);
@@ -771,23 +833,19 @@ export async function sendBookingStatusChangeEmail(
       customerResponse?: string | null;
     }> | null;
   }
-): Promise<void> {
+): Promise<{ emailSent: boolean; smsSentIndependently: boolean; error?: string }> {
   console.log(`[EMAIL] sendBookingStatusChangeEmail called for booking ${bookingId}`, {
     newStatus,
     customerEmail,
     customerName,
+    customerPhone: bookingData.customerPhone ?? null,
   });
   
   // Only send emails for specific statuses
   const emailStatuses: BookingStatus[] = ["Confirmed", "Completed", "Canceled"];
   if (!emailStatuses.includes(newStatus)) {
     console.log(`[EMAIL] Status ${newStatus} does not require email, skipping`);
-    return;
-  }
-  
-  if (!customerEmail) {
-    console.log(`[EMAIL] No email provided for booking ${bookingId}, skipping email`);
-    return;
+    return { emailSent: false, smsSentIndependently: false };
   }
   
   // Get workshop name
@@ -863,6 +921,24 @@ export async function sendBookingStatusChangeEmail(
     console.warn(`[EMAIL] Failed to hydrate vehicle/service info for booking ${bookingId}:`, hydrateErr);
   }
 
+  const smsArgs = {
+    bookingId,
+    status: newStatus,
+    ownerUid,
+    workshopName,
+    customerPhone: bookingData.customerPhone,
+    bookingCode: bookingData.bookingCode,
+    bookingDate: bookingData.bookingDate,
+    bookingTime: bookingData.bookingTime,
+  };
+
+  // No email → still send SMS (completion SMS must not depend on email)
+  if (!customerEmail) {
+    console.log(`[EMAIL] No email provided for booking ${bookingId}, skipping email — sending SMS only`);
+    await sendBookingStatusSms(smsArgs);
+    return { emailSent: false, smsSentIndependently: true };
+  }
+
   const result = await sendBookingEmail({
     bookingId,
     bookingCode: bookingData.bookingCode || undefined,
@@ -879,9 +955,24 @@ export async function sendBookingStatusChangeEmail(
     services: hydratedServices,
   });
   
-  if (!result.success) {
-    console.error(`[EMAIL] Failed to send booking status change email:`, result.error);
+  if (result.success) {
+    // SMS already sent inside sendBookingEmail after successful dispatch
+    return { emailSent: true, smsSentIndependently: false };
   }
+
+  console.error(`[EMAIL] Failed to send booking status change email:`, result.error);
+
+  // Email/PDF failed — still notify by SMS (unless this was a duplicate email,
+  // in which case SMS was already sent on the first successful attempt).
+  if (result.error === "Email already sent for this status") {
+    return { emailSent: false, smsSentIndependently: false, error: result.error };
+  }
+
+  console.log(
+    `[SMS] Sending booking ${newStatus} SMS independently after email failure for ${bookingId}`,
+  );
+  await sendBookingStatusSms(smsArgs);
+  return { emailSent: false, smsSentIndependently: true, error: result.error };
 }
 
 /**
@@ -1625,6 +1716,7 @@ export async function sendCustomerWelcomeEmail(params: {
   customerName: string;
   workshopName?: string;
   bookingEngineUrl: string;
+  ownerUid?: string;
 }): Promise<{ success: boolean; error?: string }> {
   const { customerEmail, password, customerName } = params;
   const workshopName = params.workshopName?.trim() || "Workshop";
@@ -1690,6 +1782,7 @@ export async function sendCustomerWelcomeEmail(params: {
       params.customerPhone,
       `${workshopName}: Your booking account is ready. Login: ${email}. Temporary password: ${password}. Portal: ${portalUrl}`,
       `customer welcome notification for ${email}`,
+      params.ownerUid,
     );
 
     console.log(`[EMAIL] ✅ Customer welcome email sent successfully to ${email}`);
@@ -2948,6 +3041,7 @@ export async function sendBookingRescheduledEmail(data: {
       data.customerPhone,
       `${workshopName}: Your booking${bookingCodeSuffix(data.bookingCode)} has been rescheduled to ${newLine}. Portal: ${portalUrl}`,
       `booking reschedule notification for ${data.bookingId}`,
+      data.ownerUid,
     );
     console.log(`[EMAIL] ✅ Reschedule email sent to ${email} for booking ${data.bookingId}`);
     return { success: true };

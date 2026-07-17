@@ -134,6 +134,8 @@ export async function sendGreetingMessages(args: {
     const sms = await sendSms({
       to: recipient.phone,
       message: body,
+      ownerUid: args.ownerUid,
+      source: "custom_message",
       context: `custom SMS to ${recipient.type} ${recipient.id}`,
     });
 

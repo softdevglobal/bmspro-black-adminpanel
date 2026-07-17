@@ -1065,6 +1065,7 @@ export async function POST(req: NextRequest) {
           customerName: newCustomerWelcome.name,
           workshopName,
           bookingEngineUrl,
+          ownerUid,
         });
 
         if (welcomeResult.success) {

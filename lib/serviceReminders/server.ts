@@ -508,6 +508,8 @@ async function sendServiceReminderChannels(
       to: reminder.customerPhone,
       message: content.sms,
       context: smsContext,
+      ownerUid: reminder.ownerUid,
+      source: "service_reminder",
     });
     if (!smsResult.success && !smsResult.skipped) {
       console.error(`[serviceReminders] SMS failed for ${reminder.bookingId} (${phase}):`, smsResult.error);

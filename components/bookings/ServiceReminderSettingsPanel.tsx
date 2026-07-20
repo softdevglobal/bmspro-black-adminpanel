@@ -9,13 +9,16 @@ import {
 } from "@/lib/serviceReminders/types";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ServiceReminderIntervalPicker from "./ServiceReminderIntervalPicker";
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-neutral-300 bg-white px-3.5 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10";
 
-type BranchOption = { id: string; name: string };
+const INLINE_SELECT_CLASS =
+  "rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 min-w-[140px]";
+
+type ServiceOption = { id: string; name: string };
 
 async function authFetch<T>(
   path: string,
@@ -48,6 +51,9 @@ async function authFetch<T>(
   return { ok: true, data: body };
 }
 
+const DEFAULT_REMINDER_MESSAGE =
+  "Hi {name}, friendly reminder that your vehicle service is due soon. Book a time that suits you.";
+
 export default function ServiceReminderSettingsPanel() {
   const [initLoading, setInitLoading] = useState(true);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -55,32 +61,24 @@ export default function ServiceReminderSettingsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedSummary, setSavedSummary] = useState<string | null>(null);
-  const [intervalDays, setIntervalDays] = useState(DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS);
-  const [customMessage, setCustomMessage] = useState(
-    "Hi {name}, friendly reminder that your vehicle service is due soon. Book a time that suits you.",
-  );
-  const [branches, setBranches] = useState<BranchOption[]>([]);
-  const [selectedBranchId, setSelectedBranchId] = useState("");
-  const [isBranchAdmin, setIsBranchAdmin] = useState(false);
+  const [serviceIntervals, setServiceIntervals] = useState<Record<string, number>>({});
+  const [customMessage, setCustomMessage] = useState(DEFAULT_REMINDER_MESSAGE);
+  const [services, setServices] = useState<ServiceOption[]>([]);
+  const [search, setSearch] = useState("");
 
-  const loadSettingsForBranch = useCallback(async (branchId: string) => {
-    if (!branchId) return;
+  const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
     setError(null);
-    const result = await authFetch<{ settings: ServiceReminderSettings; branchId: string }>(
-      `/api/service-reminders/settings?branchId=${encodeURIComponent(branchId)}`,
+    const result = await authFetch<{ settings: ServiceReminderSettings }>(
+      "/api/service-reminders/settings",
     );
     if (!result.ok) {
       setError(result.error);
       setSettingsLoading(false);
       return;
     }
-    const s = result.data.settings;
-    setIntervalDays(s.intervalDays || DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS);
-    setCustomMessage(
-      s.customMessage ||
-        "Hi {name}, friendly reminder that your vehicle service is due soon. Book a time that suits you.",
-    );
+    setServiceIntervals(result.data.settings.serviceIntervals || {});
+    setCustomMessage(result.data.settings.customMessage || DEFAULT_REMINDER_MESSAGE);
     setSettingsLoading(false);
   }, []);
 
@@ -98,48 +96,31 @@ export default function ServiceReminderSettingsPanel() {
         const role = String(userData?.role || userData?.systemRole || "").toLowerCase();
         const ownerUid =
           role === "workshop_owner" ? userId : String(userData?.ownerUid || userId);
-        const userBranchId = String(userData?.branchId || "").trim();
-        const branchAdmin = role === "branch_admin";
 
         if (cancelled) return;
-        setIsBranchAdmin(branchAdmin);
 
-        if (branchAdmin && userBranchId) {
-          setBranches([{ id: userBranchId, name: String(userData?.branchName || "Your branch") }]);
-          setSelectedBranchId(userBranchId);
-          setInitLoading(false);
-          return;
-        }
-
-        if (role !== "workshop_owner") {
+        if (role !== "workshop_owner" && role !== "branch_admin") {
           setError("Only workshop owners and branch admins can manage service reminder settings.");
           setInitLoading(false);
           return;
         }
 
-        const branchSnap = await getDocs(
-          query(collection(db, "branches"), where("ownerUid", "==", ownerUid)),
+        const servicesSnap = await getDocs(
+          query(collection(db, "services"), where("ownerUid", "==", ownerUid)),
         );
-        const branchList: BranchOption[] = branchSnap.docs.map((d) => ({
-          id: d.id,
-          name: String(d.data().name || "Branch"),
-        }));
-        branchList.sort((a, b) => a.name.localeCompare(b.name));
 
         if (cancelled) return;
 
-        if (branchList.length === 0) {
-          setError("No branches found. Create a branch first.");
-          setInitLoading(false);
-          return;
-        }
-
-        setBranches(branchList);
-        setSelectedBranchId(branchList[0].id);
+        const serviceList: ServiceOption[] = servicesSnap.docs.map((d) => ({
+          id: d.id,
+          name: String(d.data().name || "Service"),
+        }));
+        serviceList.sort((a, b) => a.name.localeCompare(b.name));
+        setServices(serviceList);
         setInitLoading(false);
       } catch (e: unknown) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load branches");
+          setError(e instanceof Error ? e.message : "Failed to load services");
           setInitLoading(false);
         }
       }
@@ -168,172 +149,206 @@ export default function ServiceReminderSettingsPanel() {
   }, []);
 
   useEffect(() => {
-    if (!selectedBranchId || initLoading) return;
-    void loadSettingsForBranch(selectedBranchId);
-  }, [selectedBranchId, initLoading, loadSettingsForBranch]);
+    if (initLoading) return;
+    void loadSettings();
+  }, [initLoading, loadSettings]);
+
+  const filteredServices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter((s) => s.name.toLowerCase().includes(q));
+  }, [services, search]);
+
+  const getIntervalForService = (serviceId: string) =>
+    serviceIntervals[serviceId] ?? DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS;
+
+  const setIntervalForService = (serviceId: string, days: number) => {
+    setServiceIntervals((prev) => ({ ...prev, [serviceId]: days }));
+  };
 
   const handleSave = async () => {
-    if (!selectedBranchId) {
-      setError("Select a branch first.");
+    if (services.length === 0) {
+      setError("No services found. Add services first.");
       return;
     }
+
     setSaving(true);
     setError(null);
     setSaved(false);
     setSavedSummary(null);
-    const parsed = parseServiceReminderIntervalDays(intervalDays);
-    if (!parsed.ok) {
-      setError(parsed.error);
-      setSaving(false);
-      return;
+
+    const intervalsToSave: Record<string, number> = {};
+    for (const service of services) {
+      const days = getIntervalForService(service.id);
+      const parsed = parseServiceReminderIntervalDays(days);
+      if (!parsed.ok) {
+        setError(`${service.name}: ${parsed.error}`);
+        setSaving(false);
+        return;
+      }
+      intervalsToSave[service.id] = parsed.days;
     }
+
     const result = await authFetch<{
       settings: ServiceReminderSettings;
-      branchId: string;
       bulk?: { scheduled: number; skipped: number; errors: number };
-    }>(
-      "/api/service-reminders/settings",
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          branchId: selectedBranchId,
-          intervalDays: parsed.days,
-          customMessage: customMessage.trim() || undefined,
-        }),
-      },
-    );
+    }>("/api/service-reminders/settings", {
+      method: "PATCH",
+      body: JSON.stringify({
+        serviceIntervals: intervalsToSave,
+        customMessage: customMessage.trim() || undefined,
+      }),
+    });
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    setIntervalDays(result.data.settings.intervalDays);
+    setServiceIntervals(result.data.settings.serviceIntervals || {});
+    setCustomMessage(result.data.settings.customMessage || DEFAULT_REMINDER_MESSAGE);
     const bulk = result.data.bulk;
     if (bulk) {
       setSavedSummary(
-        `Applied to ${bulk.scheduled} completed booking${bulk.scheduled === 1 ? "" : "s"}` +
-          (bulk.skipped ? ` (${bulk.skipped} already sent, skipped)` : "") +
+        `Saved ${Object.keys(intervalsToSave).length} service interval${
+          Object.keys(intervalsToSave).length === 1 ? "" : "s"
+        }. Updated ${bulk.scheduled} completed booking${bulk.scheduled === 1 ? "" : "s"}` +
+          (bulk.skipped ? ` (${bulk.skipped} skipped)` : "") +
           ".",
       );
     } else {
-      setSavedSummary("Settings saved for this branch.");
+      setSavedSummary("Settings saved.");
     }
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
       setSavedSummary(null);
-    }, 5000);
+    }, 6000);
   };
 
   if (initLoading) {
     return (
-      <div className="mb-6 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <div className="text-sm text-neutral-500 flex items-center gap-2">
+      <div className="rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm">
+        <div className="text-sm text-neutral-500 flex items-center justify-center gap-2">
           <i className="fas fa-spinner fa-spin" />
-          Loading service reminder settings…
+          Loading…
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mb-6 rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
-      <div className="border-b border-neutral-100 bg-gradient-to-r from-amber-50 to-orange-50 px-5 py-4">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center border border-amber-500/20 shrink-0">
-            <i className="fas fa-bell text-amber-600" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-neutral-900">Next service reminders</h2>
-            <p className="text-xs text-neutral-600 mt-0.5 max-w-2xl">
-              Set how long after each booking is <strong>completed</strong> customers should be reminded.
-              Saving applies to <strong>all completed bookings</strong> for the selected branch — each customer is
-              reminded individually when their own interval is due. Customers also get a heads-up{" "}
-              <strong>{SERVICE_REMINDER_ADVANCE_NOTICE_DAYS} days before</strong> the main reminder.
-            </p>
-          </div>
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="px-5 py-4 border-b border-neutral-100">
+          <h2 className="text-sm font-semibold text-neutral-900">Reminder message</h2>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            Sent to customers when their service reminder is due
+          </p>
+        </div>
+        <div className={`p-5 ${settingsLoading ? "opacity-60 pointer-events-none" : ""}`}>
+          <textarea
+            value={customMessage}
+            onChange={(e) => setCustomMessage(e.target.value)}
+            rows={3}
+            placeholder="Hi {name}, your next service is due soon…"
+            className={`${INPUT_CLASS} resize-none`}
+          />
+          <p className="text-[11px] text-neutral-400 mt-1.5">
+            Placeholders: {"{name}"}, {"{service}"}, {"{vehicle}"}
+          </p>
         </div>
       </div>
 
-      <div className="p-5 space-y-4">
-        {branches.length > 1 && !isBranchAdmin && (
+      <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1.5">
-              Branch
-            </label>
-            <select
-              value={selectedBranchId}
-              onChange={(e) => setSelectedBranchId(e.target.value)}
-              className={INPUT_CLASS}
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {branches.length === 1 && (
-          <div className="text-xs text-neutral-500 flex items-center gap-1.5">
-            <i className="fas fa-location-dot text-amber-500" />
-            Branch: <span className="font-medium text-neutral-700">{branches[0].name}</span>
-          </div>
-        )}
-
-        <div className={`grid sm:grid-cols-2 gap-4 ${settingsLoading ? "opacity-60 pointer-events-none" : ""}`}>
-          <ServiceReminderIntervalPicker
-            intervalDays={intervalDays}
-            onChange={setIntervalDays}
-            inputClass={INPUT_CLASS}
-          />
-          <div>
-            <label className="block text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-1.5">
-              Custom message (optional)
-            </label>
-            <textarea
-              value={customMessage}
-              onChange={(e) => setCustomMessage(e.target.value)}
-              rows={3}
-              placeholder="Hi {name}, your next service is due soon…"
-              className={`${INPUT_CLASS} resize-none`}
-            />
-            <p className="text-[11px] text-neutral-400 mt-1">
-              Use {"{name}"}, {"{service}"}, or {"{vehicle}"} as placeholders.
+            <h2 className="text-sm font-semibold text-neutral-900">Reminder intervals by service</h2>
+            <p className="text-xs text-neutral-500 mt-0.5">
+              Customers are reminded after each service is completed. They also get a heads-up{" "}
+              {SERVICE_REMINDER_ADVANCE_NOTICE_DAYS} days before the due date.
             </p>
           </div>
+          <div className="relative sm:w-56 shrink-0">
+            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-xs" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search services…"
+              className={`${INPUT_CLASS} pl-9 py-2`}
+            />
+          </div>
         </div>
 
-        {settingsLoading && (
-          <p className="text-xs text-neutral-500 flex items-center gap-2">
-            <i className="fas fa-spinner fa-spin" />
-            Loading branch settings…
-          </p>
-        )}
-
-        {error && (
-          <div className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2">
-            {error}
-          </div>
-        )}
-        {saved && savedSummary && (
-          <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-            {savedSummary}
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || settingsLoading || !selectedBranchId}
-            className="px-4 py-2 rounded-lg text-sm font-semibold bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-60 inline-flex items-center gap-2"
-          >
-            {saving ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-save" />}
-            {saving ? "Saving…" : "Save settings"}
-          </button>
+        <div className={settingsLoading ? "opacity-60 pointer-events-none" : ""}>
+          {filteredServices.length === 0 ? (
+            <div className="px-5 py-12 text-center text-sm text-neutral-500">
+              {services.length === 0
+                ? "No services yet. Add services from the Services page."
+                : "No services match your search."}
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-neutral-100 bg-neutral-50/80">
+                  <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
+                    Service
+                  </th>
+                  <th className="px-5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-500 text-right w-[220px]">
+                    Remind after
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {filteredServices.map((service) => (
+                  <tr key={service.id} className="hover:bg-neutral-50/60">
+                    <td className="px-5 py-3.5">
+                      <p className="text-sm font-medium text-neutral-900">{service.name}</p>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <ServiceReminderIntervalPicker
+                        intervalDays={getIntervalForService(service.id)}
+                        onChange={(days) => setIntervalForService(service.id, days)}
+                        inputClass={INLINE_SELECT_CLASS}
+                        inline
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
+      </div>
+
+      {settingsLoading && (
+        <p className="text-xs text-neutral-500 flex items-center gap-2">
+          <i className="fas fa-spinner fa-spin" />
+          Loading settings…
+        </p>
+      )}
+
+      {error && (
+        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-xl px-4 py-3">
+          {error}
+        </div>
+      )}
+      {saved && savedSummary && (
+        <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
+          {savedSummary}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving || settingsLoading || services.length === 0}
+          className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-60 inline-flex items-center gap-2 shadow-sm"
+        >
+          {saving ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-save" />}
+          {saving ? "Saving…" : "Save settings"}
+        </button>
       </div>
     </div>
   );

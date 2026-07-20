@@ -25,7 +25,6 @@ import {
 } from "@/lib/leaveBookingAssignment";
 import BookingsExportModal from "./BookingsExportModal";
 import BookingJobReportPdfViewer from "./BookingJobReportPdfViewer";
-import ServiceReminderSettingsPanel from "./ServiceReminderSettingsPanel";
 import CompletedBookingReminderCard from "./CompletedBookingReminderCard";
 import { bookingJobReportPdfFilename } from "@/lib/bookingPdfFilename";
 import type { BookingServiceReminderSnapshot } from "@/lib/serviceReminders/types";
@@ -484,7 +483,7 @@ function formatLabourMinutes(hours: number | null | undefined): string | null {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-export default function BookingsListByStatus({ status, title, showStaffColumn = true, showExportButton = false, showServiceReminderSettings = false, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; showExportButton?: boolean; showServiceReminderSettings?: boolean; openBookingId?: string }) {
+export default function BookingsListByStatus({ status, title, showStaffColumn = true, showExportButton = false, openBookingId: openBookingIdProp }: { status: BookingStatus | BookingStatus[]; title: string; showStaffColumn?: boolean; showExportButton?: boolean; openBookingId?: string }) {
   const searchParams = useSearchParams();
   const openFromUrl = searchParams.get("open") || searchParams.get("highlight");
   const openBookingId = openBookingIdProp ?? openFromUrl ?? undefined;
@@ -2174,12 +2173,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
               </div>
             </div>
 
-            {showServiceReminderSettings && (
-              <ServiceReminderSettingsPanel />
-            )}
-
             <BookingsExportModal open={exportModalOpen} onClose={() => setExportModalOpen(false)} />
-
             {/* Right-side preview slide-over */}
             <div
               className={`fixed inset-0 z-50 ${previewOpen ? "pointer-events-auto" : "pointer-events-none"}`}

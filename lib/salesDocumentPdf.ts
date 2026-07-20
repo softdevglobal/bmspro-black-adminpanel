@@ -36,6 +36,16 @@ export type SalesDocPdfInput = {
   subtotalAud: number;
   gstAud: number;
   totalAud: number;
+  /** Quotation deposit request (display-only). */
+  depositRequested?: boolean;
+  depositMode?: "value" | "percent";
+  depositValue?: number;
+  depositAud?: number;
+  balanceAud?: number;
+  /** Invoice recorded payment (display-only). */
+  paymentRecorded?: boolean;
+  amountPaidAud?: number;
+  balanceDueAud?: number;
   documentDate: string;
   dueDate: string;
   paymentTermsLabel: string;
@@ -93,6 +103,10 @@ function lineNet(item: SalesDocPdfLineItem): number {
   return Math.round(item.quantity * item.rate * (1 - item.discountPercent / 100) * 100) / 100;
 }
 
+function lineDiscountAud(item: SalesDocPdfLineItem): number {
+  return Math.round(item.quantity * item.rate * (item.discountPercent / 100) * 100) / 100;
+}
+
 function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
   const meta = KIND_META[input.kind];
   const isInvoice = input.kind === "invoice";
@@ -123,19 +137,20 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
       ]
         .filter(Boolean)
         .join("");
-      const discountTag =
-        item.discountPercent > 0
-          ? `<span class="li-tag">−${item.discountPercent}%</span>`
-          : "";
+      const discAud = lineDiscountAud(item);
+      const gstLabel =
+        input.gstEnabled && item.applyGst ? `${input.gstPercentage}%` : "—";
       return `
         <tr>
           <td class="li-index">${index + 1}</td>
           <td>
-            <div class="li-name">${escapeHtml(item.name)} ${discountTag}</div>
+            <div class="li-name">${escapeHtml(item.name)}</div>
             ${meta2}
           </td>
           <td class="num">${item.quantity}</td>
           <td class="num">${formatAud(item.rate)}</td>
+          <td class="num">${discAud > 0 ? `−${formatAud(discAud)}` : "—"}</td>
+          <td class="num">${gstLabel}</td>
           <td class="num strong">${formatAud(lineNet(item))}</td>
         </tr>`;
     })
@@ -165,6 +180,36 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
   ]
     .filter(Boolean)
     .join("");
+
+  const showDeposit =
+    input.kind === "quotation" &&
+    input.depositRequested === true &&
+    (input.depositAud ?? 0) > 0;
+  const depositLabel =
+    input.depositMode === "percent" && (input.depositValue ?? 0) > 0
+      ? `Deposit requested (${Math.min(100, input.depositValue ?? 0)}%)`
+      : "Deposit requested";
+  const depositRows = showDeposit
+    ? `<div class="deposit-block">
+        <div class="tot-row"><span>${depositLabel}</span><span>${formatAud(input.depositAud ?? 0)}</span></div>
+        <div class="tot-row"><span>Remaining balance</span><span>${formatAud(
+          input.balanceAud ?? Math.max(0, input.totalAud - (input.depositAud ?? 0)),
+        )}</span></div>
+      </div>`
+    : "";
+
+  const showPayment =
+    input.kind === "invoice" &&
+    input.paymentRecorded === true &&
+    (input.amountPaidAud ?? 0) > 0;
+  const paymentRows = showPayment
+    ? `<div class="deposit-block">
+        <div class="tot-row"><span>Amount paid</span><span>${formatAud(input.amountPaidAud ?? 0)}</span></div>
+        <div class="tot-row"><span>Balance due</span><span>${formatAud(
+          input.balanceDueAud ?? Math.max(0, input.totalAud - (input.amountPaidAud ?? 0)),
+        )}</span></div>
+      </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -311,6 +356,8 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
     }
     .grand-total .gt-label { font-family: 'Fira Code', monospace; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.7); }
     .grand-total .gt-value { font-size: 22px; font-weight: 800; letter-spacing: -0.4px; }
+    .deposit-block { margin-top: 10px; }
+    .deposit-block .tot-row:last-child { border-bottom: none; font-weight: 600; color: var(--text); }
     .notes-grid { display: flex; flex-direction: column; gap: 16px; }
     .note-block .nlabel {
       font-family: 'Fira Code', monospace; font-size: 9.5px; letter-spacing: 0.14em;
@@ -412,6 +459,8 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
               <th>Item</th>
               <th class="num">Qty</th>
               <th class="num">Rate</th>
+              <th class="num">Disc</th>
+              <th class="num">GST</th>
               <th class="num">Amount</th>
             </tr>
           </thead>
@@ -430,6 +479,8 @@ function buildSalesDocumentHtml(input: SalesDocPdfInput): string {
             <span class="gt-label">${meta.totalLabel}</span>
             <span class="gt-value">${formatAud(input.totalAud)}</span>
           </div>
+          ${depositRows}
+          ${paymentRows}
         </div>
       </div>
     </section>

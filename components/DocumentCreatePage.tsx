@@ -129,6 +129,28 @@ type SavedDocument = {
   paymentTermsId?: string;
   terms?: string;
   comment?: string;
+  depositRequested?: boolean;
+  depositMode?: "value" | "percent";
+  depositValue?: number;
+  depositAud?: number;
+  balanceAud?: number;
+  paymentRecorded?: boolean;
+  amountPaidAud?: number;
+  balanceDueAud?: number;
+  quotationId?: string | null;
+  quotationCode?: string | null;
+  invoiceId?: string | null;
+  invoiceCode?: string | null;
+};
+
+type QuotationOption = {
+  id: string;
+  code: string;
+  status: string;
+  customer?: { fullName?: string; email?: string };
+  jobTitle?: string;
+  documentDate?: string;
+  totalAud?: number;
 };
 
 const TERMS_OPTIONS: { id: TermsId; days: number; label: string }[] = [
@@ -198,6 +220,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editingDocId = searchParams.get("id");
+  const fromQuotationParam = searchParams.get("fromQuotation");
+  const pickQuotationParam = searchParams.get("pickQuotation");
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("create");
@@ -207,6 +231,16 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [docCode, setDocCode] = useState<string | null>(null);
   const [docStatus, setDocStatus] = useState<string>("draft");
   const [docId, setDocId] = useState<string | null>(editingDocId);
+  const [linkedInvoiceId, setLinkedInvoiceId] = useState<string | null>(null);
+  const [linkedInvoiceCode, setLinkedInvoiceCode] = useState<string | null>(null);
+  const [linkedQuotationId, setLinkedQuotationId] = useState<string | null>(null);
+  const [linkedQuotationCode, setLinkedQuotationCode] = useState<string | null>(null);
+  const [issuingInvoice, setIssuingInvoice] = useState(false);
+  const [quotationPickerOpen, setQuotationPickerOpen] = useState(false);
+  const [quotationOptions, setQuotationOptions] = useState<QuotationOption[]>([]);
+  const [quotationSearch, setQuotationSearch] = useState("");
+  const [quotationLoading, setQuotationLoading] = useState(false);
+  const [importingQuotation, setImportingQuotation] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -248,8 +282,107 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [gstEnabled, setGstEnabled] = useState(true);
   const [gstPercentage] = useState(10);
   const [gstPricing, setGstPricing] = useState<GstPricing>("exclusive");
+  const [depositRequested, setDepositRequested] = useState(false);
+  const [depositMode, setDepositMode] = useState<"value" | "percent">("percent");
+  const [depositValue, setDepositValue] = useState(0);
+  const [paymentRecorded, setPaymentRecorded] = useState(false);
+  const [amountPaidInput, setAmountPaidInput] = useState(0);
 
   const [businessName, setBusinessName] = useState("Your business");
+
+  function applySavedDocument(
+    doc: SavedDocument,
+    options?: { importAsInvoice?: boolean },
+  ) {
+    const importAsInvoice = options?.importAsInvoice === true;
+
+    if (!importAsInvoice) {
+      setDocCode(doc.code || null);
+      setDocStatus(doc.status || "draft");
+      if (doc.id) setDocId(doc.id);
+    } else {
+      setDocCode(null);
+      setDocStatus("draft");
+      setDocId(null);
+      setDocumentDate(todayIso());
+    }
+
+    setCustomer({
+      fullName: doc.customer?.fullName ?? "",
+      email: doc.customer?.email ?? "",
+      phone: toAuLocalPhone(doc.customer?.phone ?? ""),
+    });
+    setAddress({
+      street: doc.address?.street ?? "",
+      suburb: doc.address?.suburb ?? "",
+      state: doc.address?.state ?? "",
+      postcode: doc.address?.postcode ?? "",
+    });
+    setClientOpen(true);
+    setJobTitle(doc.jobTitle ?? "");
+    setJobDescription(doc.jobDescription ?? "");
+    setLineItems(
+      (doc.lineItems ?? []).map((item) => ({
+        id: crypto.randomUUID?.() ?? `${Math.random()}`,
+        code: item.code ?? "",
+        name: item.name ?? "",
+        description: item.description ?? "",
+        quantity: item.quantity ?? 1,
+        rate: item.rate ?? 0,
+        discountPercent: item.discountPercent ?? 0,
+        applyGst: item.applyGst !== false,
+      })),
+    );
+    setDiscountAud(doc.discountAud ?? 0);
+    setGstEnabled(doc.gstEnabled === true);
+    setGstPricing(doc.gstPricing === "inclusive" ? "inclusive" : "exclusive");
+    if (!importAsInvoice && doc.documentDate) setDocumentDate(doc.documentDate);
+    const termsId = TERMS_OPTIONS.find((t) => t.id === doc.paymentTermsId)?.id;
+    if (termsId) setPaymentTerms(termsId);
+    setTerms(doc.terms ?? "");
+    setComment(doc.comment ?? "");
+
+    if (variant === "quotation" && !importAsInvoice) {
+      setDepositRequested(doc.depositRequested === true);
+      setDepositMode(doc.depositMode === "value" ? "value" : "percent");
+      setDepositValue(
+        typeof doc.depositValue === "number"
+          ? doc.depositValue
+          : typeof doc.depositAud === "number"
+            ? doc.depositAud
+            : 0,
+      );
+      setPaymentRecorded(false);
+      setAmountPaidInput(0);
+      setLinkedInvoiceId(doc.invoiceId ?? null);
+      setLinkedInvoiceCode(doc.invoiceCode ?? null);
+      setLinkedQuotationId(null);
+      setLinkedQuotationCode(null);
+    } else {
+      setDepositRequested(false);
+      setDepositValue(0);
+      if (variant === "invoice" && !importAsInvoice) {
+        setPaymentRecorded(doc.paymentRecorded === true);
+        setAmountPaidInput(
+          typeof doc.amountPaidAud === "number" ? doc.amountPaidAud : 0,
+        );
+      } else {
+        setPaymentRecorded(false);
+        setAmountPaidInput(0);
+      }
+      if (importAsInvoice) {
+        setLinkedQuotationId(doc.id);
+        setLinkedQuotationCode(doc.code || null);
+        setLinkedInvoiceId(null);
+        setLinkedInvoiceCode(null);
+      } else {
+        setLinkedQuotationId(doc.quotationId ?? null);
+        setLinkedQuotationCode(doc.quotationCode ?? null);
+        setLinkedInvoiceId(null);
+        setLinkedInvoiceCode(null);
+      }
+    }
+  }
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -291,49 +424,41 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
             });
             const data = (await res.json()) as { ok?: boolean; document?: SavedDocument };
             if (res.ok && data.ok && data.document) {
-              const doc = data.document;
-              setDocCode(doc.code || null);
-              setDocStatus(doc.status || "draft");
-              setCustomer({
-                fullName: doc.customer?.fullName ?? "",
-                email: doc.customer?.email ?? "",
-                phone: toAuLocalPhone(doc.customer?.phone ?? ""),
-              });
-              setAddress({
-                street: doc.address?.street ?? "",
-                suburb: doc.address?.suburb ?? "",
-                state: doc.address?.state ?? "",
-                postcode: doc.address?.postcode ?? "",
-              });
-              setClientOpen(true);
-              setJobTitle(doc.jobTitle ?? "");
-              setJobDescription(doc.jobDescription ?? "");
-              setLineItems(
-                (doc.lineItems ?? []).map((item) => ({
-                  id: crypto.randomUUID?.() ?? `${Math.random()}`,
-                  code: item.code ?? "",
-                  name: item.name ?? "",
-                  description: item.description ?? "",
-                  quantity: item.quantity ?? 1,
-                  rate: item.rate ?? 0,
-                  discountPercent: item.discountPercent ?? 0,
-                  applyGst: item.applyGst !== false,
-                })),
-              );
-              setDiscountAud(doc.discountAud ?? 0);
-              setGstEnabled(doc.gstEnabled === true);
-              setGstPricing(doc.gstPricing === "inclusive" ? "inclusive" : "exclusive");
-              if (doc.documentDate) setDocumentDate(doc.documentDate);
-              const termsId = TERMS_OPTIONS.find((t) => t.id === doc.paymentTermsId)?.id;
-              if (termsId) setPaymentTerms(termsId);
-              setTerms(doc.terms ?? "");
-              setComment(doc.comment ?? "");
+              applySavedDocument(data.document);
             } else {
               setError(`Could not load the ${config.docLabel.toLowerCase()} for editing.`);
             }
           } catch {
             setError(`Could not load the ${config.docLabel.toLowerCase()} for editing.`);
           }
+          return;
+        }
+
+        // Invoice create: prefill from a quotation (?fromQuotation=…).
+        if (variant === "invoice" && fromQuotationParam) {
+          try {
+            const res = await fetch(`/api/quotations/${fromQuotationParam}`, {
+              headers: authHeaders,
+              cache: "no-store",
+            });
+            const data = (await res.json()) as { ok?: boolean; document?: SavedDocument };
+            if (res.ok && data.ok && data.document) {
+              applySavedDocument(data.document, { importAsInvoice: true });
+              setSavedNotice(
+                `Loaded quotation ${data.document.code || ""}. Review and save as an invoice.`,
+              );
+            } else {
+              setError("Could not load the quotation to create an invoice.");
+            }
+          } catch {
+            setError("Could not load the quotation to create an invoice.");
+          }
+          return;
+        }
+
+        // Invoice create: open quotation picker (?pickQuotation=1).
+        if (variant === "invoice" && pickQuotationParam === "1") {
+          void openQuotationPicker();
         }
       });
     })();
@@ -341,7 +466,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       if (unsub) unsub();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router, editingDocId, config.apiBase]);
+  }, [router, editingDocId, fromQuotationParam, pickQuotationParam, config.apiBase, variant]);
 
   // Render the live creative PDF whenever the Preview tab is opened, so the
   // preview always matches the PDF that will be attached to the email.
@@ -458,6 +583,30 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     if (gstPricing === "inclusive") return Math.round(net * 100) / 100;
     return Math.round((net + gstAmount) * 100) / 100;
   }, [subtotal, cappedDiscount, gstEnabled, gstPricing, gstAmount]);
+
+  const depositAud = useMemo(() => {
+    if (variant !== "quotation" || !depositRequested) return 0;
+    if (depositMode === "percent") {
+      const pct = Math.min(100, Math.max(0, depositValue));
+      return Math.min(total, Math.round(total * (pct / 100) * 100) / 100);
+    }
+    return Math.min(total, Math.max(0, Math.round(depositValue * 100) / 100));
+  }, [variant, depositRequested, depositMode, depositValue, total]);
+
+  const balanceAud = useMemo(
+    () => Math.max(0, Math.round((total - depositAud) * 100) / 100),
+    [total, depositAud],
+  );
+
+  const amountPaidAud = useMemo(() => {
+    if (variant !== "invoice" || !paymentRecorded) return 0;
+    return Math.min(total, Math.max(0, Math.round(amountPaidInput * 100) / 100));
+  }, [variant, paymentRecorded, amountPaidInput, total]);
+
+  const balanceDueAud = useMemo(
+    () => Math.max(0, Math.round((total - amountPaidAud) * 100) / 100),
+    [total, amountPaidAud],
+  );
 
   function startAddItem() {
     setItemDraft({
@@ -603,7 +752,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function validate(): string | null {
+  function validate(send: boolean): string | null {
+    // Drafts can be incomplete — only block if a line-item editor is mid-edit.
+    if (!send) {
+      if (itemDraft) return "Finish adding the current item, or cancel it.";
+      return null;
+    }
+
     // Client
     if (customer.fullName.trim().length < 2) return "Add a client name.";
     if (!EMAIL_REGEX.test(customer.email.trim())) return "Enter a valid client email.";
@@ -638,6 +793,24 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     }
     if (total <= 0) return "The total must be greater than zero.";
 
+    if (variant === "quotation" && depositRequested) {
+      if (depositValue < 0) return "Deposit cannot be negative.";
+      if (depositMode === "percent") {
+        if (depositValue > 100) return "Deposit cannot exceed 100%.";
+      } else if (depositValue > total) {
+        return "Deposit cannot exceed the quotation total.";
+      }
+      if (depositAud <= 0) return "Enter a deposit greater than zero, or turn off the deposit request.";
+    }
+
+    if (variant === "invoice" && paymentRecorded) {
+      if (amountPaidInput < 0) return "Amount paid cannot be negative.";
+      if (amountPaidInput > total) return "Amount paid cannot exceed the invoice total.";
+      if (amountPaidAud <= 0) {
+        return "Enter an amount paid greater than zero, or turn off record payment.";
+      }
+    }
+
     return null;
   }
 
@@ -668,6 +841,20 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       paymentTermsId: paymentTerms,
       terms: terms.trim(),
       comment: comment.trim(),
+      ...(variant === "quotation"
+        ? {
+            depositRequested,
+            depositMode,
+            depositValue: depositRequested ? depositValue : 0,
+            depositAud,
+            balanceAud: depositRequested ? balanceAud : total,
+          }
+        : {
+            paymentRecorded,
+            amountPaidAud,
+            balanceDueAud: paymentRecorded ? balanceDueAud : total,
+            ...(linkedQuotationId ? { quotationId: linkedQuotationId } : {}),
+          }),
     };
   }
 
@@ -714,9 +901,15 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     }
   }
 
+  function attachSavedDocument(doc: SavedDocument) {
+    setDocCode(doc.code || null);
+    setDocStatus(doc.status || "draft");
+    if (doc.id) setDocId(doc.id);
+  }
+
   async function save(send: boolean) {
     if (saving) return;
-    const validationError = validate();
+    const validationError = validate(send);
     if (validationError) {
       setError(validationError);
       setTab("create");
@@ -747,9 +940,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
 
       const payload = { ...collectPayload(), send };
 
-      const url = editingDocId ? `${config.apiBase}/${editingDocId}` : config.apiBase;
+      const url = editingDocId || docId ? `${config.apiBase}/${editingDocId || docId}` : config.apiBase;
       const res = await fetch(url, {
-        method: editingDocId ? "PATCH" : "POST",
+        method: editingDocId || docId ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -760,19 +953,29 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
         ok?: boolean;
         error?: string;
         document?: SavedDocument;
+        documentId?: string;
         emailSent?: boolean;
         customerAccountCreated?: boolean;
       };
 
       if (!res.ok || !data.ok) {
+        // Failed send still persists a draft — attach so further edits PATCH that doc.
+        const attachedId = data.document?.id || data.documentId;
+        if (data.document) {
+          attachSavedDocument(data.document);
+        } else if (attachedId) {
+          setDocId(attachedId);
+          setDocStatus("draft");
+        }
+        if (attachedId && !editingDocId) {
+          router.replace(`${config.listHref}/create?id=${attachedId}`);
+        }
         setError(data.error || `Could not save the ${config.docLabel.toLowerCase()}.`);
         return;
       }
 
       if (data.document) {
-        setDocCode(data.document.code || null);
-        setDocStatus(data.document.status || "draft");
-        if (data.document.id) setDocId(data.document.id);
+        attachSavedDocument(data.document);
       }
 
       if (send) {
@@ -827,6 +1030,87 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     }
   }
 
+  function issueInvoiceFromQuotation() {
+    if (variant !== "quotation" || !docId || issuingInvoice) return;
+    if (linkedInvoiceId) {
+      router.push(`/invoices/create?id=${linkedInvoiceId}`);
+      return;
+    }
+    setIssuingInvoice(true);
+    router.push(`/invoices/create?fromQuotation=${docId}`);
+  }
+
+  async function openQuotationPicker() {
+    if (variant !== "invoice" || quotationLoading) return;
+    setQuotationPickerOpen(true);
+    setQuotationLoading(true);
+    setError(null);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch("/api/quotations", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        documents?: QuotationOption[];
+      };
+      if (res.ok && data.ok && data.documents) {
+        setQuotationOptions(data.documents);
+      } else {
+        setError(data.error || "Could not load quotations.");
+      }
+    } catch {
+      setError("Could not load quotations.");
+    } finally {
+      setQuotationLoading(false);
+    }
+  }
+
+  async function importQuotation(quotationId: string) {
+    if (importingQuotation) return;
+    setImportingQuotation(true);
+    setError(null);
+    try {
+      const { auth } = await import("@/lib/firebase");
+      const user = auth.currentUser;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/quotations/${quotationId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok?: boolean; document?: SavedDocument; error?: string };
+      if (!res.ok || !data.ok || !data.document) {
+        setError(data.error || "Could not load the selected quotation.");
+        return;
+      }
+      applySavedDocument(data.document, { importAsInvoice: true });
+      setQuotationPickerOpen(false);
+      setQuotationSearch("");
+      setSavedNotice(
+        `Loaded quotation ${data.document.code || ""}. Review and save as an invoice.`,
+      );
+      setTab("create");
+      // Keep URL in sync so refresh preserves the import source.
+      router.replace(`/invoices/create?fromQuotation=${quotationId}`);
+    } catch {
+      setError("Could not load the selected quotation.");
+    } finally {
+      setImportingQuotation(false);
+    }
+  }
+
   const lineDraftPreview = useMemo(() => {
     if (!itemDraft) return 0;
     const net = computeLineNet({
@@ -855,6 +1139,22 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       : catalog;
     return matches.slice(0, 8);
   }, [catalog, itemDraft, catalogField]);
+
+  const filteredQuotations = useMemo(() => {
+    const query = quotationSearch.trim().toLowerCase();
+    if (!query) return quotationOptions;
+    return quotationOptions.filter((row) => {
+      const haystack = [
+        row.code,
+        row.customer?.fullName ?? "",
+        row.customer?.email ?? "",
+        row.jobTitle ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [quotationOptions, quotationSearch]);
 
   function renderCatalogSuggestions(field: "code" | "name") {
     if (catalogField !== field || catalogSuggestions.length === 0) return null;
@@ -928,10 +1228,36 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     <i className={`fas ${config.heroIcon} text-amber-400`} />
                   </div>
                   <h1 className="text-2xl font-bold">
-                    {docCode ? `${config.docLabel} ${docCode}` : config.pageTitle}
+                    {docCode
+                      ? `${config.docLabel} ${docCode}`
+                      : editingDocId
+                        ? `Edit ${config.docLabel.toLowerCase()}`
+                        : config.pageTitle}
                   </h1>
+                  {(editingDocId || docId) && (
+                    <span
+                      className={`ml-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                        docStatus === "sent"
+                          ? "border border-emerald-400/40 bg-emerald-400/15 text-emerald-200"
+                          : "border border-amber-400/40 bg-amber-400/15 text-amber-200"
+                      }`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          docStatus === "sent" ? "bg-emerald-400" : "bg-amber-400"
+                        }`}
+                      />
+                      {docStatus === "sent" ? "Sent" : "Draft"}
+                    </span>
+                  )}
                 </div>
-                <p className="text-sm text-neutral-400 mt-2">{config.heroSubtitle}</p>
+                <p className="text-sm text-neutral-400 mt-2">
+                  {editingDocId || docId
+                    ? docStatus === "sent"
+                      ? `Update this ${config.docLabel.toLowerCase()} or resend it to your customer.`
+                      : `Continue editing this draft. Save anytime, send when ready.`
+                    : config.heroSubtitle}
+                </p>
               </div>
             </div>
           </div>
@@ -948,13 +1274,45 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                   <i className="fas fa-arrow-left" />
                 </Link>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <Link
                   href={config.listHref}
                   className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-neutral-600 transition hover:bg-neutral-100 sm:inline"
                 >
                   Close
                 </Link>
+                {variant === "invoice" && !editingDocId && (
+                  <button
+                    type="button"
+                    onClick={openQuotationPicker}
+                    disabled={quotationLoading}
+                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
+                  >
+                    <i className={`fas ${quotationLoading ? "fa-spinner fa-spin" : "fa-file-lines"}`} />
+                    From quotation
+                  </button>
+                )}
+                {variant === "quotation" && docId && (
+                  linkedInvoiceId ? (
+                    <Link
+                      href={`/invoices/create?id=${linkedInvoiceId}`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100"
+                    >
+                      <i className="fas fa-file-invoice-dollar" />
+                      {linkedInvoiceCode ? `Invoice ${linkedInvoiceCode}` : "View invoice"}
+                    </Link>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={issueInvoiceFromQuotation}
+                      disabled={issuingInvoice}
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+                    >
+                      <i className={`fas ${issuingInvoice ? "fa-spinner fa-spin" : "fa-file-invoice-dollar"}`} />
+                      Issue invoice
+                    </button>
+                  )
+                )}
                 {docId && (
                   <button
                     type="button"
@@ -977,6 +1335,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                       <i className="fas fa-spinner fa-spin mr-2" />
                       Saving…
                     </>
+                  ) : docStatus === "sent" ? (
+                    "Save changes"
                   ) : (
                     config.saveDraftLabel
                   )}
@@ -1018,6 +1378,35 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
               <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                 <i className="fas fa-exclamation-circle mt-0.5" />
                 <span>{error}</span>
+              </div>
+            )}
+            {variant === "invoice" && linkedQuotationCode && (
+              <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                <i className="fas fa-file-lines mt-0.5" />
+                <span>
+                  Based on quotation{" "}
+                  <Link
+                    href={`/quotations/create?id=${linkedQuotationId}`}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    {linkedQuotationCode}
+                  </Link>
+                  . Saving will create a linked invoice.
+                </span>
+              </div>
+            )}
+            {variant === "quotation" && linkedInvoiceCode && linkedInvoiceId && (
+              <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                <i className="fas fa-file-invoice-dollar mt-0.5" />
+                <span>
+                  Invoice issued:{" "}
+                  <Link
+                    href={`/invoices/create?id=${linkedInvoiceId}`}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    {linkedInvoiceCode}
+                  </Link>
+                </span>
               </div>
             )}
 
@@ -1629,13 +2018,20 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                         <textarea
                           readOnly
                           rows={4}
-                          value={`Thank you for your business. Please find your ${config.docLabel.toLowerCase()} attached.\n\nTotal: ${formatAud(total)}`}
+                          value={`Thank you for your business. Please find your ${config.docLabel.toLowerCase()} attached.\n\nTotal: ${formatAud(total)}${
+                            variant === "quotation" && depositRequested && depositAud > 0
+                              ? `\nDeposit requested: ${formatAud(depositAud)}\nRemaining balance: ${formatAud(balanceAud)}`
+                              : variant === "invoice" && paymentRecorded && amountPaidAud > 0
+                                ? `\nAmount paid: ${formatAud(amountPaidAud)}\nBalance due: ${formatAud(balanceDueAud)}`
+                                : ""
+                          }`}
                           className={`${INPUT_CLASS} resize-none bg-neutral-50`}
                         />
                       </label>
                     </div>
                     <p className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3 text-xs leading-relaxed text-neutral-500">
-                      Use <strong>{config.saveDraftLabel}</strong> to keep a draft. When you click{" "}
+                      Use <strong>{config.saveDraftLabel}</strong> anytime — even if the form is incomplete —
+                      then reopen it from the list to finish later. When you click{" "}
                       <strong>{config.sendLabel}</strong>, the {config.docLabel.toLowerCase()} is emailed to the
                       client with a PDF attached. GST must be applied before sending. New customers also get a
                       booking engine account.
@@ -1855,11 +2251,254 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           <span className="font-medium text-neutral-900">{formatAud(gstAmount)}</span>
                         </div>
                       )}
+
+                      {variant === "quotation" ? (
+                        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setDepositRequested((v) => !v)}
+                            aria-pressed={depositRequested}
+                            className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition ${
+                              depositRequested
+                                ? "bg-neutral-900 text-white"
+                                : "bg-white hover:bg-neutral-100"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span
+                                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                                  depositRequested ? "bg-white/10" : "bg-neutral-100"
+                                }`}
+                              >
+                                <i
+                                  className={`fas fa-hand-holding-dollar ${
+                                    depositRequested ? "text-white" : "text-neutral-600"
+                                  }`}
+                                />
+                              </span>
+                              <span className="text-left">
+                                <span className="block text-xs font-bold">Request deposit</span>
+                                <span
+                                  className={`block text-[10px] ${
+                                    depositRequested ? "text-white/65" : "text-neutral-500"
+                                  }`}
+                                >
+                                  {depositRequested
+                                    ? "Shown on quote PDF and email"
+                                    : "Optional deposit for this quote"}
+                                </span>
+                              </span>
+                            </span>
+                            <span
+                              className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${
+                                depositRequested
+                                  ? "border-white bg-white text-neutral-900"
+                                  : "border-neutral-300"
+                              }`}
+                            >
+                              {depositRequested && <i className="fas fa-check text-[11px]" />}
+                            </span>
+                          </button>
+
+                          {depositRequested ? (
+                            <div className="mt-2.5 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-neutral-500">Amount</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex rounded-lg border border-neutral-300 bg-white p-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => setDepositMode("value")}
+                                      aria-pressed={depositMode === "value"}
+                                      className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                                        depositMode === "value"
+                                          ? "bg-neutral-900 text-white"
+                                          : "text-neutral-500 hover:text-neutral-900"
+                                      }`}
+                                    >
+                                      AU$
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDepositMode("percent")}
+                                      aria-pressed={depositMode === "percent"}
+                                      className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                                        depositMode === "percent"
+                                          ? "bg-neutral-900 text-white"
+                                          : "text-neutral-500 hover:text-neutral-900"
+                                      }`}
+                                    >
+                                      %
+                                    </button>
+                                  </div>
+                                  {depositMode === "percent" ? (
+                                    <div className="relative w-24">
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={depositValue || ""}
+                                        onChange={(e) =>
+                                          setDepositValue(Math.min(100, parseNum(e.target.value)))
+                                        }
+                                        placeholder="0"
+                                        className="w-full rounded-lg border border-neutral-300 bg-white px-2 py-1 pr-6 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                                      />
+                                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400">
+                                        %
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={depositValue || ""}
+                                      onChange={(e) => setDepositValue(parseNum(e.target.value))}
+                                      placeholder="0.00"
+                                      className="w-24 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                              {depositAud > 0 ? (
+                                <>
+                                  <div className="flex justify-between text-xs text-neutral-500">
+                                    <span>
+                                      Deposit requested
+                                      {depositMode === "percent"
+                                        ? ` (${Math.min(100, depositValue)}%)`
+                                        : ""}
+                                    </span>
+                                    <span className="font-medium text-neutral-900">
+                                      {formatAud(depositAud)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-neutral-500">
+                                    <span>Remaining balance</span>
+                                    <span className="font-medium text-neutral-900">
+                                      {formatAud(balanceAud)}
+                                    </span>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {variant === "invoice" ? (
+                        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setPaymentRecorded((v) => !v)}
+                            aria-pressed={paymentRecorded}
+                            className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition ${
+                              paymentRecorded
+                                ? "bg-neutral-900 text-white"
+                                : "bg-white hover:bg-neutral-100"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2.5">
+                              <span
+                                className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+                                  paymentRecorded ? "bg-white/10" : "bg-neutral-100"
+                                }`}
+                              >
+                                <i
+                                  className={`fas fa-money-bill-wave ${
+                                    paymentRecorded ? "text-white" : "text-neutral-600"
+                                  }`}
+                                />
+                              </span>
+                              <span className="text-left">
+                                <span className="block text-xs font-bold">Record payment</span>
+                                <span
+                                  className={`block text-[10px] ${
+                                    paymentRecorded ? "text-white/65" : "text-neutral-500"
+                                  }`}
+                                >
+                                  {paymentRecorded
+                                    ? "Shown on invoice PDF and email"
+                                    : "Optional amount already paid"}
+                                </span>
+                              </span>
+                            </span>
+                            <span
+                              className={`flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${
+                                paymentRecorded
+                                  ? "border-white bg-white text-neutral-900"
+                                  : "border-neutral-300"
+                              }`}
+                            >
+                              {paymentRecorded && <i className="fas fa-check text-[11px]" />}
+                            </span>
+                          </button>
+
+                          {paymentRecorded ? (
+                            <div className="mt-2.5 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-neutral-500">
+                                  Amount paid
+                                </span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={amountPaidInput || ""}
+                                  onChange={(e) => setAmountPaidInput(parseNum(e.target.value))}
+                                  placeholder="0.00"
+                                  className="w-28 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                                />
+                              </div>
+                              {amountPaidAud > 0 ? (
+                                <>
+                                  <div className="flex justify-between text-xs text-neutral-500">
+                                    <span>Amount paid</span>
+                                    <span className="font-medium text-neutral-900">
+                                      {formatAud(amountPaidAud)}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-xs text-neutral-500">
+                                    <span>Balance due</span>
+                                    <span className="font-medium text-neutral-900">
+                                      {formatAud(balanceDueAud)}
+                                    </span>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex items-center justify-between bg-neutral-900 px-4 py-3">
-                      <span className="text-xs font-bold text-white">Total due</span>
+                      <span className="text-xs font-bold text-white">
+                        {variant === "quotation" ? "Total estimate" : "Total due"}
+                      </span>
                       <span className="text-base font-bold text-white">{formatAud(total)}</span>
                     </div>
+                    {variant === "quotation" && depositRequested && depositAud > 0 ? (
+                      <div className="space-y-1.5 border-t border-neutral-800 bg-neutral-900 px-4 pb-3">
+                        <div className="flex justify-between text-xs text-white/70">
+                          <span>Deposit requested</span>
+                          <span className="font-semibold text-white">{formatAud(depositAud)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-white/70">
+                          <span>Remaining balance</span>
+                          <span className="font-semibold text-white">{formatAud(balanceAud)}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                    {variant === "invoice" && paymentRecorded && amountPaidAud > 0 ? (
+                      <div className="space-y-1.5 border-t border-neutral-800 bg-neutral-900 px-4 pb-3">
+                        <div className="flex justify-between text-xs text-white/70">
+                          <span>Amount paid</span>
+                          <span className="font-semibold text-white">{formatAud(amountPaidAud)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs text-white/70">
+                          <span>Balance due</span>
+                          <span className="font-semibold text-white">{formatAud(balanceDueAud)}</span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   <button
@@ -1876,6 +2515,101 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
           </div>
         </main>
       </div>
+
+      {quotationPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => {
+              if (!importingQuotation) setQuotationPickerOpen(false);
+            }}
+          />
+          <div className="relative z-10 flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
+              <div>
+                <h2 className="text-base font-bold text-neutral-900">Import from quotation</h2>
+                <p className="mt-0.5 text-sm text-neutral-500">
+                  Choose a quotation to prefill this invoice.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuotationPickerOpen(false)}
+                disabled={importingQuotation}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-60"
+                aria-label="Close"
+              >
+                <i className="fas fa-xmark" />
+              </button>
+            </div>
+            <div className="border-b border-neutral-100 px-5 py-3">
+              <div className="relative">
+                <i className="fas fa-search pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400" />
+                <input
+                  type="text"
+                  value={quotationSearch}
+                  onChange={(e) => setQuotationSearch(e.target.value)}
+                  placeholder="Search by code, customer, or job…"
+                  className={`${INPUT_CLASS} pl-10`}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {quotationLoading ? (
+                <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-neutral-500">
+                  <i className="fas fa-spinner fa-spin" />
+                  Loading quotations…
+                </div>
+              ) : filteredQuotations.length === 0 ? (
+                <div className="px-5 py-12 text-center text-sm text-neutral-500">
+                  {quotationSearch.trim()
+                    ? "No matching quotations."
+                    : "No quotations found. Create a quotation first."}
+                </div>
+              ) : (
+                <ul className="divide-y divide-neutral-100">
+                  {filteredQuotations.map((row) => (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        onClick={() => importQuotation(row.id)}
+                        disabled={importingQuotation}
+                        className="flex w-full items-start justify-between gap-3 px-5 py-3.5 text-left transition hover:bg-neutral-50 disabled:opacity-60"
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-semibold text-neutral-900">
+                            {row.code || "Untitled quotation"}
+                          </span>
+                          <span className="mt-0.5 block truncate text-sm text-neutral-600">
+                            {row.customer?.fullName || "No customer"}
+                            {row.jobTitle ? ` · ${row.jobTitle}` : ""}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-neutral-400">
+                            {row.documentDate
+                              ? formatDate(row.documentDate)
+                              : "No date"}{" "}
+                            · {row.status === "sent" ? "Sent" : "Draft"}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-sm font-semibold text-neutral-900">
+                          {formatAud(row.totalAud ?? 0)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {importingQuotation && (
+              <div className="border-t border-neutral-200 px-5 py-3 text-sm text-neutral-600">
+                <i className="fas fa-spinner fa-spin mr-2" />
+                Loading quotation…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

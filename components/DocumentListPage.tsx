@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import React, { useEffect, useState } from "react";
 import { DeleteConfirmModal } from "@/components/delete-confirm-modal";
+import DocumentDetailPanel, {
+  type DocumentDetail,
+} from "@/components/DocumentDetailPanel";
 
 type Variant = "quotation" | "invoice";
 
@@ -19,6 +22,13 @@ type DocumentRow = {
   totalAud?: number;
   createdAt?: number | null;
   sentAt?: number | null;
+  invoiceId?: string | null;
+  invoiceCode?: string | null;
+  quotationId?: string | null;
+  quotationCode?: string | null;
+  paymentRecorded?: boolean;
+  amountPaidAud?: number;
+  balanceDueAud?: number;
 };
 
 type VariantConfig = {
@@ -37,7 +47,7 @@ type VariantConfig = {
 const VARIANT_CONFIG: Record<Variant, VariantConfig> = {
   quotation: {
     title: "Quotations",
-    subtitle: "Create and manage quotes sent to your customers.",
+    subtitle: "Create drafts, edit anytime, and send quotes to your customers.",
     heroIcon: "fa-file-lines",
     docLabel: "Quotation",
     createHref: "/quotations/create",
@@ -49,7 +59,7 @@ const VARIANT_CONFIG: Record<Variant, VariantConfig> = {
   },
   invoice: {
     title: "Invoices",
-    subtitle: "Create and send invoices to your customers.",
+    subtitle: "Create drafts, edit anytime, and send invoices to your customers.",
     heroIcon: "fa-file-invoice-dollar",
     docLabel: "Invoice",
     createHref: "/invoices/create",
@@ -93,6 +103,34 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function PaymentBadge({ row }: { row: DocumentRow }) {
+  const paid = row.paymentRecorded === true && (row.amountPaidAud ?? 0) > 0;
+  const total = row.totalAud ?? 0;
+  const amount = row.amountPaidAud ?? 0;
+  if (!paid) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+        Unpaid
+      </span>
+    );
+  }
+  if (total > 0 && amount + 0.001 < total) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-sky-500" />
+        Partial
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      Paid
+    </span>
+  );
+}
+
 export default function DocumentListPage({ variant }: { variant: Variant }) {
   const config = VARIANT_CONFIG[variant];
   const router = useRouter();
@@ -101,8 +139,11 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<DocumentRow[]>([]);
   const [search, setSearch] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<DocumentRow | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "sent">("all");
+  const [deleteTarget, setDeleteTarget] = useState<DocumentRow | DocumentDetail | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const panelOpen = !!selectedId;
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -156,6 +197,7 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (res.ok && data.ok) {
         setRows((prev) => prev.filter((row) => row.id !== deleteTarget.id));
+        if (selectedId === deleteTarget.id) setSelectedId(null);
         setDeleteTarget(null);
       } else {
         setError(data.error || `Could not delete the ${config.docLabel.toLowerCase()}.`);
@@ -167,20 +209,68 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
     }
   }
 
+  function handlePanelUpdated(doc: DocumentDetail) {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === doc.id
+          ? {
+              ...row,
+              code: doc.code || row.code,
+              status: doc.status || row.status,
+              customer: doc.customer ?? row.customer,
+              jobTitle: doc.jobTitle ?? row.jobTitle,
+              documentDate: doc.documentDate ?? row.documentDate,
+              totalAud: doc.totalAud ?? row.totalAud,
+              invoiceId: doc.invoiceId ?? row.invoiceId,
+              invoiceCode: doc.invoiceCode ?? row.invoiceCode,
+              quotationId: doc.quotationId ?? row.quotationId,
+              quotationCode: doc.quotationCode ?? row.quotationCode,
+              paymentRecorded: doc.paymentRecorded,
+              amountPaidAud: doc.amountPaidAud,
+              balanceDueAud: doc.balanceDueAud,
+              sentAt: doc.sentAt ?? row.sentAt,
+            }
+          : row,
+      ),
+    );
+  }
+
   const query = search.trim().toLowerCase();
-  const visibleRows = query
-    ? rows.filter((row) => {
-        const haystack = [
-          row.code,
-          row.customer?.fullName ?? "",
-          row.customer?.email ?? "",
-          row.jobTitle ?? "",
-        ]
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(query);
-      })
-    : rows;
+  const draftCount = rows.filter((row) => row.status !== "sent").length;
+  const sentCount = rows.filter((row) => row.status === "sent").length;
+  const visibleRows = rows.filter((row) => {
+    if (statusFilter === "draft" && row.status === "sent") return false;
+    if (statusFilter === "sent" && row.status !== "sent") return false;
+    if (!query) return true;
+    const haystack = [
+      row.code,
+      row.customer?.fullName ?? "",
+      row.customer?.email ?? "",
+      row.jobTitle ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
+
+  const statusTabs: { id: "all" | "draft" | "sent"; label: string; count: number }[] = [
+    { id: "all", label: "All", count: rows.length },
+    { id: "draft", label: "Drafts", count: draftCount },
+    { id: "sent", label: "Sent", count: sentCount },
+  ];
+
+  const emptyFilteredTitle =
+    statusFilter === "draft"
+      ? "No drafts"
+      : statusFilter === "sent"
+        ? "No sent documents"
+        : config.emptyTitle;
+  const emptyFilteredBody =
+    statusFilter === "draft"
+      ? `Save a ${config.docLabel.toLowerCase()} as a draft to finish it later.`
+      : statusFilter === "sent"
+        ? `Sent ${config.title.toLowerCase()} will show up here.`
+        : config.emptyBody;
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">
@@ -225,23 +315,59 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
 
           {/* Toolbar */}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative sm:w-72">
-              <i className="fas fa-search pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={`Search ${config.title.toLowerCase()}…`}
-                className="w-full rounded-lg border border-neutral-300 bg-white py-2.5 pl-9 pr-4 text-sm text-neutral-900 placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
-              />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="relative sm:w-72">
+                <i className="fas fa-search pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={`Search ${config.title.toLowerCase()}…`}
+                  className="w-full rounded-lg border border-neutral-300 bg-white py-2.5 pl-9 pr-4 text-sm text-neutral-900 placeholder:text-neutral-400 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                />
+              </div>
+              <div className="inline-flex rounded-lg border border-neutral-300 bg-white p-0.5">
+                {statusTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setStatusFilter(tab.id)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                      statusFilter === tab.id
+                        ? "bg-neutral-900 text-white"
+                        : "text-neutral-600 hover:bg-neutral-50"
+                    }`}
+                  >
+                    {tab.label}
+                    <span
+                      className={`ml-1.5 tabular-nums ${
+                        statusFilter === tab.id ? "text-neutral-300" : "text-neutral-400"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <Link
-              href={config.createHref}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-neutral-900 text-white hover:bg-neutral-800 transition shadow-sm"
-            >
-              <i className="fas fa-plus" />
-              {config.createLabel}
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {variant === "invoice" && (
+                <Link
+                  href="/invoices/create?pickQuotation=1"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-5 py-2.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
+                >
+                  <i className="fas fa-file-lines" />
+                  From quotation
+                </Link>
+              )}
+              <Link
+                href={config.createHref}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold bg-neutral-900 text-white hover:bg-neutral-800 transition shadow-sm"
+              >
+                <i className="fas fa-plus" />
+                {config.createLabel}
+              </Link>
+            </div>
           </div>
 
           {error && (
@@ -262,7 +388,9 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
                         {col}
                       </th>
                     ))}
-                    <th className="px-6 py-4 text-right">Actions</th>
+                    <th className="px-6 py-4 text-right">
+                      <span className="sr-only">Open</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
@@ -284,10 +412,10 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
                           </div>
                           <div>
                             <p className="text-base font-semibold text-neutral-900">
-                              {query ? "No matches found" : config.emptyTitle}
+                              {query ? "No matches found" : emptyFilteredTitle}
                             </p>
                             <p className="mt-1 text-sm text-neutral-500">
-                              {query ? "Try a different search term." : config.emptyBody}
+                              {query ? "Try a different search term." : emptyFilteredBody}
                             </p>
                           </div>
                           {!query && (
@@ -304,14 +432,23 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
                     </tr>
                   ) : (
                     visibleRows.map((row) => (
-                      <tr key={row.id} className="hover:bg-neutral-50 transition">
+                      <tr
+                        key={row.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedId(row.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedId(row.id);
+                          }
+                        }}
+                        className={`cursor-pointer transition hover:bg-neutral-50 ${
+                          selectedId === row.id ? "bg-neutral-50" : ""
+                        }`}
+                      >
                         <td className="px-6 py-4">
-                          <Link
-                            href={`${config.createHref}?id=${row.id}`}
-                            className="font-semibold text-neutral-900 hover:underline"
-                          >
-                            {row.code || "—"}
-                          </Link>
+                          <p className="font-semibold text-neutral-900">{row.code || "—"}</p>
                           {row.jobTitle && (
                             <p className="mt-0.5 max-w-[220px] truncate text-xs text-neutral-500">
                               {row.jobTitle}
@@ -333,28 +470,15 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
                           {formatAud(row.totalAud)}
                         </td>
                         <td className="px-6 py-4">
-                          <StatusBadge status={row.status} />
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-end gap-1">
-                            <Link
-                              href={`${config.createHref}?id=${row.id}`}
-                              className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
-                              aria-label={`Edit ${row.code}`}
-                              title={row.status === "sent" ? "View / resend" : "Edit draft"}
-                            >
-                              <i className="fas fa-pen" />
-                            </Link>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(row)}
-                              className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-rose-50 hover:text-rose-600"
-                              aria-label={`Delete ${row.code}`}
-                              title="Delete"
-                            >
-                              <i className="fas fa-trash" />
-                            </button>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge status={row.status} />
+                            {variant === "invoice" && <PaymentBadge row={row} />}
                           </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400">
+                            <i className="fas fa-chevron-right" />
+                          </span>
                         </td>
                       </tr>
                     ))
@@ -365,6 +489,18 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
           </div>
         </main>
       </div>
+
+      <DocumentDetailPanel
+        open={panelOpen}
+        variant={variant}
+        documentId={selectedId}
+        apiBase={config.apiBase}
+        createHref={config.createHref}
+        docLabel={config.docLabel}
+        onClose={() => setSelectedId(null)}
+        onUpdated={handlePanelUpdated}
+        onRequestDelete={(doc) => setDeleteTarget(doc)}
+      />
 
       <DeleteConfirmModal
         open={!!deleteTarget}

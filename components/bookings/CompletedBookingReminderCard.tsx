@@ -32,7 +32,7 @@ export default function CompletedBookingReminderCard({
           <div>
             <h4 className="font-semibold text-neutral-900 text-sm">Next service reminder</h4>
             <p className="text-[11px] text-neutral-500">
-              Automatic reminder for {clientName || "customer"} — set from branch settings above
+              Automatic reminder for {clientName || "customer"} — intervals from Service Reminder
             </p>
           </div>
         </div>
@@ -70,9 +70,11 @@ export default function CompletedBookingReminderCard({
           </div>
         ) : (
           <p className="text-xs text-neutral-500">
-            Not scheduled yet. Save reminder settings above to apply to all completed bookings.
+            Not scheduled yet. Save intervals on the Service Reminder page, then open a completed
+            booking that uses that service.
           </p>
         )}
+
       </div>
     </div>
   );

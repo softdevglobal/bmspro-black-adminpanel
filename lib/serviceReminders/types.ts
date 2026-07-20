@@ -27,8 +27,17 @@ export type ServiceReminderAdvanceStatus = "pending" | "sent" | "skipped" | "can
 export type ServiceReminderSettings = {
   /** True once owner has saved reminder settings (always on after first save). */
   enabled: boolean;
+  /**
+   * Fallback interval when a booking’s service has no entry in `serviceIntervals`.
+   * Kept for backward compatibility with older branch settings.
+   */
   intervalDays: number;
   customMessage?: string;
+  /**
+   * Per-service reminder intervals (days after completion).
+   * Keyed by workshop `services/{serviceId}`.
+   */
+  serviceIntervals?: Record<string, number>;
 };
 
 export type ServiceReminderDoc = {

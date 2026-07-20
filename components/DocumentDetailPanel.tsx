@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React, { useEffect, useState } from "react";
+import SalesDocumentPdfViewer from "@/components/documents/SalesDocumentPdfViewer";
 
 type Variant = "quotation" | "invoice";
 
@@ -35,9 +36,11 @@ export type DocumentDetail = {
   depositRequested?: boolean;
   depositAud?: number;
   balanceAud?: number;
+  depositDueDate?: string;
   paymentRecorded?: boolean;
   amountPaidAud?: number;
   balanceDueAud?: number;
+  balanceDueDate?: string;
   invoiceId?: string | null;
   invoiceCode?: string | null;
   quotationId?: string | null;
@@ -137,7 +140,23 @@ function PaymentBadge({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+function DetailRow({
+  label,
+  value,
+  emphasize,
+}: {
+  label: string;
+  value: React.ReactNode;
+  emphasize?: boolean;
+}) {
+  if (emphasize) {
+    return (
+      <div className="flex items-start justify-between gap-3 rounded-md bg-amber-50 px-2 py-2">
+        <span className="text-xs font-semibold text-amber-800">{label}</span>
+        <span className="text-right text-sm font-bold text-amber-900">{value}</span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-start justify-between gap-3 py-2">
       <span className="text-xs font-medium text-neutral-500">{label}</span>
@@ -161,6 +180,8 @@ export default function DocumentDetailPanel({
   const [error, setError] = useState<string | null>(null);
   const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
+  const [pdfAuthHeaders, setPdfAuthHeaders] = useState<HeadersInit | undefined>();
 
   useEffect(() => {
     if (!open || !documentId) {
@@ -214,31 +235,18 @@ export default function DocumentDetailPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  async function downloadPdf() {
+  async function openPdfViewer() {
     if (!doc || actionBusy) return;
-    setActionBusy("pdf");
     setError(null);
     try {
       const { auth } = await import("@/lib/firebase");
       const user = auth.currentUser;
       if (!user) return;
       const token = await user.getIdToken();
-      const res = await fetch(`${apiBase}/${doc.id}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        setError(`Could not generate the ${docLabel.toLowerCase()} PDF.`);
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setPdfAuthHeaders({ Authorization: `Bearer ${token}` });
+      setPdfViewerOpen(true);
     } catch {
-      setError(`Could not generate the ${docLabel.toLowerCase()} PDF.`);
-    } finally {
-      setActionBusy(null);
+      setError(`Could not open the ${docLabel.toLowerCase()} PDF.`);
     }
   }
 
@@ -455,13 +463,22 @@ export default function DocumentDetailPanel({
                   {variant === "quotation" && doc.depositRequested && (
                     <>
                       <DetailRow label="Deposit" value={formatAud(doc.depositAud)} />
-                      <DetailRow label="Balance" value={formatAud(doc.balanceAud)} />
+                      {doc.depositDueDate ? (
+                        <DetailRow label="Deposit due" value={formatDate(doc.depositDueDate)} />
+                      ) : null}
                     </>
                   )}
                   {variant === "invoice" && doc.paymentRecorded && (
                     <>
                       <DetailRow label="Amount paid" value={formatAud(doc.amountPaidAud)} />
-                      <DetailRow label="Balance due" value={formatAud(doc.balanceDueAud)} />
+                      <DetailRow
+                        label="Balance due"
+                        value={formatAud(doc.balanceDueAud)}
+                        emphasize
+                      />
+                      {doc.balanceDueDate && (doc.balanceDueAud ?? 0) > 0 ? (
+                        <DetailRow label="Balance due date" value={formatDate(doc.balanceDueDate)} />
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -564,14 +581,12 @@ export default function DocumentDetailPanel({
 
                   <button
                     type="button"
-                    onClick={() => void downloadPdf()}
+                    onClick={() => void openPdfViewer()}
                     disabled={!!actionBusy}
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50 disabled:opacity-60"
                   >
-                    <i
-                      className={`fas ${actionBusy === "pdf" ? "fa-spinner fa-spin" : "fa-file-pdf"}`}
-                    />
-                    Download PDF
+                    <i className="fas fa-file-pdf" />
+                    View / download PDF
                   </button>
 
                   {variant === "quotation" &&
@@ -638,6 +653,15 @@ export default function DocumentDetailPanel({
           ) : null}
         </div>
       </aside>
+
+      <SalesDocumentPdfViewer
+        open={pdfViewerOpen && !!doc}
+        title={`${docLabel} ${doc?.code || ""}`.trim()}
+        pdfUrl={doc ? `${apiBase}/${doc.id}/pdf` : null}
+        fetchHeaders={pdfAuthHeaders}
+        filename={`${docLabel}-${doc?.code || doc?.id || "document"}.pdf`}
+        onClose={() => setPdfViewerOpen(false)}
+      />
     </div>
   );
 }

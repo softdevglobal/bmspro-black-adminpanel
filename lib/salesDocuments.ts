@@ -99,10 +99,14 @@ export type SalesDocumentInput = {
   depositMode: "value" | "percent";
   /** Raw AU$ or % value entered by staff. */
   depositValue: number;
+  /** ISO date when the deposit is due (quotation-only). */
+  depositDueDate: string;
   /** Invoice-only recorded payment (ignored for quotations). */
   paymentRecorded: boolean;
   /** Amount paid entered by staff (AU$). */
   amountPaidAud: number;
+  /** ISO date when the remaining balance is due (invoice-only). */
+  balanceDueDate: string;
 };
 
 type Totals = {
@@ -144,6 +148,7 @@ function parseDepositFields(
       depositValue: number;
       depositAud: number;
       balanceAud: number;
+      depositDueDate: string;
     }
   | { error: string } {
   if (kind !== "quotation") {
@@ -153,12 +158,14 @@ function parseDepositFields(
       depositValue: 0,
       depositAud: 0,
       balanceAud: totalAud,
+      depositDueDate: "",
     };
   }
 
   const depositRequested = record.depositRequested === true;
   const depositMode = record.depositMode === "percent" ? "percent" : "value";
   const depositValue = Math.max(0, round2(asNumber(record.depositValue)));
+  const depositDueDateRaw = asString(record.depositDueDate, 10);
 
   if (!depositRequested) {
     return {
@@ -167,6 +174,7 @@ function parseDepositFields(
       depositValue: 0,
       depositAud: 0,
       balanceAud: totalAud,
+      depositDueDate: "",
     };
   }
 
@@ -185,12 +193,17 @@ function parseDepositFields(
     return { error: "Enter a deposit greater than zero, or turn off the deposit request." };
   }
 
+  if (!ISO_DATE_REGEX.test(depositDueDateRaw)) {
+    return { error: "Choose a deposit due date." };
+  }
+
   return {
     depositRequested: true,
     depositMode,
     depositValue,
     depositAud,
     balanceAud: round2(Math.max(0, totalAud - depositAud)),
+    depositDueDate: depositDueDateRaw,
   };
 }
 
@@ -203,6 +216,7 @@ function parsePaymentFields(
       paymentRecorded: boolean;
       amountPaidAud: number;
       balanceDueAud: number;
+      balanceDueDate: string;
     }
   | { error: string } {
   if (kind !== "invoice") {
@@ -210,17 +224,20 @@ function parsePaymentFields(
       paymentRecorded: false,
       amountPaidAud: 0,
       balanceDueAud: totalAud,
+      balanceDueDate: "",
     };
   }
 
   const paymentRecorded = record.paymentRecorded === true;
   const amountPaidAud = Math.max(0, round2(asNumber(record.amountPaidAud)));
+  const balanceDueDateRaw = asString(record.balanceDueDate, 10);
 
   if (!paymentRecorded) {
     return {
       paymentRecorded: false,
       amountPaidAud: 0,
       balanceDueAud: totalAud,
+      balanceDueDate: "",
     };
   }
 
@@ -231,10 +248,16 @@ function parsePaymentFields(
     return { error: "Enter an amount paid greater than zero, or turn off record payment." };
   }
 
+  const balanceDueAud = round2(Math.max(0, totalAud - amountPaidAud));
+  if (balanceDueAud > 0 && !ISO_DATE_REGEX.test(balanceDueDateRaw)) {
+    return { error: "Choose a balance due date." };
+  }
+
   return {
     paymentRecorded: true,
     amountPaidAud: Math.min(totalAud, amountPaidAud),
-    balanceDueAud: round2(Math.max(0, totalAud - amountPaidAud)),
+    balanceDueAud,
+    balanceDueDate: balanceDueAud > 0 ? balanceDueDateRaw : "",
   };
 }
 
@@ -319,11 +342,19 @@ export function parseSalesDocumentInput(
     kind === "quotation" && depositRequested
       ? Math.max(0, round2(asNumber(record.depositValue)))
       : 0;
+  const depositDueDate =
+    kind === "quotation" && depositRequested && ISO_DATE_REGEX.test(asString(record.depositDueDate, 10))
+      ? asString(record.depositDueDate, 10)
+      : "";
   const paymentRecorded = kind === "invoice" && record.paymentRecorded === true;
   const amountPaidAud =
     kind === "invoice" && paymentRecorded
       ? Math.max(0, round2(asNumber(record.amountPaidAud)))
       : 0;
+  const balanceDueDate =
+    kind === "invoice" && paymentRecorded && ISO_DATE_REGEX.test(asString(record.balanceDueDate, 10))
+      ? asString(record.balanceDueDate, 10)
+      : "";
 
   const input: SalesDocumentInput = {
     customer,
@@ -343,8 +374,10 @@ export function parseSalesDocumentInput(
     depositRequested,
     depositMode,
     depositValue,
+    depositDueDate,
     paymentRecorded,
     amountPaidAud,
+    balanceDueDate,
   };
 
   const totals = computeTotals(input);
@@ -357,11 +390,13 @@ export function parseSalesDocumentInput(
   input.depositRequested = depositParsed.depositRequested;
   input.depositMode = depositParsed.depositMode;
   input.depositValue = depositParsed.depositValue;
+  input.depositDueDate = depositParsed.depositDueDate;
 
   const paymentParsed = parsePaymentFields(record, kind, totals.totalAud);
   if ("error" in paymentParsed) return { error: paymentParsed.error };
   input.paymentRecorded = paymentParsed.paymentRecorded;
   input.amountPaidAud = paymentParsed.amountPaidAud;
+  input.balanceDueDate = paymentParsed.balanceDueDate;
 
   // GST must be applied before a document can be sent to the customer.
   if (!input.gstEnabled) {
@@ -412,11 +447,19 @@ export function coercePreviewInput(body: unknown, kind: SalesDocKind = "invoice"
     kind === "quotation" && depositRequested
       ? Math.max(0, round2(asNumber(record.depositValue)))
       : 0;
+  const depositDueDate =
+    kind === "quotation" && depositRequested && ISO_DATE_REGEX.test(asString(record.depositDueDate, 10))
+      ? asString(record.depositDueDate, 10)
+      : "";
   const paymentRecorded = kind === "invoice" && record.paymentRecorded === true;
   const amountPaidAud =
     kind === "invoice" && paymentRecorded
       ? Math.max(0, round2(asNumber(record.amountPaidAud)))
       : 0;
+  const balanceDueDate =
+    kind === "invoice" && paymentRecorded && ISO_DATE_REGEX.test(asString(record.balanceDueDate, 10))
+      ? asString(record.balanceDueDate, 10)
+      : "";
 
   return {
     customer: {
@@ -445,8 +488,10 @@ export function coercePreviewInput(body: unknown, kind: SalesDocKind = "invoice"
     depositRequested,
     depositMode,
     depositValue,
+    depositDueDate,
     paymentRecorded,
     amountPaidAud,
+    balanceDueDate,
   };
 }
 
@@ -586,14 +631,21 @@ export function mapSalesDocument(id: string, data: FirebaseFirestore.DocumentDat
         : typeof data.totalAud === "number"
           ? data.totalAud
           : 0,
+    depositDueDate: typeof data.depositDueDate === "string" ? data.depositDueDate : "",
     paymentRecorded: data.paymentRecorded === true,
-    amountPaidAud: typeof data.amountPaidAud === "number" ? data.amountPaidAud : 0,
+    amountPaidAud:
+      typeof data.amountPaidAud === "number"
+        ? data.amountPaidAud
+        : Number.parseFloat(String(data.amountPaidAud ?? "")) || 0,
     balanceDueAud:
       typeof data.balanceDueAud === "number"
         ? data.balanceDueAud
-        : typeof data.totalAud === "number"
-          ? data.totalAud
-          : 0,
+        : typeof data.totalAud === "number" && typeof data.amountPaidAud === "number"
+          ? round2(Math.max(0, data.totalAud - data.amountPaidAud))
+          : typeof data.totalAud === "number"
+            ? data.totalAud
+            : 0,
+    balanceDueDate: typeof data.balanceDueDate === "string" ? data.balanceDueDate : "",
     documentDate: (data.documentDate as string) ?? "",
     dueDate: (data.dueDate as string) ?? "",
     paymentTermsId: (data.paymentTermsId as string) ?? "same_day",
@@ -638,9 +690,12 @@ function buildDocPayload(input: SalesDocumentInput, totals: Totals) {
     depositValue: input.depositRequested ? input.depositValue : 0,
     depositAud: totals.depositAud,
     balanceAud: totals.balanceAud,
+    depositDueDate: input.depositRequested ? input.depositDueDate : "",
     paymentRecorded: input.paymentRecorded === true,
     amountPaidAud: totals.amountPaidAud,
     balanceDueAud: totals.balanceDueAud,
+    balanceDueDate:
+      input.paymentRecorded === true && totals.balanceDueAud > 0 ? input.balanceDueDate : "",
     documentDate: input.documentDate,
     dueDate: addDaysIso(input.documentDate, termsOption.days),
     paymentTermsId: input.paymentTermsId,
@@ -723,14 +778,21 @@ function buildDocumentEmailHtml(params: {
           input.depositMode === "percent" ? ` (${Math.min(100, input.depositValue)}%)` : ""
         }</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(totals.depositAud)}</td></tr>`
       : "",
-    kind === "quotation" && input.depositRequested && totals.depositAud > 0
-      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Remaining balance</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatAud(totals.balanceAud)}</td></tr>`
+    kind === "quotation" && input.depositRequested && totals.depositAud > 0 && input.depositDueDate
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Deposit due</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatDateHuman(input.depositDueDate)}</td></tr>`
       : "",
     kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0
       ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Amount paid</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(totals.amountPaidAud)}</td></tr>`
       : "",
     kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0
-      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Balance due</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatAud(totals.balanceDueAud)}</td></tr>`
+      ? `<tr><td style="padding: 8px 12px; color: #92400e; font-size: 14px; font-weight: 700; background-color: #fffbeb;">Balance due</td><td style="padding: 8px 12px; text-align: right; color: #92400e; font-weight: 700; font-size: 15px; background-color: #fffbeb;">${formatAud(totals.balanceDueAud)}</td></tr>`
+      : "",
+    kind === "invoice" &&
+      input.paymentRecorded &&
+      totals.amountPaidAud > 0 &&
+      totals.balanceDueAud > 0 &&
+      input.balanceDueDate
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Balance due date</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatDateHuman(input.balanceDueDate)}</td></tr>`
       : "",
   ].join("");
 
@@ -1022,9 +1084,20 @@ async function sendDocumentToCustomer(params: {
     depositValue: input.depositValue,
     depositAud: totals.depositAud,
     balanceAud: totals.balanceAud,
+    depositDueDate:
+      kind === "quotation" && input.depositRequested && totals.depositAud > 0
+        ? input.depositDueDate
+        : "",
     paymentRecorded: kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0,
     amountPaidAud: totals.amountPaidAud,
     balanceDueAud: totals.balanceDueAud,
+    balanceDueDate:
+      kind === "invoice" &&
+      input.paymentRecorded &&
+      totals.amountPaidAud > 0 &&
+      totals.balanceDueAud > 0
+        ? input.balanceDueDate
+        : "",
     documentDate: input.documentDate,
     dueDate,
     paymentTermsLabel: termsOption.label,
@@ -1306,6 +1379,7 @@ async function markInvoicePayment(ownerUid: string, id: string, paid: boolean) {
         paymentRecorded: paid,
         amountPaidAud,
         balanceDueAud: round2(Math.max(0, totalAud - amountPaidAud)),
+        balanceDueDate: paid ? "" : data.balanceDueDate || "",
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -1495,9 +1569,20 @@ export async function handleSalesDocumentPreviewPdf(req: NextRequest, kind: Sale
       depositValue: input.depositValue,
       depositAud: totals.depositAud,
       balanceAud: totals.balanceAud,
+      depositDueDate:
+        kind === "quotation" && input.depositRequested && totals.depositAud > 0
+          ? input.depositDueDate
+          : "",
       paymentRecorded: kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0,
       amountPaidAud: totals.amountPaidAud,
       balanceDueAud: totals.balanceDueAud,
+      balanceDueDate:
+        kind === "invoice" &&
+        input.paymentRecorded &&
+        totals.amountPaidAud > 0 &&
+        totals.balanceDueAud > 0
+          ? input.balanceDueDate
+          : "",
       documentDate: input.documentDate,
       dueDate: addDaysIso(input.documentDate, termsOption.days),
       paymentTermsLabel: termsOption.label,
@@ -1650,9 +1735,25 @@ async function buildPdfFromStoredDocument(
     depositValue: doc.depositValue,
     depositAud: doc.depositAud,
     balanceAud: doc.balanceAud,
+    depositDueDate:
+      kind === "quotation" && doc.depositRequested === true && doc.depositAud > 0
+        ? doc.depositDueDate || ""
+        : "",
     paymentRecorded: kind === "invoice" && doc.paymentRecorded === true && doc.amountPaidAud > 0,
-    amountPaidAud: doc.amountPaidAud,
-    balanceDueAud: doc.balanceDueAud,
+    amountPaidAud: Number(doc.amountPaidAud) || 0,
+    balanceDueAud:
+      typeof doc.balanceDueAud === "number"
+        ? doc.balanceDueAud
+        : Math.max(0, (Number(doc.totalAud) || 0) - (Number(doc.amountPaidAud) || 0)),
+    balanceDueDate:
+      kind === "invoice" &&
+      doc.paymentRecorded === true &&
+      doc.amountPaidAud > 0 &&
+      (typeof doc.balanceDueAud === "number"
+        ? doc.balanceDueAud
+        : Math.max(0, (Number(doc.totalAud) || 0) - (Number(doc.amountPaidAud) || 0))) > 0
+        ? doc.balanceDueDate || ""
+        : "",
     documentDate: doc.documentDate,
     dueDate: doc.dueDate,
     paymentTermsLabel:

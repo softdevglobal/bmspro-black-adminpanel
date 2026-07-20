@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
+import DocumentPreview from "@/components/documents/DocumentPreview";
+import SalesDocumentPdfViewer from "@/components/documents/SalesDocumentPdfViewer";
+import type { DocumentData } from "@/lib/documentData";
+import { printDocumentPreview } from "@/lib/printDocumentPreview";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -126,6 +130,7 @@ type SavedDocument = {
   gstEnabled?: boolean;
   gstPricing?: string;
   documentDate?: string;
+  dueDate?: string;
   paymentTermsId?: string;
   terms?: string;
   comment?: string;
@@ -134,9 +139,11 @@ type SavedDocument = {
   depositValue?: number;
   depositAud?: number;
   balanceAud?: number;
+  depositDueDate?: string;
   paymentRecorded?: boolean;
   amountPaidAud?: number;
   balanceDueAud?: number;
+  balanceDueDate?: string;
   quotationId?: string | null;
   quotationCode?: string | null;
   invoiceId?: string | null;
@@ -242,11 +249,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [quotationLoading, setQuotationLoading] = useState(false);
   const [importingQuotation, setImportingQuotation] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
-  const previewSignatureRef = useRef<string | null>(null);
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
+  const [pdfAuthHeaders, setPdfAuthHeaders] = useState<HeadersInit | undefined>();
+  const [livePdfBytes, setLivePdfBytes] = useState<Uint8Array | null>(null);
 
   const [clientOpen, setClientOpen] = useState(true);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
@@ -285,10 +290,14 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [depositRequested, setDepositRequested] = useState(false);
   const [depositMode, setDepositMode] = useState<"value" | "percent">("percent");
   const [depositValue, setDepositValue] = useState(0);
+  const [depositDueDate, setDepositDueDate] = useState(todayIso());
   const [paymentRecorded, setPaymentRecorded] = useState(false);
   const [amountPaidInput, setAmountPaidInput] = useState(0);
+  const [balanceDueDate, setBalanceDueDate] = useState(todayIso());
 
   const [businessName, setBusinessName] = useState("Your business");
+  const [businessEmail, setBusinessEmail] = useState<string | null>(null);
+  const [businessPhone, setBusinessPhone] = useState<string | null>(null);
 
   function applySavedDocument(
     doc: SavedDocument,
@@ -352,8 +361,16 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
             ? doc.depositAud
             : 0,
       );
+      setDepositDueDate(
+        doc.depositDueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.depositDueDate)
+          ? doc.depositDueDate
+          : doc.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.dueDate)
+            ? doc.dueDate
+            : todayIso(),
+      );
       setPaymentRecorded(false);
       setAmountPaidInput(0);
+      setBalanceDueDate(todayIso());
       setLinkedInvoiceId(doc.invoiceId ?? null);
       setLinkedInvoiceCode(doc.invoiceCode ?? null);
       setLinkedQuotationId(null);
@@ -361,14 +378,23 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     } else {
       setDepositRequested(false);
       setDepositValue(0);
+      setDepositDueDate(todayIso());
       if (variant === "invoice" && !importAsInvoice) {
         setPaymentRecorded(doc.paymentRecorded === true);
         setAmountPaidInput(
           typeof doc.amountPaidAud === "number" ? doc.amountPaidAud : 0,
         );
+        setBalanceDueDate(
+          doc.balanceDueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.balanceDueDate)
+            ? doc.balanceDueDate
+            : doc.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.dueDate)
+              ? doc.dueDate
+              : todayIso(),
+        );
       } else {
         setPaymentRecorded(false);
         setAmountPaidInput(0);
+        setBalanceDueDate(todayIso());
       }
       if (importAsInvoice) {
         setLinkedQuotationId(doc.id);
@@ -409,8 +435,17 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
             headers: authHeaders,
             cache: "no-store",
           });
-          const data = (await res.json()) as { ok?: boolean; businessName?: string };
-          if (res.ok && data.ok && data.businessName) setBusinessName(data.businessName);
+          const data = (await res.json()) as {
+            ok?: boolean;
+            businessName?: string;
+            email?: string;
+            phone?: string;
+          };
+          if (res.ok && data.ok) {
+            if (data.businessName) setBusinessName(data.businessName);
+            if (typeof data.email === "string") setBusinessEmail(data.email.trim() || null);
+            if (typeof data.phone === "string") setBusinessPhone(data.phone.trim() || null);
+          }
         } catch {
           /* profile is cosmetic on this page */
         }
@@ -467,20 +502,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, editingDocId, fromQuotationParam, pickQuotationParam, config.apiBase, variant]);
-
-  // Render the live creative PDF whenever the Preview tab is opened, so the
-  // preview always matches the PDF that will be attached to the email.
-  useEffect(() => {
-    if (tab !== "preview") return;
-    void loadPreview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    };
-  }, []);
 
   // Search existing customers for autofill (debounced).
   useEffect(() => {
@@ -606,6 +627,101 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const balanceDueAud = useMemo(
     () => Math.max(0, Math.round((total - amountPaidAud) * 100) / 100),
     [total, amountPaidAud],
+  );
+
+  const paymentTermsLabel =
+    TERMS_OPTIONS.find((t) => t.id === paymentTerms)?.label ?? "Same day";
+
+  /** Shared view-model for live HTML preview (mirrors pdf-lib PDF fields). */
+  const documentData: DocumentData = useMemo(
+    () => ({
+      kind: variant,
+      code: docCode || "DRAFT",
+      status: docStatus || "draft",
+      business: {
+        name: businessName,
+        email: businessEmail,
+        phone: businessPhone,
+      },
+      customer: {
+        fullName: customer.fullName,
+        email: customer.email,
+        phone: toAuE164Phone(customer.phone) || customer.phone,
+      },
+      address,
+      jobTitle,
+      jobDescription,
+      lineItems: lineItems.map(({ code, name, description, quantity, rate, discountPercent, applyGst }) => ({
+        code,
+        name,
+        description,
+        quantity,
+        rate,
+        discountPercent,
+        applyGst,
+      })),
+      discountAud: cappedDiscount,
+      gstEnabled,
+      gstPercentage,
+      gstPricing,
+      subtotalAud: Math.round(subtotal * 100) / 100,
+      gstAud: gstAmount,
+      totalAud: total,
+      depositRequested: variant === "quotation" && depositRequested && depositAud > 0,
+      depositMode,
+      depositValue,
+      depositAud,
+      balanceAud,
+      depositDueDate:
+        variant === "quotation" && depositRequested && depositAud > 0 ? depositDueDate : "",
+      paymentRecorded: variant === "invoice" && paymentRecorded && amountPaidAud > 0,
+      amountPaidAud,
+      balanceDueAud,
+      balanceDueDate:
+        variant === "invoice" && paymentRecorded && amountPaidAud > 0 && balanceDueAud > 0
+          ? balanceDueDate
+          : "",
+      documentDate,
+      dueDate,
+      paymentTermsLabel,
+      terms,
+      comment,
+    }),
+    [
+      variant,
+      docCode,
+      docStatus,
+      businessName,
+      businessEmail,
+      businessPhone,
+      customer,
+      address,
+      jobTitle,
+      jobDescription,
+      lineItems,
+      cappedDiscount,
+      gstEnabled,
+      gstPercentage,
+      gstPricing,
+      subtotal,
+      gstAmount,
+      total,
+      depositRequested,
+      depositMode,
+      depositValue,
+      depositAud,
+      balanceAud,
+      depositDueDate,
+      paymentRecorded,
+      amountPaidAud,
+      balanceDueAud,
+      balanceDueDate,
+      documentDate,
+      dueDate,
+      paymentTermsLabel,
+      terms,
+      comment,
+    ],
   );
 
   function startAddItem() {
@@ -801,6 +917,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
         return "Deposit cannot exceed the quotation total.";
       }
       if (depositAud <= 0) return "Enter a deposit greater than zero, or turn off the deposit request.";
+      if (!depositDueDate || !/^\d{4}-\d{2}-\d{2}$/.test(depositDueDate)) {
+        return "Choose a deposit due date.";
+      }
     }
 
     if (variant === "invoice" && paymentRecorded) {
@@ -808,6 +927,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       if (amountPaidInput > total) return "Amount paid cannot exceed the invoice total.";
       if (amountPaidAud <= 0) {
         return "Enter an amount paid greater than zero, or turn off record payment.";
+      }
+      if (balanceDueAud > 0 && (!balanceDueDate || !/^\d{4}-\d{2}-\d{2}$/.test(balanceDueDate))) {
+        return "Choose a balance due date.";
       }
     }
 
@@ -848,57 +970,17 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
             depositValue: depositRequested ? depositValue : 0,
             depositAud,
             balanceAud: depositRequested ? balanceAud : total,
+            depositDueDate: depositRequested ? depositDueDate : "",
           }
         : {
             paymentRecorded,
             amountPaidAud,
             balanceDueAud: paymentRecorded ? balanceDueAud : total,
+            balanceDueDate:
+              paymentRecorded && amountPaidAud > 0 && balanceDueAud > 0 ? balanceDueDate : "",
             ...(linkedQuotationId ? { quotationId: linkedQuotationId } : {}),
           }),
     };
-  }
-
-  async function loadPreview(options?: { force?: boolean }) {
-    const payload = collectPayload();
-    const signature = JSON.stringify(payload);
-    // Skip re-rendering when nothing changed since the last preview (e.g. just
-    // toggling tabs). The manual Refresh button passes force to override this.
-    if (!options?.force && previewUrlRef.current && previewSignatureRef.current === signature) {
-      return;
-    }
-    setPreviewLoading(true);
-    setPreviewError(null);
-    try {
-      const { auth } = await import("@/lib/firebase");
-      const user = auth.currentUser;
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-      const token = await user.getIdToken();
-      const res = await fetch(`${config.apiBase}/preview-pdf`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        setPreviewError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`);
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-      previewUrlRef.current = url;
-      previewSignatureRef.current = signature;
-      setPreviewUrl(url);
-    } catch {
-      setPreviewError(`Could not generate the ${config.docLabel.toLowerCase()} preview.`);
-    } finally {
-      setPreviewLoading(false);
-    }
   }
 
   function attachSavedDocument(doc: SavedDocument) {
@@ -999,32 +1081,63 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     }
   }
 
+  async function fetchLivePdfBlob(): Promise<Blob> {
+    const { auth } = await import("@/lib/firebase");
+    const user = auth.currentUser;
+    if (!user) {
+      router.replace("/login");
+      throw new Error("Not signed in");
+    }
+    const token = await user.getIdToken();
+    const res = await fetch(`${config.apiBase}/preview-pdf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(collectPayload()),
+    });
+    if (!res.ok) {
+      throw new Error(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`);
+    }
+    return res.blob();
+  }
+
+  async function openSavedPdfViewer() {
+    setError(null);
+    try {
+      const blob = await fetchLivePdfBlob();
+      const buffer = await blob.arrayBuffer();
+      setLivePdfBytes(new Uint8Array(buffer));
+      setPdfAuthHeaders(undefined);
+      setPdfViewerOpen(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Could not open the ${config.docLabel.toLowerCase()} PDF.`,
+      );
+    }
+  }
+
   async function downloadPdf() {
-    if (!docId || downloadingPdf) return;
+    if (downloadingPdf) return;
     setDownloadingPdf(true);
     setError(null);
     try {
-      const { auth } = await import("@/lib/firebase");
-      const user = auth.currentUser;
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-      const token = await user.getIdToken();
-      const res = await fetch(`${config.apiBase}/${docId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        setError(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`);
-        return;
-      }
-      const blob = await res.blob();
+      const blob = await fetchLivePdfBlob();
       const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${config.docLabel}-${docCode || "draft"}.pdf`.replace(/[^\w.-]+/g, "_");
+      a.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      setError(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Could not generate the ${config.docLabel.toLowerCase()} PDF.`,
+      );
     } finally {
       setDownloadingPdf(false);
     }
@@ -1313,17 +1426,23 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     </button>
                   )
                 )}
-                {docId && (
-                  <button
-                    type="button"
-                    onClick={downloadPdf}
-                    disabled={downloadingPdf}
-                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
-                  >
-                    <i className={`fas ${downloadingPdf ? "fa-spinner fa-spin" : "fa-file-pdf"}`} />
-                    PDF
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => void openSavedPdfViewer()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100"
+                >
+                  <i className="fas fa-eye" />
+                  View PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void downloadPdf()}
+                  disabled={downloadingPdf}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
+                >
+                  <i className={`fas ${downloadingPdf ? "fa-spinner fa-spin" : "fa-download"}`} />
+                  PDF
+                </button>
                 <button
                   type="button"
                   onClick={() => save(false)}
@@ -1939,54 +2058,38 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
 
                 {tab === "preview" && (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="text-xs text-neutral-500">
-                        This is the exact PDF that will be attached to the customer&apos;s email.
+                        Live HTML preview of the document. The emailed PDF is generated with the
+                        same fields via pdf-lib.
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => loadPreview({ force: true })}
-                        disabled={previewLoading}
-                        className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-60"
-                      >
-                        <i className={`fas ${previewLoading ? "fa-spinner fa-spin" : "fa-rotate-right"}`} />
-                        Refresh
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => printDocumentPreview()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100"
+                        >
+                          <i className="fas fa-print" />
+                          Print
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void openSavedPdfViewer()}
+                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100"
+                        >
+                          <i className="fas fa-file-pdf" />
+                          View PDF
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="relative overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
-                      {previewLoading && (
-                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/80 text-sm text-neutral-500">
-                          <i className="fas fa-spinner fa-spin text-xl" />
-                          Building your {config.docLabel.toLowerCase()} PDF…
-                        </div>
-                      )}
-                      {previewError ? (
-                        <div className="flex flex-col items-center justify-center gap-3 px-6 py-20 text-center">
-                          <i className="fas fa-triangle-exclamation text-2xl text-amber-500" />
-                          <p className="text-sm text-neutral-600">{previewError}</p>
-                          <button
-                            type="button"
-                            onClick={() => loadPreview({ force: true })}
-                            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800"
-                          >
-                            Try again
-                          </button>
-                        </div>
-                      ) : previewUrl ? (
-                        <iframe
-                          src={previewUrl}
-                          title={`${config.docLabel} preview`}
-                          className="w-full block"
-                          style={{ height: "calc(100vh - 220px)", minHeight: 640 }}
-                        />
-                      ) : (
-                        !previewLoading && (
-                          <div className="px-6 py-20 text-center text-sm text-neutral-400">
-                            Preparing preview…
-                          </div>
-                        )
-                      )}
+                    <div className="overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
+                      <div
+                        className="overflow-auto"
+                        style={{ maxHeight: "calc(100vh - 220px)", minHeight: 640 }}
+                      >
+                        <DocumentPreview data={documentData} />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2020,9 +2123,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           rows={4}
                           value={`Thank you for your business. Please find your ${config.docLabel.toLowerCase()} attached.\n\nTotal: ${formatAud(total)}${
                             variant === "quotation" && depositRequested && depositAud > 0
-                              ? `\nDeposit requested: ${formatAud(depositAud)}\nRemaining balance: ${formatAud(balanceAud)}`
+                              ? `\nDeposit requested: ${formatAud(depositAud)}\nDeposit due: ${formatDate(depositDueDate)}`
                               : variant === "invoice" && paymentRecorded && amountPaidAud > 0
-                                ? `\nAmount paid: ${formatAud(amountPaidAud)}\nBalance due: ${formatAud(balanceDueAud)}`
+                                ? `\nAmount paid: ${formatAud(amountPaidAud)}\nBalance due: ${formatAud(balanceDueAud)}${
+                                    balanceDueAud > 0
+                                      ? `\nBalance due date: ${formatDate(balanceDueDate)}`
+                                      : ""
+                                  }`
                                 : ""
                           }`}
                           className={`${INPUT_CLASS} resize-none bg-neutral-50`}
@@ -2256,7 +2363,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                         <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
                           <button
                             type="button"
-                            onClick={() => setDepositRequested((v) => !v)}
+                            onClick={() => {
+                              setDepositRequested((v) => {
+                                const next = !v;
+                                if (next && !depositDueDate) setDepositDueDate(dueDate || todayIso());
+                                return next;
+                              });
+                            }}
                             aria-pressed={depositRequested}
                             className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition ${
                               depositRequested
@@ -2359,26 +2472,29 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                   )}
                                 </div>
                               </div>
+                              <label className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-neutral-500">
+                                  Deposit due
+                                </span>
+                                <input
+                                  type="date"
+                                  value={depositDueDate}
+                                  onChange={(e) => setDepositDueDate(e.target.value)}
+                                  className="w-36 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                                />
+                              </label>
                               {depositAud > 0 ? (
-                                <>
-                                  <div className="flex justify-between text-xs text-neutral-500">
-                                    <span>
-                                      Deposit requested
-                                      {depositMode === "percent"
-                                        ? ` (${Math.min(100, depositValue)}%)`
-                                        : ""}
-                                    </span>
-                                    <span className="font-medium text-neutral-900">
-                                      {formatAud(depositAud)}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between text-xs text-neutral-500">
-                                    <span>Remaining balance</span>
-                                    <span className="font-medium text-neutral-900">
-                                      {formatAud(balanceAud)}
-                                    </span>
-                                  </div>
-                                </>
+                                <div className="flex justify-between text-xs text-neutral-500">
+                                  <span>
+                                    Deposit requested
+                                    {depositMode === "percent"
+                                      ? ` (${Math.min(100, depositValue)}%)`
+                                      : ""}
+                                  </span>
+                                  <span className="font-medium text-neutral-900">
+                                    {formatAud(depositAud)}
+                                  </span>
+                                </div>
                               ) : null}
                             </div>
                           ) : null}
@@ -2389,7 +2505,15 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                         <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5">
                           <button
                             type="button"
-                            onClick={() => setPaymentRecorded((v) => !v)}
+                            onClick={() => {
+                              setPaymentRecorded((v) => {
+                                const next = !v;
+                                if (next && !balanceDueDate) {
+                                  setBalanceDueDate(dueDate || todayIso());
+                                }
+                                return next;
+                              });
+                            }}
                             aria-pressed={paymentRecorded}
                             className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition ${
                               paymentRecorded
@@ -2448,6 +2572,19 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                   className="w-28 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
                                 />
                               </div>
+                              {balanceDueAud > 0 ? (
+                                <label className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-semibold text-neutral-500">
+                                    Balance due date
+                                  </span>
+                                  <input
+                                    type="date"
+                                    value={balanceDueDate}
+                                    onChange={(e) => setBalanceDueDate(e.target.value)}
+                                    className="w-36 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
+                                  />
+                                </label>
+                              ) : null}
                               {amountPaidAud > 0 ? (
                                 <>
                                   <div className="flex justify-between text-xs text-neutral-500">
@@ -2456,11 +2593,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                       {formatAud(amountPaidAud)}
                                     </span>
                                   </div>
-                                  <div className="flex justify-between text-xs text-neutral-500">
+                                  <div className="flex justify-between rounded-md bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-900">
                                     <span>Balance due</span>
-                                    <span className="font-medium text-neutral-900">
-                                      {formatAud(balanceDueAud)}
-                                    </span>
+                                    <span>{formatAud(balanceDueAud)}</span>
                                   </div>
                                 </>
                               ) : null}
@@ -2471,7 +2606,11 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     </div>
                     <div className="flex items-center justify-between bg-neutral-900 px-4 py-3">
                       <span className="text-xs font-bold text-white">
-                        {variant === "quotation" ? "Total estimate" : "Total due"}
+                        {variant === "quotation"
+                          ? "Total estimate"
+                          : paymentRecorded && amountPaidAud > 0
+                            ? "Total"
+                            : "Total due"}
                       </span>
                       <span className="text-base font-bold text-white">{formatAud(total)}</span>
                     </div>
@@ -2482,8 +2621,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           <span className="font-semibold text-white">{formatAud(depositAud)}</span>
                         </div>
                         <div className="flex justify-between text-xs text-white/70">
-                          <span>Remaining balance</span>
-                          <span className="font-semibold text-white">{formatAud(balanceAud)}</span>
+                          <span>Deposit due</span>
+                          <span className="font-semibold text-white">{formatDate(depositDueDate)}</span>
                         </div>
                       </div>
                     ) : null}
@@ -2493,10 +2632,18 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                           <span>Amount paid</span>
                           <span className="font-semibold text-white">{formatAud(amountPaidAud)}</span>
                         </div>
-                        <div className="flex justify-between text-xs text-white/70">
+                        <div className="flex justify-between rounded-md bg-amber-400/20 px-2 py-1.5 text-xs font-semibold text-amber-200">
                           <span>Balance due</span>
-                          <span className="font-semibold text-white">{formatAud(balanceDueAud)}</span>
+                          <span>{formatAud(balanceDueAud)}</span>
                         </div>
+                        {balanceDueAud > 0 ? (
+                          <div className="flex justify-between text-xs text-white/70">
+                            <span>Balance due date</span>
+                            <span className="font-semibold text-white">
+                              {formatDate(balanceDueDate)}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -2610,6 +2757,18 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
           </div>
         </div>
       )}
+
+      <SalesDocumentPdfViewer
+        open={pdfViewerOpen && !!livePdfBytes}
+        title={`${config.docLabel} ${docCode || "Draft"}`.trim()}
+        pdfBytes={livePdfBytes}
+        fetchHeaders={pdfAuthHeaders}
+        filename={`${config.docLabel}-${docCode || "draft"}.pdf`}
+        onClose={() => {
+          setPdfViewerOpen(false);
+          setLivePdfBytes(null);
+        }}
+      />
     </div>
   );
 }

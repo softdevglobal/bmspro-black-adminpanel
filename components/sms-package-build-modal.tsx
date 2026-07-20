@@ -16,7 +16,9 @@ type SmsPackage = {
   popular?: boolean;
   color?: string;
   icon?: string;
-  plan_key?: string;
+  plan_key?: string | null;
+  stripePriceId?: string | null;
+  stripeProductId?: string | null;
 };
 
 const COLOR_OPTIONS = [

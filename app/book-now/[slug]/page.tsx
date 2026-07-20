@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
+import SalesDocumentPdfViewer from "@/components/documents/SalesDocumentPdfViewer";
 import {
   type ChecklistItem,
   type ChecklistSection,
@@ -432,9 +433,6 @@ export default function BookingEnginePage() {
   const [salesDocPdfViewer, setSalesDocPdfViewer] = useState<{
     title: string;
     sourceUrl: string;
-    blobUrl: string | null;
-    loading: boolean;
-    error: string | null;
   } | null>(null);
 
   const getSelectedVehicleStorageKey = useCallback(() => {
@@ -956,14 +954,11 @@ export default function BookingEnginePage() {
   }, [customer?.customerId]);
 
   const closeSalesDocPdfViewer = useCallback(() => {
-    setSalesDocPdfViewer((prev) => {
-      if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
-      return null;
-    });
+    setSalesDocPdfViewer(null);
   }, []);
 
   const openSalesDocumentPdf = useCallback(
-    async (params: {
+    (params: {
       documentId: string;
       kind: "quotation" | "invoice";
       title: string;
@@ -973,51 +968,11 @@ export default function BookingEnginePage() {
         params.documentId
       )}/pdf?customerId=${encodeURIComponent(customer.customerId)}&kind=${params.kind}`;
 
-      setSalesDocPdfViewer((prev) => {
-        if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
-        return {
-          title: params.title,
-          sourceUrl,
-          blobUrl: null,
-          loading: true,
-          error: null,
-        };
+      setSalesDocPdfViewer({
+        title: params.title,
+        sourceUrl,
       });
       setShowNotifications(false);
-
-      try {
-        const res = await fetch(sourceUrl);
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(
-            (data as { error?: string }).error ||
-              `Could not load the ${params.kind} PDF.`
-          );
-        }
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setSalesDocPdfViewer((prev) => {
-          if (!prev || prev.sourceUrl !== sourceUrl) {
-            URL.revokeObjectURL(blobUrl);
-            return prev;
-          }
-          return {
-            ...prev,
-            blobUrl,
-            loading: false,
-            error: null,
-          };
-        });
-      } catch (err) {
-        setSalesDocPdfViewer((prev) => {
-          if (!prev || prev.sourceUrl !== sourceUrl) return prev;
-          return {
-            ...prev,
-            loading: false,
-            error: err instanceof Error ? err.message : "Could not load the PDF.",
-          };
-        });
-      }
     },
     [customer?.customerId]
   );
@@ -4365,94 +4320,13 @@ export default function BookingEnginePage() {
       )}
 
       {/* ═══════════════════ QUOTATION / INVOICE PDF VIEWER ═══════════════════ */}
-      {salesDocPdfViewer && (
-        <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-3 sm:p-6 animate-[fadeIn_0.15s_ease-out]"
-          onClick={closeSalesDocPdfViewer}
-        >
-          <div
-            className="relative flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl animate-[modalPop_0.22s_ease-out]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-neutral-100 bg-neutral-50 px-4 py-3">
-              <div className="min-w-0">
-                <h3 className="truncate text-sm font-extrabold text-neutral-900">
-                  {salesDocPdfViewer.title}
-                </h3>
-                <p className="text-[10px] text-neutral-500">
-                  {salesDocPdfViewer.loading
-                    ? "Preparing PDF…"
-                    : "View and download your document"}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {salesDocPdfViewer.blobUrl && (
-                  <>
-                    <a
-                      href={salesDocPdfViewer.blobUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-[10px] font-bold text-neutral-700 hover:bg-neutral-50"
-                    >
-                      <i className="fas fa-up-right-from-square text-[9px]" />
-                      Open
-                    </a>
-                    <a
-                      href={salesDocPdfViewer.blobUrl}
-                      download={`${salesDocPdfViewer.title.replace(/[^\w.-]+/g, "_") || "document"}.pdf`}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-2 text-[10px] font-bold text-white hover:bg-neutral-800"
-                    >
-                      <i className="fas fa-download text-[9px]" />
-                      Download
-                    </a>
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={closeSalesDocPdfViewer}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-200/70 hover:text-neutral-900"
-                  aria-label="Close PDF"
-                >
-                  <i className="fas fa-times text-sm" />
-                </button>
-              </div>
-            </div>
-            <div className="relative flex-1 bg-neutral-100">
-              {salesDocPdfViewer.loading && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-neutral-50">
-                  <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-neutral-200 border-t-neutral-900" />
-                  <p className="text-xs font-semibold text-neutral-600">Loading PDF…</p>
-                  <p className="text-[10px] text-neutral-400">This can take a few seconds</p>
-                </div>
-              )}
-              {salesDocPdfViewer.error && !salesDocPdfViewer.loading && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
-                    <i className="fas fa-triangle-exclamation" />
-                  </div>
-                  <p className="text-sm font-bold text-neutral-900">Could not open PDF</p>
-                  <p className="text-xs text-neutral-500">{salesDocPdfViewer.error}</p>
-                  <a
-                    href={salesDocPdfViewer.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-4 py-2 text-[11px] font-bold text-white"
-                  >
-                    Try opening in a new tab
-                  </a>
-                </div>
-              )}
-              {salesDocPdfViewer.blobUrl && (
-                <iframe
-                  title={salesDocPdfViewer.title}
-                  src={salesDocPdfViewer.blobUrl}
-                  className="h-full w-full"
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <SalesDocumentPdfViewer
+        open={!!salesDocPdfViewer}
+        title={salesDocPdfViewer?.title || "Document"}
+        pdfUrl={salesDocPdfViewer?.sourceUrl || null}
+        filename={`${(salesDocPdfViewer?.title || "document").replace(/[^\w.-]+/g, "_")}.pdf`}
+        onClose={closeSalesDocPdfViewer}
+      />
 
       {/* ═══════════════════ IMAGE LIGHTBOX ═══════════════════ */}
       {lightboxUrl && (

@@ -94,6 +94,19 @@ export type SalesDocumentInput = {
   terms: string;
   comment: string;
   send: boolean;
+  /** Quotation-only deposit request (ignored for invoices). */
+  depositRequested: boolean;
+  depositMode: "value" | "percent";
+  /** Raw AU$ or % value entered by staff. */
+  depositValue: number;
+  /** ISO date when the deposit is due (quotation-only). */
+  depositDueDate: string;
+  /** Invoice-only recorded payment (ignored for quotations). */
+  paymentRecorded: boolean;
+  /** Amount paid entered by staff (AU$). */
+  amountPaidAud: number;
+  /** ISO date when the remaining balance is due (invoice-only). */
+  balanceDueDate: string;
 };
 
 type Totals = {
@@ -101,6 +114,10 @@ type Totals = {
   discountAud: number;
   gstAud: number;
   totalAud: number;
+  depositAud: number;
+  balanceAud: number;
+  amountPaidAud: number;
+  balanceDueAud: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -120,11 +137,143 @@ function asNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseDepositFields(
+  record: Record<string, unknown>,
+  kind: SalesDocKind,
+  totalAud: number
+):
+  | {
+      depositRequested: boolean;
+      depositMode: "value" | "percent";
+      depositValue: number;
+      depositAud: number;
+      balanceAud: number;
+      depositDueDate: string;
+    }
+  | { error: string } {
+  if (kind !== "quotation") {
+    return {
+      depositRequested: false,
+      depositMode: "value",
+      depositValue: 0,
+      depositAud: 0,
+      balanceAud: totalAud,
+      depositDueDate: "",
+    };
+  }
+
+  const depositRequested = record.depositRequested === true;
+  const depositMode = record.depositMode === "percent" ? "percent" : "value";
+  const depositValue = Math.max(0, round2(asNumber(record.depositValue)));
+  const depositDueDateRaw = asString(record.depositDueDate, 10);
+
+  if (!depositRequested) {
+    return {
+      depositRequested: false,
+      depositMode,
+      depositValue: 0,
+      depositAud: 0,
+      balanceAud: totalAud,
+      depositDueDate: "",
+    };
+  }
+
+  if (depositMode === "percent") {
+    if (depositValue > 100) return { error: "Deposit cannot exceed 100%." };
+  } else if (depositValue > totalAud) {
+    return { error: "Deposit cannot exceed the quotation total." };
+  }
+
+  const depositAud =
+    depositMode === "percent"
+      ? Math.min(totalAud, round2(totalAud * (Math.min(100, depositValue) / 100)))
+      : Math.min(totalAud, depositValue);
+
+  if (depositAud <= 0) {
+    return { error: "Enter a deposit greater than zero, or turn off the deposit request." };
+  }
+
+  if (!ISO_DATE_REGEX.test(depositDueDateRaw)) {
+    return { error: "Choose a deposit due date." };
+  }
+
+  return {
+    depositRequested: true,
+    depositMode,
+    depositValue,
+    depositAud,
+    balanceAud: round2(Math.max(0, totalAud - depositAud)),
+    depositDueDate: depositDueDateRaw,
+  };
+}
+
+function parsePaymentFields(
+  record: Record<string, unknown>,
+  kind: SalesDocKind,
+  totalAud: number
+):
+  | {
+      paymentRecorded: boolean;
+      amountPaidAud: number;
+      balanceDueAud: number;
+      balanceDueDate: string;
+    }
+  | { error: string } {
+  if (kind !== "invoice") {
+    return {
+      paymentRecorded: false,
+      amountPaidAud: 0,
+      balanceDueAud: totalAud,
+      balanceDueDate: "",
+    };
+  }
+
+  const paymentRecorded = record.paymentRecorded === true;
+  const amountPaidAud = Math.max(0, round2(asNumber(record.amountPaidAud)));
+  const balanceDueDateRaw = asString(record.balanceDueDate, 10);
+
+  if (!paymentRecorded) {
+    return {
+      paymentRecorded: false,
+      amountPaidAud: 0,
+      balanceDueAud: totalAud,
+      balanceDueDate: "",
+    };
+  }
+
+  if (amountPaidAud > totalAud) {
+    return { error: "Amount paid cannot exceed the invoice total." };
+  }
+  if (amountPaidAud <= 0) {
+    return { error: "Enter an amount paid greater than zero, or turn off record payment." };
+  }
+
+  const balanceDueAud = round2(Math.max(0, totalAud - amountPaidAud));
+  if (balanceDueAud > 0 && !ISO_DATE_REGEX.test(balanceDueDateRaw)) {
+    return { error: "Choose a balance due date." };
+  }
+
+  return {
+    paymentRecorded: true,
+    amountPaidAud: Math.min(totalAud, amountPaidAud),
+    balanceDueAud,
+    balanceDueDate: balanceDueAud > 0 ? balanceDueDateRaw : "",
+  };
+}
+
 export function parseSalesDocumentInput(
-  body: unknown
+  body: unknown,
+  kind: SalesDocKind = "invoice"
 ): { input: SalesDocumentInput } | { error: string } {
   if (!body || typeof body !== "object") return { error: "Invalid request body." };
   const record = body as Record<string, unknown>;
+  const send = record.send === true;
+
+  // Draft saves are intentionally lenient so users can park incomplete work and
+  // come back later. Full validation only applies when sending to the customer.
+  if (!send) {
+    return { input: coercePreviewInput(body, kind) };
+  }
 
   const customerRaw = (record.customer ?? {}) as Record<string, unknown>;
   const customer = {
@@ -186,6 +335,27 @@ export function parseSalesDocumentInput(
   const gstPercentage = 10;
   const discountAud = Math.max(0, round2(asNumber(record.discountAud)));
 
+  const depositRequested = kind === "quotation" && record.depositRequested === true;
+  const depositMode =
+    kind === "quotation" && record.depositMode === "percent" ? "percent" : "value";
+  const depositValue =
+    kind === "quotation" && depositRequested
+      ? Math.max(0, round2(asNumber(record.depositValue)))
+      : 0;
+  const depositDueDate =
+    kind === "quotation" && depositRequested && ISO_DATE_REGEX.test(asString(record.depositDueDate, 10))
+      ? asString(record.depositDueDate, 10)
+      : "";
+  const paymentRecorded = kind === "invoice" && record.paymentRecorded === true;
+  const amountPaidAud =
+    kind === "invoice" && paymentRecorded
+      ? Math.max(0, round2(asNumber(record.amountPaidAud)))
+      : 0;
+  const balanceDueDate =
+    kind === "invoice" && paymentRecorded && ISO_DATE_REGEX.test(asString(record.balanceDueDate, 10))
+      ? asString(record.balanceDueDate, 10)
+      : "";
+
   const input: SalesDocumentInput = {
     customer,
     address,
@@ -200,14 +370,36 @@ export function parseSalesDocumentInput(
     paymentTermsId,
     terms: asString(record.terms, 5000),
     comment: asString(record.comment, 2000),
-    send: record.send === true,
+    send: true,
+    depositRequested,
+    depositMode,
+    depositValue,
+    depositDueDate,
+    paymentRecorded,
+    amountPaidAud,
+    balanceDueDate,
   };
 
   const totals = computeTotals(input);
   if (totals.totalAud <= 0) return { error: "The total must be greater than zero." };
 
+  const depositParsed = parseDepositFields(record, kind, totals.totalAud);
+  if ("error" in depositParsed) return { error: depositParsed.error };
+
+  // Re-assign validated deposit fields (parseDepositFields is source of truth).
+  input.depositRequested = depositParsed.depositRequested;
+  input.depositMode = depositParsed.depositMode;
+  input.depositValue = depositParsed.depositValue;
+  input.depositDueDate = depositParsed.depositDueDate;
+
+  const paymentParsed = parsePaymentFields(record, kind, totals.totalAud);
+  if ("error" in paymentParsed) return { error: paymentParsed.error };
+  input.paymentRecorded = paymentParsed.paymentRecorded;
+  input.amountPaidAud = paymentParsed.amountPaidAud;
+  input.balanceDueDate = paymentParsed.balanceDueDate;
+
   // GST must be applied before a document can be sent to the customer.
-  if (input.send && !input.gstEnabled) {
+  if (!input.gstEnabled) {
     return { error: "Apply GST before sending. Tick “Apply GST” to continue." };
   }
 
@@ -219,7 +411,7 @@ export function parseSalesDocumentInput(
  * never rejects, fills sensible defaults, so an in-progress draft can be
  * rendered to the exact PDF that will be sent.
  */
-export function coercePreviewInput(body: unknown): SalesDocumentInput {
+export function coercePreviewInput(body: unknown, kind: SalesDocKind = "invoice"): SalesDocumentInput {
   const record = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
 
   const customerRaw = (record.customer ?? {}) as Record<string, unknown>;
@@ -248,6 +440,27 @@ export function coercePreviewInput(body: unknown): SalesDocumentInput {
       ? record.paymentTermsId
       : "same_day";
 
+  const depositRequested = kind === "quotation" && record.depositRequested === true;
+  const depositMode =
+    kind === "quotation" && record.depositMode === "percent" ? "percent" : "value";
+  const depositValue =
+    kind === "quotation" && depositRequested
+      ? Math.max(0, round2(asNumber(record.depositValue)))
+      : 0;
+  const depositDueDate =
+    kind === "quotation" && depositRequested && ISO_DATE_REGEX.test(asString(record.depositDueDate, 10))
+      ? asString(record.depositDueDate, 10)
+      : "";
+  const paymentRecorded = kind === "invoice" && record.paymentRecorded === true;
+  const amountPaidAud =
+    kind === "invoice" && paymentRecorded
+      ? Math.max(0, round2(asNumber(record.amountPaidAud)))
+      : 0;
+  const balanceDueDate =
+    kind === "invoice" && paymentRecorded && ISO_DATE_REGEX.test(asString(record.balanceDueDate, 10))
+      ? asString(record.balanceDueDate, 10)
+      : "";
+
   return {
     customer: {
       fullName: asString(customerRaw.fullName, 150),
@@ -272,6 +485,13 @@ export function coercePreviewInput(body: unknown): SalesDocumentInput {
     terms: asString(record.terms, 5000),
     comment: asString(record.comment, 2000),
     send: false,
+    depositRequested,
+    depositMode,
+    depositValue,
+    depositDueDate,
+    paymentRecorded,
+    amountPaidAud,
+    balanceDueDate,
   };
 }
 
@@ -300,7 +520,28 @@ export function computeTotals(input: SalesDocumentInput): Totals {
   const total =
     input.gstEnabled && input.gstPricing === "exclusive" ? round2(net + gst) : round2(net);
 
-  return { subtotalAud: subtotal, discountAud: round2(discount), gstAud: gst, totalAud: total };
+  let depositAud = 0;
+  if (input.depositRequested) {
+    depositAud =
+      input.depositMode === "percent"
+        ? Math.min(total, round2(total * (Math.min(100, Math.max(0, input.depositValue)) / 100)))
+        : Math.min(total, Math.max(0, round2(input.depositValue)));
+  }
+
+  const amountPaidAud = input.paymentRecorded
+    ? Math.min(total, Math.max(0, round2(input.amountPaidAud)))
+    : 0;
+
+  return {
+    subtotalAud: subtotal,
+    discountAud: round2(discount),
+    gstAud: gst,
+    totalAud: total,
+    depositAud,
+    balanceAud: round2(Math.max(0, total - depositAud)),
+    amountPaidAud,
+    balanceDueAud: round2(Math.max(0, total - amountPaidAud)),
+  };
 }
 
 function addDaysIso(iso: string, days: number): string {
@@ -380,14 +621,49 @@ export function mapSalesDocument(id: string, data: FirebaseFirestore.DocumentDat
     subtotalAud: typeof data.subtotalAud === "number" ? data.subtotalAud : 0,
     gstAud: typeof data.gstAud === "number" ? data.gstAud : 0,
     totalAud: typeof data.totalAud === "number" ? data.totalAud : 0,
+    depositRequested: data.depositRequested === true,
+    depositMode: data.depositMode === "percent" ? "percent" : "value",
+    depositValue: typeof data.depositValue === "number" ? data.depositValue : 0,
+    depositAud: typeof data.depositAud === "number" ? data.depositAud : 0,
+    balanceAud:
+      typeof data.balanceAud === "number"
+        ? data.balanceAud
+        : typeof data.totalAud === "number"
+          ? data.totalAud
+          : 0,
+    depositDueDate: typeof data.depositDueDate === "string" ? data.depositDueDate : "",
+    paymentRecorded: data.paymentRecorded === true,
+    amountPaidAud:
+      typeof data.amountPaidAud === "number"
+        ? data.amountPaidAud
+        : Number.parseFloat(String(data.amountPaidAud ?? "")) || 0,
+    balanceDueAud:
+      typeof data.balanceDueAud === "number"
+        ? data.balanceDueAud
+        : typeof data.totalAud === "number" && typeof data.amountPaidAud === "number"
+          ? round2(Math.max(0, data.totalAud - data.amountPaidAud))
+          : typeof data.totalAud === "number"
+            ? data.totalAud
+            : 0,
+    balanceDueDate: typeof data.balanceDueDate === "string" ? data.balanceDueDate : "",
     documentDate: (data.documentDate as string) ?? "",
     dueDate: (data.dueDate as string) ?? "",
     paymentTermsId: (data.paymentTermsId as string) ?? "same_day",
+    paymentTermsLabel:
+      (typeof data.paymentTermsLabel === "string" && data.paymentTermsLabel) ||
+      TERMS_OPTIONS[(data.paymentTermsId as string) ?? "same_day"]?.label ||
+      "Same day",
     terms: (data.terms as string) ?? "",
     comment: (data.comment as string) ?? "",
     customerId: (data.customerId as string | null) ?? null,
     customerAccountCreated: data.customerAccountCreated === true,
     pdfUrl: typeof data.pdfUrl === "string" ? data.pdfUrl : null,
+    /** Invoice ← quotation link (set when an invoice is issued from a quote). */
+    quotationId: typeof data.quotationId === "string" ? data.quotationId : null,
+    quotationCode: typeof data.quotationCode === "string" ? data.quotationCode : null,
+    /** Quotation → invoice link (set when a quote has been issued as an invoice). */
+    invoiceId: typeof data.invoiceId === "string" ? data.invoiceId : null,
+    invoiceCode: typeof data.invoiceCode === "string" ? data.invoiceCode : null,
     sentAt: toMillis(data.sentAt),
     createdAt: toMillis(data.createdAt),
     updatedAt: toMillis(data.updatedAt),
@@ -409,6 +685,17 @@ function buildDocPayload(input: SalesDocumentInput, totals: Totals) {
     subtotalAud: totals.subtotalAud,
     gstAud: totals.gstAud,
     totalAud: totals.totalAud,
+    depositRequested: input.depositRequested === true,
+    depositMode: input.depositMode,
+    depositValue: input.depositRequested ? input.depositValue : 0,
+    depositAud: totals.depositAud,
+    balanceAud: totals.balanceAud,
+    depositDueDate: input.depositRequested ? input.depositDueDate : "",
+    paymentRecorded: input.paymentRecorded === true,
+    amountPaidAud: totals.amountPaidAud,
+    balanceDueAud: totals.balanceDueAud,
+    balanceDueDate:
+      input.paymentRecorded === true && totals.balanceDueAud > 0 ? input.balanceDueDate : "",
     documentDate: input.documentDate,
     dueDate: addDaysIso(input.documentDate, termsOption.days),
     paymentTermsId: input.paymentTermsId,
@@ -486,6 +773,27 @@ function buildDocumentEmailHtml(params: {
       ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">GST (${input.gstPercentage}%)</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(totals.gstAud)}</td></tr>`
       : "",
     `<tr><td style="padding: 10px 12px; color: #111827; font-weight: 700; font-size: 16px; border-top: 2px solid #111827;">Total</td><td style="padding: 10px 12px; text-align: right; color: #111827; font-weight: 700; font-size: 16px; border-top: 2px solid #111827;">${formatAud(totals.totalAud)}</td></tr>`,
+    kind === "quotation" && input.depositRequested && totals.depositAud > 0
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Deposit requested${
+          input.depositMode === "percent" ? ` (${Math.min(100, input.depositValue)}%)` : ""
+        }</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(totals.depositAud)}</td></tr>`
+      : "",
+    kind === "quotation" && input.depositRequested && totals.depositAud > 0 && input.depositDueDate
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Deposit due</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatDateHuman(input.depositDueDate)}</td></tr>`
+      : "",
+    kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Amount paid</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(totals.amountPaidAud)}</td></tr>`
+      : "",
+    kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0
+      ? `<tr><td style="padding: 8px 12px; color: #92400e; font-size: 14px; font-weight: 700; background-color: #fffbeb;">Balance due</td><td style="padding: 8px 12px; text-align: right; color: #92400e; font-weight: 700; font-size: 15px; background-color: #fffbeb;">${formatAud(totals.balanceDueAud)}</td></tr>`
+      : "",
+    kind === "invoice" &&
+      input.paymentRecorded &&
+      totals.amountPaidAud > 0 &&
+      totals.balanceDueAud > 0 &&
+      input.balanceDueDate
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Balance due date</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatDateHuman(input.balanceDueDate)}</td></tr>`
+      : "",
   ].join("");
 
   return `<!DOCTYPE html>
@@ -771,6 +1079,25 @@ async function sendDocumentToCustomer(params: {
     subtotalAud: totals.subtotalAud,
     gstAud: totals.gstAud,
     totalAud: totals.totalAud,
+    depositRequested: kind === "quotation" && input.depositRequested && totals.depositAud > 0,
+    depositMode: input.depositMode,
+    depositValue: input.depositValue,
+    depositAud: totals.depositAud,
+    balanceAud: totals.balanceAud,
+    depositDueDate:
+      kind === "quotation" && input.depositRequested && totals.depositAud > 0
+        ? input.depositDueDate
+        : "",
+    paymentRecorded: kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0,
+    amountPaidAud: totals.amountPaidAud,
+    balanceDueAud: totals.balanceDueAud,
+    balanceDueDate:
+      kind === "invoice" &&
+      input.paymentRecorded &&
+      totals.amountPaidAud > 0 &&
+      totals.balanceDueAud > 0
+        ? input.balanceDueDate
+        : "",
     documentDate: input.documentDate,
     dueDate,
     paymentTermsLabel: termsOption.label,
@@ -916,7 +1243,7 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
     return jsonError("Invalid request body.", 400);
   }
 
-  const parsed = parseSalesDocumentInput(body);
+  const parsed = parseSalesDocumentInput(body, kind);
   if ("error" in parsed) return jsonError(parsed.error, 400);
 
   const config = KIND_CONFIG[kind];
@@ -924,10 +1251,27 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
   const totals = computeTotals(input);
   const db = adminDb();
   const ownerUid = auth.userData.ownerUid;
+  const bodyRecord = body as Record<string, unknown>;
 
   try {
     const code = await allocateDocumentCode(db, ownerUid, kind);
     const payload = buildDocPayload(input, totals);
+
+    // Optional quotation → invoice link (invoice create only).
+    let quotationLink: { quotationId: string; quotationCode: string } | null = null;
+    if (kind === "invoice") {
+      const quotationId = asString(bodyRecord.quotationId, 128);
+      if (quotationId) {
+        const quoteSnap = await db.collection("quotations").doc(quotationId).get();
+        const quoteData = quoteSnap.data();
+        if (quoteSnap.exists && quoteData?.ownerUid === ownerUid) {
+          quotationLink = {
+            quotationId,
+            quotationCode: typeof quoteData.code === "string" ? quoteData.code : "",
+          };
+        }
+      }
+    }
 
     const ref = db.collection(config.collection).doc();
     await ref.set({
@@ -941,7 +1285,27 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
       createdAt: FieldValue.serverTimestamp(),
       createdByUid: auth.userData.uid,
       createdByName: auth.userData.name || auth.userData.email,
+      ...(quotationLink
+        ? {
+            quotationId: quotationLink.quotationId,
+            quotationCode: quotationLink.quotationCode,
+          }
+        : {}),
     });
+
+    if (quotationLink) {
+      await db
+        .collection("quotations")
+        .doc(quotationLink.quotationId)
+        .set(
+          {
+            invoiceId: ref.id,
+            invoiceCode: code,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+    }
 
     let outcome: SendOutcome | null = null;
     if (input.send) {
@@ -968,11 +1332,13 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
         { merge: true }
       );
       if (!outcome.emailSent) {
+        const draftSnap = await ref.get();
         return NextResponse.json(
           {
             ok: false,
             error: `The ${config.docLabel.toLowerCase()} was saved as a draft, but the email could not be sent: ${outcome.emailError}`,
             documentId: ref.id,
+            document: mapSalesDocument(ref.id, draftSnap.data()!),
           },
           { status: 502 }
         );
@@ -995,6 +1361,41 @@ export async function handleCreateSalesDocument(req: NextRequest, kind: SalesDoc
   }
 }
 
+async function markInvoicePayment(ownerUid: string, id: string, paid: boolean) {
+  const db = adminDb();
+  const ref = db.collection("invoices").doc(id);
+  try {
+    const snap = await ref.get();
+    if (!snap.exists || snap.data()?.ownerUid !== ownerUid) {
+      return jsonError("Invoice not found.", 404);
+    }
+
+    const data = snap.data()!;
+    const totalAud = typeof data.totalAud === "number" ? round2(data.totalAud) : 0;
+    const amountPaidAud = paid ? totalAud : 0;
+
+    await ref.set(
+      {
+        paymentRecorded: paid,
+        amountPaidAud,
+        balanceDueAud: round2(Math.max(0, totalAud - amountPaidAud)),
+        balanceDueDate: paid ? "" : data.balanceDueDate || "",
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const fresh = await ref.get();
+    return NextResponse.json({
+      ok: true,
+      document: mapSalesDocument(ref.id, fresh.data()!),
+    });
+  } catch (error) {
+    console.error("[invoices mark payment] Error:", error);
+    return jsonError("Could not update invoice payment status.", 500);
+  }
+}
+
 export async function handleUpdateSalesDocument(
   req: NextRequest,
   kind: SalesDocKind,
@@ -1012,7 +1413,15 @@ export async function handleUpdateSalesDocument(
     return jsonError("Invalid request body.", 400);
   }
 
-  const parsed = parseSalesDocumentInput(body);
+  // Lightweight payment toggle from the list detail panel (invoices only).
+  if (kind === "invoice" && body && typeof body === "object") {
+    const action = (body as Record<string, unknown>).action;
+    if (action === "mark_paid" || action === "mark_unpaid") {
+      return markInvoicePayment(auth.userData.ownerUid, id, action === "mark_paid");
+    }
+  }
+
+  const parsed = parseSalesDocumentInput(body, kind);
   if ("error" in parsed) return jsonError(parsed.error, 400);
 
   const config = KIND_CONFIG[kind];
@@ -1030,7 +1439,17 @@ export async function handleUpdateSalesDocument(
 
     const code = (snap.data()?.code as string) || (await allocateDocumentCode(db, ownerUid, kind));
     const payload = buildDocPayload(input, totals);
-    await ref.set({ ...payload, code }, { merge: true });
+    const existingStatus = (snap.data()?.status as string) || "draft";
+    // Saving without send keeps (or restores) draft status; never silently
+    // promote to sent. Sent docs stay sent until a successful resend.
+    await ref.set(
+      {
+        ...payload,
+        code,
+        status: input.send ? existingStatus : existingStatus === "sent" ? "sent" : "draft",
+      },
+      { merge: true }
+    );
 
     let outcome: SendOutcome | null = null;
     if (input.send) {
@@ -1058,11 +1477,13 @@ export async function handleUpdateSalesDocument(
         { merge: true }
       );
       if (!outcome.emailSent) {
+        const draftSnap = await ref.get();
         return NextResponse.json(
           {
             ok: false,
             error: `Changes were saved, but the email could not be sent: ${outcome.emailError}`,
             documentId: ref.id,
+            document: mapSalesDocument(ref.id, draftSnap.data()!),
           },
           { status: 502 }
         );
@@ -1121,7 +1542,7 @@ export async function handleSalesDocumentPreviewPdf(req: NextRequest, kind: Sale
   const config = KIND_CONFIG[kind];
   try {
     const db = adminDb();
-    const input = coercePreviewInput(body);
+    const input = coercePreviewInput(body, kind);
     const totals = computeTotals(input);
     const business = await loadBusinessInfo(db, auth.userData.ownerUid);
     const termsOption = TERMS_OPTIONS[input.paymentTermsId] ?? TERMS_OPTIONS.same_day;
@@ -1143,6 +1564,25 @@ export async function handleSalesDocumentPreviewPdf(req: NextRequest, kind: Sale
       subtotalAud: totals.subtotalAud,
       gstAud: totals.gstAud,
       totalAud: totals.totalAud,
+      depositRequested: kind === "quotation" && input.depositRequested && totals.depositAud > 0,
+      depositMode: input.depositMode,
+      depositValue: input.depositValue,
+      depositAud: totals.depositAud,
+      balanceAud: totals.balanceAud,
+      depositDueDate:
+        kind === "quotation" && input.depositRequested && totals.depositAud > 0
+          ? input.depositDueDate
+          : "",
+      paymentRecorded: kind === "invoice" && input.paymentRecorded && totals.amountPaidAud > 0,
+      amountPaidAud: totals.amountPaidAud,
+      balanceDueAud: totals.balanceDueAud,
+      balanceDueDate:
+        kind === "invoice" &&
+        input.paymentRecorded &&
+        totals.amountPaidAud > 0 &&
+        totals.balanceDueAud > 0
+          ? input.balanceDueDate
+          : "",
       documentDate: input.documentDate,
       dueDate: addDaysIso(input.documentDate, termsOption.days),
       paymentTermsLabel: termsOption.label,
@@ -1290,6 +1730,30 @@ async function buildPdfFromStoredDocument(
     subtotalAud: doc.subtotalAud,
     gstAud: doc.gstAud,
     totalAud: doc.totalAud,
+    depositRequested: kind === "quotation" && doc.depositRequested === true && doc.depositAud > 0,
+    depositMode: doc.depositMode === "percent" ? "percent" : "value",
+    depositValue: doc.depositValue,
+    depositAud: doc.depositAud,
+    balanceAud: doc.balanceAud,
+    depositDueDate:
+      kind === "quotation" && doc.depositRequested === true && doc.depositAud > 0
+        ? doc.depositDueDate || ""
+        : "",
+    paymentRecorded: kind === "invoice" && doc.paymentRecorded === true && doc.amountPaidAud > 0,
+    amountPaidAud: Number(doc.amountPaidAud) || 0,
+    balanceDueAud:
+      typeof doc.balanceDueAud === "number"
+        ? doc.balanceDueAud
+        : Math.max(0, (Number(doc.totalAud) || 0) - (Number(doc.amountPaidAud) || 0)),
+    balanceDueDate:
+      kind === "invoice" &&
+      doc.paymentRecorded === true &&
+      doc.amountPaidAud > 0 &&
+      (typeof doc.balanceDueAud === "number"
+        ? doc.balanceDueAud
+        : Math.max(0, (Number(doc.totalAud) || 0) - (Number(doc.amountPaidAud) || 0))) > 0
+        ? doc.balanceDueDate || ""
+        : "",
     documentDate: doc.documentDate,
     dueDate: doc.dueDate,
     paymentTermsLabel:

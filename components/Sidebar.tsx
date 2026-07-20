@@ -25,6 +25,7 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
   const isBookingsPending = pathname === "/bookings/pending";
   const isBookingsConfirmed = pathname === "/bookings/confirmed";
   const isBookingsCompleted = pathname === "/bookings/completed";
+  const isBookingsServiceReminder = pathname === "/bookings/service-reminder";
   const isBookingsCancelled = pathname === "/bookings/cancelled";
   const isServices = pathname?.startsWith("/services");
   const isBranches = pathname?.startsWith("/branches");
@@ -445,6 +446,15 @@ export default function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 >
                   <i className="fas fa-ban w-4" />
                   <span>Cancelled Bookings</span>
+                </Link>
+                <Link
+                  href="/bookings/service-reminder"
+                  className={`ml-3 flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isBookingsServiceReminder ? "bg-neutral-800 text-white" : "text-neutral-400 hover:bg-neutral-800 hover:text-white"
+                  }`}
+                >
+                  <i className="fas fa-bell w-4" />
+                  <span>Service Reminder</span>
                 </Link>
               </>
             )}

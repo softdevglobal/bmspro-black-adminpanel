@@ -6,6 +6,8 @@ import { appendBookNowMyBookingsDeepLink, resolveBookingEngineUrl } from "@/lib/
 import { sendEmail, isZeptoMailConfigured } from "@/lib/email";
 import {
   DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS,
+  MAX_SERVICE_REMINDER_INTERVAL_DAYS,
+  MIN_SERVICE_REMINDER_INTERVAL_DAYS,
   SERVICE_REMINDER_COLLECTION,
   computeAdvanceReminderDueDate,
   type BookingServiceReminderSnapshot,
@@ -21,7 +23,68 @@ function defaultSettings(): ServiceReminderSettings {
   return {
     enabled: false,
     intervalDays: DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS,
+    serviceIntervals: {},
   };
+}
+
+/** Collect service IDs from a booking (multi-service array and/or legacy top-level field). */
+export function resolveBookingServiceIds(booking: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: unknown) => {
+    const id = String(raw || "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+
+  const services = booking.services;
+  if (Array.isArray(services)) {
+    for (const s of services) {
+      if (!s || typeof s !== "object") continue;
+      const row = s as Record<string, unknown>;
+      push(row.id ?? row.serviceId);
+    }
+  }
+  push(booking.serviceId);
+  return ids;
+}
+
+function normalizeServiceIntervals(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const serviceId = String(key || "").trim();
+    if (!serviceId) continue;
+    const days = typeof value === "number" ? Math.round(value) : Math.round(Number(value));
+    if (
+      Number.isFinite(days) &&
+      days >= MIN_SERVICE_REMINDER_INTERVAL_DAYS &&
+      days <= MAX_SERVICE_REMINDER_INTERVAL_DAYS
+    ) {
+      out[serviceId] = days;
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve reminder interval for a booking from per-service settings.
+ * Returns null when no configured interval exists for the booking's service(s).
+ */
+export function resolveIntervalDaysForBooking(
+  booking: Record<string, unknown>,
+  settings: ServiceReminderSettings,
+): number | null {
+  const intervals = settings.serviceIntervals || {};
+  const serviceIds = resolveBookingServiceIds(booking);
+  const matched = serviceIds
+    .map((id) => intervals[id])
+    .filter((d): d is number => typeof d === "number" && d > 0);
+  if (matched.length > 0) {
+    return Math.min(...matched);
+  }
+  return null;
 }
 
 async function getWorkshopName(ownerUid: string): Promise<string> {
@@ -167,6 +230,88 @@ export async function getServiceReminderSettings(branchId: string): Promise<Serv
       typeof raw.customMessage === "string" && raw.customMessage.trim()
         ? raw.customMessage.trim()
         : undefined,
+    serviceIntervals: normalizeServiceIntervals(raw.serviceIntervals),
+  };
+}
+
+function parseOwnerServiceReminderSettings(raw: unknown): ServiceReminderSettings {
+  if (!raw || typeof raw !== "object") return defaultSettings();
+  const data = raw as Record<string, unknown>;
+  const serviceIntervals = normalizeServiceIntervals(data.serviceIntervals);
+  const hasIntervals = Object.keys(serviceIntervals).length > 0;
+  return {
+    enabled: !!data.enabled || hasIntervals,
+    intervalDays: DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS,
+    customMessage:
+      typeof data.customMessage === "string" && data.customMessage.trim()
+        ? data.customMessage.trim()
+        : undefined,
+    serviceIntervals,
+  };
+}
+
+/** Owner-level reminder settings (preferred). Falls back to merged branch settings. */
+export async function getOwnerServiceReminderSettings(ownerUid: string): Promise<ServiceReminderSettings> {
+  const ownerSnap = await adminDb().doc(`users/${ownerUid}`).get();
+  const ownerRaw = ownerSnap.data()?.serviceReminderSettings;
+  const ownerSettings = parseOwnerServiceReminderSettings(ownerRaw);
+  if (Object.keys(ownerSettings.serviceIntervals || {}).length > 0) {
+    return ownerSettings;
+  }
+
+  // Backward compatibility: merge intervals saved on branches before owner-level storage.
+  const branchSnap = await adminDb()
+    .collection("branches")
+    .where("ownerUid", "==", ownerUid)
+    .get();
+  const merged: Record<string, number> = {};
+  let enabled = false;
+  let customMessage: string | undefined;
+  for (const doc of branchSnap.docs) {
+    const branchSettings = parseOwnerServiceReminderSettings(doc.data()?.serviceReminderSettings);
+    if (branchSettings.enabled) enabled = true;
+    if (branchSettings.customMessage) customMessage = branchSettings.customMessage;
+    Object.assign(merged, branchSettings.serviceIntervals || {});
+  }
+  if (Object.keys(merged).length === 0) {
+    return defaultSettings();
+  }
+  return {
+    enabled,
+    intervalDays: DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS,
+    customMessage,
+    serviceIntervals: merged,
+  };
+}
+
+export async function saveOwnerServiceReminderSettings(
+  ownerUid: string,
+  serviceIntervals: Record<string, number>,
+  customMessage?: string,
+): Promise<ServiceReminderSettings> {
+  const normalized = normalizeServiceIntervals(serviceIntervals);
+  const trimmedMessage = customMessage?.trim() || "";
+  const settingsPayload: Record<string, unknown> = {
+    enabled: Object.keys(normalized).length > 0,
+    serviceIntervals: normalized,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (trimmedMessage) {
+    settingsPayload.customMessage = trimmedMessage;
+  } else {
+    settingsPayload.customMessage = FieldValue.delete();
+  }
+
+  await adminDb().doc(`users/${ownerUid}`).set(
+    { serviceReminderSettings: settingsPayload },
+    { merge: true },
+  );
+
+  return {
+    enabled: !!settingsPayload.enabled,
+    intervalDays: DEFAULT_SERVICE_REMINDER_INTERVAL_DAYS,
+    customMessage: trimmedMessage || undefined,
+    serviceIntervals: normalized,
   };
 }
 
@@ -206,9 +351,11 @@ export async function saveServiceReminderSettings(
   branchId: string,
   settings: ServiceReminderSettings,
 ): Promise<ServiceReminderSettings> {
+  const serviceIntervals = normalizeServiceIntervals(settings.serviceIntervals);
   const payload = {
     enabled: true,
     intervalDays: settings.intervalDays,
+    serviceIntervals,
     ...(settings.customMessage ? { customMessage: settings.customMessage.trim() } : {}),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -222,6 +369,7 @@ export async function saveServiceReminderSettings(
     enabled: true,
     intervalDays: payload.intervalDays,
     customMessage: settings.customMessage?.trim() || undefined,
+    serviceIntervals,
   };
 }
 
@@ -380,11 +528,13 @@ export async function scheduleServiceReminderOnCompletion(bookingId: string): Pr
 
     const booking = bookingSnap.data() as Record<string, unknown>;
     const ownerUid = String(booking.ownerUid || "");
-    const branchId = String(booking.branchId || "");
-    if (!ownerUid || !branchId) return;
+    if (!ownerUid) return;
 
-    const settings = await getServiceReminderSettings(branchId);
+    const settings = await getOwnerServiceReminderSettings(ownerUid);
     if (!settings.enabled) return;
+
+    const intervalDays = resolveIntervalDaysForBooking(booking, settings);
+    if (intervalDays === null) return;
 
     const existing = await db.collection(SERVICE_REMINDER_COLLECTION).doc(bookingId).get();
     if (existing.exists && existing.data()?.status === "sent") {
@@ -395,7 +545,7 @@ export async function scheduleServiceReminderOnCompletion(bookingId: string): Pr
       bookingId,
       ownerUid,
       booking,
-      intervalDays: settings.intervalDays,
+      intervalDays,
       enabled: true,
     });
   } catch (error) {
@@ -405,41 +555,31 @@ export async function scheduleServiceReminderOnCompletion(bookingId: string): Pr
 
 const BULK_SCHEDULE_LIMIT = 500;
 
-/** Schedule or refresh reminders for every completed booking at a branch. */
-export async function bulkScheduleServiceRemindersForBranch(
-  branchId: string,
+/** Schedule or refresh reminders for every completed booking for an owner. */
+export async function bulkScheduleServiceRemindersForOwner(
   ownerUid: string,
-  intervalDays: number,
+  settings: ServiceReminderSettings,
 ): Promise<{ scheduled: number; skipped: number; errors: number }> {
   const db = adminDb();
   let scheduled = 0;
   let skipped = 0;
   let errors = 0;
 
-  let docs;
-  try {
-    const snap = await db
-      .collection("bookings")
-      .where("ownerUid", "==", ownerUid)
-      .where("branchId", "==", branchId)
-      .where("status", "==", "Completed")
-      .limit(BULK_SCHEDULE_LIMIT)
-      .get();
-    docs = snap.docs;
-  } catch (error) {
-    console.error("[serviceReminders] Bulk query fallback:", error);
-    const snap = await db
-      .collection("bookings")
-      .where("ownerUid", "==", ownerUid)
-      .where("status", "==", "Completed")
-      .limit(BULK_SCHEDULE_LIMIT)
-      .get();
-    docs = snap.docs.filter((d) => String(d.data().branchId || "") === branchId);
-  }
+  const snap = await db
+    .collection("bookings")
+    .where("ownerUid", "==", ownerUid)
+    .where("status", "==", "Completed")
+    .limit(BULK_SCHEDULE_LIMIT)
+    .get();
 
-  for (const doc of docs) {
+  for (const doc of snap.docs) {
     const booking = doc.data() as Record<string, unknown>;
     try {
+      const intervalDays = resolveIntervalDaysForBooking(booking, settings);
+      if (intervalDays === null) {
+        skipped++;
+        continue;
+      }
       const existing = await db.collection(SERVICE_REMINDER_COLLECTION).doc(doc.id).get();
       if (existing.exists && existing.data()?.status === "sent") {
         skipped++;
@@ -468,9 +608,7 @@ async function sendServiceReminderChannels(
 ): Promise<void> {
   const workshopName = await getWorkshopName(reminder.ownerUid);
   const portalUrl = await getBookingPortalUrl(reminder.ownerUid);
-  const ownerSettings = reminder.branchId
-    ? await getServiceReminderSettings(reminder.branchId)
-    : defaultSettings();
+  const ownerSettings = await getOwnerServiceReminderSettings(reminder.ownerUid);
   const content = buildReminderMessage({
     clientName: reminder.clientName,
     workshopName,

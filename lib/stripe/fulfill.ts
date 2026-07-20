@@ -16,6 +16,25 @@ function getStripe(): Stripe {
   return _stripe ?? (_stripe = new Stripe(key, { apiVersion: "2025-12-15.clover" }));
 }
 
+/**
+ * Stripe IDs are scoped to one account and mode, so IDs stored in Firestore by a
+ * test-mode or previous-account deploy resolve to nothing here.
+ */
+function isMissingResource(error: unknown): boolean {
+  return error instanceof Stripe.errors.StripeInvalidRequestError && error.code === "resource_missing";
+}
+
+async function isUsablePrice(stripe: Stripe, priceId: string, pkg: SmsPackage): Promise<boolean> {
+  try {
+    const price = await stripe.prices.retrieve(priceId);
+    return price.active && price.currency === "aud" && price.unit_amount === Math.round(pkg.price * 100);
+  } catch (error) {
+    if (!isMissingResource(error)) throw error;
+    console.warn("[STRIPE SMS] Stored price is unknown to this Stripe account, resyncing:", priceId);
+    return false;
+  }
+}
+
 export async function syncSmsPackageToStripe(packageId: string): Promise<SmsPackage> {
   const pkg = await getSmsPackage(packageId);
   if (!pkg) {
@@ -26,19 +45,24 @@ export async function syncSmsPackageToStripe(packageId: string): Promise<SmsPack
   const db = adminDb();
   const ref = db.collection("sms_packages").doc(packageId);
 
+  const description = pkg.description || `${pkg.messageQuota} SMS credits`;
   let productId = pkg.stripeProductId ?? undefined;
+  if (productId) {
+    try {
+      await stripe.products.update(productId, { name: pkg.name, description });
+    } catch (error) {
+      if (!isMissingResource(error)) throw error;
+      console.warn("[STRIPE SMS] Stored product is unknown to this Stripe account, recreating:", productId);
+      productId = undefined;
+    }
+  }
   if (!productId) {
     const product = await stripe.products.create({
       name: pkg.name,
-      description: pkg.description || `${pkg.messageQuota} SMS credits`,
+      description,
       metadata: { smsPackageId: packageId, type: "sms_topup" },
     });
     productId = product.id;
-  } else {
-    await stripe.products.update(productId, {
-      name: pkg.name,
-      description: pkg.description || `${pkg.messageQuota} SMS credits`,
-    });
   }
 
   const price = await stripe.prices.create({
@@ -136,7 +160,12 @@ export async function createSmsCheckoutSession(args: {
     throw new Error("SMS package not available");
   }
 
-  let stripePriceId = pkg.stripePriceId;
+  const stripe = getStripe();
+
+  let stripePriceId = pkg.stripePriceId ?? undefined;
+  if (stripePriceId && !(await isUsablePrice(stripe, stripePriceId, pkg))) {
+    stripePriceId = undefined;
+  }
   if (!stripePriceId) {
     const synced = await syncSmsPackageToStripe(args.packageId);
     stripePriceId = synced.stripePriceId ?? undefined;
@@ -145,7 +174,6 @@ export async function createSmsCheckoutSession(args: {
     throw new Error("SMS package is not linked to Stripe");
   }
 
-  const stripe = getStripe();
   const db = adminDb();
   const userDoc = await db.collection("users").doc(args.ownerUid).get();
   const userData = userDoc.data();

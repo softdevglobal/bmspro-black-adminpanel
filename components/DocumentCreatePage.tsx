@@ -3,7 +3,6 @@
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
 import DocumentPreview from "@/components/documents/DocumentPreview";
-import SalesDocumentPdfViewer from "@/components/documents/SalesDocumentPdfViewer";
 import type { DocumentData } from "@/lib/documentData";
 import { printDocumentPreview } from "@/lib/printDocumentPreview";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -249,9 +248,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [quotationLoading, setQuotationLoading] = useState(false);
   const [importingQuotation, setImportingQuotation] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
-  const [pdfAuthHeaders, setPdfAuthHeaders] = useState<HeadersInit | undefined>();
-  const [livePdfBytes, setLivePdfBytes] = useState<Uint8Array | null>(null);
 
   const [clientOpen, setClientOpen] = useState(true);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
@@ -1103,23 +1099,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     return res.blob();
   }
 
-  async function openSavedPdfViewer() {
-    setError(null);
-    try {
-      const blob = await fetchLivePdfBlob();
-      const buffer = await blob.arrayBuffer();
-      setLivePdfBytes(new Uint8Array(buffer));
-      setPdfAuthHeaders(undefined);
-      setPdfViewerOpen(true);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : `Could not open the ${config.docLabel.toLowerCase()} PDF.`,
-      );
-    }
-  }
-
   async function downloadPdf() {
     if (downloadingPdf) return;
     setDownloadingPdf(true);
@@ -1388,12 +1367,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                 </Link>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <Link
-                  href={config.listHref}
-                  className="hidden rounded-lg px-3 py-2 text-sm font-semibold text-neutral-600 transition hover:bg-neutral-100 sm:inline"
-                >
-                  Close
-                </Link>
                 {variant === "invoice" && !editingDocId && (
                   <button
                     type="button"
@@ -1426,14 +1399,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     </button>
                   )
                 )}
-                <button
-                  type="button"
-                  onClick={() => void openSavedPdfViewer()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-100"
-                >
-                  <i className="fas fa-eye" />
-                  View PDF
-                </button>
                 <button
                   type="button"
                   onClick={() => void downloadPdf()}
@@ -2071,14 +2036,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                         >
                           <i className="fas fa-print" />
                           Print
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void openSavedPdfViewer()}
-                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100"
-                        >
-                          <i className="fas fa-file-pdf" />
-                          View PDF
                         </button>
                       </div>
                     </div>
@@ -2757,18 +2714,6 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
           </div>
         </div>
       )}
-
-      <SalesDocumentPdfViewer
-        open={pdfViewerOpen && !!livePdfBytes}
-        title={`${config.docLabel} ${docCode || "Draft"}`.trim()}
-        pdfBytes={livePdfBytes}
-        fetchHeaders={pdfAuthHeaders}
-        filename={`${config.docLabel}-${docCode || "draft"}.pdf`}
-        onClose={() => {
-          setPdfViewerOpen(false);
-          setLivePdfBytes(null);
-        }}
-      />
     </div>
   );
 }

@@ -499,6 +499,10 @@ function lineNet(item: LineItemInput): number {
   return round2(item.quantity * item.rate * (1 - item.discountPercent / 100));
 }
 
+function lineDiscountAud(item: LineItemInput): number {
+  return round2(item.quantity * item.rate * (item.discountPercent / 100));
+}
+
 export function computeTotals(input: SalesDocumentInput): Totals {
   const subtotal = round2(input.lineItems.reduce((sum, item) => sum + lineNet(item), 0));
   const discount = Math.min(input.discountAud, subtotal);
@@ -744,10 +748,12 @@ function buildDocumentEmailHtml(params: {
 
   const itemRows = input.lineItems
     .map((item) => {
+      const discAud = lineDiscountAud(item);
+      const gstLabel =
+        input.gstEnabled && item.applyGst ? `${input.gstPercentage}%` : "—";
       const details = [
         item.code ? escapeHtml(item.code) : "",
         item.description ? escapeHtml(item.description) : "",
-        item.discountPercent > 0 ? `${item.discountPercent}% discount` : "",
       ]
         .filter(Boolean)
         .join(" · ");
@@ -759,6 +765,8 @@ function buildDocumentEmailHtml(params: {
           </td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #374151; font-size: 14px;">${item.quantity}</td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #374151; font-size: 14px;">${formatAud(item.rate)}</td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #374151; font-size: 14px;">${discAud > 0 ? `−${formatAud(discAud)}` : "—"}</td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #374151; font-size: 14px;">${gstLabel}</td>
           <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; color: #111827; font-weight: 600; font-size: 14px;">${formatAud(lineNet(item))}</td>
         </tr>`;
     })
@@ -839,6 +847,8 @@ function buildDocumentEmailHtml(params: {
                 <th style="padding: 10px 12px; text-align: left; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Item</th>
                 <th style="padding: 10px 12px; text-align: right; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Qty</th>
                 <th style="padding: 10px 12px; text-align: right; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Rate</th>
+                <th style="padding: 10px 12px; text-align: right; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Disc</th>
+                <th style="padding: 10px 12px; text-align: right; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">GST</th>
                 <th style="padding: 10px 12px; text-align: right; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Amount</th>
               </tr>
               ${itemRows}

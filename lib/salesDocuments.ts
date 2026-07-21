@@ -772,8 +772,19 @@ function buildDocumentEmailHtml(params: {
     })
     .join("");
 
+  const itemDiscountTotal = round2(
+    input.lineItems.reduce((sum, item) => sum + lineDiscountAud(item), 0),
+  );
+  const itemsGross = round2(
+    input.lineItems.reduce((sum, item) => sum + item.quantity * item.rate, 0),
+  );
+  const subtotalDisplay = itemDiscountTotal > 0 ? itemsGross : totals.subtotalAud;
+
   const totalsRows = [
-    `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Subtotal</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(totals.subtotalAud)}</td></tr>`,
+    `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Subtotal</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">${formatAud(subtotalDisplay)}</td></tr>`,
+    itemDiscountTotal > 0
+      ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Item discount</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">−${formatAud(itemDiscountTotal)}</td></tr>`
+      : "",
     totals.discountAud > 0
       ? `<tr><td style="padding: 4px 12px; color: #6b7280; font-size: 14px;">Discount</td><td style="padding: 4px 12px; text-align: right; color: #111827; font-size: 14px;">−${formatAud(totals.discountAud)}</td></tr>`
       : "",

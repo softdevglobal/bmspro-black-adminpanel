@@ -103,6 +103,15 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function isFullyPaidInvoice(row: DocumentRow): boolean {
+  return (
+    row.paymentRecorded === true &&
+    (row.amountPaidAud ?? 0) > 0 &&
+    (row.totalAud ?? 0) > 0 &&
+    (row.amountPaidAud ?? 0) + 0.001 >= (row.totalAud ?? 0)
+  );
+}
+
 function PaymentBadge({ row }: { row: DocumentRow }) {
   const paid = row.paymentRecorded === true && (row.amountPaidAud ?? 0) > 0;
   const total = row.totalAud ?? 0;
@@ -131,6 +140,8 @@ function PaymentBadge({ row }: { row: DocumentRow }) {
   );
 }
 
+type StatusFilter = "all" | "draft" | "sent" | "paid";
+
 export default function DocumentListPage({ variant }: { variant: Variant }) {
   const config = VARIANT_CONFIG[variant];
   const router = useRouter();
@@ -139,7 +150,7 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<DocumentRow[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "sent">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [deleteTarget, setDeleteTarget] = useState<DocumentRow | DocumentDetail | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -238,9 +249,11 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
   const query = search.trim().toLowerCase();
   const draftCount = rows.filter((row) => row.status !== "sent").length;
   const sentCount = rows.filter((row) => row.status === "sent").length;
+  const paidCount = variant === "invoice" ? rows.filter(isFullyPaidInvoice).length : 0;
   const visibleRows = rows.filter((row) => {
     if (statusFilter === "draft" && row.status === "sent") return false;
     if (statusFilter === "sent" && row.status !== "sent") return false;
+    if (statusFilter === "paid" && !isFullyPaidInvoice(row)) return false;
     if (!query) return true;
     const haystack = [
       row.code,
@@ -253,10 +266,13 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
     return haystack.includes(query);
   });
 
-  const statusTabs: { id: "all" | "draft" | "sent"; label: string; count: number }[] = [
+  const statusTabs: { id: StatusFilter; label: string; count: number }[] = [
     { id: "all", label: "All", count: rows.length },
     { id: "draft", label: "Drafts", count: draftCount },
     { id: "sent", label: "Sent", count: sentCount },
+    ...(variant === "invoice"
+      ? [{ id: "paid" as const, label: "Paid", count: paidCount }]
+      : []),
   ];
 
   const emptyFilteredTitle =
@@ -264,13 +280,17 @@ export default function DocumentListPage({ variant }: { variant: Variant }) {
       ? "No drafts"
       : statusFilter === "sent"
         ? "No sent documents"
-        : config.emptyTitle;
+        : statusFilter === "paid"
+          ? "No paid invoices"
+          : config.emptyTitle;
   const emptyFilteredBody =
     statusFilter === "draft"
       ? `Save a ${config.docLabel.toLowerCase()} as a draft to finish it later.`
       : statusFilter === "sent"
         ? `Sent ${config.title.toLowerCase()} will show up here.`
-        : config.emptyBody;
+        : statusFilter === "paid"
+          ? "Invoices marked as fully paid will show up here."
+          : config.emptyBody;
 
   return (
     <div id="app" className="flex h-screen overflow-hidden bg-white">

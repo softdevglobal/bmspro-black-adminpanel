@@ -6,6 +6,8 @@ import {
   documentAddressLine,
   documentBusinessContact,
   documentGstTaxableBase,
+  documentItemDiscountTotalAud,
+  documentItemsGrossAud,
   documentLineDiscountAud,
   documentLineNet,
   formatDocumentAud,
@@ -20,7 +22,7 @@ type Props = {
 
 /**
  * Live HTML preview that visually mirrors the pdf-lib layout.
- * This is styled HTML — not a PDF file. Use `printDocumentPreview()` to print.
+ * This is styled HTML — not a PDF file. Use Print on the create page to print the pdf-lib PDF.
  */
 export default function DocumentPreview({ data, className = "" }: Props) {
   const meta = DOCUMENT_KIND_META[data.kind];
@@ -28,6 +30,9 @@ export default function DocumentPreview({ data, className = "" }: Props) {
   const addressLine = documentAddressLine(data.address);
   const businessContact = documentBusinessContact(data.business);
   const gstTaxableBase = documentGstTaxableBase(data);
+  const itemDiscountAud = documentItemDiscountTotalAud(data.lineItems);
+  const subtotalDisplay =
+    itemDiscountAud > 0 ? documentItemsGrossAud(data.lineItems) : data.subtotalAud;
 
   const showDeposit =
     data.kind === "quotation" &&
@@ -208,8 +213,14 @@ export default function DocumentPreview({ data, className = "" }: Props) {
             <div className="doc-summary-inner">
               <div className="doc-tot-row">
                 <span>Subtotal</span>
-                <span>{formatDocumentAud(data.subtotalAud)}</span>
+                <span>{formatDocumentAud(subtotalDisplay)}</span>
               </div>
+              {itemDiscountAud > 0 ? (
+                <div className="doc-tot-row">
+                  <span>Item discount</span>
+                  <span>−{formatDocumentAud(itemDiscountAud)}</span>
+                </div>
+              ) : null}
               {data.discountAud > 0 ? (
                 <div className="doc-tot-row">
                   <span>Discount</span>

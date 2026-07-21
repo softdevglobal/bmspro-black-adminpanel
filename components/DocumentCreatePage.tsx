@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import Sidebar from "@/components/Sidebar";
-import DocumentPreview from "@/components/documents/DocumentPreview";
-import type { DocumentData } from "@/lib/documentData";
-import { printDocumentPreview } from "@/lib/printDocumentPreview";
+import DocumentPdfPreview from "@/components/documents/DocumentPdfPreview";
+import { getPdfPreviewCache, preloadPdfJsWorker, setPdfPreviewCache } from "@/lib/pdfPreviewCache";
+import { printPdfBlob } from "@/lib/printDocumentPreview";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -221,6 +221,14 @@ function computeLineNet(item: Pick<LineItem, "quantity" | "rate" | "discountPerc
   return Math.round(base * 100) / 100;
 }
 
+function computeLineDiscount(item: Pick<LineItem, "quantity" | "rate" | "discountPercent">): number {
+  return Math.round(item.quantity * item.rate * (item.discountPercent / 100) * 100) / 100;
+}
+
+function computeLineGross(item: Pick<LineItem, "quantity" | "rate">): number {
+  return Math.round(item.quantity * item.rate * 100) / 100;
+}
+
 export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const config = VARIANT_CONFIG[variant];
   const router = useRouter();
@@ -248,6 +256,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [quotationLoading, setQuotationLoading] = useState(false);
   const [importingQuotation, setImportingQuotation] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [printingPdf, setPrintingPdf] = useState(false);
 
   const [clientOpen, setClientOpen] = useState(true);
   const [customer, setCustomer] = useState({ fullName: "", email: "", phone: "" });
@@ -560,6 +569,16 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     [lineItems],
   );
 
+  const itemDiscountTotal = useMemo(
+    () => lineItems.reduce((sum, item) => sum + computeLineDiscount(item), 0),
+    [lineItems],
+  );
+
+  const itemsGross = useMemo(
+    () => lineItems.reduce((sum, item) => sum + computeLineGross(item), 0),
+    [lineItems],
+  );
+
   const discountAmount = useMemo(() => {
     if (discountMode === "percent") {
       const pct = Math.min(100, Math.max(0, discountPercentBill));
@@ -628,69 +647,55 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const paymentTermsLabel =
     TERMS_OPTIONS.find((t) => t.id === paymentTerms)?.label ?? "Same day";
 
-  /** Shared view-model for live HTML preview (mirrors pdf-lib PDF fields). */
-  const documentData: DocumentData = useMemo(
+  const previewPayload = useMemo(
     () => ({
-      kind: variant,
-      code: docCode || "DRAFT",
-      status: docStatus || "draft",
-      business: {
-        name: businessName,
-        email: businessEmail,
-        phone: businessPhone,
-      },
       customer: {
-        fullName: customer.fullName,
-        email: customer.email,
-        phone: toAuE164Phone(customer.phone) || customer.phone,
+        fullName: customer.fullName.trim(),
+        email: customer.email.trim(),
+        phone: toAuE164Phone(customer.phone),
       },
       address,
-      jobTitle,
-      jobDescription,
-      lineItems: lineItems.map(({ code, name, description, quantity, rate, discountPercent, applyGst }) => ({
-        code,
-        name,
-        description,
-        quantity,
-        rate,
-        discountPercent,
-        applyGst,
+      jobTitle: jobTitle.trim(),
+      jobDescription: jobDescription.trim(),
+      lineItems: lineItems.map((item) => ({
+        code: item.code,
+        name: item.name,
+        description: item.description,
+        quantity: item.quantity,
+        rate: item.rate,
+        discountPercent: item.discountPercent,
+        applyGst: item.applyGst,
       })),
       discountAud: cappedDiscount,
       gstEnabled,
       gstPercentage,
       gstPricing,
-      subtotalAud: Math.round(subtotal * 100) / 100,
-      gstAud: gstAmount,
-      totalAud: total,
-      depositRequested: variant === "quotation" && depositRequested && depositAud > 0,
-      depositMode,
-      depositValue,
-      depositAud,
-      balanceAud,
-      depositDueDate:
-        variant === "quotation" && depositRequested && depositAud > 0 ? depositDueDate : "",
-      paymentRecorded: variant === "invoice" && paymentRecorded && amountPaidAud > 0,
-      amountPaidAud,
-      balanceDueAud,
-      balanceDueDate:
-        variant === "invoice" && paymentRecorded && amountPaidAud > 0 && balanceDueAud > 0
-          ? balanceDueDate
-          : "",
       documentDate,
-      dueDate,
-      paymentTermsLabel,
-      terms,
-      comment,
+      paymentTermsId: paymentTerms,
+      terms: terms.trim(),
+      comment: comment.trim(),
+      ...(variant === "quotation"
+        ? {
+            depositRequested,
+            depositMode,
+            depositValue: depositRequested ? depositValue : 0,
+            depositAud,
+            balanceAud: depositRequested ? balanceAud : total,
+            depositDueDate: depositRequested ? depositDueDate : "",
+          }
+        : {
+            paymentRecorded,
+            amountPaidAud,
+            balanceDueAud: paymentRecorded ? balanceDueAud : total,
+            balanceDueDate:
+              paymentRecorded && amountPaidAud > 0 && balanceDueAud > 0 ? balanceDueDate : "",
+            ...(linkedQuotationId ? { quotationId: linkedQuotationId } : {}),
+          }),
     }),
     [
-      variant,
-      docCode,
-      docStatus,
-      businessName,
-      businessEmail,
-      businessPhone,
-      customer,
+      customer.fullName,
+      customer.email,
+      customer.phone,
       address,
       jobTitle,
       jobDescription,
@@ -699,26 +704,26 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       gstEnabled,
       gstPercentage,
       gstPricing,
-      subtotal,
-      gstAmount,
-      total,
+      documentDate,
+      paymentTerms,
+      terms,
+      comment,
+      variant,
       depositRequested,
       depositMode,
       depositValue,
       depositAud,
       balanceAud,
+      total,
       depositDueDate,
       paymentRecorded,
       amountPaidAud,
       balanceDueAud,
-      balanceDueDate,
-      documentDate,
-      dueDate,
-      paymentTermsLabel,
-      terms,
-      comment,
+      linkedQuotationId,
     ],
   );
+
+  const previewRefreshKey = useMemo(() => JSON.stringify(previewPayload), [previewPayload]);
 
   function startAddItem() {
     setItemDraft({
@@ -933,50 +938,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   }
 
   function collectPayload() {
-    return {
-      customer: {
-        fullName: customer.fullName.trim(),
-        email: customer.email.trim(),
-        phone: toAuE164Phone(customer.phone),
-      },
-      address,
-      jobTitle: jobTitle.trim(),
-      jobDescription: jobDescription.trim(),
-      lineItems: lineItems.map((item) => ({
-        code: item.code,
-        name: item.name,
-        description: item.description,
-        quantity: item.quantity,
-        rate: item.rate,
-        discountPercent: item.discountPercent,
-        applyGst: item.applyGst,
-      })),
-      discountAud: cappedDiscount,
-      gstEnabled,
-      gstPercentage,
-      gstPricing,
-      documentDate,
-      paymentTermsId: paymentTerms,
-      terms: terms.trim(),
-      comment: comment.trim(),
-      ...(variant === "quotation"
-        ? {
-            depositRequested,
-            depositMode,
-            depositValue: depositRequested ? depositValue : 0,
-            depositAud,
-            balanceAud: depositRequested ? balanceAud : total,
-            depositDueDate: depositRequested ? depositDueDate : "",
-          }
-        : {
-            paymentRecorded,
-            amountPaidAud,
-            balanceDueAud: paymentRecorded ? balanceDueAud : total,
-            balanceDueDate:
-              paymentRecorded && amountPaidAud > 0 && balanceDueAud > 0 ? balanceDueDate : "",
-            ...(linkedQuotationId ? { quotationId: linkedQuotationId } : {}),
-          }),
-    };
+    return previewPayload;
   }
 
   function attachSavedDocument(doc: SavedDocument) {
@@ -1077,7 +1039,39 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     }
   }
 
-  async function fetchLivePdfBlob(): Promise<Blob> {
+  const prefetchKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    preloadPdfJsWorker();
+  }, []);
+
+  // Warm the PDF cache while editing so Preview opens faster.
+  useEffect(() => {
+    if (tab === "preview") return;
+    const key = previewRefreshKey;
+    const payload = previewPayload;
+    if (prefetchKeyRef.current === key || getPdfPreviewCache(key)) {
+      prefetchKeyRef.current = key;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const blob = await fetchLivePdfBlob(payload);
+          const buffer = await blob.arrayBuffer();
+          setPdfPreviewCache(key, new Uint8Array(buffer));
+          prefetchKeyRef.current = key;
+        } catch {
+          // Ignore background prefetch failures.
+        }
+      })();
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [previewRefreshKey, previewPayload, tab]);
+
+  async function fetchLivePdfBlob(payload = previewPayload): Promise<Blob> {
     const { auth } = await import("@/lib/firebase");
     const user = auth.currentUser;
     if (!user) {
@@ -1091,7 +1085,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(collectPayload()),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       throw new Error(`Could not generate the ${config.docLabel.toLowerCase()} PDF.`);
@@ -1119,6 +1113,24 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       );
     } finally {
       setDownloadingPdf(false);
+    }
+  }
+
+  async function printPreviewPdf() {
+    if (printingPdf) return;
+    setPrintingPdf(true);
+    setError(null);
+    try {
+      const blob = await fetchLivePdfBlob();
+      printPdfBlob(blob);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Could not generate the ${config.docLabel.toLowerCase()} PDF.`,
+      );
+    } finally {
+      setPrintingPdf(false);
     }
   }
 
@@ -2021,35 +2033,34 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                   </>
                 )}
 
-                {tab === "preview" && (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-xs text-neutral-500">
-                        Live HTML preview of the document. The emailed PDF is generated with the
-                        same fields via pdf-lib.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => printDocumentPreview()}
-                          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100"
-                        >
-                          <i className="fas fa-print" />
-                          Print
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100">
-                      <div
-                        className="overflow-auto"
-                        style={{ maxHeight: "calc(100vh - 220px)", minHeight: 640 }}
-                      >
-                        <DocumentPreview data={documentData} />
-                      </div>
-                    </div>
+                <div
+                  className={tab === "preview" ? "-mx-2 flex flex-col gap-2 sm:-mx-0" : "hidden"}
+                  style={{ height: "calc(100vh - 240px)", minHeight: 520 }}
+                >
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-1">
+                    <p className="max-w-xl text-xs leading-relaxed text-neutral-500">
+                      This preview matches the PDF that will be generated when you save, including
+                      your business logo.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void printPreviewPdf()}
+                      disabled={printingPdf}
+                      className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <i className={`fas ${printingPdf ? "fa-spinner fa-spin" : "fa-print"}`} />
+                      {printingPdf ? "Preparing…" : "Print"}
+                    </button>
                   </div>
-                )}
+
+                  <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-neutral-200 shadow-sm">
+                    <DocumentPdfPreview
+                      active={tab === "preview"}
+                      refreshKey={previewRefreshKey}
+                      fetchPdf={() => fetchLivePdfBlob(previewPayload)}
+                    />
+                  </div>
+                </div>
 
                 {tab === "send" && (
                   <div className="space-y-4">
@@ -2180,8 +2191,18 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                     <div className="space-y-2 px-4 py-3 text-sm">
                       <div className="flex justify-between text-neutral-600">
                         <span>Subtotal</span>
-                        <span className="font-medium text-neutral-900">{formatAud(subtotal)}</span>
+                        <span className="font-medium text-neutral-900">
+                          {formatAud(itemDiscountTotal > 0 ? itemsGross : subtotal)}
+                        </span>
                       </div>
+                      {itemDiscountTotal > 0 ? (
+                        <div className="flex justify-between text-neutral-600">
+                          <span>Item discount</span>
+                          <span className="font-medium text-neutral-900">
+                            −{formatAud(itemDiscountTotal)}
+                          </span>
+                        </div>
+                      ) : null}
                       <div className="flex items-center justify-between gap-2 text-neutral-600">
                         <span>Discount</span>
                         <div className="flex items-center gap-2">

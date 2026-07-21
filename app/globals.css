@@ -595,6 +595,11 @@ button[data-support-chat-launcher] .support-btn-label {
 
 /* Print: hide chrome; show only the live HTML document preview */
 @media print {
+  /* Zero page margin suppresses Chrome/Edge URL headers & footers on HTML print. */
+  @page {
+    margin: 0;
+  }
+
   body.printing-document * {
     visibility: hidden !important;
   }

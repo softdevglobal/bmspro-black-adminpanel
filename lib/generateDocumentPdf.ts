@@ -6,6 +6,8 @@ import {
   documentAddressLine,
   documentBusinessContact,
   documentGstTaxableBase,
+  documentItemDiscountTotalAud,
+  documentItemsGrossAud,
   documentLineDiscountAud,
   documentLineNet,
   formatDocumentAud,
@@ -516,9 +518,18 @@ function drawItemsTable(ctx: DrawCtx, data: DocumentData) {
 function drawTotals(ctx: DrawCtx, data: DocumentData) {
   const meta = DOCUMENT_KIND_META[data.kind];
   const boxW = 220;
+  const itemDiscountAud = documentItemDiscountTotalAud(data.lineItems);
+  const subtotalDisplay =
+    itemDiscountAud > 0 ? documentItemsGrossAud(data.lineItems) : data.subtotalAud;
   const rows: { label: string; value: string; strong?: boolean }[] = [
-    { label: "Subtotal", value: formatDocumentAud(data.subtotalAud) },
+    { label: "Subtotal", value: formatDocumentAud(subtotalDisplay) },
   ];
+  if (itemDiscountAud > 0) {
+    rows.push({
+      label: "Item discount",
+      value: `-${formatDocumentAud(itemDiscountAud)}`,
+    });
+  }
   if (data.discountAud > 0) {
     rows.push({ label: "Discount", value: `-${formatDocumentAud(data.discountAud)}` });
   }

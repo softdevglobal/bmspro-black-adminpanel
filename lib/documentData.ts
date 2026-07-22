@@ -115,12 +115,32 @@ export function formatDocumentDateHuman(iso: string): string {
   });
 }
 
+export function documentLineGross(item: DocumentLineItem): number {
+  return Math.round(item.quantity * item.rate * 100) / 100;
+}
+
 export function documentLineNet(item: DocumentLineItem): number {
   return Math.round(item.quantity * item.rate * (1 - item.discountPercent / 100) * 100) / 100;
 }
 
 export function documentLineDiscountAud(item: DocumentLineItem): number {
   return Math.round(item.quantity * item.rate * (item.discountPercent / 100) * 100) / 100;
+}
+
+/** Sum of qty × rate before item discounts (display Subtotal when discounts apply). */
+export function documentItemsGrossAud(lineItems: DocumentLineItem[]): number {
+  return (
+    Math.round(lineItems.reduce((sum, item) => sum + documentLineGross(item), 0) * 100) / 100
+  );
+}
+
+/** Total reduction from line-item discountPercent values. */
+export function documentItemDiscountTotalAud(lineItems: DocumentLineItem[]): number {
+  return (
+    Math.round(
+      lineItems.reduce((sum, item) => sum + documentLineDiscountAud(item), 0) * 100,
+    ) / 100
+  );
 }
 
 export function documentAddressLine(address: DocumentData["address"]): string {

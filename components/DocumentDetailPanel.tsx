@@ -76,6 +76,21 @@ function formatAud(value?: number): string {
   return `AU$ ${(value ?? 0).toFixed(2)}`;
 }
 
+function lineItemDiscountAud(item: {
+  quantity?: number;
+  rate?: number;
+  discountPercent?: number;
+}): number {
+  const qty = item.quantity ?? 0;
+  const rate = item.rate ?? 0;
+  const disc = item.discountPercent ?? 0;
+  return Math.round(qty * rate * (disc / 100) * 100) / 100;
+}
+
+function lineItemGrossAud(item: { quantity?: number; rate?: number }): number {
+  return Math.round((item.quantity ?? 0) * (item.rate ?? 0) * 100) / 100;
+}
+
 function formatWhen(ms?: number | null): string {
   if (!ms) return "—";
   return new Date(ms).toLocaleString("en-AU", {
@@ -294,6 +309,17 @@ export default function DocumentDetailPanel({
     .filter(Boolean)
     .join(", ");
 
+  const itemDiscountAud = (doc?.lineItems ?? []).reduce(
+    (sum, item) => sum + lineItemDiscountAud(item),
+    0,
+  );
+  const itemsGrossAud = (doc?.lineItems ?? []).reduce(
+    (sum, item) => sum + lineItemGrossAud(item),
+    0,
+  );
+  const subtotalDisplay =
+    itemDiscountAud > 0 ? itemsGrossAud : (doc?.subtotalAud ?? 0);
+
   const isPaid =
     variant === "invoice" &&
     doc?.paymentRecorded === true &&
@@ -452,7 +478,13 @@ export default function DocumentDetailPanel({
                   </ul>
                 )}
                 <div className="mt-3 space-y-1 border-t border-neutral-100 pt-3">
-                  <DetailRow label="Subtotal" value={formatAud(doc.subtotalAud)} />
+                  <DetailRow label="Subtotal" value={formatAud(subtotalDisplay)} />
+                  {itemDiscountAud > 0 && (
+                    <DetailRow
+                      label="Item discount"
+                      value={`− ${formatAud(itemDiscountAud)}`}
+                    />
+                  )}
                   {(doc.discountAud ?? 0) > 0 && (
                     <DetailRow label="Discount" value={`− ${formatAud(doc.discountAud)}`} />
                   )}

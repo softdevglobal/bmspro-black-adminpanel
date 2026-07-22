@@ -4,6 +4,11 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { parseBusinessSmsFields } from "@/lib/sms-packages/balance";
 import {
+  buildTenantSmsFields,
+  buildTenantSmsRenewalFields,
+  type PlanWithSmsPackageId,
+} from "@/lib/sms-packages/bundled";
+import {
   SMS_PACKAGES_COLLECTION,
   type CreateSmsPackageInput,
   type SmsPackage,
@@ -242,4 +247,93 @@ export function isStripeConfiguredForSms(): boolean {
 
 export function isDirectSmsTopUpAllowed(): boolean {
   return !isStripeConfiguredForSms();
+}
+
+/**
+ * Resolve the active SMS package linked to a subscription plan.
+ * Returns null when the plan has no smsPackageId or the package is missing/inactive.
+ */
+export async function resolveSmsPackageForPlan(
+  plan: PlanWithSmsPackageId | Record<string, unknown> | null | undefined,
+): Promise<SmsPackage | null> {
+  const packageId =
+    plan && typeof (plan as PlanWithSmsPackageId).smsPackageId === "string"
+      ? String((plan as PlanWithSmsPackageId).smsPackageId).trim()
+      : "";
+  if (!packageId) return null;
+
+  const pkg = await getSmsPackage(packageId);
+  if (!pkg || !pkg.active) return null;
+  return pkg;
+}
+
+/** First-grant SMS fields for a plan, or null when there is nothing to grant. */
+export async function buildBundledSmsGrantFields(
+  plan: PlanWithSmsPackageId | Record<string, unknown> | null | undefined,
+  options?: { subscriptionValidityDays?: number; now?: Date },
+): Promise<Record<string, unknown> | null> {
+  const pkg = await resolveSmsPackageForPlan(plan);
+  if (!pkg) return null;
+  return buildTenantSmsFields(pkg, options);
+}
+
+/** Renewal/plan-change SMS fields, or null when the plan has no active bundled package. */
+export async function buildBundledSmsRenewalFields(
+  plan: PlanWithSmsPackageId | Record<string, unknown> | null | undefined,
+  tenantData: Record<string, unknown> | undefined | null,
+  options?: { periodEndMs?: number | null; now?: Date },
+): Promise<Record<string, unknown> | null> {
+  const pkg = await resolveSmsPackageForPlan(plan);
+  if (!pkg) return null;
+  return buildTenantSmsRenewalFields(pkg, tenantData, options);
+}
+
+/** Attach bundled SMS package snapshots onto plan list rows for admin UI. */
+export async function enrichPlansWithBundledSms<T extends { smsPackageId?: string | null }>(
+  plans: T[],
+): Promise<
+  Array<
+    T & {
+      bundledSmsPackage: {
+        id: string;
+        name: string;
+        messageQuota: number;
+        active: boolean;
+        hidden: boolean;
+      } | null;
+    }
+  >
+> {
+  const ids = Array.from(
+    new Set(
+      plans
+        .map((p) => (typeof p.smsPackageId === "string" ? p.smsPackageId.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+
+  const byId = new Map<string, SmsPackage>();
+  await Promise.all(
+    ids.map(async (id) => {
+      const pkg = await getSmsPackage(id);
+      if (pkg) byId.set(id, pkg);
+    }),
+  );
+
+  return plans.map((plan) => {
+    const id = typeof plan.smsPackageId === "string" ? plan.smsPackageId.trim() : "";
+    const pkg = id ? byId.get(id) : undefined;
+    return {
+      ...plan,
+      bundledSmsPackage: pkg
+        ? {
+            id: pkg.id,
+            name: pkg.name,
+            messageQuota: pkg.messageQuota,
+            active: pkg.active,
+            hidden: pkg.hidden,
+          }
+        : null,
+    };
+  });
 }

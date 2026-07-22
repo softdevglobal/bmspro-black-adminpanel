@@ -8,7 +8,11 @@ import { initializeApp, getApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary, onAuthStateChanged } from "firebase/auth";
 import { TIMEZONES } from "@/lib/timezone";
 import { generateUniqueSlug } from "@/lib/slug";
-import { billingCycleCardLabel } from "@/lib/subscriptionPlans";
+import { billingCycleCardLabel, planValidityDays } from "@/lib/subscriptionPlans";
+import {
+  buildTenantSmsFields,
+  buildTenantSmsRenewalFields,
+} from "@/lib/sms-packages/bundled";
 import { 
   logTenantOnboarded, 
   logTenantDetailsUpdated, 
@@ -154,6 +158,14 @@ export default function TenantsPage() {
     plan_key?: string;
     billingCycle?: string;
     validityDays?: number;
+    smsPackageId?: string | null;
+    bundledSmsPackage?: {
+      id: string;
+      name: string;
+      messageQuota: number;
+      active: boolean;
+      hidden: boolean;
+    } | null;
   }>>([]);
   const [packagesLoading, setPackagesLoading] = useState(true);
   // Onboarding form (minimal fields to persist)
@@ -355,6 +367,25 @@ export default function TenantsPage() {
       // If free trial: user starts active and can use system without card details
       // If no trial: user must enter payment details to activate
       const newTenantRef = doc(db, "users", ownerUid);
+      const validityDays = planValidityDays(selectedPackage);
+      const bundled = selectedPackage.bundledSmsPackage;
+      const smsGrantFields =
+        bundled && bundled.active
+          ? buildTenantSmsFields(
+              {
+                id: bundled.id,
+                name: bundled.name,
+                price: 0,
+                priceLabel: "",
+                messageQuota: bundled.messageQuota,
+                features: [],
+                active: bundled.active,
+                hidden: bundled.hidden,
+              },
+              { subscriptionValidityDays: validityDays, now },
+            )
+          : {};
+
       await setDoc(newTenantRef, {
         // user identity fields
         email: trimmedEmail,
@@ -394,6 +425,7 @@ export default function TenantsPage() {
         contactPhone: formPhone.trim() || null,
         businessStructure: formStructure || null,
         gstRegistered: formGst,
+        ...smsGrantFields,
         // timestamps
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -1840,6 +1872,34 @@ onClick={async () => {
                                             plan: editPlan || null,
                                             price: editPrice || null,
                                           };
+
+                                      const planChanged =
+                                        !!selectedPkg &&
+                                        selectedPkg.id !== (tenantData as any)?.planId;
+                                      const bundled = selectedPkg?.bundledSmsPackage;
+                                      if (
+                                        planChanged &&
+                                        selectedPkg &&
+                                        bundled &&
+                                        bundled.active
+                                      ) {
+                                        Object.assign(
+                                          planFields,
+                                          buildTenantSmsRenewalFields(
+                                            {
+                                              id: bundled.id,
+                                              name: bundled.name,
+                                              price: 0,
+                                              priceLabel: "",
+                                              messageQuota: bundled.messageQuota,
+                                              features: [],
+                                              active: bundled.active,
+                                              hidden: bundled.hidden,
+                                            },
+                                            (tenantData as Record<string, unknown>) || null,
+                                          ),
+                                        );
+                                      }
 
                                       await updateDoc(doc(db, "users", editTenantId), {
                                         name: editName.trim(),

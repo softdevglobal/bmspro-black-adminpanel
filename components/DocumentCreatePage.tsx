@@ -201,6 +201,21 @@ function parseNum(value: string): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/** Keep raw decimal text while typing (allows "10." / "10.50") so cents aren't stripped. */
+function sanitizeDecimalInput(value: string): string {
+  let cleaned = (value || "").replace(/[^\d.]/g, "");
+  const dot = cleaned.indexOf(".");
+  if (dot !== -1) {
+    cleaned = cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, "");
+  }
+  return cleaned;
+}
+
+function moneyInputFromNumber(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "";
+  return String(value);
+}
+
 /** Local AU digits for the +61 input (strips country code / leading zeros). */
 function toAuLocalPhone(value: string): string {
   let digits = value.replace(/\D/g, "");
@@ -294,10 +309,10 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
   const [gstPricing, setGstPricing] = useState<GstPricing>("exclusive");
   const [depositRequested, setDepositRequested] = useState(false);
   const [depositMode, setDepositMode] = useState<"value" | "percent">("percent");
-  const [depositValue, setDepositValue] = useState(0);
+  const [depositValue, setDepositValue] = useState("");
   const [depositDueDate, setDepositDueDate] = useState(todayIso());
   const [paymentRecorded, setPaymentRecorded] = useState(false);
-  const [amountPaidInput, setAmountPaidInput] = useState(0);
+  const [amountPaidInput, setAmountPaidInput] = useState("");
   const [balanceDueDate, setBalanceDueDate] = useState(todayIso());
 
   const [businessName, setBusinessName] = useState("Your business");
@@ -360,11 +375,13 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       setDepositRequested(doc.depositRequested === true);
       setDepositMode(doc.depositMode === "value" ? "value" : "percent");
       setDepositValue(
-        typeof doc.depositValue === "number"
-          ? doc.depositValue
-          : typeof doc.depositAud === "number"
-            ? doc.depositAud
-            : 0,
+        moneyInputFromNumber(
+          typeof doc.depositValue === "number"
+            ? doc.depositValue
+            : typeof doc.depositAud === "number"
+              ? doc.depositAud
+              : 0,
+        ),
       );
       setDepositDueDate(
         doc.depositDueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.depositDueDate)
@@ -374,7 +391,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
             : todayIso(),
       );
       setPaymentRecorded(false);
-      setAmountPaidInput(0);
+      setAmountPaidInput("");
       setBalanceDueDate(todayIso());
       setLinkedInvoiceId(doc.invoiceId ?? null);
       setLinkedInvoiceCode(doc.invoiceCode ?? null);
@@ -382,12 +399,14 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       setLinkedQuotationCode(null);
     } else {
       setDepositRequested(false);
-      setDepositValue(0);
+      setDepositValue("");
       setDepositDueDate(todayIso());
       if (variant === "invoice" && !importAsInvoice) {
         setPaymentRecorded(doc.paymentRecorded === true);
         setAmountPaidInput(
-          typeof doc.amountPaidAud === "number" ? doc.amountPaidAud : 0,
+          moneyInputFromNumber(
+            typeof doc.amountPaidAud === "number" ? doc.amountPaidAud : 0,
+          ),
         );
         setBalanceDueDate(
           doc.balanceDueDate && /^\d{4}-\d{2}-\d{2}$/.test(doc.balanceDueDate)
@@ -398,7 +417,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
         );
       } else {
         setPaymentRecorded(false);
-        setAmountPaidInput(0);
+        setAmountPaidInput("");
         setBalanceDueDate(todayIso());
       }
       if (importAsInvoice) {
@@ -620,14 +639,17 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     return Math.round((net + gstAmount) * 100) / 100;
   }, [subtotal, cappedDiscount, gstEnabled, gstPricing, gstAmount]);
 
+  const depositAmount = useMemo(() => parseNum(depositValue), [depositValue]);
+  const amountPaidAmount = useMemo(() => parseNum(amountPaidInput), [amountPaidInput]);
+
   const depositAud = useMemo(() => {
     if (variant !== "quotation" || !depositRequested) return 0;
     if (depositMode === "percent") {
-      const pct = Math.min(100, Math.max(0, depositValue));
+      const pct = Math.min(100, Math.max(0, depositAmount));
       return Math.min(total, Math.round(total * (pct / 100) * 100) / 100);
     }
-    return Math.min(total, Math.max(0, Math.round(depositValue * 100) / 100));
-  }, [variant, depositRequested, depositMode, depositValue, total]);
+    return Math.min(total, Math.max(0, Math.round(depositAmount * 100) / 100));
+  }, [variant, depositRequested, depositMode, depositAmount, total]);
 
   const balanceAud = useMemo(
     () => Math.max(0, Math.round((total - depositAud) * 100) / 100),
@@ -636,8 +658,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
 
   const amountPaidAud = useMemo(() => {
     if (variant !== "invoice" || !paymentRecorded) return 0;
-    return Math.min(total, Math.max(0, Math.round(amountPaidInput * 100) / 100));
-  }, [variant, paymentRecorded, amountPaidInput, total]);
+    return Math.min(total, Math.max(0, Math.round(amountPaidAmount * 100) / 100));
+  }, [variant, paymentRecorded, amountPaidAmount, total]);
 
   const balanceDueAud = useMemo(
     () => Math.max(0, Math.round((total - amountPaidAud) * 100) / 100),
@@ -678,7 +700,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
         ? {
             depositRequested,
             depositMode,
-            depositValue: depositRequested ? depositValue : 0,
+            depositValue: depositRequested ? depositAmount : 0,
             depositAud,
             balanceAud: depositRequested ? balanceAud : total,
             depositDueDate: depositRequested ? depositDueDate : "",
@@ -711,7 +733,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
       variant,
       depositRequested,
       depositMode,
-      depositValue,
+      depositAmount,
       depositAud,
       balanceAud,
       total,
@@ -911,10 +933,10 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     if (total <= 0) return "The total must be greater than zero.";
 
     if (variant === "quotation" && depositRequested) {
-      if (depositValue < 0) return "Deposit cannot be negative.";
+      if (depositAmount < 0) return "Deposit cannot be negative.";
       if (depositMode === "percent") {
-        if (depositValue > 100) return "Deposit cannot exceed 100%.";
-      } else if (depositValue > total) {
+        if (depositAmount > 100) return "Deposit cannot exceed 100%.";
+      } else if (depositAmount > total) {
         return "Deposit cannot exceed the quotation total.";
       }
       if (depositAud <= 0) return "Enter a deposit greater than zero, or turn off the deposit request.";
@@ -924,8 +946,8 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
     }
 
     if (variant === "invoice" && paymentRecorded) {
-      if (amountPaidInput < 0) return "Amount paid cannot be negative.";
-      if (amountPaidInput > total) return "Amount paid cannot exceed the invoice total.";
+      if (amountPaidAmount < 0) return "Amount paid cannot be negative.";
+      if (amountPaidAmount > total) return "Amount paid cannot exceed the invoice total.";
       if (amountPaidAud <= 0) {
         return "Enter an amount paid greater than zero, or turn off record payment.";
       }
@@ -2427,9 +2449,9 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                       <input
                                         type="text"
                                         inputMode="decimal"
-                                        value={depositValue || ""}
+                                        value={depositValue}
                                         onChange={(e) =>
-                                          setDepositValue(Math.min(100, parseNum(e.target.value)))
+                                          setDepositValue(sanitizeDecimalInput(e.target.value))
                                         }
                                         placeholder="0"
                                         className="w-full rounded-lg border border-neutral-300 bg-white px-2 py-1 pr-6 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
@@ -2442,8 +2464,10 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                     <input
                                       type="text"
                                       inputMode="decimal"
-                                      value={depositValue || ""}
-                                      onChange={(e) => setDepositValue(parseNum(e.target.value))}
+                                      value={depositValue}
+                                      onChange={(e) =>
+                                        setDepositValue(sanitizeDecimalInput(e.target.value))
+                                      }
                                       placeholder="0.00"
                                       className="w-24 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
                                     />
@@ -2466,7 +2490,7 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                   <span>
                                     Deposit requested
                                     {depositMode === "percent"
-                                      ? ` (${Math.min(100, depositValue)}%)`
+                                      ? ` (${Math.min(100, depositAmount)}%)`
                                       : ""}
                                   </span>
                                   <span className="font-medium text-neutral-900">
@@ -2544,8 +2568,10 @@ export default function DocumentCreatePage({ variant }: { variant: Variant }) {
                                 <input
                                   type="text"
                                   inputMode="decimal"
-                                  value={amountPaidInput || ""}
-                                  onChange={(e) => setAmountPaidInput(parseNum(e.target.value))}
+                                  value={amountPaidInput}
+                                  onChange={(e) =>
+                                    setAmountPaidInput(sanitizeDecimalInput(e.target.value))
+                                  }
                                   placeholder="0.00"
                                   className="w-28 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-right text-sm text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent outline-none"
                                 />

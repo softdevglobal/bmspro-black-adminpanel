@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { verifyAdminAuth } from "@/lib/authHelpers";
 import { planValidityDays } from "@/lib/subscriptionPlans";
+import { buildBundledSmsRenewalFields } from "@/lib/sms-packages/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 export const runtime = "nodejs";
@@ -202,6 +203,19 @@ export async function POST(req: NextRequest) {
       staffLimit: newPlanData.staff ?? -1,
       updatedAt: Timestamp.now(),
     };
+
+    try {
+      const smsFields = await buildBundledSmsRenewalFields(newPlanData, userData_db, {
+        periodEndMs: periodEndUnix
+          ? Math.floor(Number(periodEndUnix)) * 1000
+          : null,
+      });
+      if (smsFields) {
+        Object.assign(updateData, smsFields);
+      }
+    } catch (smsErr) {
+      console.warn("[BILLING UPGRADE] Bundled SMS renewal skipped:", smsErr);
+    }
 
     await db.collection("users").doc(userId).update(updateData);
 

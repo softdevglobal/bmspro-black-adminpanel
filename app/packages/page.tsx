@@ -9,6 +9,14 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage
 import { logTenantPlanChanged } from "@/lib/auditLog";
 import { billingCycleCardLabel } from "@/lib/subscriptionPlans";
 
+type BundledSmsPackage = {
+  id: string;
+  name: string;
+  messageQuota: number;
+  active: boolean;
+  hidden: boolean;
+};
+
 type SubscriptionPlan = {
   id: string;
   name: string;
@@ -28,6 +36,17 @@ type SubscriptionPlan = {
   plan_key?: string;
   billingCycle?: "weekly" | "monthly";
   validityDays?: number;
+  smsPackageId?: string | null;
+  bundledSmsPackage?: BundledSmsPackage | null;
+};
+
+type SmsPackageOption = {
+  id: string;
+  name: string;
+  messageQuota: number;
+  active: boolean;
+  hidden: boolean;
+  priceLabel?: string;
 };
 
 export default function PackagesPage() {
@@ -36,6 +55,7 @@ export default function PackagesPage() {
   const [loading, setLoading] = useState(true);
   const [packagesLoading, setPackagesLoading] = useState(true);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [smsPackages, setSmsPackages] = useState<SmsPackageOption[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -50,6 +70,12 @@ export default function PackagesPage() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [syncResultModal, setSyncResultModal] = useState<{
+    title: string;
+    message: string;
+    syncedCount: number;
+    smsUpdatedCount: number;
+  } | null>(null);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -70,6 +96,7 @@ export default function PackagesPage() {
     trialDays: "0",
     plan_key: "",
     billingCycle: "monthly" as "weekly" | "monthly",
+    smsPackageId: "",
   });
 
   useEffect(() => {
@@ -113,19 +140,38 @@ export default function PackagesPage() {
       try {
         setPackagesLoading(true);
         const token = await auth.currentUser?.getIdToken();
-        const response = await fetch("/api/packages", {
-          headers: {
-            "Authorization": `Bearer ${token}`,
-          },
-        });
+        const [plansResponse, smsResponse] = await Promise.all([
+          fetch("/api/packages", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch("/api/sms-packages", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
         
-        if (response.ok) {
-          const data = await response.json();
+        if (plansResponse.ok) {
+          const data = await plansResponse.json();
           if (data.success) {
             setPlans(data.plans || []);
           }
         } else {
           console.error("Failed to fetch packages");
+        }
+
+        if (smsResponse.ok) {
+          const smsData = await smsResponse.json();
+          if (smsData.ok !== false) {
+            setSmsPackages(
+              (smsData.packages || []).map((pkg: any) => ({
+                id: pkg.id,
+                name: pkg.name,
+                messageQuota: Number(pkg.messageQuota ?? 0),
+                active: pkg.active !== false,
+                hidden: pkg.hidden === true,
+                priceLabel: pkg.priceLabel,
+              })),
+            );
+          }
         }
       } catch (error) {
         console.error("Error fetching packages:", error);
@@ -246,6 +292,7 @@ export default function PackagesPage() {
       trialDays: "0",
       plan_key: "",
       billingCycle: "monthly",
+      smsPackageId: "",
     });
     setImageFile(null);
     setImagePreview(null);
@@ -275,6 +322,7 @@ export default function PackagesPage() {
       trialDays: (pkg.trialDays || 0).toString(),
       plan_key: pkg.plan_key || "",
       billingCycle: cyl,
+      smsPackageId: pkg.smsPackageId || "",
     });
     setImageFile(null);
     setImagePreview(pkg.image || null);
@@ -347,6 +395,7 @@ export default function PackagesPage() {
         trialDays: parseInt(formData.trialDays, 10) || 0,
         plan_key: formData.plan_key.trim() || undefined,
         billingCycle: formData.billingCycle,
+        smsPackageId: formData.smsPackageId.trim() || null,
       };
 
       const url = editingPackage ? "/api/packages" : "/api/packages";
@@ -374,11 +423,34 @@ export default function PackagesPage() {
             setPlans(refreshData.plans || []);
           }
         }
-        
+
+        const wasEditing = !!editingPackage;
+        const syncedCount = Number(data.tenantSync?.syncedCount ?? 0);
+        const smsUpdatedCount = Number(data.tenantSync?.smsUpdatedCount ?? 0);
+
         setShowPackageForm(false);
         setEditingPackage(null);
         setImageFile(null);
         setImagePreview(null);
+
+        if (wasEditing) {
+          setSyncResultModal({
+            title: "Package updated",
+            message:
+              syncedCount > 0
+                ? "Plan changes were saved and applied to workshops on this plan."
+                : "Plan changes were saved. No workshops are currently on this plan.",
+            syncedCount,
+            smsUpdatedCount,
+          });
+        } else {
+          setSyncResultModal({
+            title: "Package created",
+            message: "Your new subscription plan is ready.",
+            syncedCount: 0,
+            smsUpdatedCount: 0,
+          });
+        }
       } else {
         alert(`Failed to ${editingPackage ? "update" : "create"} package: ${data.error}`);
       }
@@ -647,6 +719,21 @@ export default function PackagesPage() {
                                   {plan.staff === -1 ? "Unlimited" : plan.staff} Staff
                                 </span>
                               </div>
+                              {plan.bundledSmsPackage ? (
+                                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-sky-50 border border-sky-200 px-3 py-1 text-[11px] font-semibold text-sky-800">
+                                  <i className="fas fa-comment-sms text-[9px]" />
+                                  {plan.bundledSmsPackage.name}
+                                  {" · "}
+                                  {plan.bundledSmsPackage.messageQuota < 0
+                                    ? "Unlimited SMS"
+                                    : `${plan.bundledSmsPackage.messageQuota.toLocaleString()} SMS`}
+                                  {!plan.bundledSmsPackage.active && " (inactive)"}
+                                </p>
+                              ) : plan.smsPackageId ? (
+                                <p className="mt-3 text-[11px] font-medium text-amber-700">
+                                  Bundled SMS package missing
+                                </p>
+                              ) : null}
                             </div>
                             
                             {/* Divider */}
@@ -774,6 +861,8 @@ export default function PackagesPage() {
                 ];
                 const selectedColor = colorOptions.find(c => c.value === formData.color) || colorOptions[0];
                 const previewFeatures = formData.features.split("\n").map(f => f.trim()).filter(f => f.length > 0);
+                const selectedSmsPackage =
+                  smsPackages.find((pkg) => pkg.id === formData.smsPackageId) || null;
 
                 return (
                 <div className="fixed inset-0 z-50">
@@ -1099,6 +1188,61 @@ export default function PackagesPage() {
                                   </div>
                                 </div>
 
+                                <div>
+                                  <label className="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                                    Bundled SMS package
+                                  </label>
+                                  <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none">
+                                      <i className="fas fa-comment-sms text-neutral-400 text-sm" />
+                                    </div>
+                                    <select
+                                      value={formData.smsPackageId}
+                                      onChange={(e) =>
+                                        setFormData({ ...formData, smsPackageId: e.target.value })
+                                      }
+                                      className="w-full appearance-none pl-10 pr-10 py-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all text-sm font-medium"
+                                    >
+                                      <option value="">No bundled SMS package</option>
+                                      {smsPackages.map((pkg) => (
+                                        <option key={pkg.id} value={pkg.id}>
+                                          {pkg.name} ·{" "}
+                                          {pkg.messageQuota < 0
+                                            ? "Unlimited"
+                                            : `${pkg.messageQuota.toLocaleString()} SMS`}
+                                          {!pkg.active ? " (inactive)" : ""}
+                                          {pkg.hidden ? " (hidden)" : ""}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <i className="fas fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none text-xs" />
+                                  </div>
+                                  <p className="mt-2 text-[11px] text-neutral-500">
+                                    Granted at onboard and renewed with the billing period. Top-ups stay
+                                    above this bundle.
+                                  </p>
+                                  {selectedSmsPackage && (
+                                    <p className="mt-1.5 text-[11px] font-medium text-neutral-700">
+                                      Selected: {selectedSmsPackage.name} (
+                                      {selectedSmsPackage.messageQuota < 0
+                                        ? "Unlimited"
+                                        : `${selectedSmsPackage.messageQuota.toLocaleString()} messages`}
+                                      )
+                                      {!selectedSmsPackage.active && (
+                                        <span className="text-amber-700">
+                                          {" "}
+                                          — inactive packages are not granted until reactivated
+                                        </span>
+                                      )}
+                                    </p>
+                                  )}
+                                  {smsPackages.length === 0 && (
+                                    <p className="mt-1.5 text-[11px] text-amber-700">
+                                      No SMS packages found. Create one under SMS Packages first.
+                                    </p>
+                                  )}
+                                </div>
+
                               </div>
                             </div>
 
@@ -1394,6 +1538,15 @@ export default function PackagesPage() {
                                       <i className="fas fa-gift text-[8px]" />{formData.trialDays}-day free trial
                                     </p>
                                   )}
+                                  {selectedSmsPackage && (
+                                    <p className="text-[10px] text-sky-700 font-semibold mt-2 bg-sky-50 border border-sky-200 px-3 py-1 rounded-full inline-flex items-center gap-1">
+                                      <i className="fas fa-comment-sms text-[8px]" />
+                                      {selectedSmsPackage.name} ·{" "}
+                                      {selectedSmsPackage.messageQuota < 0
+                                        ? "Unlimited SMS"
+                                        : `${selectedSmsPackage.messageQuota.toLocaleString()} SMS`}
+                                    </p>
+                                  )}
                                 </div>
 
                                 <div className="h-px bg-gradient-to-r from-transparent via-neutral-200 to-transparent mb-4" />
@@ -1446,6 +1599,21 @@ export default function PackagesPage() {
                                     {formData.billingCycle === "weekly"
                                       ? "7-day cycle"
                                       : "28-day cycle"}
+                                  </span>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2.5 text-[11px]">
+                                <div className={`w-2 h-2 rounded-full ${selectedSmsPackage ? "bg-sky-500" : "bg-neutral-300"}`} />
+                                <span className="text-neutral-500">
+                                  Bundled SMS:{" "}
+                                  <span className="font-semibold text-neutral-800">
+                                    {selectedSmsPackage
+                                      ? `${selectedSmsPackage.name} (${
+                                          selectedSmsPackage.messageQuota < 0
+                                            ? "Unlimited"
+                                            : selectedSmsPackage.messageQuota.toLocaleString()
+                                        })`
+                                      : "None"}
                                   </span>
                                 </span>
                               </div>
@@ -1504,6 +1672,86 @@ export default function PackagesPage() {
                 </div>
                 );
               })()}
+
+              {/* Package sync / save result modal */}
+              {syncResultModal && (
+                <div className="fixed inset-0 z-[60]">
+                  <div
+                    className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+                    onClick={() => setSyncResultModal(null)}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                      <div className="p-6 border-b border-neutral-200">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                            <i className="fas fa-check text-emerald-600 text-xl" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-neutral-900">
+                              {syncResultModal.title}
+                            </h3>
+                            <p className="text-sm text-neutral-500">{syncResultModal.message}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-6 space-y-3">
+                        <div className="bg-neutral-50 rounded-xl border border-neutral-200 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-neutral-900 text-white flex items-center justify-center">
+                                <i className="fas fa-building text-xs" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-neutral-900">
+                                  Workshops synced
+                                </p>
+                                <p className="text-xs text-neutral-500">
+                                  Plan limits applied to all workshops on this plan
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-lg font-bold text-neutral-900">
+                              {syncResultModal.syncedCount}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-sky-50 rounded-xl border border-sky-200 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center">
+                                <i className="fas fa-comment-sms text-xs" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-neutral-900">
+                                  Bundled SMS updated
+                                </p>
+                                <p className="text-xs text-neutral-500">
+                                  Works for one or many workshops on this plan
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-lg font-bold text-neutral-900">
+                              {syncResultModal.smsUpdatedCount}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-6 border-t border-neutral-200 flex items-center justify-end">
+                        <button
+                          onClick={() => setSyncResultModal(null)}
+                          className="px-6 py-2.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-sm font-semibold transition-all shadow-lg shadow-neutral-900/20"
+                        >
+                          OK
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Delete Confirmation Modal */}
               {deletingPackage && (

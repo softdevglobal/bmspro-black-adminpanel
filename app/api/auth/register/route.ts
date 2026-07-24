@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { buildBundledSmsGrantFields } from "@/lib/sms-packages/server";
+import { planValidityDays } from "@/lib/subscriptionPlans";
 
 export const runtime = "nodejs";
 
@@ -142,6 +144,25 @@ export async function POST(req: NextRequest) {
       ? `${address}${postcode ? ` ${postcode}` : ""}`
       : null;
 
+    // Load plan for limits + optional bundled SMS grant
+    let planDocData: FirebaseFirestore.DocumentData | null = null;
+    try {
+      const planSnap = await db.collection("subscription_plans").doc(String(planId)).get();
+      if (planSnap.exists) {
+        planDocData = planSnap.data() || null;
+      }
+    } catch (planErr) {
+      console.warn("[/api/auth/register] Could not load plan for SMS grant:", planErr);
+    }
+
+    const validityDays = planDocData ? planValidityDays(planDocData) : 28;
+    const smsGrantFields = planDocData
+      ? await buildBundledSmsGrantFields(planDocData, {
+          subscriptionValidityDays: validityDays,
+          now,
+        })
+      : null;
+
     const docData: Record<string, any> = {
       email: trimmedEmail,
       displayName: ownerName?.trim() || businessName.trim(),
@@ -159,14 +180,14 @@ export async function POST(req: NextRequest) {
       timezone: timezone || "Australia/Sydney",
       locationText,
       contactPhone: phone?.trim() || null,
-      plan: planName || null,
-      price: planPrice || null,
+      plan: planName || planDocData?.name || null,
+      price: planPrice || planDocData?.priceLabel || null,
       planId: planId || null,
-      plan_key: planKey || null,
-      branchLimit: planBranches ?? 0,
+      plan_key: planKey || planDocData?.plan_key || null,
+      branchLimit: planBranches ?? planDocData?.branches ?? 0,
       currentBranchCount: 0,
       branchNames: [],
-      staffLimit: planStaff ?? 0,
+      staffLimit: planStaff ?? planDocData?.staff ?? 0,
       currentStaffCount: 0,
       status: hasFreeTrial ? "Free Trial Active" : "Pending Payment",
       accountStatus: hasFreeTrial ? "active_trial" : "pending_payment",
@@ -180,6 +201,7 @@ export async function POST(req: NextRequest) {
       signupSource: "self_registration",
       createdAt: now,
       updatedAt: now,
+      ...(smsGrantFields ?? {}),
     };
 
     await db.doc(`users/${uid}`).set(docData);

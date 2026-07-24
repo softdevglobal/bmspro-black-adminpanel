@@ -8,6 +8,7 @@ import {
   listSmsPackages,
   updateSmsPackage,
 } from "@/lib/sms-packages/server";
+import { syncBundledSmsForSubscriptionPlans } from "@/lib/subscriptionPlanTenantSync";
 import { syncSmsPackageToStripe } from "@/lib/stripe/fulfill";
 
 export const runtime = "nodejs";
@@ -98,7 +99,20 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true, package: saved });
+    let tenantSync = {
+      syncedCount: 0,
+      smsUpdatedCount: 0,
+      skippedSmsInactive: 0,
+      errors: [] as string[],
+    };
+
+    try {
+      tenantSync = await syncBundledSmsForSubscriptionPlans(saved.id);
+    } catch (syncError: unknown) {
+      console.error("[SMS PACKAGES] Bundled tenant sync failed:", syncError);
+    }
+
+    return NextResponse.json({ ok: true, package: saved, tenantSync });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to update SMS package";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

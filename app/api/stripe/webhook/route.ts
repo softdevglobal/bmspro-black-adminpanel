@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { buildBundledSmsRenewalFields } from "@/lib/sms-packages/server";
 
 export const runtime = "nodejs";
 
@@ -242,6 +243,7 @@ async function handleCheckoutCompleted(
   }
 
   // Get plan details from subscription_plans if priceId matches
+  let checkoutPlanData: FirebaseFirestore.DocumentData | null = null;
   if (priceId) {
     const plansSnapshot = await db
       .collection("subscription_plans")
@@ -251,6 +253,7 @@ async function handleCheckoutCompleted(
 
     if (!plansSnapshot.empty) {
       const planData = plansSnapshot.docs[0].data();
+      checkoutPlanData = planData;
       updateData.plan_key = planData.plan_key || plansSnapshot.docs[0].id;
       updateData.plan = planData.name;
       updateData.planId = plansSnapshot.docs[0].id;
@@ -268,9 +271,37 @@ async function handleCheckoutCompleted(
   // Add metadata from session
   if (session.metadata?.planId) {
     updateData.planId = session.metadata.planId;
+    if (!checkoutPlanData) {
+      try {
+        const planDoc = await db.collection("subscription_plans").doc(session.metadata.planId).get();
+        if (planDoc.exists) {
+          checkoutPlanData = planDoc.data() || null;
+        }
+      } catch {}
+    }
   }
   if (session.metadata?.planName) {
     updateData.plan = session.metadata.planName;
+  }
+
+  if (checkoutPlanData) {
+    try {
+      const userSnap = await db.collection("users").doc(firebaseUid).get();
+      const smsFields = await buildBundledSmsRenewalFields(
+        checkoutPlanData,
+        userSnap.data() || null,
+        {
+          periodEndMs: subPeriodEnd
+            ? Math.floor(Number(subPeriodEnd)) * 1000
+            : null,
+        },
+      );
+      if (smsFields) {
+        Object.assign(updateData, smsFields);
+      }
+    } catch (smsErr) {
+      console.warn("[WEBHOOK] Bundled SMS on checkout skipped:", smsErr);
+    }
   }
 
   await updateUserBilling(db, firebaseUid, updateData);
@@ -326,11 +357,13 @@ async function handlePaymentSucceeded(
   };
 
   // Sync plan limits from subscription_plans (ensures accurate plan/price after upgrade/downgrade)
+  let resolvedPlanData: FirebaseFirestore.DocumentData | null = null;
   if (priceId) {
     const plansByPrice = await db.collection("subscription_plans").where("stripePriceId", "==", priceId).limit(1).get();
     if (!plansByPrice.empty) {
       const planDoc = plansByPrice.docs[0];
       const planData = planDoc.data();
+      resolvedPlanData = planData;
       updateData.planId = planDoc.id;
       updateData.plan = planData.name || "";
       updateData.plan_key = planData.plan_key || planDoc.id;
@@ -346,6 +379,7 @@ async function handlePaymentSucceeded(
           const planDoc = await db.collection("subscription_plans").doc(planId).get();
           if (planDoc.exists) {
             const planData = planDoc.data()!;
+            resolvedPlanData = planData;
             updateData.planId = planId;
             updateData.plan = planData.name || "";
             updateData.plan_key = planData.plan_key || planId;
@@ -355,6 +389,27 @@ async function handlePaymentSucceeded(
           }
         }
       } catch {}
+    }
+  }
+
+  // Re-grant bundled SMS on paid renewal / cycle (preserves top-ups above the bundle)
+  if (resolvedPlanData) {
+    try {
+      const userSnap = await db.collection("users").doc(userId).get();
+      const smsFields = await buildBundledSmsRenewalFields(
+        resolvedPlanData,
+        userSnap.data() || null,
+        {
+          periodEndMs: payPeriodEnd
+            ? Math.floor(Number(payPeriodEnd)) * 1000
+            : null,
+        },
+      );
+      if (smsFields) {
+        Object.assign(updateData, smsFields);
+      }
+    } catch (smsErr) {
+      console.warn("[WEBHOOK] Bundled SMS renewal skipped:", smsErr);
     }
   }
 
@@ -523,6 +578,19 @@ async function updateUserSubscription(
         updateData.downgradePlanPrice = FieldValue.delete();
         updateData.downgradeBranchLimit = FieldValue.delete();
         updateData.downgradeStaffLimit = FieldValue.delete();
+
+        try {
+          const smsFields = await buildBundledSmsRenewalFields(planData, userData || null, {
+            periodEndMs: updPeriodEnd
+              ? Math.floor(Number(updPeriodEnd)) * 1000
+              : null,
+          });
+          if (smsFields) {
+            Object.assign(updateData, smsFields);
+          }
+        } catch (smsErr) {
+          console.warn("[WEBHOOK] Bundled SMS on plan change skipped:", smsErr);
+        }
       }
       console.log(`[WEBHOOK] Synced plan limits for user ${userId}: ${planData.name} (${planData.branches} branches, ${planData.staff} staff)`);
     }

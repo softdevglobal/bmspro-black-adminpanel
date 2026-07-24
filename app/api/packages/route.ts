@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { enrichPlansWithBundledSms } from "@/lib/sms-packages/server";
+import { syncTenantsToSubscriptionPlan } from "@/lib/subscriptionPlanTenantSync";
 import {
   normalizeBillingCycle,
   validityDaysForCycle,
 } from "@/lib/subscriptionPlans";
 
 export const runtime = "nodejs";
+
+function normalizeSmsPackageId(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
 
 // GET - Fetch all packages
 export async function GET(req: NextRequest) {
@@ -18,7 +26,11 @@ export async function GET(req: NextRequest) {
       ...doc.data(),
     }));
 
-    return NextResponse.json({ success: true, plans });
+    const enriched = await enrichPlansWithBundledSms(
+      plans as Array<{ smsPackageId?: string | null }>,
+    );
+
+    return NextResponse.json({ success: true, plans: enriched });
   } catch (error: any) {
     console.error("[GET PACKAGES] Error:", error);
     return NextResponse.json(
@@ -90,6 +102,9 @@ export async function POST(req: NextRequest) {
       planData.plan_key = plan_key.trim();
     }
 
+    // Optional bundled SMS package from sms_packages catalog
+    planData.smsPackageId = normalizeSmsPackageId(body.smsPackageId);
+
     // Add image if provided, otherwise keep icon for backward compatibility
     if (image) {
       planData.image = image;
@@ -153,6 +168,8 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    const previousSmsPackageId = normalizeSmsPackageId(planDoc.data()?.smsPackageId);
+
     const updateData: any = {
       updatedAt: new Date(),
     };
@@ -193,15 +210,40 @@ export async function PUT(req: NextRequest) {
       updateData.billingCycle = cycle;
       updateData.validityDays = validityDaysForCycle(cycle);
     }
+    if (body.smsPackageId !== undefined) {
+      updateData.smsPackageId = normalizeSmsPackageId(body.smsPackageId);
+    }
 
     await planRef.update(updateData);
 
     const updatedDoc = await planRef.get();
+    const mergedPlan = { id: updatedDoc.id, ...updatedDoc.data() };
+
+    const nextSmsPackageId = normalizeSmsPackageId(mergedPlan.smsPackageId);
+    const smsPackageIdChanged =
+      body.smsPackageId !== undefined && previousSmsPackageId !== nextSmsPackageId;
+
+    let tenantSync = {
+      syncedCount: 0,
+      smsUpdatedCount: 0,
+      skippedSmsInactive: 0,
+      errors: [] as string[],
+    };
+
+    try {
+      tenantSync = await syncTenantsToSubscriptionPlan(updatedDoc.id, mergedPlan, {
+        applyBundledSms: smsPackageIdChanged && !!nextSmsPackageId,
+        repairBundledSmsDrift: !!nextSmsPackageId,
+      });
+    } catch (syncError: unknown) {
+      console.error("[UPDATE PACKAGE] Tenant sync failed:", syncError);
+    }
 
     return NextResponse.json({
       success: true,
       message: "Package updated successfully",
-      plan: { id: updatedDoc.id, ...updatedDoc.data() },
+      plan: mergedPlan,
+      tenantSync,
     });
   } catch (error: any) {
     console.error("[UPDATE PACKAGE] Error:", error);

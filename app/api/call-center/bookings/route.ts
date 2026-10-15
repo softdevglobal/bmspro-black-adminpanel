@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { getFirebaseIdTokenFromRequest } from "@/lib/authHelpers";
 import {
   verifyCallCenterOrTenantAdminAuth,
   canAccessWorkshopForAuth,
@@ -30,6 +31,7 @@ import {
   isPlaceholderCustomerEmail,
 } from "@/lib/customerAccount";
 import { upsertCustomerVehicleFromBooking } from "@/lib/callCenterCustomerVehiclesServer";
+import { AiBookingError, beginAiBooking, commitCallCenterBooking, validateAiDropOff, type AiBookingReservation } from "@/lib/aiBookingCommit";
 import {
   isVehicleType,
   normalizeVehicleTypePricing,
@@ -454,6 +456,7 @@ function vehicleFieldsFromBody(body: Record<string, unknown>): {
  * }
  */
 export async function POST(req: NextRequest) {
+  let aiReservation: AiBookingReservation | undefined;
   const gate = await verifyCallCenterOrTenantAdminAuth(req);
   if (!gate.success) {
     return NextResponse.json(
@@ -580,6 +583,29 @@ export async function POST(req: NextRequest) {
       );
     }
     const branchData = branchDoc.data()!;
+    const aiBooking = body.source === "ai_reception";
+    if (aiBooking) {
+      if (gate.auth.kind !== "agent" || getTenantId(req) !== ownerUid) return NextResponse.json({error:"Access denied"},{status:403,headers:CORS_HEADERS});
+      let aiIdentityVerified = false;
+      try {
+        const decoded = await adminAuth().verifyIdToken(getFirebaseIdTokenFromRequest(req) || "", true);
+        aiIdentityVerified = decoded.uid === actor.uid && decoded.aiFrontOffice === true && decoded.brand === "black";
+      } catch { /* Invalid, disabled or revoked identities fail closed. */ }
+      if (!aiIdentityVerified) return NextResponse.json({error:"An active AI service identity is required."},{status:403,headers:CORS_HEADERS});
+      const identity = (await db.doc(`call_center_agents/${actor.uid}`).get()).data();
+      if (!identity || identity.accountType !== "ai-front-office" || identity.brand !== "black" || identity.suspended || identity.role !== "agent" || identity.ownerUid !== ownerUid || identity.branchId !== branchId || !Array.isArray(identity.assignedWorkshops) || identity.assignedWorkshops.length !== 1 || identity.assignedWorkshops[0] !== ownerUid) return NextResponse.json({error:"AI account is not assigned to this workshop branch."},{status:403,headers:CORS_HEADERS});
+      const attempt = await beginAiBooking(db,{ownerUid,branchId,uid:actor.uid},req.headers.get("Idempotency-Key") || "",body);
+      if ("replay" in attempt) return NextResponse.json(attempt.replay,{status:attempt.httpStatus,headers:CORS_HEADERS});
+      aiReservation = attempt.reservation;
+      validateAiDropOff(branchData,date,time);
+      if (requestedServices.length > 10 || requestedServices.some((service: Record<string, unknown>) => !service || typeof service.serviceId !== "string" || Object.keys(service).some(key => key !== "serviceId")) || new Set(requestedServices.map((service: {serviceId:string}) => service.serviceId)).size !== requestedServices.length) throw new AiBookingError(400,"INVALID_SERVICES","AI bookings require unique catalog service IDs only.");
+      for (const service of requestedServices) {
+        const catalog = (await db.doc(`services/${service.serviceId}`).get()).data();
+        if (!catalog || catalog.ownerUid !== ownerUid || !Array.isArray(catalog.branches) || !catalog.branches.includes(branchId)) throw new AiBookingError(400,"INVALID_SERVICES","Service is not offered at this branch.");
+        if (Object.keys(catalog.vehicleTypePricing || {}).length > 0 && !vf.vehicleType) throw new AiBookingError(400,"VEHICLE_TYPE_REQUIRED","Select the customer's vehicle category for the selected services.");
+        if (Object.keys(catalog.vehicleTypePricing || {}).length > 0 && vf.vehicleType && !catalog.vehicleTypePricing[vf.vehicleType]) throw new AiBookingError(400,"UNSUPPORTED_VEHICLE_TYPE","A selected service is not priced for this vehicle category. Ask staff to review it.");
+      }
+    }
 
     // ─── Daily booking limit enforcement ──────────────────────────────────
     // The ONLY restriction on agent-side booking creation is the branch's
@@ -603,6 +629,7 @@ export async function POST(req: NextRequest) {
         countsTowardDailyLimit((d.data() as any)?.status),
       );
       if (countingBookings.length >= bookingLimitPerDay) {
+        if (aiBooking) throw new AiBookingError(409,"DAILY_LIMIT_REACHED","The branch's daily booking limit has been reached.");
         return NextResponse.json(
           {
             error: "Daily booking limit reached for this branch on this date.",
@@ -694,6 +721,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (aiBooking && resolvedServices.length !== requestedServices.length) throw new AiBookingError(409,"SERVICE_CHANGED","A selected service is no longer available.");
     // Build tasks from service checklists
     const tasks: any[] = [];
     let taskIndex = 0;
@@ -852,10 +880,10 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
       createdBy: actor.uid,
       createdByRole,
-      source: "call_center",
+      source: aiBooking ? "ai_reception" : "call_center",
     };
 
-    const bookingRef = await db.collection("bookings").add(bookingData);
+    const bookingRef = await commitCallCenterBooking(db, bookingData, aiReservation);
     const bookingId = bookingRef.id;
 
     // ─── Persist the vehicle into the customer's "My Vehicles" list ──────
@@ -1096,6 +1124,7 @@ export async function POST(req: NextRequest) {
         totalDuration,
         vehicleType: vf.vehicleType,
         services: resolvedServices,
+        ...(aiBooking ? { aiBookingContractVersion: 1 } : {}),
         ...(canonicalCustomerForResponse
           ? { canonicalCustomer: canonicalCustomerForResponse }
           : {}),
@@ -1104,6 +1133,15 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: any) {
     console.error("[call-center/bookings POST] Error:", error);
+    if (error instanceof AiBookingError) {
+      if (aiReservation) {
+        await adminDb().runTransaction(async tx => {
+          const current = await tx.get(aiReservation!.ref);
+          if (current.data()?.status === "processing") tx.update(aiReservation!.ref,{status:"failed",httpStatus:error.status,response:{error:error.message,code:error.code,aiBookingContractVersion:1}});
+        }).catch(() => undefined);
+      }
+      return NextResponse.json({error:error.message,code:error.code,aiBookingContractVersion:1},{status:error.status,headers:CORS_HEADERS});
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500, headers: CORS_HEADERS }

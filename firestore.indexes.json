@@ -281,7 +281,7 @@
         { "fieldPath": "type", "order": "ASCENDING" },
         { "fieldPath": "fulfilledAt", "order": "DESCENDING" }
       ]
-    },
+    }
   ],
   "fieldOverrides": []
 }

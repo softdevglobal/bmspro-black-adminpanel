@@ -8,7 +8,9 @@
     "dev:clean": "rm -rf .next && next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:ai-bookings": "node --import tsx --test tests/ai-booking-commit.test.ts",
+    "test:ai-bookings:emulator": "firebase emulators:exec --config firebase.ai-test.json --project demo-ai-bookings --only firestore,auth \"node --import tsx --test tests/ai-booking-emulator.test.ts\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -45,6 +47,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.0.9",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

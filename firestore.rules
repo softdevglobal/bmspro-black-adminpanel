@@ -140,8 +140,12 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
-    match /{document=**} {
-      allow read, write: if signedIn();
+    // AI request outcomes and concurrency guards are server-only. The broad
+    // legacy fallback must also exclude them; an explicit deny alone is OR'd.
+    match /{collection}/{document=**} {
+      allow read, write: if signedIn()
+        && collection != 'aiBookingRequests'
+        && collection != 'bookingDayGuards';
     }
   }
 }

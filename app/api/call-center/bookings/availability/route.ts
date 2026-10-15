@@ -85,9 +85,7 @@ export async function GET(req: NextRequest) {
     const db = adminDb();
     const dayOfWeek = getDayOfWeekFromYmd(date);
 
-    // Filter by branchId in the query (used to be filtered client-side after
-    // reading every booking that day across ALL branches) and cap at 200 docs
-    // as defense-in-depth for branches with high daily limits.
+    // Read the complete day so a cap over 200 cannot report false availability.
     let branchDoc: FirebaseFirestore.DocumentSnapshot;
     let bookingsSnapshot: { docs: FirebaseFirestore.QueryDocumentSnapshot[] };
     try {
@@ -98,21 +96,18 @@ export async function GET(req: NextRequest) {
           .where("ownerUid", "==", ownerUid)
           .where("branchId", "==", branchId)
           .where("date", "==", date)
-          .limit(200)
           .get(),
       ]);
       branchDoc = bd;
       bookingsSnapshot = { docs: bs.docs };
     } catch {
-      // Composite index missing — fall back without `branchId` in the query
-      // but still cap to 200.
+      // Composite index missing: retain the complete day and filter by branch.
       const [bd, bs] = await Promise.all([
         db.collection("branches").doc(branchId).get(),
         db
           .collection("bookings")
           .where("ownerUid", "==", ownerUid)
           .where("date", "==", date)
-          .limit(200)
           .get(),
       ]);
       branchDoc = bd;
@@ -128,6 +123,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           available: false,
+          aiBookingContractVersion: 1,
           reason: "Branch not found or access denied",
           dayOfWeek,
           branch: null,
@@ -160,6 +156,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           available: false,
+          aiBookingContractVersion: 1,
           reason: "Branch is closed on this day",
           dayOfWeek,
           branch,
@@ -209,6 +206,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         {
           available: false,
+          aiBookingContractVersion: 1,
           reason: "Daily booking limit reached",
           dayOfWeek,
           branch,
@@ -229,6 +227,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         available: allSlots.length > 0,
+        aiBookingContractVersion: 1,
         dayOfWeek,
         branch,
         branchHours,

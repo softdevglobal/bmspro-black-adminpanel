@@ -5,7 +5,9 @@ service cloud.firestore {
     // ─── Helpers ────────────────────────────────────────────────────────
 
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && (!('onboardingOnly' in request.auth.token)
+          || request.auth.token.onboardingOnly != true);
     }
 
     function userDoc() {

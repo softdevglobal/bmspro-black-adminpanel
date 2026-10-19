@@ -10,6 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:ai-bookings": "node --import tsx --test tests/ai-booking-commit.test.ts",
+    "test:onboarding": "node --import tsx --test tests/command-centre-onboarding.test.ts",
+    "test:onboarding:emulator": "firebase emulators:exec --config firebase.ai-test.json --project demo-ai-bookings --only firestore,auth \"node --import tsx --test tests/command-centre-onboarding-emulator.test.ts\"",
     "test:ai-bookings:emulator": "firebase emulators:exec --config firebase.ai-test.json --project demo-ai-bookings --only firestore,auth \"node --import tsx --test tests/ai-booking-emulator.test.ts\""
   },
   "dependencies": {

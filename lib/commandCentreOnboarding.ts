@@ -34,77 +34,62 @@ export function parseBlackSetup(raw: unknown) {
   const approvedAt = text(approval.approvedAt);
   if (!Number.isFinite(Date.parse(approvedAt)) || Date.parse(approvedAt) > Date.now() + 300000) fail("Invalid owner approval time.");
   const ownerUid = text(approval.ownerUid, 128), business = object(config.business);
-  const ownerEmail = email(business.ownerEmail), ownerName = text(business.ownerName), tradingName = text(business.tradingName);
-  if (typeof business.gstRegistered !== "boolean") fail("The business GST registration choice is required.");
-  const address = text(business.address), timezone = text(business.timezone), ownerPhone = text(business.ownerPhone, 30);
+  if (approval.method !== undefined && (approval.method !== "phone_confirmation" || ownerUid !== `ai-owner-${requestId.replace(/-/g, "")}`))
+    fail("Invalid account-creation confirmation.");
+  const ownerEmail = email(business.ownerEmail), ownerName = text(business.ownerName);
+  const tradingName = text(business.tradingName);
+  const businessType = text(config.blackBusinessType, 40), planId = text(config.blackPlanId, 200), planName = text(config.blackPlanName, 200);
+  if (!["auto_repair", "mechanic", "tire_service", "body_shop", "service_center", "detailing", "fleet", "other"].includes(businessType))
+    fail("Choose a valid Black business type.");
+  const address = typeof business.address === "string" ? business.address.trim() : "";
+  const timezone = typeof business.timezone === "string" && business.timezone.trim() ? business.timezone.trim() : "Australia/Sydney";
+  const ownerPhone = text(business.ownerPhone, 30);
+  const businessStructure = text(business.businessStructure, 30);
+  if (!["pty_ltd", "sole_trader", "partnership", "trust"].includes(businessStructure)) fail("Choose a valid business structure.");
+  const state = text(business.state, 3);
+  if (!["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"].includes(state)) fail("Choose a valid Australian state or territory.");
+  const postcode = text(business.postcode, 4);
+  if (!/^\d{4}$/.test(postcode)) fail("Enter a valid four-digit postcode.");
+  if (typeof business.gstRegistered !== "boolean") fail("Confirm whether the business is registered for GST.");
   try { new Intl.DateTimeFormat("en", { timeZone: timezone }); } catch { fail("Invalid workshop timezone."); }
-  const branchName = text(config.branchName), capacity = integer(config.capacity, 1, 100), bookingLimitPerDay = integer(config.bookingLimitPerDay, 1, 1000);
-  if (config.bookingPolicy !== "staff_approval_required") fail("Bookings must require staff approval.");
+  const branchName = "", capacity = 0, bookingLimitPerDay = 0;
+  if (config.bookingPolicy !== undefined && config.bookingPolicy !== "staff_approval_required") fail("Bookings must require staff approval.");
   const hours: Record<string, { open?: string; close?: string; closed: boolean }> = Object.fromEntries(days.map(day => [day, { closed: true }]));
-  const openDays = new Set<number>();
-  for (const value of list(config.businessHours, 7)) {
-    const row = object(value), day = integer(row.day, 0, 6), open = text(row.opens, 5), close = text(row.closes, 5);
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(open) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(close) || open >= close || openDays.has(day)) fail("Invalid business hours.");
-    openDays.add(day); hours[days[day]] = { open, close, closed: false };
-  }
-  const services = list(config.services).map((value, index) => {
-    const row = object(value), name = text(row.name), pricing = object(row.vehicleTypePricing);
-    if (typeof row.gstInclusive !== "boolean") fail("Confirm whether the service price includes GST.");
-    if (!Object.keys(pricing).length || Object.keys(pricing).some(key => !vehicleTypes.has(key))) fail("Approved vehicle-category pricing is required.");
-    const vehicleTypePricing = Object.fromEntries(Object.entries(pricing).map(([key, value]) => {
-      const price = object(value);
-      if (typeof price.price !== "number" || !Number.isFinite(price.price) || price.price < 0 || price.price > 1000000) fail("Invalid service price.");
-      return [key, { price: price.price, duration: integer(price.duration, 1, 1440) }];
-    }));
-    return { id: resourceId(requestId, "service", String(index)), name, priceBasis: text(row.priceBasis), gstInclusive: row.gstInclusive, vehicleTypePricing };
-  });
-  if (new Set(services.map(service => service.name.toLowerCase())).size !== services.length) fail("Use unique service names.");
-  const staff = list(config.staff).map(value => {
-    const row = object(value), staffEmail = email(row.email), name = text(row.name);
-    const workingDays = list(row.workingDays, 7).map(day => integer(day, 0, 6));
-    if (new Set(workingDays).size !== workingDays.length || workingDays.some(day => !openDays.has(day))) fail("Staff working days must match branch hours.");
-    const serviceNames = list(row.serviceNames).map(value => text(value));
-    if (serviceNames.some(name => !services.some(service => service.name === name))) fail("Staff service assignments must use approved services.");
-    return { id: resourceId(requestId, "staff", staffEmail), email: staffEmail, name, workingDays, serviceNames, skills: list(row.skills, 30).map(value => text(value)) };
-  });
-  if (new Set(staff.map(member => member.email)).size !== staff.length || staff.some(member => member.email === ownerEmail)) fail("Staff require distinct email addresses.");
-  if (services.some(service => !staff.some(member => member.serviceNames.includes(service.name)))) fail("Assign staff to each service.");
+  // Phone onboarding creates only the pending owner account. The owner
+  // completes the business profile and adds branches, services and staff later.
+  const services: Array<{id: string; name: string; priceBasis: string; gstInclusive: boolean; vehicleTypePricing: Record<string, {price: number; duration: number}>}> = [];
+  const staff: Array<{id: string; email: string; name: string; workingDays: number[]; serviceNames: string[]; skills: string[]}> = [];
   if (business.abn !== undefined && !/^\d{11}$/.test(String(business.abn))) fail("Invalid ABN.");
-  text(config.cancellationPolicy, 2000); text(config.receptionistName);
-  const escalation = object(config.escalation); text(escalation.name); text(escalation.phone, 30);
-  return { requestId, configurationHash: hash, ownerUid, ownerEmail, ownerName, tradingName, business, config, approval,
+  if (config.cancellationPolicy !== undefined) text(config.cancellationPolicy, 2000);
+  if (config.receptionistName !== undefined) text(config.receptionistName);
+  if (config.escalation !== undefined) {
+    const escalation = object(config.escalation); text(escalation.name); text(escalation.phone, 30);
+  }
+  return { requestId, configurationHash: hash, ownerUid, ownerEmail, ownerName, tradingName, businessType, planId, planName, business, config, approval,
     address, timezone, ownerPhone, branchName, capacity, bookingLimitPerDay, hours, services, staff,
-    branchId: resourceId(requestId, "branch", "primary") };
+    branchId: null as string | null };
 }
 export type BlackSetup = ReturnType<typeof parseBlackSetup>;
-export type BlackSetupResult = { status: "TEST_MODE"; ownerUid: string; branchId: string; serviceIds: string[]; staffIds: string[]; created: boolean };
+export type BlackSetupResult = { status: "TEST_MODE"; ownerUid: string; branchId: string | null; serviceIds: string[]; staffIds: string[]; created: boolean };
 export type BlackSetupDocuments = Array<{ path: string; data: Record<string, unknown> }>;
 
 export function buildBlackSetupDocuments(setup: BlackSetup): BlackSetupDocuments {
   const s = setup;
   const meta = { onboardingRequestId: s.requestId, onboardingConfigHash: s.configurationHash, onboardingStatus: "test_mode" };
-  const slug = `${s.tradingName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workshop"}-${s.requestId}`;
   const staffIds = s.staff.map(member => member.id), serviceIds = s.services.map(service => service.id);
   const docs: BlackSetupDocuments = [
     { path: `users/${s.ownerUid}`, data: { ...meta, uid: s.ownerUid, role: "workshop_owner", email: s.ownerEmail,
-      displayName: s.ownerName, name: s.tradingName, workshopName: s.tradingName, slug, provider: "password",
-      contactPhone: s.ownerPhone, locationText: s.address, timezone: s.timezone, abn: s.business.abn ?? null,
-      legalName: s.business.legalName ?? null, gstRegistered: s.business.gstRegistered,
-      website: s.business.website ?? null,
-      branchNames: [s.branchName], currentBranchCount: 1, currentStaffCount: s.staff.length,
-      branchLimit: 0, staffLimit: 0, planId: null, plan: null, plan_key: null,
+      displayName: s.ownerName, name: s.tradingName, businessName: s.tradingName, workshopName: s.tradingName,
+      provider: "password", businessType: s.businessType, abn: s.business.abn ?? null,
+      businessStructure: s.business.businessStructure, gstRegistered: s.business.gstRegistered,
+      state: s.business.state, postcode: s.business.postcode,
+      address: s.address || null, locationText: s.address ? `${s.address} ${s.business.postcode}` : null,
+      businessProfileComplete: false,
+      contactPhone: s.ownerPhone || null, timezone: s.timezone,
+      branchNames: [], currentBranchCount: 0, currentStaffCount: 0,
+      branchLimit: 0, staffLimit: 0, planId: s.planId, plan: s.planName, plan_key: null,
       status: "Pending Payment", accountStatus: "pending_payment", subscriptionStatus: "pending", billing_status: "pending",
       paymentDetailsRequired: true, signupSource: "command_centre_ai", hasFreeTrial: false } },
-    { path: `branches/${s.branchId}`, data: { ...meta, ownerUid: s.ownerUid, name: s.branchName, address: s.address,
-      phone: s.ownerPhone, email: s.ownerEmail, timezone: s.timezone, hours: s.hours, capacity: s.capacity,
-      bookingLimitPerDay: s.bookingLimitPerDay, status: "Pending", staffIds, serviceIds,
-      staffByDay: Object.fromEntries(days.map((day, index) => [day, s.staff.filter(member => member.workingDays.includes(index)).map(member => member.id)])) } },
-    { path: `workshop_knowledge/${s.ownerUid}`, data: { ...meta, ownerUid: s.ownerUid, branchId: s.branchId, version: 1,
-      faqs: s.config.faqs ?? [], cancellationPolicy: s.config.cancellationPolicy, escalation: s.config.escalation,
-      terms: s.config.terms, bookingPolicy: s.config.bookingPolicy, approval: s.approval } },
-    { path: `ai_receptionist_setups/${s.ownerUid}`, data: { ...meta, ownerUid: s.ownerUid, branchId: s.branchId,
-      name: s.config.receptionistName, status: "draft", active: false, knowledgeVersion: 1,
-      bookingPolicy: "staff_approval_required", requestedPhone: s.config.did ?? null, phoneVerified: false } },
   ];
   for (const member of s.staff) docs.push({ path: `users/${member.id}`, data: { ...meta, uid: member.id, authUid: member.id,
     ownerUid: s.ownerUid, email: member.email, displayName: member.name, name: member.name, role: "staff", systemRole: "staff",
@@ -128,7 +113,7 @@ export function createBlackBusinessProvisioner(deps: BlackSetupDependencies) {
   return async (raw: unknown): Promise<BlackSetupResult> => {
     const setup = parseBlackSetup(raw);
     const owner = await deps.verifyOwner(setup.ownerUid);
-    if (owner.uid !== setup.ownerUid || !owner.emailVerified || owner.disabled || owner.email?.toLowerCase() !== setup.ownerEmail)
+    if (owner.uid !== setup.ownerUid || (!owner.emailVerified && setup.approval.method !== "phone_confirmation") || owner.disabled || owner.email?.toLowerCase() !== setup.ownerEmail)
       throw new BlackSetupError(403, "OWNER_VERIFICATION_REQUIRED", "Verify the approved owner's email before provisioning.");
     const reservation = await deps.reserve(setup);
     if ("result" in reservation) return { ...reservation.result, created: false };

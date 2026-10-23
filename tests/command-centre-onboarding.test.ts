@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { BlackSetupError, createBlackBusinessProvisioner, parseBlackSetup, setupConfigurationHash,
+import { BlackSetupError, createBlackBusinessProvisioner, parseBlackSetup, setupConfigurationHash, buildBlackSetupDocuments,
   type BlackSetupDependencies, type BlackSetupResult } from "../lib/commandCentreOnboarding";
 
 function payload() {
@@ -19,6 +19,17 @@ function payload() {
   return { schemaVersion: 1, requestId: randomUUID(), configuration, configurationHash,
     approval: { ownerUid: "verified-owner", configurationHash, reviewedVersion: 2, termsVersion: configuration.terms.version, approvedAt: new Date().toISOString() } };
 }
+test("business-only onboarding provisions without requiring or creating an AI receptionist setup", () => {
+  const original = payload();
+  const { receptionistName: _name, bookingPolicy: _policy, cancellationPolicy: _cancellation, escalation: _escalation, ...configuration } = original.configuration;
+  const configurationHash = setupConfigurationHash(configuration);
+  const input = { ...original, configuration, configurationHash, approval: { ...original.approval, configurationHash } };
+  const documents = buildBlackSetupDocuments(parseBlackSetup(input));
+  assert.ok(documents.some(document => document.path.startsWith("branches/")));
+  assert.equal(documents.some(document => document.path.startsWith("ai_receptionist_setups/")), false);
+  assert.equal(documents.find(document => document.path.startsWith("workshop_knowledge/"))?.data.bookingPolicy, "staff_approval_required");
+});
+
 function rehash(input: ReturnType<typeof payload>) {
   input.configurationHash = setupConfigurationHash(input.configuration);
   input.approval.configurationHash = input.configurationHash;

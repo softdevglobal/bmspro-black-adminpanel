@@ -24,6 +24,7 @@ import {
   getBranchAdminUids,
 } from "@/lib/notifications";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
+import { sendAiBookingRequestReceipt } from "@/lib/aiBookingReceiptServer";
 import {
   resolveCustomerForStaffBooking,
   resolveBookingEngineUrl,
@@ -885,6 +886,23 @@ export async function POST(req: NextRequest) {
 
     const bookingRef = await commitCallCenterBooking(db, bookingData, aiReservation);
     const bookingId = bookingRef.id;
+
+    // Only after the durable booking commit. Receipt failures must never turn a
+    // saved request into an error that could make the caller submit it again.
+    if (aiBooking) {
+      try {
+        const ownerData = workshopDoc.exists ? workshopDoc.data() || {} : {};
+        await sendAiBookingRequestReceipt({
+          bookingId, bookingCode, ownerUid,
+          workshopName: String(ownerData.workshopName || ownerData.salonName || ownerData.businessName || ownerData.name || ownerData.displayName || "Workshop"),
+          branchName: String(bookingData.branchName), date: String(date), time: String(time), timezone: String(bookingData.branchTimezone),
+          customerName: clientForBooking, customerEmail: emailForBooking, customerPhone: phoneForBooking,
+          services: resolvedServices.map(service => String(service.name)), vehicleNumber: vf.vehicleNumber, totalPrice,
+        });
+      } catch {
+        console.error("[ai-booking-receipt] Notification unavailable; booking remains saved.", { bookingId });
+      }
+    }
 
     // ─── Persist the vehicle into the customer's "My Vehicles" list ──────
     // Mirrors /api/bookings so agents who capture a rego / VIN while taking

@@ -9,14 +9,17 @@ export const provisionCommandCentreWorkshop = createBlackBusinessProvisioner({
     return { uid: user.uid, email: user.email, emailVerified: user.emailVerified, disabled: user.disabled };
   },
   async reserve(setup) {
-    const db = adminDb(), ref = db.doc(`onboarding_requests/${setup.requestId}`);
+    const db = adminDb(), ref = db.doc(`onboarding_requests/${setup.requestId}`), planRef = db.doc(`subscription_plans/${setup.planId}`);
     return db.runTransaction(async transaction => {
-      const [checkpoint, owner] = await transaction.getAll(ref, db.doc(`users/${setup.ownerUid}`));
+      const [checkpoint, owner, plan] = await transaction.getAll(ref, db.doc(`users/${setup.ownerUid}`), planRef);
       const previous = checkpoint.data();
       if (previous && (previous.configurationHash !== setup.configurationHash || previous.ownerUid !== setup.ownerUid))
         throw new BlackSetupError(409, "REQUEST_CONFLICT", "This request ID belongs to a different approved setup.");
       if (previous?.status === "TEST_MODE") return { result: previous.result as BlackSetupResult };
       if (previous?.leaseUntil > Date.now()) throw new BlackSetupError(409, "IN_PROGRESS", "This setup is already being provisioned.");
+      const planData = plan.data();
+      if (!plan.exists || planData?.active === false || planData?.hidden === true || planData?.name !== setup.planName)
+        throw new BlackSetupError(400, "INVALID_SETUP", "Choose an available subscription plan.");
       if (owner.exists && owner.data()?.onboardingRequestId !== setup.requestId)
         throw new BlackSetupError(409, "EXISTING_ACCOUNT", "An account already exists. Link and review it instead of creating a duplicate workshop.");
       const emailMatches = await transaction.get(db.collection("users").where("email", "==", setup.ownerEmail));
@@ -32,7 +35,7 @@ export const provisionCommandCentreWorkshop = createBlackBusinessProvisioner({
       const leaseId = randomUUID();
       transaction.set(ref, { configurationHash: setup.configurationHash, ownerUid: setup.ownerUid, status: "PROVISIONING",
         leaseId, leaseUntil: Date.now() + 120000, approval: setup.approval,
-        plannedResources: { ownerUid: setup.ownerUid, branchId: setup.branchId, serviceIds: setup.services.map(service => service.id), staffIds: setup.staff.map(member => member.id) },
+        plannedResources: { ownerUid: setup.ownerUid, branchId: setup.branchId, planId: setup.planId, serviceIds: setup.services.map(service => service.id), staffIds: setup.staff.map(member => member.id) },
         updatedAt: FieldValue.serverTimestamp() });
       return { leaseId };
     });

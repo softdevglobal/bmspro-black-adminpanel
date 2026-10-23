@@ -147,6 +147,7 @@ service cloud.firestore {
     match /{collection}/{document=**} {
       allow read, write: if signedIn()
         && collection != 'aiBookingRequests'
+        && collection != 'ai_booking_receipts'
         && collection != 'bookingDayGuards';
     }
   }

@@ -21,10 +21,12 @@ import {
   createOwnerNotification,
   createBranchAdminNotification,
   createStaffAssignmentNotification,
+  createCustomerConfirmationNotification,
   getBranchAdminUids,
 } from "@/lib/notifications";
 import { sendCustomerWelcomeEmail } from "@/lib/emailService";
 import { sendAiBookingRequestReceipt } from "@/lib/aiBookingReceiptServer";
+import { sendAiOwnerBookingAlert } from "@/lib/aiOwnerBookingAlert";
 import {
   resolveCustomerForStaffBooking,
   resolveBookingEngineUrl,
@@ -760,7 +762,7 @@ export async function POST(req: NextRequest) {
     // Generate booking code
     const bookingCode = `CC-${Date.now().toString(36).toUpperCase()}`;
 
-    const allNeedAssignment = resolvedServices.every(
+    let allNeedAssignment = resolvedServices.every(
       (s) => s.approvalStatus === "needs_assignment"
     );
 
@@ -886,6 +888,24 @@ export async function POST(req: NextRequest) {
 
     const bookingRef = await commitCallCenterBooking(db, bookingData, aiReservation);
     const bookingId = bookingRef.id;
+    const savedBooking = await bookingRef.get();
+    if (savedBooking.exists) Object.assign(bookingData, savedBooking.data());
+    resolvedServices.splice(0, resolvedServices.length, ...bookingData.services);
+    allNeedAssignment = resolvedServices.every(s => s.approvalStatus === "needs_assignment");
+    if (aiBooking || bookingData.aiAssignment) {
+      await sendAiOwnerBookingAlert({
+        ownerUid,
+        bookingCode,
+        clientName: clientForBooking,
+        branchName: bookingData.branchName,
+        serviceNames: resolvedServices.map(service => String(service.name || "Service")),
+        date: String(date),
+        time: `${String(time)}${pickupTime ? ` (pick-up ${String(pickupTime)})` : ""}`,
+        status: String(bookingData.status),
+        confirmed: bookingData.status === "Confirmed",
+        staffNames: resolvedServices.map(service => String(service.staffName || "")).filter(Boolean),
+      });
+    }
 
     // Only after the durable booking commit. Receipt failures must never turn a
     // saved request into an error that could make the caller submit it again.
@@ -898,6 +918,7 @@ export async function POST(req: NextRequest) {
           branchName: String(bookingData.branchName), date: String(date), time: String(time), timezone: String(bookingData.branchTimezone),
           customerName: clientForBooking, customerEmail: emailForBooking, customerPhone: phoneForBooking,
           services: resolvedServices.map(service => String(service.name)), vehicleNumber: vf.vehicleNumber, totalPrice,
+          confirmed: bookingData.status === "Confirmed",
         });
       } catch {
         console.error("[ai-booking-receipt] Notification unavailable; booking remains saved.", { bookingId });
@@ -1011,7 +1032,7 @@ export async function POST(req: NextRequest) {
           bookingDate: String(date),
           bookingTime: bookingTimeDisplay,
           type: "staff_booking_created",
-          status: "AwaitingStaffApproval",
+          status: bookingData.status,
           creatorUid: actor.uid,
           creatorName: actor.name,
           creatorRole: createdByRole,
@@ -1031,7 +1052,7 @@ export async function POST(req: NextRequest) {
             branchId: String(branchId),
             bookingDate: String(date),
             bookingTime: bookingTimeDisplay,
-            status: "AwaitingStaffApproval",
+            status: bookingData.status,
             type: "branch_booking_created",
             clientPhone: phoneForBooking || undefined,
             clientEmail: emailForBooking || undefined,
@@ -1058,11 +1079,29 @@ export async function POST(req: NextRequest) {
             duration: totalDuration,
             price: totalPrice,
             ownerUid,
+            bookingConfirmed: bookingData.status === "Confirmed",
+          });
+        }
+        if (bookingData.status === "Confirmed") {
+          await createCustomerConfirmationNotification({
+            bookingId,
+            bookingCode,
+            customerUid: resolvedCustomerId || undefined,
+            customerEmail: emailForBooking || undefined,
+            customerPhone: phoneForBooking || undefined,
+            clientName: clientForBooking,
+            staffName: servicesForNotif.map(service => service.staffName).filter(Boolean).join(", ") || undefined,
+            serviceName: primaryServiceName,
+            services: servicesForNotif.map(service => ({ name: service.name, staffName: service.staffName })),
+            branchName: bookingData.branchName,
+            bookingDate: String(date),
+            bookingTime: bookingTimeDisplay,
+            ownerUid,
           });
         }
       }
       console.log(
-        `[call-center/bookings] Notifications sent for booking ${bookingCode} (${allNeedAssignment ? "Pending" : "AwaitingStaffApproval"})`
+        `[call-center/bookings] Notifications sent for booking ${bookingCode} (${bookingData.status})`
       );
     } catch (notifErr) {
       console.error("[call-center/bookings POST] Failed to send notifications:", notifErr);
@@ -1072,7 +1111,7 @@ export async function POST(req: NextRequest) {
     await db.collection("bookingActivities").add({
       bookingId: bookingRef.id,
       type: "created",
-      message: `Booking created by ${gate.auth.kind === "agent" ? "call center agent" : "BMS staff"} ${actor.name}`,
+      message: bookingData.status === "Confirmed" ? `Booking created and confirmed by Sophie ${actor.name}` : `Booking created by ${gate.auth.kind === "agent" ? "call center agent" : "BMS staff"} ${actor.name}`,
       performedBy: actor.uid,
       performedByName: actor.name,
       performedByRole: createdByRole,
@@ -1142,6 +1181,7 @@ export async function POST(req: NextRequest) {
         totalDuration,
         vehicleType: vf.vehicleType,
         services: resolvedServices,
+        ...(bookingData.aiAssignment ? { staffAssignment: bookingData.aiAssignment } : {}),
         ...(aiBooking ? { aiBookingContractVersion: 1 } : {}),
         ...(canonicalCustomerForResponse
           ? { canonicalCustomer: canonicalCustomerForResponse }

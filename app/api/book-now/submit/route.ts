@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingCode } from "@/lib/bookings";
-import { sendBookingRequestReceivedEmail } from "@/lib/emailService";
-import { getBranchAdminUids, createBranchAdminNotification } from "@/lib/notifications";
+import { sendBookingRequestReceivedEmail, sendBookingStatusChangeEmail } from "@/lib/emailService";
+import { getBranchAdminUids, createBranchAdminNotification, createStaffAssignmentNotification, createCustomerConfirmationNotification } from "@/lib/notifications";
+import { readBlackStaffAssignment } from "@/lib/aiStaffAssignment";
+import { canonicalBookingHash } from "@/lib/aiBookingCommit";
+import { sendAiOwnerBookingAlert } from "@/lib/aiOwnerBookingAlert";
 import {
   isVehicleType,
   normalizeVehicleTypePricing,
@@ -20,6 +23,10 @@ export const runtime = "nodejs";
  */
 export async function POST(req: NextRequest) {
   try {
+    const autoAssignEnabled = process.env.AI_AUTO_ASSIGN_STAFF_ENABLED === "true";
+    if (process.env.NODE_ENV !== "production") {
+      console.info(`[BOOK-NOW] Customer portal submission received; automatic staff assignment ${autoAssignEnabled ? "enabled" : "disabled"}.`);
+    }
     const body = await req.json();
 
     const {
@@ -371,7 +378,68 @@ export async function POST(req: NextRequest) {
       updatedAt: FieldValue.serverTimestamp(),
     };
 
-    const ref = await db.collection("bookings").add(bookingPayload);
+    const ref = db.collection("bookings").doc();
+    let committedBooking: any = bookingPayload;
+    await db.runTransaction(async (tx) => {
+      if (autoAssignEnabled) {
+        const dayGuardRef = db.collection("bookingDayGuards").doc(canonicalBookingHash({ owner: ownerUid, branch: branchId, date }));
+        const [branchSnap, , ownerSnap] = await Promise.all([
+          tx.get(db.collection("branches").doc(branchId)),
+          tx.get(dayGuardRef),
+          tx.get(db.collection("users").doc(ownerUid)),
+        ]);
+        const branchData = branchSnap.data();
+        const ownerData = ownerSnap.data();
+        if (branchData?.ownerUid === ownerUid && String(branchData.status || "Active").toLowerCase() === "active" && ownerData?.sophieBookingAuthority === true) {
+          const plan = await readBlackStaffAssignment(db, tx, bookingPayload, branchData, "customer_portal");
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[BOOK-NOW] Customer portal staff assignment evaluated.", {
+              bookingCode,
+              status: plan.summary.status,
+              reason: plan.summary.reason,
+              assignedStaffCount: plan.summary.staffIds.length,
+            });
+          }
+          const autoConfirm = plan.summary.status === "assigned";
+          committedBooking = {
+            ...bookingPayload,
+            services: autoConfirm ? plan.services.map((service: Record<string, unknown>) => ({ ...service, approvalStatus: "accepted" })) : plan.services,
+            status: autoConfirm ? "Confirmed" : "Pending",
+            aiAssignment: { ...plan.summary, evaluatedAt: new Date(), version: 1 },
+            ...(autoConfirm ? { aiBookingConfirmedBy: "sophie", aiBookingConfirmedAt: new Date() } : {}),
+          };
+        } else if (process.env.NODE_ENV !== "production") {
+          console.warn("[BOOK-NOW] Customer portal staff assignment skipped because automation is disabled, the owner has not granted Sophie booking authority, or the branch is missing, inactive, or outside the workshop scope.", {
+            bookingCode,
+            branchExists: branchSnap.exists,
+            ownerMatches: branchData?.ownerUid === ownerUid,
+            branchStatus: branchData?.status ?? null,
+            ownerGrantedAuthority: ownerData?.sophieBookingAuthority === true,
+          });
+        }
+        tx.set(dayGuardRef, { updatedAt: new Date() });
+      } else if (process.env.NODE_ENV !== "production") {
+        console.info("[BOOK-NOW] Customer portal staff assignment skipped because AI_AUTO_ASSIGN_STAFF_ENABLED is not true.");
+      }
+      tx.create(ref, committedBooking);
+    });
+    const assignedStaff = Array.from(new Map((committedBooking.services || []).filter((service: any) => service.staffId).map((service: any) => [String(service.staffId), service])).values()) as any[];
+    const staffName = assignedStaff.map((service: any) => service.staffName).filter(Boolean).join(", ") || "Not Assigned Yet";
+
+    if (committedBooking.aiAssignment) {
+      await sendAiOwnerBookingAlert({
+        ownerUid,
+        bookingCode,
+        clientName: customerName,
+        branchName: branchName || null,
+        serviceNames: serviceDetails.map((service: { name: string }) => service.name),
+        date,
+        time: `${time}${pickupTime ? ` (pick-up ${pickupTime})` : ""}`,
+        status: String(committedBooking.status),
+        confirmed: committedBooking.status === "Confirmed",
+        staffNames: assignedStaff.map((service: { staffName?: string }) => service.staffName || "").filter(Boolean),
+      });
+    }
 
     // Create booking activity log
     try {
@@ -379,17 +447,17 @@ export async function POST(req: NextRequest) {
         ownerUid,
         bookingId: ref.id,
         bookingCode,
-        activityType: "booking_created",
+        activityType: committedBooking.status === "Confirmed" ? "booking_confirmed" : "booking_created",
         clientName: customerName,
         serviceName: serviceDetails.map((s: any) => s.name).join(", "),
         branchName: branchName || null,
-        staffName: "Not Assigned Yet",
+        staffName,
         price: totalPrice,
         date,
         time,
         pickupTime,
-        previousStatus: null,
-        newStatus: "Pending",
+        previousStatus: committedBooking.status === "Confirmed" ? "Pending" : null,
+        newStatus: committedBooking.status,
         createdAt: FieldValue.serverTimestamp(),
       });
     } catch (activityError) {
@@ -410,6 +478,7 @@ export async function POST(req: NextRequest) {
         clientName: customerName,
         clientPhone: customerPhone || null,
         serviceName: serviceDetails.map((s: any) => s.name).join(", "),
+        status: committedBooking.status,
         read: false,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -430,16 +499,16 @@ export async function POST(req: NextRequest) {
           ownerUid,
           clientName: customerName,
           serviceName: serviceList,
-          services: serviceDetails.map((s: any) => ({
+          services: committedBooking.services.map((s: any) => ({
             name: s.name,
-            staffName: "Not Assigned Yet",
-            staffId: undefined,
+            staffName: s.staffName || "Not Assigned Yet",
+            staffId: s.staffId || undefined,
           })),
           branchName: branchName || null,
           branchId,
           bookingDate: date,
           bookingTime: `Drop-off: ${time}, Pick-up: ${pickupTime}`,
-          status: "Pending",
+          status: committedBooking.status,
           type: "booking_engine_new_booking",
         });
       }
@@ -450,31 +519,76 @@ export async function POST(req: NextRequest) {
       console.error("Failed to create branch admin notifications:", branchAdminNotifError);
     }
 
-    // Send booking confirmation email to customer
-    try {
-      await sendBookingRequestReceivedEmail(
-        ref.id,
-        bookingCode,
-        customerEmail,
-        customerName,
-        ownerUid,
-        {
+    for (const service of assignedStaff) {
+      try {
+        await createStaffAssignmentNotification({
+          bookingId: ref.id,
+          bookingCode,
+          staffUid: String(service.staffId),
+          staffName: service.staffName,
+          clientName: customerName,
+          clientPhone: customerPhone,
+          services: committedBooking.services.filter((item: any) => String(item.staffId) === String(service.staffId)).map((item: any) => ({ name: item.name, staffName: item.staffName, staffId: item.staffId })),
           branchName: branchName || null,
           bookingDate: date,
-          bookingTime: `Drop-off: ${time} | Pick-up: ${pickupTime}`,
-          customerPhone,
-          duration: totalDuration,
+          bookingTime: service.plannedStartTime ? `${time} drop-off · work ${service.plannedStartTime}–${service.plannedEndTime}` : time,
+          duration: Number(service.duration) || totalDuration,
           price: totalPrice,
-          serviceName: serviceDetails.map((s: any) => s.name).join(", "),
-          services: serviceDetails.map((s: any) => ({
-            name: s.name,
-            staffName: s.staffName || null,
-            time: s.time || time,
-            duration: s.duration,
-          })),
-          staffName: "Not Assigned Yet",
-        }
-      );
+          ownerUid,
+          bookingConfirmed: committedBooking.status === "Confirmed",
+        });
+      } catch (staffNotifError) {
+        console.error("Failed to notify assigned staff for online booking:", staffNotifError);
+      }
+    }
+
+    if (committedBooking.status === "Confirmed") {
+      try {
+        await createCustomerConfirmationNotification({
+          bookingId: ref.id,
+          bookingCode,
+          customerUid: typeof customerId === "string" ? customerId : undefined,
+          customerEmail,
+          customerPhone,
+          clientName: customerName,
+          staffName,
+          serviceName: serviceDetails.map((service: any) => service.name).join(", "),
+          services: committedBooking.services.map((service: any) => ({ name: service.name, staffName: service.staffName || undefined })),
+          branchName: branchName || null,
+          bookingDate: date,
+          bookingTime: `Drop-off: ${time}, Pick-up: ${pickupTime}`,
+          ownerUid,
+        });
+      } catch (confirmationNotificationError) {
+        console.error("Failed to create customer confirmation notification:", confirmationNotificationError);
+      }
+    }
+
+    // Send a request receipt when review is pending, or a confirmation after Sophie confirms it.
+    try {
+      const emailData = {
+        branchName: branchName || null,
+        bookingDate: date,
+        bookingTime: `Drop-off: ${time} | Pick-up: ${pickupTime}`,
+        customerPhone,
+        duration: totalDuration,
+        price: totalPrice,
+        serviceName: serviceDetails.map((s: any) => s.name).join(", "),
+        services: committedBooking.services.map((s: any) => ({ name: s.name, staffName: committedBooking.status === "Confirmed" ? s.staffName || null : null, time: s.time || time, duration: s.duration })),
+        staffName: committedBooking.status === "Confirmed" ? staffName : "Not Assigned Yet",
+      };
+      if (committedBooking.status === "Confirmed") {
+        await sendBookingStatusChangeEmail(ref.id, "Confirmed", customerEmail, customerName, ownerUid, {
+          ...emailData,
+          bookingCode,
+          vehicleType: bookingPayload.vehicleType,
+          vehicleNumber: effectiveVehicleNumber,
+          vehicleMake: vehicleDetails?.make || null,
+          vehicleModel: vehicleDetails?.model || null,
+        });
+      } else {
+        await sendBookingRequestReceivedEmail(ref.id, bookingCode, customerEmail, customerName, ownerUid, emailData);
+      }
     } catch (emailError) {
       console.error("Failed to send booking confirmation email:", emailError);
       // Don't fail the booking if email fails
@@ -486,6 +600,8 @@ export async function POST(req: NextRequest) {
       bookingCode,
       totalPrice,
       totalDuration,
+      status: committedBooking.status,
+      ...(committedBooking.aiAssignment ? { staffAssignment: { status: committedBooking.aiAssignment.status } } : {}),
     });
   } catch (error: any) {
     console.error("Error creating booking:", error);

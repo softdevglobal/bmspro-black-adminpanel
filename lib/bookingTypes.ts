@@ -36,6 +36,9 @@ export interface BookingService {
   timeUtc?: string; // Time stored in UTC ISO format
   staffId?: string | null;
   staffName?: string | null;
+  plannedStartTime?: string;
+  plannedEndTime?: string;
+  assignedBy?: "sophie" | "customer_portal";
   // Per-service approval tracking
   approvalStatus?: ServiceApprovalStatus;
   acceptedAt?: any; // Firestore timestamp

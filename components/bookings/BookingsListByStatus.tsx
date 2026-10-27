@@ -102,6 +102,9 @@ type ServiceRow = {
   staffId?: string | null;
   staffName?: string | null;
   staffAuthUid?: string | null; // Firebase Auth UID for the assigned staff
+  plannedStartTime?: string;
+  plannedEndTime?: string;
+  assignedBy?: "sophie" | "customer_portal";
   // Per-service approval tracking
   approvalStatus?: ServiceApprovalStatus;
   acceptedAt?: any;
@@ -354,6 +357,9 @@ function useBookingsByStatus(statuses: BookingStatus | BookingStatus[]) {
                 vehicleType: isVehicleType(s.vehicleType) ? (s.vehicleType as VehicleType) : null,
                 staffId: s.staffId,
                 staffName: s.staffName,
+                plannedStartTime: s.plannedStartTime,
+                plannedEndTime: s.plannedEndTime,
+                assignedBy: s.assignedBy,
                 approvalStatus: s.approvalStatus || "pending",
                 acceptedAt: s.acceptedAt,
                 rejectedAt: s.rejectedAt,
@@ -2758,6 +2764,7 @@ export default function BookingsListByStatus({ status, title, showStaffColumn = 
                                  <div className="flex items-center gap-1.5 bg-neutral-50 px-2 py-1 rounded-md">
                                     <i className="far fa-user text-purple-400" />
                                     <span className="font-medium text-neutral-700">{svc.staffName || previewRow.staffName || "Not Assigned Yet"}</span>
+                                    {(svc as ServiceRow).assignedBy && (svc as ServiceRow).plannedStartTime && <span className="text-xs text-amber-700">{(svc as ServiceRow).assignedBy === "sophie" ? "Sophie" : "Automatic assignment"} · planned work {(svc as ServiceRow).plannedStartTime}–{(svc as ServiceRow).plannedEndTime}</span>}
                                  </div>
                                  {(() => {
                                     // Show which vehicle-type tier this service was priced against (per-service → booking-level fallback).

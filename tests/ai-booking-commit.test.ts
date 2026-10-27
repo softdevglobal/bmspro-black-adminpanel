@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Firestore } from "firebase-admin/firestore";
 import { beginAiBooking, commitCallCenterBooking, canonicalBookingHash, validateAiDropOff } from "../lib/aiBookingCommit.js";
+import { commitBlackStaffAcceptance } from "../lib/aiStaffAssignment";
 
 /** In-memory transactional test store; no Firebase project or live writes. */
 function database() {
   const state=new Map<string,Record<string,any>>();let queue=Promise.resolve();let next=0;
-  const snap=(ref:any)=>({exists:state.has(ref.path),id:ref.id,data:()=>state.get(ref.path)});
+  const snap=(ref:any)=>({exists:state.has(ref.path),id:ref.id,data:()=>state.get(ref.path),updateTime:{isEqual:()=>true}});
   const collection=(name:string)=>{
     const conditions:Array<[string,unknown]>=[];
     const query:any={where:(field:string,_op:string,value:unknown)=>{conditions.push([field,value]);return query;},
@@ -73,4 +74,47 @@ test("invalid, closed, past and off-grid drop-off times are rejected",()=>{
   assert.throws(()=>validateAiDropOff(branch,"2099-01-05","09:15"));
   assert.throws(()=>validateAiDropOff(branch,"2099-01-05","17:00"));
   branch.status="Inactive";assert.throws(()=>validateAiDropOff(branch,"2099-01-05","09:00"));
+});
+
+test("concurrent AI bookings allocate different work periods and retry preserves the staff decision", async () => {
+  const previous = process.env.AI_AUTO_ASSIGN_STAFF_ENABLED;
+  process.env.AI_AUTO_ASSIGN_STAFF_ENABLED = "true";
+  try {
+    const { db, state } = database();
+    state.get("branches/branch-a")!.bookingLimitPerDay = 10;
+    state.get("services/service-a")!.staffIds = ["mechanic"];
+    state.set("users/owner-a", { role: "workshop_owner", sophieBookingAuthority: true });
+    state.set("users/mechanic", { ownerUid: "owner-a", branchId: "branch-a", role: "staff", status: "Active", name: "Mechanic" });
+    const first = { ...data, services: [{ id: "service-a", duration: 60 }], client: "A" };
+    const second = { ...first, client: "B", services: [{ id: "service-a", duration: 60 }] };
+    const a = await beginAiBooking(db, scope, "assignment-key-0001", first);
+    const b = await beginAiBooking(db, scope, "assignment-key-0002", second);
+    assert.ok(a.reservation && b.reservation);
+    await Promise.all([commitCallCenterBooking(db, first, a.reservation), commitCallCenterBooking(db, second, b.reservation)]);
+    const saved = [...state.entries()].filter(([path]) => path.startsWith("bookings/")).map(([, value]) => value);
+    assert.deepEqual(saved.map(value => value.services[0].plannedStartTime), ["09:00", "10:00"]);
+    assert.ok(saved.every(value => value.status === "Confirmed" && value.services[0].approvalStatus === "accepted" && value.aiBookingConfirmedBy === "sophie"));
+    const replay = await beginAiBooking(db, scope, "assignment-key-0001", { ...data, services: [{ id: "service-a", duration: 60 }], client: "A" });
+    assert.equal(replay.replay?.staffAssignment && (replay.replay.staffAssignment as any).status, "assigned");
+    assert.equal([...state.keys()].filter(path => path.startsWith("bookings/")).length, 2);
+  } finally {
+    if (previous === undefined) delete process.env.AI_AUTO_ASSIGN_STAFF_ENABLED; else process.env.AI_AUTO_ASSIGN_STAFF_ENABLED = previous;
+  }
+});
+
+test("accepting a Sophie assignment rechecks newly approved leave and intervening work", async () => {
+  const { db, state } = database();
+  const service = { id: "service-a", staffId: "mechanic", assignedBy: "sophie", duration: 60, plannedStartTime: "09:00", plannedEndTime: "10:00", approvalStatus: "pending" };
+  state.get("services/service-a")!.staffIds = ["mechanic"];
+  state.set("users/mechanic", { ownerUid: "owner-a", branchId: "branch-a", role: "staff", status: "Active" });
+  state.set("bookings/review", { ...data, services: [service], aiAssignment: { assignedBy: "sophie" } });
+  const ref = db.collection("bookings").doc("review");
+  const version = {} as import("firebase-admin/firestore").Timestamp;
+  state.set("leave_requests/leave", { ownerUid: "owner-a", staffId: "mechanic", status: "approved", startDate: "2099-01-05", endDate: "2099-01-05" });
+  assert.equal(await commitBlackStaffAcceptance(db, ref, version, ["service-a"], { status: "Confirmed" }), false);
+  state.delete("leave_requests/leave");
+  state.set("bookings/manual", { ...data, status: "Confirmed", services: [{ staffId: "mechanic", duration: 60 }] });
+  assert.equal(await commitBlackStaffAcceptance(db, ref, version, ["service-a"], { status: "Confirmed" }), false);
+  state.delete("bookings/manual");
+  assert.equal(await commitBlackStaffAcceptance(db, ref, version, ["service-a"], { status: "Confirmed" }), true);
 });

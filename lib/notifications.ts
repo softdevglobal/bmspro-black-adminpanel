@@ -633,8 +633,10 @@ export async function createStaffAssignmentNotification(data: {
   price?: number;
   ownerUid: string;
   isReassignment?: boolean;
+  bookingConfirmed?: boolean;
 }): Promise<string> {
   const isReassignment = data.isReassignment || false;
+  const bookingConfirmed = data.bookingConfirmed === true;
   const type: StaffNotificationType = isReassignment ? "staff_reassignment" : "staff_assignment";
   
   const serviceList = data.services && data.services.length > 0
@@ -645,11 +647,13 @@ export async function createStaffAssignmentNotification(data: {
     bookingId: data.bookingId,
     bookingCode: data.bookingCode,
     type,
-    title: isReassignment ? "Booking Reassigned to You" : "New Appointment Request",
+    title: isReassignment ? "Booking Reassigned to You" : bookingConfirmed ? "Booking Confirmed" : "New Appointment Request",
     message: isReassignment
       ? `A booking for ${serviceList} with ${data.clientName} on ${data.bookingDate} at ${data.bookingTime} has been reassigned to you. Please review and accept or reject.`
-      : `You have a new appointment request from ${data.clientName} for ${serviceList} on ${data.bookingDate} at ${data.bookingTime}. Please accept or reject this booking.`,
-    status: "AwaitingStaffApproval",
+      : bookingConfirmed
+        ? `A booking for ${serviceList} with ${data.clientName} on ${data.bookingDate} at ${data.bookingTime} has been confirmed by Sophie.`
+        : `You have a new appointment request from ${data.clientName} for ${serviceList} on ${data.bookingDate} at ${data.bookingTime}. Please accept or reject this booking.`,
+    status: bookingConfirmed ? "Confirmed" : "AwaitingStaffApproval",
     ownerUid: data.ownerUid,
     staffUid: data.staffUid,
     staffName: data.staffName,

@@ -10,7 +10,7 @@ const ZEPTOMAIL_URL =
  *  - `system`  → noreply@bmspros.com.au (account creation, onboarding, etc.)
  *  - `request` → request@bmspros.com.au (inspection / booking request updates)
  */
-export type EmailSender = "system" | "request";
+export type EmailSender = "system" | "request" | "sophie";
 
 type SenderConfig = {
   token: string;
@@ -19,6 +19,18 @@ type SenderConfig = {
 };
 
 function readSenderConfig(sender: EmailSender): SenderConfig {
+  if (sender === "sophie") {
+    return {
+      token:
+        process.env.ZEPTOMAIL_SOPHIE_TOKEN ??
+        process.env.ZEPTOMAIL_REQUEST_TOKEN ??
+        process.env.ZEPTOMAIL_TOKEN ??
+        "",
+      fromAddress:
+        process.env.ZEPTOMAIL_SOPHIE_FROM_ADDRESS ?? "Sophie@bmspros.com",
+      fromName: process.env.ZEPTOMAIL_SOPHIE_FROM_NAME ?? "Sophie",
+    };
+  }
   if (sender === "request") {
     return {
       token:
@@ -82,6 +94,7 @@ export type SendEmailResult =
   | { ok: false; message: string; code?: string };
 
 function parseZeptoMailError(error: unknown): { message: string; code?: string } {
+  if (typeof error === "string" && error.trim()) return { message: error };
   if (error && typeof error === "object") {
     const root = error as Record<string, unknown>;
     const payload =
@@ -94,7 +107,14 @@ function parseZeptoMailError(error: unknown): { message: string; code?: string }
         typeof body.message === "string" ? body.message : undefined;
       const code = typeof body.code === "string" ? body.code : undefined;
       if (message) {
-        return { message, code };
+        const details = Array.isArray(body.details)
+          ? body.details.map(detail => {
+              if (!detail || typeof detail !== "object") return "";
+              const item = detail as Record<string, unknown>;
+              return [item.code, item.message, item.target].filter(value => typeof value === "string").join(": ");
+            }).filter(Boolean).join("; ")
+          : "";
+        return { message: details ? `${message}: ${details}` : message, code };
       }
     }
   }
@@ -177,15 +197,14 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     return { ok: true };
   } catch (error) {
     const parsed = parseZeptoMailError(error);
-    console.error("[email] send FAILED", {
+    console.error("[email] send FAILED", JSON.stringify({
       sender,
       from: config.fromAddress,
       to: recipient,
       subject: input.subject,
       code: parsed.code,
       message: parsed.message,
-      error,
-    });
+    }));
     return { ok: false, ...parsed };
   }
 }

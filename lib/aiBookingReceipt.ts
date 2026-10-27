@@ -4,7 +4,7 @@ export type AiBookingReceipt = {
   bookingId: string; bookingCode: string; ownerUid: string; workshopName: string;
   branchName: string; date: string; time: string; timezone: string;
   customerName: string; customerEmail: string; customerPhone: string;
-  services: string[]; vehicleNumber: string; totalPrice: number;
+  services: string[]; vehicleNumber: string; totalPrice: number; confirmed?: boolean;
 };
 export interface ReceiptDependencies {
   claim(channel: ReceiptChannel): Promise<boolean>;
@@ -21,11 +21,15 @@ export function bookingReceiptContent(input: AiBookingReceipt) {
     ["Services", input.services.join(", ")], ["Vehicle", input.vehicleNumber],
     ["Quoted total", Number.isFinite(input.totalPrice) ? `AUD ${input.totalPrice.toFixed(2)}` : "Staff will verify"],
   ];
-  const pending = "Your booking request was received and is pending staff approval. The requested drop-off time is not confirmed. The workshop will contact you to confirm.";
+  const pending = input.confirmed
+    ? "Your booking has been confirmed by the workshop. The drop-off time and assigned staff are confirmed."
+    : "Your booking request was received and is pending staff approval. The requested drop-off time is not confirmed. The workshop will contact you to confirm.";
   return {
-    subject: `Booking request received — ${input.workshopName} (${input.bookingCode})`,
+    subject: `${input.confirmed ? "Booking confirmed" : "Booking request received"} — ${input.workshopName} (${input.bookingCode})`,
     html: `<p>Hello ${html(input.customerName)},</p><p>${pending}</p><table>${details.map(([label, value]) => `<tr><th align="left">${html(label!)}</th><td>${html(value!)}</td></tr>`).join("")}</table>`,
-    sms: `${input.workshopName}: Request ${input.bookingCode} received, pending staff approval. Requested drop-off: ${input.date} ${input.time} (${input.timezone}). Branch: ${input.branchName}. Services: ${input.services.join(", ")}. Vehicle: ${input.vehicleNumber}. Quoted total: ${Number.isFinite(input.totalPrice) ? `AUD ${input.totalPrice.toFixed(2)}` : "staff will verify"}. This time is not confirmed; staff will contact you.`,
+    sms: input.confirmed
+      ? `${input.workshopName}: Booking ${input.bookingCode} is confirmed. Drop-off: ${input.date} ${input.time} (${input.timezone}). Branch: ${input.branchName}. Services: ${input.services.join(", ")}. Vehicle: ${input.vehicleNumber}. Total: ${Number.isFinite(input.totalPrice) ? `AUD ${input.totalPrice.toFixed(2)}` : "staff will verify"}.`
+      : `${input.workshopName}: Request ${input.bookingCode} received, pending staff approval. Requested drop-off: ${input.date} ${input.time} (${input.timezone}). Branch: ${input.branchName}. Services: ${input.services.join(", ")}. Vehicle: ${input.vehicleNumber}. Quoted total: ${Number.isFinite(input.totalPrice) ? `AUD ${input.totalPrice.toFixed(2)}` : "staff will verify"}. This time is not confirmed; staff will contact you.`,
   };
 }
 

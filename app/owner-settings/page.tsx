@@ -29,6 +29,7 @@ type UserData = {
   termsAndConditions?: string;
   bookingEngineUrl?: string;
   slug?: string;
+  sophieBookingAuthority?: boolean;
 };
 
 // Format ABN as XX XXX XXX XXX
@@ -56,6 +57,7 @@ export default function OwnerSettingsPage() {
   const [timezone, setTimezone] = useState("Australia/Sydney");
   const [logoUrl, setLogoUrl] = useState("");
   const [termsAndConditions, setTermsAndConditions] = useState("");
+  const [sophieBookingAuthority, setSophieBookingAuthority] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [showRemoveLogoModal, setShowRemoveLogoModal] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -123,6 +125,7 @@ export default function OwnerSettingsPage() {
           termsAndConditions: data?.termsAndConditions || "",
           bookingEngineUrl: data?.bookingEngineUrl || "",
           slug: data?.slug || "",
+          sophieBookingAuthority: data?.sophieBookingAuthority === true,
         };
         
         setUserData(userData);
@@ -135,6 +138,7 @@ export default function OwnerSettingsPage() {
         setTimezone(userData.timezone || "Australia/Sydney");
         setLogoUrl(userData.logoUrl || "");
         setTermsAndConditions(userData.termsAndConditions || "");
+        setSophieBookingAuthority(userData.sophieBookingAuthority === true);
         
         setMounted(true);
         setLoading(false);
@@ -182,6 +186,29 @@ export default function OwnerSettingsPage() {
     } catch (error) {
       console.error("Error saving terms:", error);
       showToast("Failed to save terms. Please try again.", "error");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleSaveSophieBookingAuthority = async () => {
+    if (!userData || !auth.currentUser) return;
+    setSaving("sophie-booking-authority");
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const response = await fetch("/api/owner-settings/ai-booking-authority", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled: sophieBookingAuthority }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Could not save Sophie booking permissions.");
+      setUserData({ ...userData, sophieBookingAuthority: result.enabled === true });
+      setSophieBookingAuthority(result.enabled === true);
+      showToast(result.enabled ? "Sophie can now assign staff and confirm eligible bookings." : "Sophie booking authority disabled.");
+    } catch (error: any) {
+      console.error("Error saving Sophie booking authority:", error);
+      showToast(error?.message || "Failed to save Sophie booking permissions.", "error");
     } finally {
       setSaving(null);
     }
@@ -847,6 +874,45 @@ Example:
                               Save Terms
                             </>
                           )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI booking authority */}
+                  <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden">
+                    <div className="flex items-center gap-3 px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
+                      <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center">
+                        <i className="fas fa-robot text-sm text-amber-700" />
+                      </div>
+                      <div>
+                        <h2 className="text-base font-bold text-neutral-900">Sophie Booking Authority</h2>
+                        <p className="text-xs text-neutral-500">Choose whether Sophie may confirm eligible bookings for your workshop</p>
+                      </div>
+                    </div>
+                    <div className="p-6 space-y-5">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sophieBookingAuthority}
+                          onChange={(event) => setSophieBookingAuthority(event.target.checked)}
+                          className="mt-1 h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-neutral-900">Allow Sophie to assign staff and confirm bookings</span>
+                          <span className="mt-1 block text-sm text-neutral-600">When automatic booking is enabled for the app, Sophie may assign an eligible staff member and confirm customer-portal and Sophie-created bookings. A booking with no eligible staff remains pending for your review. Confirmation sends the customer a booking confirmation.</span>
+                        </span>
+                      </label>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900">
+                        This permission applies to new bookings. It does not automatically confirm existing pending requests.
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          onClick={handleSaveSophieBookingAuthority}
+                          disabled={saving === "sophie-booking-authority" || sophieBookingAuthority === (userData.sophieBookingAuthority === true)}
+                          className="px-5 py-2.5 bg-neutral-900 text-white rounded-xl font-semibold hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors shadow-sm"
+                        >
+                          {saving === "sophie-booking-authority" ? <><i className="fas fa-spinner fa-spin" /> Saving...</> : <><i className="fas fa-shield-check" /> Save AI Permission</>}
                         </button>
                       </div>
                     </div>

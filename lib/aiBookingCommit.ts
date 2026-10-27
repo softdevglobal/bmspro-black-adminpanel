@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Firestore, DocumentReference, DocumentData } from "firebase-admin/firestore";
 import { countsTowardDailyLimit } from "./bookingTypes";
 import { resolveBranchDaySchedule, getDayOfWeekFromYmd } from "./callCenterBranchForBooking";
+import { readBlackStaffAssignment } from "./aiStaffAssignment";
 
 export class AiBookingError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -71,11 +72,13 @@ export async function commitCallCenterBooking(db: Firestore, data: DocumentData,
   const bookingRef = reservation?.bookingRef || db.collection("bookings").doc();
   const branchRef = db.collection("branches").doc(data.branchId);
   const guardRef = db.collection("bookingDayGuards").doc(canonicalBookingHash({owner:data.ownerUid,branch:data.branchId,date:data.date}));
-  const response = {success:true,bookingId:bookingRef.id,bookingCode:data.bookingCode,status:data.status,totalPrice:data.price,totalDuration:data.duration,vehicleType:data.vehicleType,services:data.services,...(reservation?{aiBookingContractVersion:1}:{})};
-  await db.runTransaction(async tx => {
-    const [branch, guard] = await Promise.all([tx.get(branchRef),tx.get(guardRef)]);
+  const ownerRef = db.collection("users").doc(String(data.ownerUid));
+  const saved = await db.runTransaction(async tx => {
+    let committed = { ...data };
+    const [branch, guard, owner] = await Promise.all([tx.get(branchRef),tx.get(guardRef),tx.get(ownerRef)]);
     void guard;
     const branchData = branch.data();
+    const ownerData = owner.data();
     if (!branchData || branchData.ownerUid !== data.ownerUid) throw new AiBookingError(403,"SCOPE_CHANGED","The workshop branch is no longer accessible.");
     const bookings = await tx.get(db.collection("bookings").where("ownerUid","==",data.ownerUid).where("branchId","==",data.branchId).where("date","==",data.date));
     const count = bookings.docs.filter(doc => countsTowardDailyLimit(doc.data().status)).length;
@@ -93,9 +96,24 @@ export async function commitCallCenterBooking(db: Firestore, data: DocumentData,
         if (!catalog || catalog.ownerUid !== data.ownerUid || !Array.isArray(catalog.branches) || !catalog.branches.includes(data.branchId)) throw new AiBookingError(409,"SERVICE_CHANGED","A selected service is no longer offered at this branch.");
       }
     }
+    if (reservation && process.env.AI_AUTO_ASSIGN_STAFF_ENABLED === "true" && ownerData?.sophieBookingAuthority === true) {
+      const plan = await readBlackStaffAssignment(db, tx, data, branchData);
+      const autoConfirm = plan.summary.status === "assigned" && ownerData?.sophieBookingAuthority === true;
+      committed = {
+        ...data,
+        services: autoConfirm ? plan.services.map((service: Record<string, unknown>) => ({ ...service, approvalStatus: "accepted" })) : plan.services,
+        status: autoConfirm ? "Confirmed" : plan.summary.status === "assigned" ? "AwaitingStaffApproval" : "Pending",
+        aiAssignment: { ...plan.summary, assignedBy: "sophie", evaluatedAt: new Date(), version: 1 },
+        ...(autoConfirm ? { aiBookingConfirmedBy: "sophie", aiBookingConfirmedAt: new Date() } : {}),
+      };
+    }
+    const response = {success:true,bookingId:bookingRef.id,bookingCode:committed.bookingCode,status:committed.status,totalPrice:committed.price,totalDuration:committed.duration,vehicleType:committed.vehicleType,services:committed.services,...(committed.aiAssignment ? {staffAssignment:committed.aiAssignment} : {}),...(reservation?{aiBookingContractVersion:1}:{})};
     tx.set(guardRef,{updatedAt:new Date()});
-    tx.create(bookingRef,data);
+    tx.create(bookingRef,committed);
     if (reservation) tx.update(reservation.ref,{status:"completed",response,httpStatus:200,completedAt:new Date()});
+    return committed;
   });
+  // Publish only the successful transaction attempt to notification/response callers.
+  Object.assign(data, saved);
   return bookingRef;
 }

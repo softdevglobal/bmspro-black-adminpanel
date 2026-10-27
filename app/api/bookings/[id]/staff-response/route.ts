@@ -11,6 +11,7 @@ import { logBookingStaffResponseServer } from "@/lib/auditLogServer";
 import { checkRateLimit, getClientIdentifier, RateLimiters, getRateLimitHeaders } from "@/lib/rateLimiterDistributed";
 import { sendBookingStatusChangeEmail } from "@/lib/emailService";
 import type { Firestore } from "firebase-admin/firestore";
+import { commitBlackStaffAcceptance } from "@/lib/aiStaffAssignment";
 
 export const runtime = "nodejs";
 
@@ -417,7 +418,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         updateData.canceledBy = "system";
       }
 
-      await bookingRef.update(updateData);
+      if (body.action === "accept" && bookingData.aiAssignment?.status === "assigned") {
+        const accepted = await commitBlackStaffAcceptance(db, bookingRef, bookingSnap.updateTime!, servicesToUpdate.map(service => String(service.id)), updateData);
+        if (!accepted) return NextResponse.json({ error: "Staff availability or this booking changed. Ask the workshop to review the assignment before confirming." }, { status: 409, headers: corsHeaders });
+      } else {
+        await bookingRef.update(updateData);
+      }
       
       // IMPORTANT: Wait a moment to ensure database update is committed
       // This ensures the status change is reflected before we check for duplicates
